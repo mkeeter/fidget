@@ -1,18 +1,22 @@
 use anyhow::Result;
 use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use eframe::egui;
+use eframe::{
+    egui,
+    egui_wgpu::{self, wgpu, wgpu::util::DeviceExt},
+};
 use env_logger::Env;
 use log::{debug, error, info, warn};
 use nalgebra::{Point2, Point3};
 use notify::Watcher;
+use zerocopy::IntoBytes;
 
 use fidget::render::{
     ImageRenderConfig, RotateHandle, TranslateHandle, View2, View3,
     VoxelRenderConfig,
 };
 
-use std::{error::Error, path::Path};
+use std::{error::Error, num::NonZeroU64, path::Path};
 
 /// Minimal viewer, using Fidget to render a Rhai script
 #[derive(Parser, Debug)]
@@ -315,7 +319,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .watch(Path::new(&args.target), notify::RecursiveMode::NonRecursive)
         .unwrap();
 
-    let mut options = eframe::NativeOptions::default();
+    let mut options = eframe::NativeOptions {
+        renderer: eframe::Renderer::Wgpu,
+        ..Default::default()
+    };
     let size = egui::Vec2::new(640.0, 480.0);
     options.viewport.inner_size = Some(size);
 
@@ -333,7 +340,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 info!("wake thread is done");
             });
 
-            Ok(Box::new(ViewerApp::new(config_tx, render_rx)))
+            Ok(Box::new(ViewerApp::new(cc, config_tx, render_rx)))
         }),
     )?;
 
@@ -421,6 +428,57 @@ impl RenderMode {
     }
 }
 
+struct CustomResources {
+    render_pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    uniform_buffer: wgpu::Buffer,
+}
+
+impl CustomResources {
+    fn prepare(&self, _device: &wgpu::Device, queue: &wgpu::Queue) {
+        // Update our uniform buffer with the angle from the UI
+        queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            [0.0f32, 0.0, 0.0, 0.0].as_bytes(),
+        );
+    }
+
+    fn paint(&self, render_pass: &mut wgpu::RenderPass<'_>) {
+        // Draw our triangle!
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+    }
+}
+
+struct CustomCallback {}
+
+impl egui_wgpu::CallbackTrait for CustomCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let resources: &CustomResources = resources.get().unwrap();
+        resources.prepare(device, queue);
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        resources: &egui_wgpu::CallbackResources,
+    ) {
+        let resources: &CustomResources = resources.get().unwrap();
+        resources.paint(render_pass);
+    }
+}
+
 struct ViewerApp {
     // Current image
     texture: Option<egui::TextureHandle>,
@@ -442,9 +500,116 @@ struct ViewerApp {
 
 impl ViewerApp {
     fn new(
+        cc: &eframe::CreationContext,
         config_tx: Sender<RenderSettings>,
         image_rx: Receiver<Result<RenderResult, String>>,
     ) -> Self {
+        // Initialize renderer if WGPU is available
+        let wgpu_state = cc.wgpu_render_state.as_ref().unwrap();
+        let device = &wgpu_state.device;
+        let target_format = wgpu_state.target_format;
+
+        // Create shader module
+        let shader =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Custom Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("shaders/image.wgsl").into(),
+                ),
+            });
+
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("custom3d"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: NonZeroU64::new(16),
+                    },
+                    count: None,
+                }],
+            });
+
+        // Create render pipeline
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                cache: None,
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent::REPLACE,
+                            alpha: wgpu::BlendComponent::REPLACE,
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+
+        let uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("custom3d"),
+                contents: [0.0_f32; 4].as_bytes(), // 16 bytes aligned!
+                // Mapping at creation (as done by the create_buffer_init utility) doesn't require us to to add the MAP_WRITE usage
+                // (this *happens* to workaround this bug )
+                usage: wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::UNIFORM,
+            });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("custom3d"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        wgpu_state.renderer.write().callback_resources.insert(
+            CustomResources {
+                render_pipeline,
+                bind_group,
+                uniform_buffer,
+            },
+        );
+
         Self {
             texture: None,
             stats: None,
@@ -573,14 +738,22 @@ impl ViewerApp {
             max: egui::Pos2::new(1.0, 1.0),
         };
 
+        // Draw the custom image below everything else (??)
+        ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+            rect,
+            CustomCallback {},
+        ));
+
         if let Some((dt, image_size)) = self.stats {
             // Only draw the image if we have valid stats (i.e. no error)
+            /*
             if let Some(t) = self.texture.as_ref() {
                 let mut mesh = egui::Mesh::with_texture(t.id());
 
                 mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
                 painter.add(mesh);
             }
+            */
 
             let layout = painter.layout(
                 format!(
