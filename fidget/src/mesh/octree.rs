@@ -298,39 +298,10 @@ impl Octree {
             Cell::Full
         } else if empty_count == 8 {
             Cell::Empty
-        } else if let Some(mask) = self.collapsible(index) {
-            *hermite = LeafHermiteData::merge(hermite_data);
-
-            // Empty / full cells should never be produced here.  The
-            // only way to get an empty / full cell is for all eight
-            // corners to be empty / full; if that was the case, then
-            // either:
-            //
-            // - The interior vertices match, in which case this should
-            //   have been collapsed into a single empty / full cell
-            // - The interior vertices *do not* match, in which case the
-            //   cell should not be marked as collapsible.
-            let (pos, new_err) = hermite.solve();
-            if new_err < hermite.qef_err * 2.0 && cell.bounds.contains(pos) {
-                // Record the newly-collapsed leaf
-                hermite.qef_err = new_err;
-
-                let index = self.verts.len();
-                self.verts.push(pos);
-
-                // Install cell intersections, of which there must only
-                // be one (since we only collapse manifold cells)
-                let edges = &CELL_TO_VERT_TO_EDGES[mask.index()];
-                debug_assert_eq!(edges.len(), 1);
-                for e in edges[0] {
-                    let i = hermite.intersections[e.to_undirected().index()];
-                    self.verts.push(CellVertex { pos: i.pos.xyz() });
-                }
-
-                Cell::Leaf(Leaf { mask, index })
-            } else {
-                Cell::Branch { index }
-            }
+        } else if let Some(leaf) =
+            self.try_collapse(cell, index, hermite_data, hermite)
+        {
+            Cell::Leaf(leaf)
         } else {
             Cell::Branch { index }
         };
@@ -351,6 +322,51 @@ impl Octree {
             }
         }
         out
+    }
+
+    /// Try to collapse the given cell
+    ///
+    /// Writes to `self.verts` and returns the leaf if successful; otherwise
+    /// returns `None`.
+    fn try_collapse(
+        &mut self,
+        cell: CellIndex<3>,
+        index: usize,
+        hermite_data: [LeafHermiteData; 8],
+        hermite: &mut LeafHermiteData, // output
+    ) -> Option<Leaf<3>> {
+        let mask = self.collapsible(index)?;
+        *hermite = LeafHermiteData::merge(hermite_data)?;
+
+        // Empty / full cells should never be produced here.  The
+        // only way to get an empty / full cell is for all eight
+        // corners to be empty / full; if that was the case, then
+        // either:
+        //
+        // - The interior vertices match, in which case this should
+        //   have been collapsed into a single empty / full cell
+        // - The interior vertices *do not* match, in which case the
+        //   cell should not be marked as collapsible.
+        let (pos, new_err) = hermite.solve();
+        if new_err >= hermite.qef_err * 2.0 || !cell.bounds.contains(pos) {
+            return None;
+        }
+        // Record the newly-collapsed leaf
+        hermite.qef_err = new_err;
+
+        let index = self.verts.len();
+        self.verts.push(pos);
+
+        // Install cell intersections, of which there must only
+        // be one (since we only collapse manifold cells)
+        let edges = &CELL_TO_VERT_TO_EDGES[mask.index()];
+        debug_assert_eq!(edges.len(), 1);
+        for e in edges[0] {
+            let i = hermite.intersections[e.to_undirected().index()];
+            self.verts.push(CellVertex { pos: i.pos.xyz() });
+        }
+
+        Some(Leaf { mask, index })
     }
 
     /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
@@ -760,11 +776,21 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
         for vs in CELL_TO_VERT_TO_EDGES[mask.index()].iter() {
+            let mut force_point = None;
             let mut qef = QuadraticErrorSolver::new();
             for e in vs.iter() {
                 let pos = nalgebra::Vector3::new(xs[i].v, ys[i].v, zs[i].v);
                 let grad: nalgebra::Vector4<f32> = grads[i].into();
 
+                // If a point has invalid gradients, then it's _probably_ on a
+                // sharp feature in the mesh, so we should just snap to that
+                // point specifically.  This means we don't solve the QEF, and
+                // instead mark it as invalid.
+                if grad.iter().any(|f| f.is_nan()) {
+                    force_point = Some(pos);
+                    hermite_cell.qef_err = QEF_ERR_INVALID;
+                    break;
+                }
                 qef.add_intersection(pos, grad);
 
                 // Record this intersection in the Hermite data for the leaf
@@ -776,13 +802,18 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
                 i += 1;
             }
-            let (pos, err) = qef.solve();
-            verts.push(pos);
 
-            // We overwrite the error here, because it's only used when
-            // collapsing cells, which only occurs if there's a single vertex;
-            // last-error-wins works fine in that case.
-            hermite_cell.qef_err = err;
+            if let Some(pos) = force_point {
+                verts.push(CellVertex { pos });
+            } else {
+                let (pos, err) = qef.solve();
+                verts.push(pos);
+
+                // We overwrite the error here, because it's only used when
+                // collapsing cells, which only occurs if there's a single
+                // vertex; last-error-wins works fine in that case.
+                hermite_cell.qef_err = err;
+            }
         }
 
         let index = self.octree.verts.len();
@@ -822,8 +853,16 @@ pub(crate) struct LeafHermiteData {
     intersections: [LeafIntersection; 12],
     face_qefs: [QuadraticErrorSolver; 6],
     center_qef: QuadraticErrorSolver,
+
+    /// Error found when solving this QEF (if positive), or a special value
     qef_err: f32,
 }
+
+/// This QEF is not populated
+const QEF_ERR_EMPTY: f32 = -1.0;
+
+/// This QEF is known to be invalid and should be disregarded
+const QEF_ERR_INVALID: f32 = -2.0;
 
 impl Default for LeafHermiteData {
     fn default() -> Self {
@@ -831,16 +870,23 @@ impl Default for LeafHermiteData {
             intersections: Default::default(),
             face_qefs: Default::default(),
             center_qef: Default::default(),
-            qef_err: -1.0,
+            qef_err: QEF_ERR_EMPTY,
         }
     }
 }
 
 impl LeafHermiteData {
     /// Merges an octree subdivision of leaf hermite data
-    fn merge(leafs: [LeafHermiteData; 8]) -> Self {
+    ///
+    /// Returns `None` if any of the leafs have invalid QEFs (typically due to
+    /// NANs in normal computation).
+    fn merge(leafs: [LeafHermiteData; 8]) -> Option<Self> {
         let mut out = Self::default();
         use super::types::{X, Y, Z};
+
+        if leafs.iter().any(|v| v.qef_err == QEF_ERR_INVALID) {
+            return None;
+        }
 
         // Accumulate intersections along edges
         for t in [X, Y, Z] {
@@ -937,7 +983,7 @@ impl LeafHermiteData {
             out.qef_err = out.qef_err.min(e);
         }
 
-        out
+        Some(out)
     }
 
     /// Solves the combined QEF
@@ -1523,7 +1569,7 @@ mod test {
                 LeafIntersection::default();
         }
 
-        let merged = LeafHermiteData::merge(hermites);
+        let merged = LeafHermiteData::merge(hermites).unwrap();
         for i in merged.intersections {
             assert_eq!(i.grad, grad);
             assert_eq!(i.pos, pos);
