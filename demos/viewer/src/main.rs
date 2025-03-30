@@ -406,11 +406,18 @@ impl RenderMode {
     }
 }
 
+struct CustomTexture {
+    bind_group: wgpu::BindGroup,
+
+    #[allow(unused)]
+    texture: wgpu::Texture,
+    #[allow(unused)]
+    texture_view: wgpu::TextureView,
+}
+
 struct CustomResources {
     render_pipeline: wgpu::RenderPipeline,
-    bind_group: Option<wgpu::BindGroup>,
-    texture: Option<wgpu::Texture>,
-    texture_view: Option<wgpu::TextureView>,
+    tex: Option<CustomTexture>,
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
     current_image: Option<Vec<[u8; 4]>>,
@@ -487,16 +494,18 @@ impl CustomResources {
             ],
         });
 
-        self.bind_group = Some(bind_group);
-        self.texture = Some(texture);
-        self.texture_view = Some(texture_view);
+        self.tex = Some(CustomTexture {
+            bind_group,
+            texture,
+            texture_view,
+        });
     }
 
     fn paint(&self, render_pass: &mut wgpu::RenderPass<'_>) {
         // Only draw if we have a texture
-        if let Some(ref bind_group) = self.bind_group {
+        if let Some(tex) = &self.tex {
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, bind_group, &[]);
+            render_pass.set_bind_group(0, &tex.bind_group, &[]);
             // Draw 2 triangles (6 vertices) to form a quad
             render_pass.draw(0..6, 0..1);
         }
@@ -664,9 +673,7 @@ impl ViewerApp {
         wgpu_state.renderer.write().callback_resources.insert(
             CustomResources {
                 render_pipeline,
-                bind_group: None,
-                texture: None,
-                texture_view: None,
+                tex: None,
                 sampler,
                 bind_group_layout,
                 current_image: None,
@@ -749,10 +756,7 @@ impl ViewerApp {
     /// `self.texture` and `self.stats`, or `self.err`
     fn try_recv_image(&mut self) {
         if let Ok(r) = self.image_rx.try_recv() {
-            match r {
-                Ok(r) => self.image_data = Some(Ok(r)),
-                Err(e) => self.image_data = Some(Err(e)),
-            }
+            self.image_data = Some(r);
         }
     }
 

@@ -42,5 +42,10 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 // Fragment shader
 @fragment
 fn fs_main(@location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(t_diffuse, s_diffuse, tex_coords);
+    var rgba = textureSample(t_diffuse, s_diffuse, tex_coords);
+    if (rgba.a == 0.0) {
+        discard;
+    } else {
+        return rgba;
+    }
 }
