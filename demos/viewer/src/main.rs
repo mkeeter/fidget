@@ -94,18 +94,27 @@ where
         + fidget::eval::MathFunction
         + fidget::render::RenderHints,
 {
+    // Target framerate; updates faster than this will be merged.
+    const DT: std::time::Duration = std::time::Duration::from_millis(16);
+
     let mut config = None;
     let mut script_ctx = None;
-    let mut changed = false;
+    let mut timeout_time: Option<std::time::Instant> = None;
     loop {
-        let timeout_ms = if changed { 10 } else { 10_000 };
-        let timeout = std::time::Duration::from_millis(timeout_ms);
+        let timeout = if let Some(t) = timeout_time {
+            t.checked_duration_since(std::time::Instant::now())
+                .unwrap_or(std::time::Duration::ZERO)
+        } else {
+            std::time::Duration::from_millis(10_000)
+        };
         crossbeam_channel::select! {
             recv(rx) -> msg => match msg? {
                 Ok(s) => {
                     debug!("render thread got a new result");
                     script_ctx = Some(s);
-                    changed = true;
+                    if timeout_time.is_none() {
+                        timeout_time = Some(std::time::Instant::now() + DT);
+                    }
                     continue;
                 },
                 Err(e) => {
@@ -116,15 +125,18 @@ where
                 }
             },
             recv(cfg) -> msg => {
-                debug!("render config got a new thread");
+                debug!("render thread got a new config");
                 config = Some(msg?);
-                changed = true;
+                if timeout_time.is_none() {
+                    timeout_time = Some(std::time::Instant::now() + DT);
+                }
                 continue;
             },
             default(timeout) => debug!("render thread timed out"),
         }
 
-        if !changed {
+        // Reset our timer
+        if timeout_time.take().is_none() {
             continue;
         }
 
@@ -148,7 +160,6 @@ where
                 render_time: dt,
                 image_size: render_config.image_size,
             }))?;
-            changed = false;
             wake.send(()).unwrap();
         }
     }
