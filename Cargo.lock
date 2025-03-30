@@ -4658,6 +4658,7 @@ dependencies = [
  "serde",
  "syn",
  "zerocopy 0.7.35",
+ "zerocopy 0.8.23",
 ]
 
 [[package]]
