@@ -94,7 +94,7 @@ where
         + fidget::eval::MathFunction
         + fidget::render::RenderHints,
 {
-    // Target framerate; updates faster than this will be merged.
+    // This is our target framerate; updates faster than this will be merged.
     const DT: std::time::Duration = std::time::Duration::from_millis(16);
 
     let mut config = None;
@@ -105,7 +105,7 @@ where
             t.checked_duration_since(std::time::Instant::now())
                 .unwrap_or(std::time::Duration::ZERO)
         } else {
-            std::time::Duration::from_millis(10_000)
+            std::time::Duration::from_secs(u64::MAX)
         };
         crossbeam_channel::select! {
             recv(rx) -> msg => match msg? {
