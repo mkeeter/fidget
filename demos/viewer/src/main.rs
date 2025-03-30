@@ -78,8 +78,8 @@ struct RenderSettings {
 }
 
 struct RenderResult {
-    dt: std::time::Duration,
-    image: egui::ImageData,
+    images: Vec<Vec<[u8; 4]>>,
+    render_time: std::time::Duration,
     image_size: fidget::render::ImageSize,
 }
 
@@ -130,29 +130,22 @@ where
 
         if let (Some(out), Some(render_config)) = (&script_ctx, &config) {
             debug!("Rendering...");
-            let mut image = egui::ColorImage::new(
-                [
-                    render_config.image_size.width() as usize,
-                    render_config.image_size.height() as usize,
-                ],
-                egui::Color32::BLACK,
-            );
             let render_start = std::time::Instant::now();
+            let mut images = vec![];
             for s in out.shapes.iter() {
                 let tape = fidget::shape::Shape::<F>::from(s.tree.clone());
-                render(
+                let out = render(
                     &render_config.mode,
                     tape,
                     render_config.image_size,
                     s.color_rgb,
-                    &mut image.pixels,
                 );
+                images.push(out);
             }
             let dt = render_start.elapsed();
-            let image = egui::ImageData::Color(std::sync::Arc::new(image));
             tx.send(Ok(RenderResult {
-                image,
-                dt,
+                images,
+                render_time: dt,
                 image_size: render_config.image_size,
             }))?;
             changed = false;
@@ -166,8 +159,7 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     image_size: fidget::render::ImageSize,
     color: [u8; 3],
-    pixels: &mut [egui::Color32],
-) {
+) -> Vec<[u8; 4]> {
     match mode {
         RenderMode::TwoD { view, mode, .. } => {
             let config = ImageRenderConfig {
@@ -177,52 +169,34 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 ..Default::default()
             };
 
-            match mode {
+            let out = match mode {
                 Mode2D::Color => {
                     let image = config
                         .run::<_, fidget::render::BitRenderMode>(shape)
                         .unwrap();
-                    let c = egui::Color32::from_rgba_unmultiplied(
-                        color[0],
-                        color[1],
-                        color[2],
-                        u8::MAX,
-                    );
-                    for (p, &i) in pixels.iter_mut().zip(&image) {
-                        if i {
-                            *p = c;
-                        }
-                    }
+                    let c = [color[0], color[1], color[2], u8::MAX];
+                    image.map(|p| if *p { c } else { [0u8; 4] })
                 }
 
-                Mode2D::Sdf => {
-                    let image = config
-                        .run::<_, fidget::render::SdfRenderMode>(shape)
-                        .unwrap();
-                    for (p, i) in pixels.iter_mut().zip(&image) {
-                        *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
-                    }
-                }
+                Mode2D::Sdf => config
+                    .run::<_, fidget::render::SdfRenderMode>(shape)
+                    .unwrap()
+                    .map(|&[r, g, b]| [r, g, b, u8::MAX]),
 
-                Mode2D::ExactSdf => {
-                    let image = config
-                        .run::<_, fidget::render::SdfPixelRenderMode>(shape)
-                        .unwrap();
-                    for (p, i) in pixels.iter_mut().zip(&image) {
-                        *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
-                    }
-                }
+                Mode2D::ExactSdf => config
+                    .run::<_, fidget::render::SdfPixelRenderMode>(shape)
+                    .unwrap()
+                    .map(|&[r, g, b]| [r, g, b, u8::MAX]),
 
                 Mode2D::Debug => {
                     let image = config
                         .run::<_, fidget::render::DebugRenderMode>(shape)
                         .unwrap();
-                    for (p, i) in pixels.iter_mut().zip(&image) {
-                        let c = i.as_debug_color();
-                        *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
-                    }
+                    image.map(|p| p.as_debug_color())
                 }
-            }
+            };
+            let (data, _) = out.take();
+            data
         }
         RenderMode::ThreeD { view, mode, .. } => {
             // XXX allow selection of depth?
@@ -237,29 +211,33 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 ..Default::default()
             };
             let image = config.run(shape).unwrap();
-            match mode {
-                Mode3D::Color => {
-                    for (p, &i) in pixels.iter_mut().zip(image.iter()) {
-                        if i.depth != 0 {
-                            let c = i.to_color();
-                            *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
-                        }
+            let out = match mode {
+                Mode3D::Color => image.map(|p| {
+                    if p.depth != 0 {
+                        let [r, g, b] = p.to_color();
+                        [r, g, b, u8::MAX]
+                    } else {
+                        [0; 4]
                     }
-                }
+                }),
 
                 Mode3D::Heightmap => {
                     let max_depth =
                         image.iter().map(|p| p.depth).max().unwrap_or(1).max(1);
-                    for (p, &d) in pixels.iter_mut().zip(&image) {
-                        if d.depth != 0 {
-                            let b = (d.depth * 255 / max_depth) as u8;
-                            *p = egui::Color32::from_rgb(b, b, b);
+                    image.map(|p| {
+                        if p.depth != 0 {
+                            let b = (p.depth * 255 / max_depth) as u8;
+                            [b, b, b, 255]
+                        } else {
+                            [0; 4]
                         }
-                    }
+                    })
                 }
-            }
+            };
+            let (data, _) = out.take();
+            data
         }
-    };
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -430,29 +408,105 @@ impl RenderMode {
 
 struct CustomResources {
     render_pipeline: wgpu::RenderPipeline,
-    bind_group: wgpu::BindGroup,
-    uniform_buffer: wgpu::Buffer,
+    bind_group: Option<wgpu::BindGroup>,
+    texture: Option<wgpu::Texture>,
+    texture_view: Option<wgpu::TextureView>,
+    sampler: wgpu::Sampler,
+    bind_group_layout: wgpu::BindGroupLayout,
+    current_image: Option<Vec<[u8; 4]>>,
 }
 
 impl CustomResources {
-    fn prepare(&self, _device: &wgpu::Device, queue: &wgpu::Queue) {
-        // Update our uniform buffer with the angle from the UI
-        queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            [0.0f32, 0.0, 0.0, 0.0].as_bytes(),
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image_data: Vec<[u8; 4]>,
+        image_size: fidget::render::ImageSize,
+    ) {
+        // TODO caching
+
+        // Create texture from image data
+        let (width, height) = (image_size.width(), image_size.height());
+        let texture_size = wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        };
+
+        // Create the texture
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Image Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        // Create the texture view
+        let texture_view =
+            texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Upload the image data to the texture
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            image_data.as_bytes(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            texture_size,
         );
+
+        // Store the new image
+        self.current_image = Some(image_data);
+
+        // Create the bind group for this texture
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Image Bind Group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+
+        self.bind_group = Some(bind_group);
+        self.texture = Some(texture);
+        self.texture_view = Some(texture_view);
     }
 
     fn paint(&self, render_pass: &mut wgpu::RenderPass<'_>) {
-        // Draw our triangle!
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.draw(0..3, 0..1);
+        // Only draw if we have a texture
+        if let Some(ref bind_group) = self.bind_group {
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, bind_group, &[]);
+            // Draw 2 triangles (6 vertices) to form a quad
+            render_pass.draw(0..6, 0..1);
+        }
     }
 }
 
-struct CustomCallback {}
+struct CustomCallback {
+    image: Vec<[u8; 4]>,
+    size: fidget::render::ImageSize,
+}
 
 impl egui_wgpu::CallbackTrait for CustomCallback {
     fn prepare(
@@ -463,8 +517,8 @@ impl egui_wgpu::CallbackTrait for CustomCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let resources: &CustomResources = resources.get().unwrap();
-        resources.prepare(device, queue);
+        let resources: &mut CustomResources = resources.get_mut().unwrap();
+        resources.prepare(device, queue, self.image.clone(), self.size);
         Vec::new()
     }
 
@@ -480,13 +534,8 @@ impl egui_wgpu::CallbackTrait for CustomCallback {
 }
 
 struct ViewerApp {
-    // Current image
-    texture: Option<egui::TextureHandle>,
-    stats: Option<(std::time::Duration, fidget::render::ImageSize)>,
-
-    // Most recent result, or an error string
-    // TODO: this could be combined with stats as a Result
-    err: Option<String>,
+    /// Current image (or an error)
+    image_data: Option<Result<RenderResult, String>>,
 
     /// Current render mode
     mode: RenderMode,
@@ -512,38 +561,66 @@ impl ViewerApp {
         // Create shader module
         let shader =
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Custom Shader"),
+                label: Some("Image Shader"),
                 source: wgpu::ShaderSource::Wgsl(
                     include_str!("shaders/image.wgsl").into(),
                 ),
             });
 
+        // Create texture sampler
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Image Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // Create bind group layout for texture and sampler
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("custom3d"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(16),
+                label: Some("Image Bind Group Layout"),
+                entries: &[
+                    // Texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float {
+                                filterable: true,
+                            },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    // Sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(
+                            wgpu::SamplerBindingType::Filtering,
+                        ),
+                        count: None,
+                    },
+                ],
             });
 
-        // Create render pipeline
+        // Create render pipeline layout with our bind group layout
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                label: Some("Image Render Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
             });
 
+        // Create the render pipeline
         let render_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Render Pipeline"),
+                label: Some("Image Render Pipeline"),
                 layout: Some(&render_pipeline_layout),
                 cache: None,
                 vertex: wgpu::VertexState {
@@ -558,8 +635,8 @@ impl ViewerApp {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: target_format,
                         blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent::REPLACE,
-                            alpha: wgpu::BlendComponent::REPLACE,
+                            color: wgpu::BlendComponent::OVER,
+                            alpha: wgpu::BlendComponent::OVER,
                         }),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -569,7 +646,7 @@ impl ViewerApp {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -583,38 +660,21 @@ impl ViewerApp {
                 multiview: None,
             });
 
-        let uniform_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("custom3d"),
-                contents: [0.0_f32; 4].as_bytes(), // 16 bytes aligned!
-                // Mapping at creation (as done by the create_buffer_init utility) doesn't require us to to add the MAP_WRITE usage
-                // (this *happens* to workaround this bug )
-                usage: wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::UNIFORM,
-            });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("custom3d"),
-            layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
-
+        // Insert the custom resources into the renderer
         wgpu_state.renderer.write().callback_resources.insert(
             CustomResources {
                 render_pipeline,
-                bind_group,
-                uniform_buffer,
+                bind_group: None,
+                texture: None,
+                texture_view: None,
+                sampler,
+                bind_group_layout,
+                current_image: None,
             },
         );
 
         Self {
-            texture: None,
-            stats: None,
-
-            err: None,
+            image_data: None,
             image_size: fidget::render::ImageSize::from(256),
 
             config_tx,
@@ -690,35 +750,8 @@ impl ViewerApp {
     fn try_recv_image(&mut self, ctx: &egui::Context) {
         if let Ok(r) = self.image_rx.try_recv() {
             match r {
-                Ok(r) => {
-                    match self.texture.as_mut() {
-                        Some(t) => {
-                            if t.size() == r.image.size() {
-                                t.set(r.image, egui::TextureOptions::LINEAR)
-                            } else {
-                                *t = ctx.load_texture(
-                                    "tex",
-                                    r.image,
-                                    egui::TextureOptions::LINEAR,
-                                )
-                            }
-                        }
-                        None => {
-                            let texture = ctx.load_texture(
-                                "tex",
-                                r.image,
-                                egui::TextureOptions::LINEAR,
-                            );
-                            self.texture = Some(texture);
-                        }
-                    }
-                    self.stats = Some((r.dt, r.image_size));
-                    self.err = None;
-                }
-                Err(e) => {
-                    self.err = Some(e);
-                    self.stats = None;
-                }
+                Ok(r) => self.image_data = Some(Ok(r)),
+                Err(e) => self.image_data = Some(Err(e)),
             }
         }
     }
@@ -738,28 +771,23 @@ impl ViewerApp {
             max: egui::Pos2::new(1.0, 1.0),
         };
 
-        // Draw the custom image below everything else (??)
-        ui.painter().add(egui_wgpu::Callback::new_paint_callback(
-            rect,
-            CustomCallback {},
-        ));
+        if let Some(Ok(image_data)) = &self.image_data {
+            // Draw the image using WebGPU
+            ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+                rect,
+                CustomCallback {
+                    image: image_data.images[0].clone(), // TODO
+                    size: image_data.image_size,
+                },
+            ));
 
-        if let Some((dt, image_size)) = self.stats {
-            // Only draw the image if we have valid stats (i.e. no error)
-            /*
-            if let Some(t) = self.texture.as_ref() {
-                let mut mesh = egui::Mesh::with_texture(t.id());
-
-                mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
-                painter.add(mesh);
-            }
-            */
-
+            // The image has been drawn by the CustomCallback
             let layout = painter.layout(
                 format!(
-                    "Image size: {}×{}\nRender time: {dt:.2?}",
-                    image_size.width(),
-                    image_size.height(),
+                    "Image size: {}×{}\nRender time: {:.2?}",
+                    image_data.image_size.width(),
+                    image_data.image_size.height(),
+                    image_data.render_time,
                 ),
                 egui::FontId::proportional(14.0),
                 egui::Color32::WHITE,
@@ -777,7 +805,7 @@ impl ViewerApp {
             painter.galley(text_corner - PADDING, layout, egui::Color32::BLACK);
         }
 
-        if let Some(err) = &self.err {
+        if let Some(Err(err)) = &self.image_data {
             let layout = painter.layout(
                 err.to_string(),
                 egui::FontId::proportional(14.0),

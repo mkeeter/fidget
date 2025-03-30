@@ -431,6 +431,9 @@ impl ImageSizeLike for VoxelSize {
 
 impl<P: Send, S: ImageSizeLike + Sync> Image<P, S> {
     /// Generates an image by computing a per-pixel function
+    ///
+    /// This should be called on the _output_ image; the closure takes `(x, y)`
+    /// tuples and is expected to capture one or more source images.
     pub fn apply_effect<F: Fn(usize, usize) -> P + Send + Sync>(
         &mut self,
         f: F,
@@ -484,6 +487,20 @@ impl<P, S: Clone> Image<P, S> {
     /// Returns the image size
     pub fn size(&self) -> S {
         self.size.clone()
+    }
+
+    /// Generates an image by mapping a simple function over each pixel
+    pub fn map<T, F: Fn(&P) -> T>(&self, f: F) -> Image<T, S> {
+        let data = self.data.iter().map(f).collect();
+        Image {
+            data,
+            size: self.size.clone(),
+        }
+    }
+
+    /// Decomposes the image into its components
+    pub fn take(self) -> (Vec<P>, S) {
+        (self.data, self.size)
     }
 }
 
