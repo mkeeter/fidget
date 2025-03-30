@@ -406,21 +406,20 @@ impl RenderMode {
     }
 }
 
+#[allow(unused)]
 struct CustomTexture {
     bind_group: wgpu::BindGroup,
 
-    #[allow(unused)]
+    // These are unused but must remain alive
     texture: wgpu::Texture,
-    #[allow(unused)]
     texture_view: wgpu::TextureView,
 }
 
 struct CustomResources {
     render_pipeline: wgpu::RenderPipeline,
-    tex: Option<CustomTexture>,
+    tex: Option<(fidget::render::ImageSize, Vec<CustomTexture>)>,
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
-    current_image: Option<Vec<[u8; 4]>>,
 }
 
 impl CustomResources {
@@ -428,93 +427,109 @@ impl CustomResources {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        image_data: Vec<[u8; 4]>,
+        images: &[Vec<[u8; 4]>],
         image_size: fidget::render::ImageSize,
     ) {
-        // TODO caching
-
-        // Create texture from image data
         let (width, height) = (image_size.width(), image_size.height());
         let texture_size = wgpu::Extent3d {
             width,
             height,
             depth_or_array_layers: 1,
         };
+        let new_tex = || -> CustomTexture {
+            // Create the texture
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Image Texture"),
+                size: texture_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
 
-        // Create the texture
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Image Texture"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+            // Create the texture view
+            let texture_view =
+                texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Create the texture view
-        let texture_view =
-            texture.create_view(&wgpu::TextureViewDescriptor::default());
+            // Create the bind group for this texture
+            let bind_group =
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Image Bind Group"),
+                    layout: &self.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &texture_view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                &self.sampler,
+                            ),
+                        },
+                    ],
+                });
+            CustomTexture {
+                bind_group,
+                texture,
+                texture_view,
+            }
+        };
 
-        // Upload the image data to the texture
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            image_data.as_bytes(),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * width),
-                rows_per_image: Some(height),
-            },
-            texture_size,
-        );
+        // Check to see whether we can reuse textures
+        match &mut self.tex {
+            Some((tex_size, tex_data)) if *tex_size == image_size => {
+                tex_data.resize_with(images.len(), new_tex);
+            }
+            Some(..) | None => {
+                let textures = images.iter().map(|_i| new_tex()).collect();
+                self.tex = Some((image_size, textures));
+            }
+        }
 
-        // Store the new image
-        self.current_image = Some(image_data);
-
-        // Create the bind group for this texture
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Image Bind Group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+        // Upload all of the images to textures
+        for (image, tex) in
+            images.iter().zip(self.tex.as_ref().unwrap().1.iter())
+        {
+            // Upload the image data to the texture
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &tex.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
                 },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                image.as_bytes(),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: Some(height),
                 },
-            ],
-        });
-
-        self.tex = Some(CustomTexture {
-            bind_group,
-            texture,
-            texture_view,
-        });
+                texture_size,
+            );
+        }
     }
 
     fn paint(&self, render_pass: &mut wgpu::RenderPass<'_>) {
         // Only draw if we have a texture
-        if let Some(tex) = &self.tex {
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &tex.bind_group, &[]);
-            // Draw 2 triangles (6 vertices) to form a quad
-            render_pass.draw(0..6, 0..1);
+        if let Some((_tex_size, tex_data)) = &self.tex {
+            for tex in tex_data {
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &tex.bind_group, &[]);
+                // Draw 2 triangles (6 vertices) to form a quad
+                render_pass.draw(0..6, 0..1);
+            }
         }
     }
 }
 
 struct CustomCallback {
-    image: Vec<[u8; 4]>,
-    size: fidget::render::ImageSize,
+    data: Option<(Vec<Vec<[u8; 4]>>, fidget::render::ImageSize)>,
 }
 
 impl egui_wgpu::CallbackTrait for CustomCallback {
@@ -527,7 +542,9 @@ impl egui_wgpu::CallbackTrait for CustomCallback {
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let resources: &mut CustomResources = resources.get_mut().unwrap();
-        resources.prepare(device, queue, self.image.clone(), self.size);
+        if let Some((image_data, image_size)) = self.data.as_ref() {
+            resources.prepare(device, queue, image_data.as_slice(), *image_size)
+        }
         Vec::new()
     }
 
@@ -676,7 +693,6 @@ impl ViewerApp {
                 tex: None,
                 sampler,
                 bind_group_layout,
-                current_image: None,
             },
         );
 
@@ -760,7 +776,7 @@ impl ViewerApp {
         }
     }
 
-    fn paint_image(&self, ui: &mut egui::Ui) -> egui::Response {
+    fn paint_image(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let pos = ui.next_widget_position();
         let size = ui.available_size();
         let painter = ui.painter_at(egui::Rect {
@@ -771,13 +787,20 @@ impl ViewerApp {
 
         let rect = ui.ctx().available_rect();
 
-        if let Some(Ok(image_data)) = &self.image_data {
+        if let Some(Ok(image_data)) = &mut self.image_data {
             // Draw the image using WebGPU
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(
                 rect,
                 CustomCallback {
-                    image: image_data.images[0].clone(), // TODO
-                    size: image_data.image_size,
+                    data: if image_data.images.is_empty() {
+                        None // use pre-existing data
+                    } else {
+                        // Pass the image buffers into the GPU renderer
+                        Some((
+                            std::mem::take(&mut image_data.images),
+                            image_data.image_size,
+                        ))
+                    },
                 },
             ));
 
