@@ -19,7 +19,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
         vec2<f32>(1.0, -1.0),
         vec2<f32>(1.0, 1.0),
     );
-    
+
     // UV coordinates for the quad
     var uv = array<vec2<f32>, 6>(
         vec2<f32>(0.0, 1.0),

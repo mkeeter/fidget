@@ -3,7 +3,7 @@ use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::{
     egui,
-    egui_wgpu::{self, wgpu, wgpu::util::DeviceExt},
+    egui_wgpu::{self, wgpu},
 };
 use env_logger::Env;
 use log::{debug, error, info, warn};
@@ -16,7 +16,7 @@ use fidget::render::{
     VoxelRenderConfig,
 };
 
-use std::{error::Error, num::NonZeroU64, path::Path};
+use std::{error::Error, path::Path};
 
 /// Minimal viewer, using Fidget to render a Rhai script
 #[derive(Parser, Debug)]
@@ -429,8 +429,8 @@ impl CustomResources {
         // Create texture from image data
         let (width, height) = (image_size.width(), image_size.height());
         let texture_size = wgpu::Extent3d {
-            width: width as u32,
-            height: height as u32,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
 
@@ -747,7 +747,7 @@ impl ViewerApp {
 
     /// Try to receive an image from the worker thread, populating
     /// `self.texture` and `self.stats`, or `self.err`
-    fn try_recv_image(&mut self, ctx: &egui::Context) {
+    fn try_recv_image(&mut self) {
         if let Ok(r) = self.image_rx.try_recv() {
             match r {
                 Ok(r) => self.image_data = Some(Ok(r)),
@@ -766,10 +766,6 @@ impl ViewerApp {
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
         let rect = ui.ctx().available_rect();
-        let uv = egui::Rect {
-            min: egui::Pos2::new(0.0, 0.0),
-            max: egui::Pos2::new(1.0, 1.0),
-        };
 
         if let Some(Ok(image_data)) = &self.image_data {
             // Draw the image using WebGPU
@@ -837,7 +833,7 @@ impl ViewerApp {
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut render_changed = self.draw_menu(ctx);
-        self.try_recv_image(ctx);
+        self.try_recv_image();
 
         let rect = ctx.available_rect();
         let size = rect.max - rect.min;
