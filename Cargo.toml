@@ -34,7 +34,7 @@ crossbeam-channel = "0.5"
 crossbeam-deque = "0.8"
 document-features = "0.2"
 dynasmrt = "3.0"
-eframe = "0.31"
+eframe = { version = "0.31", features = ["wgpu"] }
 env_logger = "0.11"
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
@@ -53,3 +53,4 @@ thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 windows = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Memory"] }
+zerocopy = { version = "0.8", features = ["derive"] }

@@ -27,7 +27,8 @@ once_cell = { version = "1", features = ["portable-atomic"] }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
-zerocopy = { version = "0.7", features = ["derive", "simd"] }
+zerocopy-c38e5c1d305a1b54 = { package = "zerocopy", version = "0.8", default-features = false, features = ["derive", "simd"] }
+zerocopy-ca01ad9e24f5d932 = { package = "zerocopy", version = "0.7", features = ["derive", "simd"] }
 
 [build-dependencies]
 byteorder = { version = "1" }
@@ -39,8 +40,8 @@ syn = { version = "2", features = ["extra-traits", "full"] }
 [target.x86_64-unknown-linux-gnu.dependencies]
 ahash = { version = "0.8" }
 anstream = { version = "0.6" }
-bitflags = { version = "2", default-features = false, features = ["std"] }
-bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
+bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
+bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "min_const_generics"] }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
@@ -48,7 +49,7 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
@@ -59,20 +60,21 @@ syn = { version = "2", default-features = false, features = ["fold", "visit", "v
 
 [target.aarch64-apple-darwin.dependencies]
 anstream = { version = "0.6" }
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
 libc = { version = "0.2" }
 
 [target.aarch64-apple-darwin.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 libc = { version = "0.2" }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
 syn = { version = "2", default-features = false, features = ["fold", "visit"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 ahash = { version = "0.8" }
 anstream = { version = "0.6" }
-bitflags = { version = "2", default-features = false, features = ["std"] }
-bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
+bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
+bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "min_const_generics"] }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
@@ -80,7 +82,7 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
