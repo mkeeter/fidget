@@ -9,6 +9,7 @@ use crate::{
 };
 use nalgebra::Point2;
 use rayon::prelude::*;
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub mod effects;
 
@@ -621,7 +622,10 @@ impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
 }
 
 /// Pixel type for a [`GeometryBuffer`]
-#[derive(Debug, Default, Copy, Clone)]
+///
+/// This type can be passed directly in a buffer to the GPU.
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable)]
 pub struct GeometryPixel {
     /// Z position of this pixel, in voxel units
     pub depth: u32, // TODO should this be `f32`?

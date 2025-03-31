@@ -21,6 +21,7 @@ rayon.workspace = true
 serde.workspace = true
 static_assertions.workspace = true
 thiserror.workspace = true
+zerocopy.workspace = true
 
 rhai = { workspace = true, optional = true }
 
