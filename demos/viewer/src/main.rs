@@ -369,8 +369,9 @@ enum Mode2D {
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum Mode3D {
-    Color,
     Heightmap,
+    Color,
+    Shaded,
 }
 
 #[derive(Copy, Clone)]
@@ -676,6 +677,7 @@ impl Draw3D {
         self.render_config.render_mode = match mode {
             Mode3D::Heightmap => 0,
             Mode3D::Color => 1,
+            Mode3D::Shaded => 2,
         };
         self.render_config.max_depth = max_depth;
         queue.write_buffer(
@@ -1099,6 +1101,11 @@ impl ViewerApp {
                         &mut mode_3d,
                         Some(Mode3D::Color),
                         "3D color",
+                    );
+                    ui.radio_value(
+                        &mut mode_3d,
+                        Some(Mode3D::Shaded),
+                        "3D shaded",
                     );
                     if let Some(m) = mode_3d {
                         changed = self.mode.set_3d_mode(m);
