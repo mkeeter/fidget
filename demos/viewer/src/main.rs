@@ -78,12 +78,16 @@ struct RenderSettings {
 }
 
 enum ImageData {
-    Rgba(Vec<[u8; 4]>),
-    Geometry(Vec<GeometryPixel>),
+    Rgba(Vec<Vec<[u8; 4]>>),
+    Geometry {
+        images: Vec<Vec<GeometryPixel>>,
+        mode: Mode3D,
+        max_depth: u32,
+    },
 }
 
 struct RenderResult {
-    images: Vec<ImageData>,
+    images: ImageData,
     render_time: std::time::Duration,
     image_size: fidget::render::ImageSize,
 }
@@ -148,17 +152,50 @@ where
         if let (Some(out), Some(render_config)) = (&script_ctx, &config) {
             debug!("Rendering...");
             let render_start = std::time::Instant::now();
-            let mut images = vec![];
-            for s in out.shapes.iter() {
-                let tape = fidget::shape::Shape::<F>::from(s.tree.clone());
-                let out = render(
-                    &render_config.mode,
-                    tape,
-                    render_config.image_size,
-                    s.color_rgb,
-                );
-                images.push(out);
-            }
+            let images = match &render_config.mode {
+                RenderMode::TwoD { view, mode, .. } => {
+                    let data = out
+                        .shapes
+                        .iter()
+                        .map(|s| {
+                            let tape =
+                                fidget::shape::Shape::<F>::from(s.tree.clone());
+                            render_2d(
+                                *mode,
+                                *view,
+                                tape,
+                                render_config.image_size,
+                                s.color_rgb,
+                            )
+                        })
+                        .collect();
+                    ImageData::Rgba(data)
+                }
+                RenderMode::ThreeD { view, mode, .. } => {
+                    // XXX allow selection of depth?
+                    let image_size = render_config.image_size;
+                    let voxel_size = fidget::render::VoxelSize::new(
+                        image_size.width(),
+                        image_size.height(),
+                        image_size.width().max(image_size.height()),
+                    );
+                    let data = out
+                        .shapes
+                        .iter()
+                        .map(|s| {
+                            let tape =
+                                fidget::shape::Shape::<F>::from(s.tree.clone());
+                            render_3d(*view, tape, voxel_size)
+                        })
+                        .collect();
+                    ImageData::Geometry {
+                        images: data,
+                        mode: *mode,
+                        max_depth: voxel_size.depth(),
+                    }
+                }
+            };
+
             let dt = render_start.elapsed();
             tx.send(Ok(RenderResult {
                 images,
@@ -170,76 +207,69 @@ where
     }
 }
 
-fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
-    mode: &RenderMode,
+fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
+    mode: Mode2D,
+    view: View2,
     shape: fidget::shape::Shape<F>,
     image_size: fidget::render::ImageSize,
     color: [u8; 3],
-) -> ImageData {
-    match mode {
-        RenderMode::TwoD { view, mode, .. } => {
-            let config = ImageRenderConfig {
-                image_size,
-                tile_sizes: F::tile_sizes_2d(),
-                view: *view,
-                ..Default::default()
-            };
+) -> Vec<[u8; 4]> {
+    let config = ImageRenderConfig {
+        image_size,
+        tile_sizes: F::tile_sizes_2d(),
+        view,
+        ..Default::default()
+    };
 
-            let out = match mode {
-                Mode2D::Color => {
-                    let image = config
-                        .run::<_, fidget::render::BitRenderMode>(shape)
-                        .unwrap();
-                    let c = [color[0], color[1], color[2], u8::MAX];
-                    image.map(|p| if *p { c } else { [0u8; 4] })
-                }
-
-                Mode2D::Sdf => config
-                    .run::<_, fidget::render::SdfRenderMode>(shape)
-                    .unwrap()
-                    .map(|&[r, g, b]| [r, g, b, u8::MAX]),
-
-                Mode2D::ExactSdf => config
-                    .run::<_, fidget::render::SdfPixelRenderMode>(shape)
-                    .unwrap()
-                    .map(|&[r, g, b]| [r, g, b, u8::MAX]),
-
-                Mode2D::Debug => {
-                    let image = config
-                        .run::<_, fidget::render::DebugRenderMode>(shape)
-                        .unwrap();
-                    image.map(|p| p.as_debug_color())
-                }
-            };
-            let (data, _) = out.take();
-            ImageData::Rgba(data)
+    let out = match mode {
+        Mode2D::Color => {
+            let image = config
+                .run::<_, fidget::render::BitRenderMode>(shape)
+                .unwrap();
+            let c = [color[0], color[1], color[2], u8::MAX];
+            image.map(|p| if *p { c } else { [0u8; 4] })
         }
-        RenderMode::ThreeD { view, mode, .. } => {
-            // XXX allow selection of depth?
-            let config = VoxelRenderConfig {
-                image_size: fidget::render::VoxelSize::new(
-                    image_size.width(),
-                    image_size.height(),
-                    image_size.width().max(image_size.height()),
-                ),
-                tile_sizes: F::tile_sizes_3d(),
-                view: *view,
-                ..Default::default()
-            };
 
-            // Get the geometry buffer from the voxel rendering process
-            let geometry_buffer = config.run(shape).unwrap();
+        Mode2D::Sdf => config
+            .run::<_, fidget::render::SdfRenderMode>(shape)
+            .unwrap()
+            .map(|&[r, g, b]| [r, g, b, u8::MAX]),
 
-            match mode {
-                Mode3D::Color | Mode3D::Heightmap => {
-                    // For both rendering modes, we'll just pass the GeometryPixel data
-                    // to the GPU, which will apply the appropriate rendering effect
-                    let (data, _) = geometry_buffer.take();
-                    ImageData::Geometry(data)
-                }
-            }
+        Mode2D::ExactSdf => config
+            .run::<_, fidget::render::SdfPixelRenderMode>(shape)
+            .unwrap()
+            .map(|&[r, g, b]| [r, g, b, u8::MAX]),
+
+        Mode2D::Debug => {
+            let image = config
+                .run::<_, fidget::render::DebugRenderMode>(shape)
+                .unwrap();
+            image.map(|p| p.as_debug_color())
         }
-    }
+    };
+    let (data, _) = out.take();
+    data
+}
+
+fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
+    view: View3,
+    shape: fidget::shape::Shape<F>,
+    image_size: fidget::render::VoxelSize,
+) -> Vec<GeometryPixel> {
+    let config = VoxelRenderConfig {
+        image_size,
+        tile_sizes: F::tile_sizes_3d(),
+        view,
+        ..Default::default()
+    };
+
+    // Get the geometry buffer from the voxel rendering process
+    let geometry_buffer = config.run(shape).unwrap();
+
+    // For both rendering modes, we'll just pass the GeometryPixel data
+    // to the GPU, which will apply the appropriate rendering effect
+    let (data, _) = geometry_buffer.take();
+    data
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -408,33 +438,12 @@ impl RenderMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum TextureType {
-    Rgba,
-    Geometry,
-}
-
 /// Configuration for 3D rendering with geometry data
 #[repr(C)]
-#[derive(Debug, Clone, Copy, IntoBytes, FromBytes, Immutable)]
+#[derive(Debug, Default, Clone, Copy, IntoBytes, FromBytes, Immutable)]
 struct RenderConfig {
     render_mode: u32, // 0 = heightmap, 1 = shaded
-    light_direction: [f32; 3],
-    ambient_intensity: f32,
-    diffuse_intensity: f32,
-    _padding: [u32; 3], // Ensure 16-byte alignment
-}
-
-impl Default for RenderConfig {
-    fn default() -> Self {
-        Self {
-            render_mode: 0,                   // Default to heightmap
-            light_direction: [0.5, 0.5, 0.5], // Light from top-right-front
-            ambient_intensity: 0.3,
-            diffuse_intensity: 0.7,
-            _padding: [0; 3],
-        }
-    }
+    max_depth: u32,
 }
 
 #[allow(unused)]
@@ -444,40 +453,35 @@ struct CustomTexture {
     // These are unused but must remain alive
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
-
-    // Type of texture (RGBA or Geometry)
-    texture_type: TextureType,
 }
 
-struct CustomResources {
-    // Pipelines for different texture types
+struct Draw2D {
     rgba_pipeline: wgpu::RenderPipeline,
-    geometry_pipeline: wgpu::RenderPipeline,
-
-    // Textures with their metadata
     tex: Option<(fidget::render::ImageSize, Vec<CustomTexture>)>,
-
-    // Samplers
     rgba_sampler: wgpu::Sampler,
-    geometry_sampler: wgpu::Sampler,
-
-    // Bind group layouts
     rgba_bind_group_layout: wgpu::BindGroupLayout,
+}
+
+struct Draw3D {
+    geometry_pipeline: wgpu::RenderPipeline,
+    tex: Option<(fidget::render::ImageSize, Vec<CustomTexture>)>,
+    geometry_sampler: wgpu::Sampler,
     geometry_bind_group_layout: wgpu::BindGroupLayout,
 
-    // Uniform buffer for render configuration
+    /// Local copy of render configuration
     render_config: RenderConfig,
+
+    /// GPU buffer for render configuration
     render_config_buffer: wgpu::Buffer,
 }
 
-impl CustomResources {
+impl Draw2D {
     fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        images: &[ImageData],
+        images: &[Vec<[u8; 4]>],
         image_size: fidget::render::ImageSize,
-        mode: Mode3D,
     ) {
         let (width, height) = (image_size.width(), image_size.height());
         let texture_size = wgpu::Extent3d {
@@ -530,8 +534,72 @@ impl CustomResources {
                 bind_group,
                 texture,
                 texture_view,
-                texture_type: TextureType::Rgba,
             }
+        };
+
+        // Check to see whether we can reuse textures
+        match &mut self.tex {
+            Some((tex_size, tex_data)) if *tex_size == image_size => {
+                tex_data.resize_with(images.len(), new_rgba_tex);
+            }
+            Some(..) | None => {
+                let textures = images.iter().map(|_i| new_rgba_tex()).collect();
+                self.tex = Some((image_size, textures));
+            }
+        }
+
+        // Upload all of the images to textures
+        for (image_data, tex) in
+            images.iter().zip(self.tex.as_ref().unwrap().1.iter())
+        {
+            // Upload RGBA image data
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &tex.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                image_data.as_bytes(),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: Some(height),
+                },
+                texture_size,
+            );
+        }
+    }
+
+    fn paint(&self, render_pass: &mut wgpu::RenderPass<'_>) {
+        // Only draw if we have a texture
+        if let Some((_tex_size, tex_data)) = &self.tex {
+            for tex in tex_data {
+                render_pass.set_pipeline(&self.rgba_pipeline);
+                render_pass.set_bind_group(0, &tex.bind_group, &[]);
+
+                // Draw 2 triangles (6 vertices) to form a quad
+                render_pass.draw(0..6, 0..1);
+            }
+        }
+    }
+}
+
+impl Draw3D {
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        images: &[Vec<GeometryPixel>],
+        image_size: fidget::render::ImageSize,
+        mode: Mode3D,
+        max_depth: u32,
+    ) {
+        let (width, height) = (image_size.width(), image_size.height());
+        let texture_size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
         };
 
         // Function to create a new Geometry texture
@@ -589,47 +657,27 @@ impl CustomResources {
                 bind_group,
                 texture,
                 texture_view,
-                texture_type: TextureType::Geometry,
             }
         };
 
         // Check to see whether we can reuse textures
-        let mut textures = Vec::with_capacity(images.len());
         match &mut self.tex {
             Some((tex_size, tex_data)) if *tex_size == image_size => {
-                // We can reuse the texture size, but we need to check each texture type
-                tex_data.clear();
-                for image in images {
-                    match image {
-                        ImageData::Rgba(_) => textures.push(new_rgba_tex()),
-                        ImageData::Geometry(_) => {
-                            textures.push(new_geometry_tex())
-                        }
-                    }
-                }
-                *tex_data = textures;
+                tex_data.resize_with(images.len(), new_geometry_tex);
             }
             Some(..) | None => {
-                // Create new textures for each image
-                for image in images {
-                    match image {
-                        ImageData::Rgba(_) => textures.push(new_rgba_tex()),
-                        ImageData::Geometry(_) => {
-                            textures.push(new_geometry_tex())
-                        }
-                    }
-                }
+                let textures =
+                    images.iter().map(|_i| new_geometry_tex()).collect();
                 self.tex = Some((image_size, textures));
             }
         }
 
-        // Update render config - set render mode based on current mode
+        // Update render config locally, then copy to the GPU
         self.render_config.render_mode = match mode {
             Mode3D::Heightmap => 0,
             Mode3D::Color => 1,
         };
-
-        // Update the render config buffer
+        self.render_config.max_depth = max_depth;
         queue.write_buffer(
             &self.render_config_buffer,
             0,
@@ -640,48 +688,22 @@ impl CustomResources {
         for (image_data, tex) in
             images.iter().zip(self.tex.as_ref().unwrap().1.iter())
         {
-            match (image_data, tex.texture_type) {
-                (ImageData::Rgba(rgba_data), TextureType::Rgba) => {
-                    // Upload RGBA image data
-                    queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &tex.texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        rgba_data.as_bytes(),
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(4 * width),
-                            rows_per_image: Some(height),
-                        },
-                        texture_size,
-                    );
-                }
-                (ImageData::Geometry(geometry_data), TextureType::Geometry) => {
-                    // Upload geometry data using AsBytes trait
-                    queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &tex.texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        geometry_data.as_bytes(),
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(16 * width), // 16 bytes per GeometryPixel (4 u32 values)
-                            rows_per_image: Some(height),
-                        },
-                        texture_size,
-                    );
-                }
-                _ => {
-                    // Mismatched texture and data types, this shouldn't happen
-                    panic!("Mismatched texture and data types");
-                }
-            }
+            // Upload geometry data using AsBytes trait
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &tex.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                image_data.as_bytes(),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(16 * width), // 16 bytes per GeometryPixel (4 u32 values)
+                    rows_per_image: Some(height),
+                },
+                texture_size,
+            );
         }
     }
 
@@ -689,16 +711,9 @@ impl CustomResources {
         // Only draw if we have a texture
         if let Some((_tex_size, tex_data)) = &self.tex {
             for tex in tex_data {
-                match tex.texture_type {
-                    TextureType::Rgba => {
-                        render_pass.set_pipeline(&self.rgba_pipeline);
-                        render_pass.set_bind_group(0, &tex.bind_group, &[]);
-                    }
-                    TextureType::Geometry => {
-                        render_pass.set_pipeline(&self.geometry_pipeline);
-                        render_pass.set_bind_group(0, &tex.bind_group, &[]);
-                    }
-                }
+                render_pass.set_pipeline(&self.geometry_pipeline);
+                render_pass.set_bind_group(0, &tex.bind_group, &[]);
+
                 // Draw 2 triangles (6 vertices) to form a quad
                 render_pass.draw(0..6, 0..1);
             }
@@ -706,12 +721,11 @@ impl CustomResources {
     }
 }
 
-struct CustomCallback {
-    data: Option<(Vec<ImageData>, fidget::render::ImageSize)>,
-    render_mode: Mode3D,
+struct Draw2DCallback {
+    data: Option<(Vec<Vec<[u8; 4]>>, fidget::render::ImageSize)>,
 }
 
-impl egui_wgpu::CallbackTrait for CustomCallback {
+impl egui_wgpu::CallbackTrait for Draw2DCallback {
     fn prepare(
         &self,
         device: &wgpu::Device,
@@ -720,14 +734,48 @@ impl egui_wgpu::CallbackTrait for CustomCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let resources: &mut CustomResources = resources.get_mut().unwrap();
+        let resources: &mut Draw2D = resources.get_mut().unwrap();
+        if let Some((image_data, image_size)) = self.data.as_ref() {
+            resources.prepare(device, queue, image_data.as_slice(), *image_size)
+        }
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        resources: &egui_wgpu::CallbackResources,
+    ) {
+        let resources: &Draw2D = resources.get().unwrap();
+        resources.paint(render_pass);
+    }
+}
+
+struct Draw3DCallback {
+    data: Option<(Vec<Vec<GeometryPixel>>, fidget::render::ImageSize)>,
+    mode: Mode3D,
+    max_depth: u32,
+}
+
+impl egui_wgpu::CallbackTrait for Draw3DCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let resources: &mut Draw3D = resources.get_mut().unwrap();
         if let Some((image_data, image_size)) = self.data.as_ref() {
             resources.prepare(
                 device,
                 queue,
                 image_data.as_slice(),
                 *image_size,
-                self.render_mode,
+                self.mode,
+                self.max_depth,
             )
         }
         Vec::new()
@@ -739,7 +787,7 @@ impl egui_wgpu::CallbackTrait for CustomCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        let resources: &CustomResources = resources.get().unwrap();
+        let resources: &Draw3D = resources.get().unwrap();
         resources.paint(render_pass);
     }
 }
@@ -778,15 +826,6 @@ impl ViewerApp {
                 ),
             });
 
-        // Create Geometry shader module
-        let geometry_shader =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Geometry Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    include_str!("shaders/geometry.wgsl").into(),
-                ),
-            });
-
         // Create samplers
         let rgba_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("RGBA Sampler"),
@@ -798,18 +837,6 @@ impl ViewerApp {
             mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-
-        let geometry_sampler =
-            device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("Geometry Sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Nearest, // Use nearest for integer textures
-                min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            });
 
         // Create bind group layout for RGBA texture and sampler
         let rgba_bind_group_layout =
@@ -841,57 +868,11 @@ impl ViewerApp {
                 ],
             });
 
-        // Create bind group layout for Geometry texture and sampler
-        let geometry_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Geometry Bind Group Layout"),
-                entries: &[
-                    // Texture
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Uint,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    // Sampler
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(
-                            wgpu::SamplerBindingType::NonFiltering,
-                        ),
-                        count: None,
-                    },
-                    // Uniform buffer for render configuration
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
         // Create render pipeline layouts
         let rgba_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("RGBA Render Pipeline Layout"),
                 bind_group_layouts: &[&rgba_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let geometry_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Geometry Render Pipeline Layout"),
-                bind_group_layouts: &[&geometry_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -936,6 +917,85 @@ impl ViewerApp {
                     alpha_to_coverage_enabled: false,
                 },
                 multiview: None,
+            });
+
+        // Insert the custom resources into the renderer
+        wgpu_state
+            .renderer
+            .write()
+            .callback_resources
+            .insert(Draw2D {
+                rgba_pipeline,
+                tex: None,
+                rgba_sampler,
+                rgba_bind_group_layout,
+            });
+
+        // Create Geometry shader module
+        let geometry_shader =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Geometry Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("shaders/geometry.wgsl").into(),
+                ),
+            });
+
+        let geometry_sampler =
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Geometry Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Nearest, // Use nearest for integer textures
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+        // Create bind group layout for Geometry texture and sampler
+        let geometry_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Geometry Bind Group Layout"),
+                entries: &[
+                    // Texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // Sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(
+                            wgpu::SamplerBindingType::NonFiltering,
+                        ),
+                        count: None,
+                    },
+                    // Uniform buffer for render configuration
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let geometry_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Geometry Render Pipeline Layout"),
+                bind_group_layouts: &[&geometry_bind_group_layout],
+                push_constant_ranges: &[],
             });
 
         // Create the Geometry render pipeline
@@ -993,19 +1053,18 @@ impl ViewerApp {
             });
 
         // Insert the custom resources into the renderer
-        wgpu_state.renderer.write().callback_resources.insert(
-            CustomResources {
-                rgba_pipeline,
+        wgpu_state
+            .renderer
+            .write()
+            .callback_resources
+            .insert(Draw3D {
                 geometry_pipeline,
                 tex: None,
-                rgba_sampler,
                 geometry_sampler,
-                rgba_bind_group_layout,
                 geometry_bind_group_layout,
                 render_config,
                 render_config_buffer,
-            },
-        );
+            });
 
         Self {
             image_data: None,
@@ -1100,27 +1159,47 @@ impl ViewerApp {
 
         if let Some(Ok(image_data)) = &mut self.image_data {
             // Get current 3D render mode if applicable
-            let render_mode = match self.mode {
-                RenderMode::ThreeD { mode, .. } => mode,
-                _ => Mode3D::Heightmap, // Default mode if not in 3D
+            match &mut image_data.images {
+                ImageData::Geometry {
+                    images,
+                    mode,
+                    max_depth,
+                } => {
+                    // Draw the image using WebGPU
+                    ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+                        rect,
+                        Draw3DCallback {
+                            data: if images.is_empty() {
+                                None
+                            } else {
+                                Some((
+                                    std::mem::take(images),
+                                    image_data.image_size,
+                                ))
+                            },
+                            mode: *mode,
+                            max_depth: *max_depth,
+                        },
+                    ));
+                }
+                ImageData::Rgba(images) => {
+                    // Draw the image using WebGPU
+                    ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+                        rect,
+                        Draw2DCallback {
+                            data: if images.is_empty() {
+                                None // use pre-existing data
+                            } else {
+                                // Pass the image buffers into the GPU renderer
+                                Some((
+                                    std::mem::take(images),
+                                    image_data.image_size,
+                                ))
+                            },
+                        },
+                    ));
+                }
             };
-
-            // Draw the image using WebGPU
-            ui.painter().add(egui_wgpu::Callback::new_paint_callback(
-                rect,
-                CustomCallback {
-                    data: if image_data.images.is_empty() {
-                        None // use pre-existing data
-                    } else {
-                        // Pass the image buffers into the GPU renderer
-                        Some((
-                            std::mem::take(&mut image_data.images),
-                            image_data.image_size,
-                        ))
-                    },
-                    render_mode,
-                },
-            ));
 
             // The image has been drawn by the CustomCallback
             let layout = painter.layout(
