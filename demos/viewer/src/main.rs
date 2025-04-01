@@ -367,11 +367,32 @@ enum Mode2D {
     Debug,
 }
 
+impl Mode2D {
+    fn description(&self) -> &'static str {
+        match self {
+            Self::Color => "2D color",
+            Self::Sdf => "2D SDF (approx)",
+            Self::ExactSdf => "2D SDF (exact)",
+            Self::Debug => "2D debug",
+        }
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum Mode3D {
     Heightmap,
     Color,
     Shaded,
+}
+
+impl Mode3D {
+    fn description(&self) -> &'static str {
+        match self {
+            Self::Heightmap => "3D heightmap",
+            Self::Color => "3D color",
+            Self::Shaded => "3D shaded",
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -463,20 +484,117 @@ struct Draw2D {
     rgba_bind_group_layout: wgpu::BindGroupLayout,
 }
 
-struct Draw3D {
-    geometry_pipeline: wgpu::RenderPipeline,
-    tex: Option<(fidget::render::ImageSize, Vec<CustomTexture>)>,
-    geometry_sampler: wgpu::Sampler,
-    geometry_bind_group_layout: wgpu::BindGroupLayout,
-
-    /// Local copy of render configuration
-    render_config: RenderConfig,
-
-    /// GPU buffer for render configuration
-    render_config_buffer: wgpu::Buffer,
-}
-
 impl Draw2D {
+    fn init(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+        // Create RGBA shader module
+        let rgba_shader =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("RGBA Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("shaders/image.wgsl").into(),
+                ),
+            });
+
+        // Create samplers
+        let rgba_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("RGBA Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // Create bind group layout for RGBA texture and sampler
+        let rgba_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("RGBA Bind Group Layout"),
+                entries: &[
+                    // Texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float {
+                                filterable: true,
+                            },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // Sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(
+                            wgpu::SamplerBindingType::Filtering,
+                        ),
+                        count: None,
+                    },
+                ],
+            });
+
+        // Create render pipeline layouts
+        let rgba_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("RGBA Render Pipeline Layout"),
+                bind_group_layouts: &[&rgba_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        // Create the RGBA render pipeline
+        let rgba_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("RGBA Render Pipeline"),
+                layout: Some(&rgba_pipeline_layout),
+                cache: None,
+                vertex: wgpu::VertexState {
+                    module: &rgba_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &rgba_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent::OVER,
+                            alpha: wgpu::BlendComponent::OVER,
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+        Draw2D {
+            rgba_pipeline,
+            tex: None,
+            rgba_sampler,
+            rgba_bind_group_layout,
+        }
+    }
+
     fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -586,7 +704,150 @@ impl Draw2D {
     }
 }
 
+struct Draw3D {
+    geometry_pipeline: wgpu::RenderPipeline,
+    tex: Option<(fidget::render::ImageSize, Vec<CustomTexture>)>,
+    geometry_sampler: wgpu::Sampler,
+    geometry_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Local copy of render configuration
+    render_config: RenderConfig,
+
+    /// GPU buffer for render configuration
+    render_config_buffer: wgpu::Buffer,
+}
+
 impl Draw3D {
+    fn init(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+        // Create Geometry shader module
+        let geometry_shader =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Geometry Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("shaders/geometry.wgsl").into(),
+                ),
+            });
+
+        let geometry_sampler =
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Geometry Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Nearest, // Use nearest for integer textures
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+        // Create bind group layout for Geometry texture and sampler
+        let geometry_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Geometry Bind Group Layout"),
+                entries: &[
+                    // Texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // Sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(
+                            wgpu::SamplerBindingType::NonFiltering,
+                        ),
+                        count: None,
+                    },
+                    // Uniform buffer for render configuration
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let geometry_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Geometry Render Pipeline Layout"),
+                bind_group_layouts: &[&geometry_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        // Create the Geometry render pipeline
+        let geometry_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Geometry Render Pipeline"),
+                layout: Some(&geometry_pipeline_layout),
+                cache: None,
+                vertex: wgpu::VertexState {
+                    module: &geometry_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &geometry_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent::OVER,
+                            alpha: wgpu::BlendComponent::OVER,
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+
+        // Create a buffer for render configuration
+        let render_config = RenderConfig::default();
+        let render_config_buffer =
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Render Config Buffer"),
+                size: std::mem::size_of::<RenderConfig>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        Draw3D {
+            geometry_pipeline,
+            tex: None,
+            geometry_sampler,
+            geometry_bind_group_layout,
+            render_config,
+            render_config_buffer,
+        }
+    }
     fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -816,257 +1077,21 @@ impl ViewerApp {
     ) -> Self {
         // Initialize renderer if WGPU is available
         let wgpu_state = cc.wgpu_render_state.as_ref().unwrap();
-        let device = &wgpu_state.device;
-        let target_format = wgpu_state.target_format;
 
-        // Create RGBA shader module
-        let rgba_shader =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("RGBA Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    include_str!("shaders/image.wgsl").into(),
-                ),
-            });
-
-        // Create samplers
-        let rgba_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("RGBA Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
-        // Create bind group layout for RGBA texture and sampler
-        let rgba_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("RGBA Bind Group Layout"),
-                entries: &[
-                    // Texture
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float {
-                                filterable: true,
-                            },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    // Sampler
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(
-                            wgpu::SamplerBindingType::Filtering,
-                        ),
-                        count: None,
-                    },
-                ],
-            });
-
-        // Create render pipeline layouts
-        let rgba_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("RGBA Render Pipeline Layout"),
-                bind_group_layouts: &[&rgba_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        // Create the RGBA render pipeline
-        let rgba_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("RGBA Render Pipeline"),
-                layout: Some(&rgba_pipeline_layout),
-                cache: None,
-                vertex: wgpu::VertexState {
-                    module: &rgba_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &rgba_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: target_format,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent::OVER,
-                            alpha: wgpu::BlendComponent::OVER,
-                        }),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: None,
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-            });
-
-        // Insert the custom resources into the renderer
+        // Build the custom render resources for 2D and 3D rendering
+        let draw2d = Draw2D::init(&wgpu_state.device, wgpu_state.target_format);
         wgpu_state
             .renderer
             .write()
             .callback_resources
-            .insert(Draw2D {
-                rgba_pipeline,
-                tex: None,
-                rgba_sampler,
-                rgba_bind_group_layout,
-            });
+            .insert(draw2d);
 
-        // Create Geometry shader module
-        let geometry_shader =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Geometry Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    include_str!("shaders/geometry.wgsl").into(),
-                ),
-            });
-
-        let geometry_sampler =
-            device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("Geometry Sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Nearest, // Use nearest for integer textures
-                min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            });
-
-        // Create bind group layout for Geometry texture and sampler
-        let geometry_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Geometry Bind Group Layout"),
-                entries: &[
-                    // Texture
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Uint,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    // Sampler
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(
-                            wgpu::SamplerBindingType::NonFiltering,
-                        ),
-                        count: None,
-                    },
-                    // Uniform buffer for render configuration
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
-        let geometry_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Geometry Render Pipeline Layout"),
-                bind_group_layouts: &[&geometry_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        // Create the Geometry render pipeline
-        let geometry_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Geometry Render Pipeline"),
-                layout: Some(&geometry_pipeline_layout),
-                cache: None,
-                vertex: wgpu::VertexState {
-                    module: &geometry_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &geometry_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: target_format,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent::OVER,
-                            alpha: wgpu::BlendComponent::OVER,
-                        }),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: None,
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-            });
-
-        // Create a buffer for render configuration
-        let render_config = RenderConfig::default();
-        let render_config_buffer =
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Render Config Buffer"),
-                size: std::mem::size_of::<RenderConfig>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM
-                    | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-
-        // Insert the custom resources into the renderer
+        let draw3d = Draw3D::init(&wgpu_state.device, wgpu_state.target_format);
         wgpu_state
             .renderer
             .write()
             .callback_resources
-            .insert(Draw3D {
-                geometry_pipeline,
-                tex: None,
-                geometry_sampler,
-                geometry_bind_group_layout,
-                render_config,
-                render_config_buffer,
-            });
+            .insert(draw3d);
 
         Self {
             image_data: None,
@@ -1092,21 +1117,10 @@ impl ViewerApp {
                         RenderMode::TwoD { .. } => None,
                         RenderMode::ThreeD { mode, .. } => Some(*mode),
                     };
-                    ui.radio_value(
-                        &mut mode_3d,
-                        Some(Mode3D::Heightmap),
-                        "3D heightmap",
-                    );
-                    ui.radio_value(
-                        &mut mode_3d,
-                        Some(Mode3D::Color),
-                        "3D color",
-                    );
-                    ui.radio_value(
-                        &mut mode_3d,
-                        Some(Mode3D::Shaded),
-                        "3D shaded",
-                    );
+                    for m in [Mode3D::Heightmap, Mode3D::Color, Mode3D::Shaded]
+                    {
+                        ui.radio_value(&mut mode_3d, Some(m), m.description());
+                    }
                     if let Some(m) = mode_3d {
                         changed = self.mode.set_3d_mode(m);
                     }
@@ -1115,26 +1129,14 @@ impl ViewerApp {
                         RenderMode::TwoD { mode, .. } => Some(*mode),
                         RenderMode::ThreeD { .. } => None,
                     };
-                    ui.radio_value(
-                        &mut mode_2d,
-                        Some(Mode2D::Debug),
-                        "2D debug",
-                    );
-                    ui.radio_value(
-                        &mut mode_2d,
-                        Some(Mode2D::Sdf),
-                        "2D SDF (approx)",
-                    );
-                    ui.radio_value(
-                        &mut mode_2d,
-                        Some(Mode2D::ExactSdf),
-                        "2D SDF (exact)",
-                    );
-                    ui.radio_value(
-                        &mut mode_2d,
-                        Some(Mode2D::Color),
-                        "2D Color",
-                    );
+                    for m in [
+                        Mode2D::Debug,
+                        Mode2D::Sdf,
+                        Mode2D::ExactSdf,
+                        Mode2D::Color,
+                    ] {
+                        ui.radio_value(&mut mode_2d, Some(m), m.description());
+                    }
 
                     if let Some(m) = mode_2d {
                         changed = self.mode.set_2d_mode(m);
