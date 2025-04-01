@@ -336,10 +336,21 @@ impl Interval {
 
     /// Least non-negative remainder
     pub fn rem_euclid(&self, other: Interval) -> Self {
+        // TODO optimize this more?
         if self.has_nan() || other.has_nan() || other.contains(0.0) {
             f32::NAN.into()
+        } else if other.lower == other.upper && other.lower > 0.0 {
+            let a = self.lower / other.lower;
+            let b = self.upper / other.lower;
+            if a != a.floor() && a.floor() == b.floor() {
+                Interval::new(
+                    self.lower.rem_euclid(other.lower),
+                    self.upper.rem_euclid(other.lower),
+                )
+            } else {
+                Interval::new(0.0, other.abs().upper())
+            }
         } else {
-            // TODO optimize this
             Interval::new(0.0, other.abs().upper())
         }
     }

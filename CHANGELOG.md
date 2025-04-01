@@ -1,4 +1,13 @@
-# 0.3.5 (unreleased)
+# 0.3.6 (unreleased)
+- Change `Option<ThreadPool<'a>>` to `Option<&'a ThreadPool>` throughout the
+  codebase; moving the reference out of the `ThreadPool` eliminates the need for
+  a separate `rayon::ThreadPool` object on the stack.
+- Significant rewrite of meshing!  It now uses the same `Option<&ThreadPool>`
+  type and is multithreaded using Rayon, meaning it can work in WebAssembly.
+- Changed 3D rendering and effects functions to use a new `GeometryBuffer` type,
+  which combines depth and normal data into a single image.
+
+# 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
 - Make `TranslateHandle` take a `const N: usize` parameter
 - Use `TranslateHandle` in `View2` (previously, it was only used in `View3`)
@@ -12,6 +21,31 @@
 - Fix inconsistency between JIT and VM evaluator when performing interval
   evaluation of `not([NAN, NAN])`.
 - Propagate `NAN` values through `and` and `or` operations on intervals.
+- Add a new `Image<P>` generic image type (wrapping a `Vec<P>`, `width`, and
+  `height`).
+    - Define `DepthImage`, `NormalImage`, and `ColorImage` specializations
+    - Use these types in 2D and 3D rendering
+- Remove `Grad::to_rgb` in favor of handling it at the image level
+- Add `fidget::render::effects` module for post-processing rendered images:
+    - Combining depth and normal images into a shaded image
+    - Denoising normals to fix back-facing samples
+    - Computing and applying screen-space ambient occlusion
+- Optimize implementation of interval `modulo` for cases where the right-hand
+  argument is a positive constant value (which is the most common when using it
+  for domain repetition)
+- Update many dependencies to their latest versions
+
+## WebAssembly building notes
+Due to [`getrandom#504`](https://github.com/rust-random/getrandom/pull/504),
+crates which use Fidget as a library **and** compile to WebAssembly must
+select a `getrandom` backend.  This can be done either on the command line
+(`RUSTFLAGS='--cfg getrandom_backend="wasm_js"'`) or in a `.cargo/config.toml`
+configuration file (e.g. [this file](https://github.com/mkeeter/fidget/tree/main/.cargo/config.toml)
+in Fidget itself).
+
+See
+[the `getrandom` docs](https://docs.rs/getrandom/latest/getrandom/#webassembly-support)
+for more details on why this is necessary.
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function

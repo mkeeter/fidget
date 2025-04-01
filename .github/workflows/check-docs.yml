@@ -16,7 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: Swatinem/rust-cache@v2
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: check-docs
     - name: Install nightly Rust
       run: rustup default nightly
     - name: Check docs

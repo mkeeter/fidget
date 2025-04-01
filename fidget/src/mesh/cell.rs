@@ -3,65 +3,30 @@ use crate::types::Interval;
 
 use super::{
     gen::CELL_TO_EDGE_TO_VERT,
-    types::{Axis, Corner, Edge, Intersection, X, Y, Z},
+    types::{Axis, CellMask, Corner, Edge, Intersection},
 };
 
-/// Raw cell data
-///
-/// Unpack to a [`Cell`] to actually use it
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub struct CellData(u64);
-
-impl From<Cell> for CellData {
-    fn from(c: Cell) -> Self {
-        let i = match c {
-            Cell::Invalid => 0,
-            Cell::Empty => 1,
-            Cell::Full => 2,
-            Cell::Branch { index, thread } => {
-                #[cfg(not(target_arch = "wasm32"))]
-                debug_assert!(index < (1 << 54));
-                (0b10 << 62) | ((thread as u64) << 54) | index as u64
-            }
-            Cell::Leaf(Leaf { mask, index }) => {
-                #[cfg(not(target_arch = "wasm32"))]
-                debug_assert!(index < (1 << 54));
-                (0b11 << 62) | ((mask as u64) << 54) | index as u64
-            }
-        };
-        CellData(i)
-    }
-}
-
-impl std::fmt::Debug for CellData {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> Result<(), std::fmt::Error> {
-        let c: Cell = (*self).into();
-        c.fmt(f)
-    }
-}
-
-/// Unpacked form of [`CellData`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Cell {
+pub enum Cell<const D: usize> {
     Invalid,
     Empty,
     Full,
-    Branch { index: usize, thread: u8 },
-    Leaf(Leaf),
+    Branch {
+        /// Index of the next cell in
+        /// [`Octree::cells`](super::octree::Octree::cells)
+        index: usize,
+    },
+    Leaf(Leaf<D>),
 }
 
-impl Cell {
+impl<const D: usize> Cell<D> {
     /// Checks whether the given corner is empty (`false`) or full (`true`)
     ///
     /// # Panics
     /// If the cell is a branch or invalid
-    pub fn corner(self, c: Corner) -> bool {
-        let t = 1 << c.index();
+    pub fn corner(self, c: Corner<D>) -> bool {
         match self {
-            Cell::Leaf(Leaf { mask, .. }) => mask & t != 0,
+            Cell::Leaf(Leaf { mask, .. }) => mask & c,
             Cell::Empty => false,
             Cell::Full => true,
             Cell::Branch { .. } | Cell::Invalid => panic!(),
@@ -69,72 +34,43 @@ impl Cell {
     }
 }
 
-impl From<CellData> for Cell {
-    fn from(c: CellData) -> Self {
-        let i = c.0;
-        match i {
-            0 => Cell::Invalid,
-            1 => Cell::Empty,
-            2 => Cell::Full,
-            _ => {
-                let index = (i & ((1 << 54) - 1)).try_into().unwrap();
-                match (i >> 62) & 0b11 {
-                    0b10 => Cell::Branch {
-                        thread: (i >> 54) as u8,
-                        index,
-                    },
-                    0b11 => Cell::Leaf(Leaf {
-                        mask: (i >> 54) as u8,
-                        index,
-                    }),
-                    _ => panic!("invalid cell encoding"),
-                }
-            }
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Leaf {
-    pub mask: u8, // TODO make this a stronger type, e.g. CellMask?
+pub struct Leaf<const D: usize> {
+    /// Mask of corner occupancy
+    pub mask: CellMask<D>,
+
+    /// Index of first vertex in [`Octree::verts`](super::octree::Octree::verts)
     pub index: usize,
 }
 
-impl Leaf {
+impl<const D: usize> Leaf<D> {
+    /// Returns the edge intersection for the given edge (if present)
     pub fn edge(&self, e: Edge) -> Option<Intersection> {
-        let out = CELL_TO_EDGE_TO_VERT[self.mask as usize][e.index()];
-        if out.vert.0 == u8::MAX || out.edge.0 == u8::MAX {
-            None
-        } else {
-            Some(out)
-        }
+        CELL_TO_EDGE_TO_VERT[self.mask.index()][e.index()]
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct CellVertex {
+pub struct CellVertex<const D: usize> {
     /// Position of this vertex
-    pub pos: nalgebra::Vector3<f32>,
+    pub pos: nalgebra::OVector<f32, nalgebra::Const<D>>,
 }
 
-impl Default for CellVertex {
+impl<const D: usize> Default for CellVertex<D> {
     fn default() -> Self {
         Self {
-            pos: nalgebra::Vector3::new(f32::NAN, f32::NAN, f32::NAN),
+            pos: nalgebra::OVector::<f32, nalgebra::Const<D>>::from_element(
+                f32::NAN,
+            ),
         }
     }
 }
 
-impl std::ops::Index<Axis> for CellVertex {
+impl<const D: usize> std::ops::Index<Axis<D>> for CellVertex<D> {
     type Output = f32;
 
-    fn index(&self, axis: Axis) -> &Self::Output {
-        match axis {
-            X => &self.pos.x,
-            Y => &self.pos.y,
-            Z => &self.pos.z,
-            _ => panic!("invalid axis: {axis:?}"),
-        }
+    fn index(&self, axis: Axis<D>) -> &Self::Output {
+        &self.pos[axis.index()]
     }
 }
 
@@ -148,30 +84,41 @@ impl std::ops::Index<Axis> for CellVertex {
 /// `index` points to where this cell is stored in
 /// [`Octree::cells`](super::Octree::cells)
 #[derive(Copy, Clone, Debug)]
-pub struct CellIndex {
-    pub index: usize,
+pub struct CellIndex<const D: usize> {
+    /// Cell index in `Octree::cells`; `None` is the root
+    pub index: Option<(usize, u8)>,
     pub depth: usize,
-    pub bounds: CellBounds,
+    pub bounds: CellBounds<D>,
 }
 
-impl Default for CellIndex {
+impl<const D: usize> Default for CellIndex<D> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CellIndex {
+impl<const D: usize> CellIndex<D> {
     pub fn new() -> Self {
         CellIndex {
-            index: 0,
+            index: None,
             bounds: CellBounds::default(),
             depth: 0,
         }
     }
 
-    /// Returns the position of the given corner (0-7)
+    /// Returns a child cell for the given corner, rooted at the given index
+    pub fn child(&self, index: usize, i: Corner<D>) -> Self {
+        let bounds = self.bounds.child(i);
+        CellIndex {
+            index: Some((index, i.get())),
+            bounds,
+            depth: self.depth + 1,
+        }
+    }
+
+    /// Returns the position of the given corner
     ///
-    /// Vertices are numbered as follows:
+    /// Vertices are numbered as follows in 3D:
     ///
     /// ```text
     ///         6 -------- 7
@@ -187,20 +134,14 @@ impl CellIndex {
     ///
     /// The 8 octree cells are numbered equivalently, based on their corner
     /// vertex.
-    pub fn corner(&self, i: Corner) -> (f32, f32, f32) {
+    ///
+    /// In 2D, only corners on the XY plane (0-4) are valid.
+    pub fn corner(&self, i: Corner<D>) -> [f32; D] {
         self.bounds.corner(i)
     }
+}
 
-    /// Returns a child cell for the given corner, rooted at the given index
-    pub fn child(&self, index: usize, i: Corner) -> Self {
-        let bounds = self.bounds.child(i);
-        CellIndex {
-            index: index + i.index(),
-            bounds,
-            depth: self.depth + 1,
-        }
-    }
-
+impl CellIndex<3> {
     /// Converts from a relative position in the cell to an absolute position
     pub fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
         self.bounds.pos(p)
@@ -208,88 +149,71 @@ impl CellIndex {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct CellBounds {
-    pub x: Interval,
-    pub y: Interval,
-    pub z: Interval,
+pub struct CellBounds<const D: usize> {
+    pub bounds: [Interval; D],
 }
 
-impl std::ops::Index<Axis> for CellBounds {
+impl<const D: usize> std::ops::Index<Axis<D>> for CellBounds<D> {
     type Output = Interval;
 
-    fn index(&self, axis: Axis) -> &Self::Output {
-        match axis {
-            X => &self.x,
-            Y => &self.y,
-            Z => &self.z,
-            _ => panic!("invalid axis: {axis:?}"),
-        }
+    fn index(&self, axis: Axis<D>) -> &Self::Output {
+        &self.bounds[axis.index()]
     }
 }
 
-impl Default for CellBounds {
+impl<const D: usize> Default for CellBounds<D> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CellBounds {
+impl<const D: usize> CellBounds<D> {
     pub fn new() -> Self {
-        let x = Interval::new(-1.0, 1.0);
-        let y = Interval::new(-1.0, 1.0);
-        let z = Interval::new(-1.0, 1.0);
-        Self { x, y, z }
-    }
-
-    pub fn corner(&self, i: Corner) -> (f32, f32, f32) {
-        let x = if i & X {
-            self.x.upper()
-        } else {
-            self.x.lower()
-        };
-        let y = if i & Y {
-            self.y.upper()
-        } else {
-            self.y.lower()
-        };
-        let z = if i & Z {
-            self.z.upper()
-        } else {
-            self.z.lower()
-        };
-        (x, y, z)
-    }
-
-    pub fn child(&self, i: Corner) -> Self {
-        let x = if i & X {
-            Interval::new(self.x.midpoint(), self.x.upper())
-        } else {
-            Interval::new(self.x.lower(), self.x.midpoint())
-        };
-        let y = if i & Y {
-            Interval::new(self.y.midpoint(), self.y.upper())
-        } else {
-            Interval::new(self.y.lower(), self.y.midpoint())
-        };
-        let z = if i & Z {
-            Interval::new(self.z.midpoint(), self.z.upper())
-        } else {
-            Interval::new(self.z.lower(), self.z.midpoint())
-        };
-        Self { x, y, z }
-    }
-
-    /// Converts from a relative position in the cell to an absolute position
-    pub fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
-        let x = self.x.lerp(p.x as f32 / u16::MAX as f32);
-        let y = self.y.lerp(p.y as f32 / u16::MAX as f32);
-        let z = self.z.lerp(p.z as f32 / u16::MAX as f32);
-        nalgebra::Vector3::new(x, y, z)
+        Self {
+            bounds: [Interval::new(-1.0, 1.0); D],
+        }
     }
 
     /// Checks whether the given position is within the cell
-    pub fn contains(&self, p: CellVertex) -> bool {
-        [X, Y, Z].iter().all(|&i| self[i].contains(p[i]))
+    pub fn contains(&self, p: CellVertex<D>) -> bool {
+        Axis::array()
+            .into_iter()
+            .all(|axis| self[axis].contains(p[axis]))
+    }
+
+    pub fn child(&self, corner: Corner<D>) -> Self {
+        let bounds = Axis::array().map(|axis| {
+            let i = axis.index();
+            if corner & axis {
+                Interval::new(self.bounds[i].midpoint(), self.bounds[i].upper())
+            } else {
+                Interval::new(self.bounds[i].lower(), self.bounds[i].midpoint())
+            }
+        });
+        Self { bounds }
+    }
+
+    pub fn corner(&self, corner: Corner<D>) -> [f32; D] {
+        Axis::array().map(|axis| {
+            let i = axis.index();
+            if corner & axis {
+                self.bounds[i].upper()
+            } else {
+                self.bounds[i].lower()
+            }
+        })
+    }
+
+    /// Converts from a relative position in the cell to an absolute position
+    pub fn pos(
+        &self,
+        p: nalgebra::OVector<u16, nalgebra::Const<D>>,
+    ) -> nalgebra::OVector<f32, nalgebra::Const<D>> {
+        let mut out = nalgebra::OVector::<f32, nalgebra::Const<D>>::zeros();
+        for i in 0..D {
+            out[i] = self.bounds[i].lerp(p[i] as f32 / u16::MAX as f32);
+        }
+        out
     }
 }
 
@@ -300,48 +224,17 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_cell_encode_decode() {
-        for c in [
-            Cell::Empty,
-            Cell::Invalid,
-            Cell::Full,
-            Cell::Branch {
-                index: 12345,
-                thread: 17,
-            },
-            Cell::Branch {
-                index: 0x12340054322345,
-                thread: 128,
-            },
-            Cell::Leaf(Leaf {
-                index: 12345,
-                mask: 0b101,
-            }),
-            Cell::Leaf(Leaf {
-                index: 0x123400005432,
-                mask: 0b11011010,
-            }),
-            Cell::Leaf(Leaf {
-                index: 0x12123400005432,
-                mask: 0b11011010,
-            }),
-        ] {
-            assert_eq!(c, Cell::from(CellData::from(c)));
-        }
-    }
-
-    #[test]
     fn test_cell_corner() {
-        let c = Cell::Empty;
+        let c = Cell::<3>::Empty;
         for i in Corner::iter() {
             assert!(!c.corner(i));
         }
-        let c = Cell::Full;
+        let c = Cell::<3>::Full;
         for i in Corner::iter() {
             assert!(c.corner(i));
         }
-        let c = Cell::Leaf(Leaf {
-            mask: 0b00000010,
+        let c = Cell::<3>::Leaf(Leaf {
+            mask: CellMask::new(0b00000010),
             index: 0,
         });
         assert!(!c.corner(Corner::new(0)));

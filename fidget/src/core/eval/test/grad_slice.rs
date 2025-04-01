@@ -331,6 +331,23 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         );
     }
 
+    pub fn test_g_modulo() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let m = ctx.modulo(x, 1.0).unwrap();
+        let out = ctx.sub(y, m).unwrap();
+
+        let shape = F::new(&ctx, &[out]).unwrap();
+        let tape = shape.grad_slice_tape(Default::default());
+        println!(
+            "{}\n{}\n{}",
+            Self::eval_xyz(&tape, &[0.0], &[0.5], &[0.0])[0],
+            Self::eval_xyz(&tape, &[-0.01], &[0.5], &[0.0])[0],
+            Self::eval_xyz(&tape, &[0.01], &[0.5], &[0.0])[0],
+        );
+    }
+
     pub fn test_g_stress_n(depth: usize) {
         let (ctx, node) = build_stress_fn(depth);
 
@@ -678,6 +695,7 @@ macro_rules! grad_test {
 macro_rules! grad_slice_tests {
     ($t:ty) => {
         $crate::grad_test!(test_g_circle, $t);
+        $crate::grad_test!(test_g_modulo, $t);
         $crate::grad_test!(test_g_x, $t);
         $crate::grad_test!(test_g_y, $t);
         $crate::grad_test!(test_g_z, $t);

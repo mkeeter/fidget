@@ -12,13 +12,15 @@ image.workspace = true
 log.workspace = true
 nalgebra.workspace = true
 rayon.workspace = true
+strum.workspace = true
 
 fidget.path = "../../fidget"
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [features]
 jit = ["fidget/jit"]
-default = ["jit"]
+logger-full = ["env_logger/auto-color", "env_logger/humantime", "env_logger/regex"]
+default = ["jit", "logger-full"]
 
 [[bin]]
 name = "fidget-cli"

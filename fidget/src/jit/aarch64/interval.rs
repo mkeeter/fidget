@@ -83,6 +83,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// ```
 const STACK_SIZE: u32 = 0x100;
 
+#[allow(clippy::unnecessary_cast)] // dynasm-rs#106
 impl Assembler for IntervalAssembler {
     type Data = Interval;
 
@@ -238,7 +239,7 @@ impl Assembler for IntervalAssembler {
             ; b.mi 16 // -> okay
 
             // Bad case: the division spans 0, so return NaN
-            ; mov w15, f32::NAN.to_bits().into()
+            ; mov w15, f32::NAN.to_bits()
             ; dup V(reg(out_reg)).s2, w15
             ; b 20 // -> end
 
@@ -265,7 +266,7 @@ impl Assembler for IntervalAssembler {
             ; b 12 // -> end
 
             // <- upper_lz
-            ; mov w9, f32::NAN.to_bits().into()
+            ; mov w9, f32::NAN.to_bits()
             ; dup V(reg(out_reg)).s2, w9
 
             // <- end
@@ -405,7 +406,7 @@ impl Assembler for IntervalAssembler {
             ; b.lt 16
 
             // Sad path: rhs spans 0, so the output includes NaN
-            ; mov w9, f32::NAN.to_bits().into()
+            ; mov w9, f32::NAN.to_bits()
             ; dup V(reg(out_reg)).s2, w9
             ; b 32 // -> end
 
@@ -575,7 +576,7 @@ impl Assembler for IntervalAssembler {
 
             // NAN handling
             ; orr w14, w14, CHOICE_BOTH
-            ; mov w15, f32::NAN.to_bits().into()
+            ; mov w15, f32::NAN.to_bits()
             ; dup V(reg(out_reg)).s2, w15
             ; b 112 // -> exit
 
@@ -639,7 +640,7 @@ impl Assembler for IntervalAssembler {
 
             // NAN handling
             ; orr w14, w14, CHOICE_BOTH
-            ; mov w15, f32::NAN.to_bits().into()
+            ; mov w15, f32::NAN.to_bits()
             ; dup V(reg(out_reg)).s2, w15
             ; b 108 // -> exit
 
@@ -699,7 +700,7 @@ impl Assembler for IntervalAssembler {
             ; b.ne 16 // -> skip over NAN handling into main logic
 
             // NAN case
-            ; mov w15, f32::NAN.to_bits().into()
+            ; mov w15, f32::NAN.to_bits()
             ; dup V(reg(out_reg)).s2, w15
             ; b 76 // -> end
 
@@ -827,10 +828,10 @@ impl IntervalAssembler {
 
             // Load the function address, awkwardly, into x0 (it doesn't matter
             // that it's about to be overwritten, because we only call it once)
-            ; movz x0, ((addr >> 48) as u32), lsl 48
-            ; movk x0, ((addr >> 32) as u32), lsl 32
-            ; movk x0, ((addr >> 16) as u32), lsl 16
-            ; movk x0, addr as u32
+            ; movz x0, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x0, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x0, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x0, addr as u32 & 0xFFFF
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(arg_reg)).s[0]
@@ -888,10 +889,10 @@ impl IntervalAssembler {
 
             // Load the function address, awkwardly, into a caller-saved
             // register (so we only need to do this once)
-            ; movz x0, ((addr >> 48) as u32), lsl 48
-            ; movk x0, ((addr >> 32) as u32), lsl 32
-            ; movk x0, ((addr >> 16) as u32), lsl 16
-            ; movk x0, addr as u32
+            ; movz x0, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x0, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x0, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x0, addr as u32 & 0xFFFF
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(lhs_reg)).s[0]

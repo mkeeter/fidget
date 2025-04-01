@@ -1,9 +1,9 @@
 use fidget::{
     context::{Context, Tree},
     render::{
-        BitRenderMode, CancelToken, ImageRenderConfig, ImageSize, RotateHandle,
-        ThreadPool, TileSizes, TranslateHandle, View2, View3,
-        VoxelRenderConfig, VoxelSize,
+        BitRenderMode, CancelToken, GeometryBuffer, ImageRenderConfig,
+        ImageSize, RotateHandle, ThreadPool, TileSizes, TranslateHandle, View2,
+        View3, VoxelRenderConfig, VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
@@ -64,7 +64,7 @@ pub fn render_2d(
     ) -> Option<Vec<u8>> {
         let cfg = ImageRenderConfig {
             image_size: ImageSize::from(image_size as u32),
-            threads: Some(ThreadPool::Global),
+            threads: Some(&ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
             view,
             cancel,
@@ -92,15 +92,14 @@ pub fn render_heightmap(
     camera: JsCamera3,
     cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (depth, _norm) =
-        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
-            .ok_or_else(|| "cancelled".to_string())?;
+    let image = render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+        .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
-    Ok(depth
+    Ok(image
         .into_iter()
         .flat_map(|v| {
-            let d = (v as usize * 255 / image_size) as u8;
+            let d = (v.depth as usize * 255 / image_size) as u8;
             [d, d, d, 255]
         })
         .collect())
@@ -114,14 +113,16 @@ pub fn render_normals(
     camera: JsCamera3,
     cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (_depth, norm) =
-        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
-            .ok_or_else(|| "cancelled".to_string())?;
+    let image = render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+        .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
-    Ok(norm
+    Ok(image
         .into_iter()
-        .flat_map(|[r, g, b]| [r, g, b, 255])
+        .flat_map(|p| {
+            let [r, g, b] = if p.depth > 0 { p.to_color() } else { [0; 3] };
+            [r, g, b, 255]
+        })
         .collect())
 }
 
@@ -130,10 +131,10 @@ fn render_3d_inner(
     image_size: usize,
     view: View3,
     cancel: CancelToken,
-) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+) -> Option<GeometryBuffer> {
     let cfg = VoxelRenderConfig {
         image_size: VoxelSize::from(image_size as u32),
-        threads: Some(ThreadPool::Global),
+        threads: Some(&ThreadPool::Global),
         tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
         view,
         cancel,

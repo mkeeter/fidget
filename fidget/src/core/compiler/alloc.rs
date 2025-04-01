@@ -55,7 +55,7 @@ impl<const N: usize> RegisterAllocator<N> {
             registers: [UNASSIGNED; N],
             register_lru: Lru::new(),
 
-            spare_registers: Vec::with_capacity(N),
+            spare_registers: (0..N as u8).rev().collect(),
             spare_memory: Vec::with_capacity(1024),
 
             out: RegTape::empty(),
@@ -70,7 +70,7 @@ impl<const N: usize> RegisterAllocator<N> {
             registers: [UNASSIGNED; N],
             register_lru: Lru::new(),
 
-            spare_registers: Vec::with_capacity(N),
+            spare_registers: (0..N as u8).rev().collect(),
             spare_memory: vec![],
 
             out: RegTape::empty(),
@@ -78,6 +78,12 @@ impl<const N: usize> RegisterAllocator<N> {
     }
 
     /// Resets internal state, reusing allocations and the provided tape
+    ///
+    /// This must be called after the allocator is finalized (removing the
+    /// internal [`RegTape`]).
+    ///
+    /// # Panics
+    /// If the internal tape is not empty
     pub fn reset(&mut self, size: usize, tape: RegTape) {
         assert!(self.out.is_empty());
         self.allocations.fill(UNASSIGNED);
@@ -85,12 +91,13 @@ impl<const N: usize> RegisterAllocator<N> {
         self.registers.fill(UNASSIGNED);
         self.register_lru = Lru::new();
         self.spare_registers.clear();
+        self.spare_registers.extend((0..N as u8).rev());
         self.spare_memory.clear();
         self.out = tape;
         self.out.reset();
     }
 
-    /// Claims the internal `Vec<RegOp>`, leaving it empty
+    /// Claims the internal [`RegTape`], leaving the allocator empty
     #[inline]
     pub fn finalize(&mut self) -> RegTape {
         std::mem::take(&mut self.out)
@@ -146,16 +153,9 @@ impl<const N: usize> RegisterAllocator<N> {
     /// Return an unoccupied register, if available
     #[inline]
     fn get_spare_register(&mut self) -> Option<u8> {
-        self.spare_registers.pop().or_else(|| {
-            if self.out.slot_count < N as u32 {
-                let reg = self.out.slot_count;
-                assert!(self.registers[reg as usize] == UNASSIGNED);
-                self.out.slot_count += 1;
-                Some(reg.try_into().unwrap())
-            } else {
-                None
-            }
-        })
+        let r = self.spare_registers.pop()?;
+        self.out.slot_count = self.out.slot_count.max(r as u32 + 1);
+        Some(r)
     }
 
     #[inline]

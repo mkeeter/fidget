@@ -22,10 +22,9 @@ jobs:
     runs-on: macos-14
     steps:
     - uses: actions/checkout@v4
-    - uses: Swatinem/rust-cache@v2
-    - name: Install target
-      run: rustup target add ${{ matrix.target }}
-    - name: Check
-      run: cargo check --target=${{ matrix.target }} --all-targets --verbose
-    - name: Clippy
-      run: cargo clippy --target=${{ matrix.target }} --all-targets --verbose
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: check-aarch64
+    - uses: ./.github/actions/rust-check
+      with:
+        target: ${{ matrix.target }}

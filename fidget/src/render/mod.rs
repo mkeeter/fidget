@@ -8,6 +8,9 @@ use crate::{
     Error,
 };
 use nalgebra::Point2;
+use rayon::prelude::*;
+
+pub mod effects;
 
 mod config;
 mod region;
@@ -32,7 +35,8 @@ pub use render2d::{
 
 /// A `RenderHandle` contains lazily-populated tapes for rendering
 ///
-/// The tapes are stored as `Arc<..>`, so it can be cheaply cloned.
+/// This can be cheaply cloned, although it is _usually_ passed by mutable
+/// reference to a recursive function.
 ///
 /// The most recent simplification is cached for reuse (if the trace matches).
 pub struct RenderHandle<F: Function> {
@@ -334,26 +338,20 @@ where
                 .ok()
         }
 
-        Some(p) => {
-            let run = || {
-                tiles
-                    .into_par_iter()
-                    .map_init(init, |(w, rh), tile| {
-                        if config.is_cancelled() {
-                            Err(())
-                        } else {
-                            let pixels = w.render_tile(rh, vars, tile);
-                            Ok((tile, pixels))
-                        }
-                    })
-                    .collect::<Result<Vec<_>, ()>>()
-                    .ok()
-            };
-            match p {
-                ThreadPool::Custom(p) => p.install(run),
-                ThreadPool::Global => run(),
-            }
-        }
+        Some(p) => p.run(|| {
+            tiles
+                .into_par_iter()
+                .map_init(init, |(w, rh), tile| {
+                    if config.is_cancelled() {
+                        Err(())
+                    } else {
+                        let pixels = w.render_tile(rh, vars, tile);
+                        Ok((tile, pixels))
+                    }
+                })
+                .collect::<Result<Vec<_>, ()>>()
+                .ok()
+        }),
     };
 
     out
@@ -386,3 +384,278 @@ pub(crate) trait RenderWorker<'a, F: Function> {
         tile: config::Tile<2>,
     ) -> Self::Output;
 }
+
+/// Generic image type
+///
+/// The image is laid out in row-major order, and can be indexed either by a
+/// `usize` index or a `(row, column)` tuple.
+///
+/// ```text
+///        0 ------------> width (columns)
+///        |             |
+///        |             |
+///        |             |
+///        V--------------
+///   height (rows)
+/// ```
+pub struct Image<P, S = ImageSize> {
+    data: Vec<P>,
+    size: S,
+}
+
+/// Helper trait to make images generic across [`ImageSize`] and [`VoxelSize`]
+pub trait ImageSizeLike {
+    /// Returns the width of the region, in pixels / voxels
+    fn width(&self) -> u32;
+    /// Returns the height of the region, in pixels / voxels
+    fn height(&self) -> u32;
+}
+
+impl ImageSizeLike for ImageSize {
+    fn width(&self) -> u32 {
+        self.width()
+    }
+    fn height(&self) -> u32 {
+        self.height()
+    }
+}
+
+impl ImageSizeLike for VoxelSize {
+    fn width(&self) -> u32 {
+        self.width()
+    }
+    fn height(&self) -> u32 {
+        self.height()
+    }
+}
+
+impl<P: Send, S: ImageSizeLike + Sync> Image<P, S> {
+    /// Generates an image by computing a per-pixel function
+    ///
+    /// This should be called on the _output_ image; the closure takes `(x, y)`
+    /// tuples and is expected to capture one or more source images.
+    pub fn apply_effect<F: Fn(usize, usize) -> P + Send + Sync>(
+        &mut self,
+        f: F,
+        threads: Option<&ThreadPool>,
+    ) {
+        let r = |(y, row): (usize, &mut [P])| {
+            for (x, v) in row.iter_mut().enumerate() {
+                *v = f(x, y);
+            }
+        };
+
+        if let Some(threads) = threads {
+            threads.run(|| {
+                self.data
+                    .par_chunks_mut(self.size.width() as usize)
+                    .enumerate()
+                    .for_each(r)
+            })
+        } else {
+            self.data
+                .chunks_mut(self.size.width() as usize)
+                .enumerate()
+                .for_each(r)
+        }
+    }
+}
+
+impl<P, S: Default> Default for Image<P, S> {
+    fn default() -> Self {
+        Image {
+            data: vec![],
+            size: S::default(),
+        }
+    }
+}
+
+impl<P: Default + Clone, S: ImageSizeLike> Image<P, S> {
+    /// Builds a new image filled with `P::default()`
+    pub fn new(size: S) -> Self {
+        Self {
+            data: vec![
+                P::default();
+                size.width() as usize * size.height() as usize
+            ],
+            size,
+        }
+    }
+}
+
+impl<P, S: Clone> Image<P, S> {
+    /// Returns the image size
+    pub fn size(&self) -> S {
+        self.size.clone()
+    }
+
+    /// Generates an image by mapping a simple function over each pixel
+    pub fn map<T, F: Fn(&P) -> T>(&self, f: F) -> Image<T, S> {
+        let data = self.data.iter().map(f).collect();
+        Image {
+            data,
+            size: self.size.clone(),
+        }
+    }
+
+    /// Decomposes the image into its components
+    pub fn take(self) -> (Vec<P>, S) {
+        (self.data, self.size)
+    }
+}
+
+impl<P, S: ImageSizeLike> Image<P, S> {
+    /// Returns the image width
+    pub fn width(&self) -> usize {
+        self.size.width() as usize
+    }
+
+    /// Returns the image height
+    pub fn height(&self) -> usize {
+        self.size.width() as usize
+    }
+
+    /// Checks a `(row, column)` position
+    ///
+    /// Returns the input position in the 1D array if valid; panics otherwise
+    fn decode_position(&self, pos: (usize, usize)) -> usize {
+        let (row, col) = pos;
+        assert!(
+            row < self.height(),
+            "row ({row}) must be less than image height ({})",
+            self.height()
+        );
+        assert!(
+            col < self.width(),
+            "column ({row}) must be less than image width ({})",
+            self.width()
+        );
+        row * self.width() + col
+    }
+}
+
+impl<P, S> Image<P, S> {
+    /// Iterates over pixel values
+    pub fn iter(&self) -> impl Iterator<Item = &P> + '_ {
+        self.data.iter()
+    }
+
+    /// Returns the number of pixels in the image
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Checks whether the image is empty
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+}
+
+impl<'a, P: 'a, S> IntoIterator for &'a Image<P, S> {
+    type Item = &'a P;
+    type IntoIter = std::slice::Iter<'a, P>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.iter()
+    }
+}
+
+impl<P, S> IntoIterator for Image<P, S> {
+    type Item = P;
+    type IntoIter = std::vec::IntoIter<P>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
+    }
+}
+
+impl<P, S> std::ops::Index<usize> for Image<P, S> {
+    type Output = P;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.data[index]
+    }
+}
+
+impl<P, S> std::ops::IndexMut<usize> for Image<P, S> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.data[index]
+    }
+}
+
+macro_rules! define_image_index {
+    ($ty:ty) => {
+        impl<P, S> std::ops::Index<$ty> for Image<P, S> {
+            type Output = [P];
+            fn index(&self, index: $ty) -> &Self::Output {
+                &self.data[index]
+            }
+        }
+
+        impl<P, S> std::ops::IndexMut<$ty> for Image<P, S> {
+            fn index_mut(&mut self, index: $ty) -> &mut Self::Output {
+                &mut self.data[index]
+            }
+        }
+    };
+}
+
+define_image_index!(std::ops::Range<usize>);
+define_image_index!(std::ops::RangeTo<usize>);
+define_image_index!(std::ops::RangeFrom<usize>);
+define_image_index!(std::ops::RangeInclusive<usize>);
+define_image_index!(std::ops::RangeToInclusive<usize>);
+define_image_index!(std::ops::RangeFull);
+
+/// Indexes an image with `(row, col)`
+impl<P, S: ImageSizeLike> std::ops::Index<(usize, usize)> for Image<P, S> {
+    type Output = P;
+    fn index(&self, pos: (usize, usize)) -> &Self::Output {
+        let index = self.decode_position(pos);
+        &self.data[index]
+    }
+}
+
+impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
+    fn index_mut(&mut self, pos: (usize, usize)) -> &mut Self::Output {
+        let index = self.decode_position(pos);
+        &mut self.data[index]
+    }
+}
+
+/// Pixel type for a [`GeometryBuffer`]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct GeometryPixel {
+    /// Z position of this pixel, in voxel units
+    pub depth: u32, // TODO should this be `f32`?
+    /// Function gradients at this pixel
+    pub normal: [f32; 3],
+}
+
+impl GeometryPixel {
+    /// Converts the normal into a normalized RGB value
+    pub fn to_color(&self) -> [u8; 3] {
+        let [dx, dy, dz] = self.normal;
+        let s = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
+        if s != 0.0 {
+            let scale = u8::MAX as f32 / s;
+            [
+                (dx.abs() * scale) as u8,
+                (dy.abs() * scale) as u8,
+                (dz.abs() * scale) as u8,
+            ]
+        } else {
+            [0; 3]
+        }
+    }
+}
+
+/// Image containing depth and normal at each pixel
+pub type GeometryBuffer = Image<GeometryPixel, VoxelSize>;
+
+impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
+    /// Returns the image depth in voxels
+    pub fn depth(&self) -> usize {
+        self.size.depth() as usize
+    }
+}
+
+/// Three-channel color image
+pub type ColorImage = Image<[u8; 3]>;

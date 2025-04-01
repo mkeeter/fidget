@@ -17,7 +17,9 @@ jobs:
         working-directory: ./demos/constraints
     steps:
     - uses: actions/checkout@v4
-    - uses: Swatinem/rust-cache@v2
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: constraints
     - name: Install wasm target
       run: rustup target add wasm32-unknown-unknown
     - name: Install trunk

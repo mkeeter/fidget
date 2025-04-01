@@ -1,7 +1,8 @@
 use crate::{
     eval::Function,
     render::{
-        ImageSize, RenderConfig, RenderMode, TileSizes, View2, View3, VoxelSize,
+        GeometryBuffer, Image, ImageSize, RenderConfig, RenderMode, TileSizes,
+        View2, View3, VoxelSize,
     },
     shape::{Shape, ShapeVars},
 };
@@ -15,12 +16,29 @@ use std::sync::{
 ///
 /// Most users will use the global Rayon pool, but it's possible to provide your
 /// own as well.
-#[derive(Clone)]
-pub enum ThreadPool<'a> {
+pub enum ThreadPool {
     /// User-provided pool
-    Custom(&'a rayon::ThreadPool),
+    Custom(rayon::ThreadPool),
     /// Global Rayon pool
     Global,
+}
+
+impl ThreadPool {
+    /// Runs a function across the thread pool
+    pub fn run<F: FnOnce() -> V + Send, V: Send>(&self, f: F) -> V {
+        match self {
+            ThreadPool::Custom(p) => p.install(f),
+            ThreadPool::Global => f(),
+        }
+    }
+
+    /// Returns the number of threads in the pool
+    pub fn thread_count(&self) -> usize {
+        match self {
+            ThreadPool::Custom(p) => p.current_num_threads(),
+            ThreadPool::Global => rayon::current_num_threads(),
+        }
+    }
 }
 
 /// Token to cancel an in-progress operation
@@ -87,7 +105,7 @@ pub struct ImageRenderConfig<'a> {
     ///
     /// If this is `None`, then rendering is done in a single thread; otherwise,
     /// the provided pool is used.
-    pub threads: Option<ThreadPool<'a>>,
+    pub threads: Option<&'a ThreadPool>,
 
     /// Token to cancel rendering
     pub cancel: CancelToken,
@@ -99,7 +117,7 @@ impl Default for ImageRenderConfig<'_> {
             image_size: ImageSize::from(512),
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
-            threads: Some(ThreadPool::Global),
+            threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
         }
     }
@@ -113,7 +131,7 @@ impl RenderConfig for ImageRenderConfig<'_> {
         self.image_size.height()
     }
     fn threads(&self) -> Option<&ThreadPool> {
-        self.threads.as_ref()
+        self.threads
     }
     fn tile_sizes(&self) -> &TileSizes {
         &self.tile_sizes
@@ -128,7 +146,7 @@ impl ImageRenderConfig<'_> {
     pub fn run<F: Function, M: RenderMode + Sync>(
         &self,
         shape: Shape<F>,
-    ) -> Option<Vec<<M as RenderMode>::Output>> {
+    ) -> Option<Image<<M as RenderMode>::Output>> {
         self.run_with_vars::<F, M>(shape, &ShapeVars::new())
     }
 
@@ -137,7 +155,7 @@ impl ImageRenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<Vec<<M as RenderMode>::Output>> {
+    ) -> Option<Image<<M as RenderMode>::Output>> {
         crate::render::render2d::<F, M>(shape, vars, self)
     }
 
@@ -170,7 +188,7 @@ pub struct VoxelRenderConfig<'a> {
     ///
     /// If this is `None`, then rendering is done in a single thread; otherwise,
     /// the provided pool is used.
-    pub threads: Option<ThreadPool<'a>>,
+    pub threads: Option<&'a ThreadPool>,
 
     /// Token to cancel rendering
     pub cancel: CancelToken,
@@ -183,7 +201,7 @@ impl Default for VoxelRenderConfig<'_> {
             tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
             view: View3::default(),
 
-            threads: Some(ThreadPool::Global),
+            threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
         }
     }
@@ -197,7 +215,7 @@ impl RenderConfig for VoxelRenderConfig<'_> {
         self.image_size.height()
     }
     fn threads(&self) -> Option<&ThreadPool> {
-        self.threads.as_ref()
+        self.threads
     }
     fn tile_sizes(&self) -> &TileSizes {
         &self.tile_sizes
@@ -212,10 +230,7 @@ impl VoxelRenderConfig<'_> {
     ///
     /// Returns a tuple of `(heightmap, RGB image)` or `None` if rendering was
     /// cancelled.
-    pub fn run<F: Function>(
-        &self,
-        shape: Shape<F>,
-    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+    pub fn run<F: Function>(&self, shape: Shape<F>) -> Option<GeometryBuffer> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -224,7 +239,7 @@ impl VoxelRenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+    ) -> Option<GeometryBuffer> {
         crate::render::render3d::<F>(shape, vars, self)
     }
 

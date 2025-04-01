@@ -1,6 +1,6 @@
 [package]
 name = "fidget"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
@@ -34,7 +34,10 @@ libc = { workspace = true, optional = true }
 windows.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom.workspace = true
+# Feature unification hacks to get webassembly working
+getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
+rhai = { workspace = true, optional = true, features = ["wasm-bindgen"] }
 
 [features]
 default = ["jit", "rhai"]
