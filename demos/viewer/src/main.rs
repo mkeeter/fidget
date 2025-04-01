@@ -153,7 +153,7 @@ where
             debug!("Rendering...");
             let render_start = std::time::Instant::now();
             let images = match &render_config.mode {
-                RenderMode::TwoD { view, mode, .. } => {
+                RenderMode::TwoD { canvas, mode } => {
                     let data = out
                         .shapes
                         .iter()
@@ -162,7 +162,7 @@ where
                                 fidget::shape::Shape::<F>::from(s.tree.clone());
                             render_2d(
                                 *mode,
-                                *view,
+                                canvas.view(),
                                 tape,
                                 render_config.image_size,
                                 s.color_rgb,
@@ -171,7 +171,7 @@ where
                         .collect();
                     ImageData::Rgba(data)
                 }
-                RenderMode::ThreeD { view, mode, .. } => {
+                RenderMode::ThreeD { canvas, mode } => {
                     // XXX allow selection of depth?
                     let image_size = render_config.image_size;
                     let voxel_size = fidget::render::VoxelSize::new(
@@ -185,7 +185,7 @@ where
                         .map(|s| {
                             let tape =
                                 fidget::shape::Shape::<F>::from(s.tree.clone());
-                            render_3d(*view, tape, voxel_size)
+                            render_3d(canvas.view(), tape, voxel_size)
                         })
                         .collect();
                     ImageData::Geometry {
@@ -378,6 +378,35 @@ impl Mode2D {
     }
 }
 
+#[derive(Copy, Clone, Default)]
+struct Canvas2D {
+    view: View2,
+    drag_start: Option<TranslateHandle<2>>,
+}
+
+impl Canvas2D {
+    fn view(&self) -> View2 {
+        self.view
+    }
+
+    fn drag(&mut self, pos_world: Point2<f32>) -> bool {
+        if let Some(prev) = &self.drag_start {
+            self.view.translate(prev, pos_world)
+        } else {
+            self.drag_start = Some(self.view.begin_translate(pos_world));
+            false
+        }
+    }
+
+    fn end_drag(&mut self) {
+        self.drag_start = None;
+    }
+
+    fn zoom(&mut self, amount: f32, pos_world: Option<Point2<f32>>) -> bool {
+        self.view.zoom((amount / 100.0).exp2(), pos_world)
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum Mode3D {
     Heightmap,
@@ -401,25 +430,56 @@ enum Drag3D {
     Rotate(RotateHandle),
 }
 
+#[derive(Copy, Clone, Default)]
+struct Canvas3D {
+    view: View3,
+    drag_start: Option<Drag3D>,
+}
+
+#[derive(Copy, Clone)]
+enum DragMode {
+    Pan,
+    Rotate,
+}
+
+impl Canvas3D {
+    fn view(&self) -> View3 {
+        self.view
+    }
+
+    fn drag(&mut self, pos_world: Point3<f32>, drag_mode: DragMode) -> bool {
+        match &self.drag_start {
+            Some(Drag3D::Pan(prev)) => self.view.translate(prev, pos_world),
+            Some(Drag3D::Rotate(prev)) => self.view.rotate(prev, pos_world),
+            None => {
+                self.drag_start = Some(match drag_mode {
+                    DragMode::Pan => {
+                        Drag3D::Pan(self.view.begin_translate(pos_world))
+                    }
+                    DragMode::Rotate => {
+                        Drag3D::Rotate(self.view.begin_rotate(pos_world))
+                    }
+                });
+                false
+            }
+        }
+    }
+
+    fn end_drag(&mut self) {
+        self.drag_start = None;
+    }
+
+    fn zoom(&mut self, amount: f32, pos: Option<Point3<f32>>) -> bool {
+        self.view.zoom((amount / 100.0).exp2(), pos)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Copy, Clone)]
 enum RenderMode {
-    TwoD {
-        view: View2,
-
-        /// Drag start position (in model coordinates)
-        drag_start: Option<TranslateHandle<2>>,
-        mode: Mode2D,
-    },
-    ThreeD {
-        view: View3,
-
-        /// Drag start position (in model coordinates)
-        drag_start: Option<Drag3D>,
-
-        mode: Mode3D,
-    },
+    TwoD { canvas: Canvas2D, mode: Mode2D },
+    ThreeD { canvas: Canvas3D, mode: Mode3D },
 }
 
 impl RenderMode {
@@ -433,8 +493,7 @@ impl RenderMode {
             RenderMode::ThreeD { .. } => {
                 *self = RenderMode::TwoD {
                     // TODO get parameters from 3D camera here?
-                    view: Default::default(),
-                    drag_start: None,
+                    canvas: Default::default(),
                     mode: new_mode,
                 };
                 true
@@ -445,8 +504,7 @@ impl RenderMode {
         match self {
             RenderMode::TwoD { .. } => {
                 *self = RenderMode::ThreeD {
-                    view: View3::default(),
-                    drag_start: None,
+                    canvas: Default::default(),
                     mode: new_mode,
                 };
                 true
@@ -1101,8 +1159,7 @@ impl ViewerApp {
             image_rx,
 
             mode: RenderMode::TwoD {
-                view: Default::default(),
-                drag_start: None,
+                canvas: Default::default(),
                 mode: Mode2D::Color,
             },
         }
@@ -1288,9 +1345,7 @@ impl eframe::App for ViewerApp {
 
         // Handle pan and zoom
         match &mut self.mode {
-            RenderMode::TwoD {
-                view, drag_start, ..
-            } => {
+            RenderMode::TwoD { canvas, .. } => {
                 let image_size = fidget::render::ImageSize::new(
                     rect.width() as u32,
                     rect.height() as u32,
@@ -1299,13 +1354,9 @@ impl eframe::App for ViewerApp {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let pos =
                         image_size.transform_point(Point2::new(pos.x, pos.y));
-                    if let Some(prev) = drag_start {
-                        render_changed |= view.translate(prev, pos);
-                    } else {
-                        *drag_start = Some(view.begin_translate(pos));
-                    }
+                    render_changed |= canvas.drag(pos);
                 } else {
-                    *drag_start = None;
+                    canvas.end_drag();
                 }
 
                 if r.hovered() {
@@ -1314,13 +1365,10 @@ impl eframe::App for ViewerApp {
                         let p = p - rect.min;
                         image_size.transform_point(Point2::new(p.x, p.y))
                     });
-                    render_changed |=
-                        view.zoom((scroll / 100.0).exp2(), mouse_pos);
+                    render_changed |= canvas.zoom(scroll, mouse_pos);
                 }
             }
-            RenderMode::ThreeD {
-                view, drag_start, ..
-            } => {
+            RenderMode::ThreeD { canvas, .. } => {
                 let image_size = fidget::render::VoxelSize::new(
                     rect.width() as u32,
                     rect.height() as u32,
@@ -1330,29 +1378,19 @@ impl eframe::App for ViewerApp {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let pos_world = image_size
                         .transform_point(Point3::new(pos.x, pos.y, 0.0));
-                    match drag_start {
-                        Some(Drag3D::Pan(prev)) => {
-                            render_changed |= view.translate(prev, pos_world);
-                        }
-                        Some(Drag3D::Rotate(prev)) => {
-                            render_changed |= view.rotate(prev, pos_world);
-                        }
-                        None => {
-                            if r.dragged_by(egui::PointerButton::Primary) {
-                                *drag_start = Some(Drag3D::Pan(
-                                    view.begin_translate(pos_world),
-                                ));
-                            } else if r
-                                .dragged_by(egui::PointerButton::Secondary)
-                            {
-                                *drag_start = Some(Drag3D::Rotate(
-                                    view.begin_rotate(pos_world),
-                                ));
-                            }
-                        }
+                    let drag_mode =
+                        if r.dragged_by(egui::PointerButton::Primary) {
+                            Some(DragMode::Pan)
+                        } else if r.dragged_by(egui::PointerButton::Secondary) {
+                            Some(DragMode::Rotate)
+                        } else {
+                            None
+                        };
+                    if let Some(m) = drag_mode {
+                        render_changed |= canvas.drag(pos_world, m);
                     }
                 } else {
-                    *drag_start = None;
+                    canvas.end_drag();
                 }
 
                 if r.hovered() {
@@ -1363,10 +1401,7 @@ impl eframe::App for ViewerApp {
                             image_size
                                 .transform_point(Point3::new(p.x, p.y, 0.0))
                         });
-                    if scroll != 0.0 {
-                        view.zoom((scroll / 100.0).exp2(), mouse_pos);
-                        render_changed = true;
-                    }
+                    render_changed |= canvas.zoom(scroll, mouse_pos);
                 }
             }
         }
