@@ -7,17 +7,18 @@ use eframe::{
 };
 use env_logger::Env;
 use log::{debug, error, info};
-use nalgebra::{Point2, Point3};
+use nalgebra::Point2;
 use notify::Watcher;
 
-use fidget::render::{
-    GeometryPixel, ImageRenderConfig, View2, View3, VoxelRenderConfig,
+use fidget::{
+    gui::{Canvas2, Canvas3, CursorState, DragMode},
+    render::{
+        GeometryPixel, ImageRenderConfig, View2, View3, VoxelRenderConfig,
+    },
 };
 
 use std::{error::Error, path::Path};
 
-mod canvas2d;
-mod canvas3d;
 mod draw2d;
 mod draw3d;
 mod script;
@@ -362,14 +363,8 @@ impl Mode3D {
 
 #[derive(Copy, Clone)]
 enum RenderMode {
-    TwoD {
-        canvas: canvas2d::Canvas2D,
-        mode: Mode2D,
-    },
-    ThreeD {
-        canvas: canvas3d::Canvas3D,
-        mode: Mode3D,
-    },
+    TwoD { canvas: Canvas2, mode: Mode2D },
+    ThreeD { canvas: Canvas3, mode: Mode3D },
 }
 
 impl RenderMode {
@@ -383,7 +378,7 @@ impl RenderMode {
             RenderMode::ThreeD { .. } => {
                 *self = RenderMode::TwoD {
                     // TODO get parameters from 3D camera here?
-                    canvas: Default::default(),
+                    canvas: Canvas2::new(fidget::render::ImageSize::new(0, 0)),
                     mode: new_mode,
                 };
                 true
@@ -393,8 +388,11 @@ impl RenderMode {
     fn set_3d_mode(&mut self, new_mode: Mode3D) -> bool {
         match self {
             RenderMode::TwoD { .. } => {
+                // TODO get parameters from 2D camera here?
                 *self = RenderMode::ThreeD {
-                    canvas: Default::default(),
+                    canvas: Canvas3::new(fidget::render::VoxelSize::new(
+                        0, 0, 0,
+                    )),
                     mode: new_mode,
                 };
                 true
@@ -440,15 +438,17 @@ impl ViewerApp {
         draw2d::Draw2D::init(wgpu_state);
         draw3d::Draw3D::init(wgpu_state);
 
+        // Pick a dummy image size; we'll fix it later
+        let image_size = fidget::render::ImageSize::from(256);
         Self {
             image_data: None,
-            image_size: fidget::render::ImageSize::from(256),
+            image_size,
 
             config_tx,
             image_rx,
 
             mode: RenderMode::TwoD {
-                canvas: Default::default(),
+                canvas: Canvas2::new(image_size),
                 mode: Mode2D::Color,
             },
         }
@@ -639,22 +639,24 @@ impl eframe::App for ViewerApp {
                     rect.height() as u32,
                 );
 
-                if let Some(pos) = r.interact_pointer_pos() {
-                    let pos =
-                        image_size.transform_point(Point2::new(pos.x, pos.y));
-                    render_changed |= canvas.drag(pos);
-                } else {
-                    canvas.end_drag();
-                }
-
-                if r.hovered() {
-                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos = r.hover_pos().map(|p| {
+                let cursor_state =
+                    match (r.interact_pointer_pos(), r.hover_pos()) {
+                        (Some(p), _) => Some((p, true)),
+                        (_, Some(p)) => Some((p, false)),
+                        (None, None) => None,
+                    }
+                    .map(|(p, drag)| {
                         let p = p - rect.min;
-                        image_size.transform_point(Point2::new(p.x, p.y))
+                        CursorState {
+                            screen_pos: Point2::new(p.x, p.y),
+                            drag,
+                        }
                     });
-                    render_changed |= canvas.zoom(scroll, mouse_pos);
-                }
+                render_changed |= canvas.interact(
+                    image_size,
+                    cursor_state,
+                    ctx.input(|i| i.smooth_scroll_delta.y),
+                );
             }
             RenderMode::ThreeD { canvas, .. } => {
                 let image_size = fidget::render::VoxelSize::new(
@@ -663,34 +665,37 @@ impl eframe::App for ViewerApp {
                     rect.width().max(rect.height()) as u32,
                 );
 
-                if let Some(pos) = r.interact_pointer_pos() {
-                    let pos_world = image_size
-                        .transform_point(Point3::new(pos.x, pos.y, 0.0));
-                    let drag_mode =
-                        if r.dragged_by(egui::PointerButton::Primary) {
-                            Some(canvas3d::DragMode::Pan)
-                        } else if r.dragged_by(egui::PointerButton::Secondary) {
-                            Some(canvas3d::DragMode::Rotate)
-                        } else {
-                            None
-                        };
-                    if let Some(m) = drag_mode {
-                        render_changed |= canvas.drag(pos_world, m);
-                    }
-                } else {
-                    canvas.end_drag();
-                }
+                let cursor_state =
+                    match (r.interact_pointer_pos(), r.hover_pos()) {
+                        (Some(p), _) => {
+                            let drag =
+                                if r.dragged_by(egui::PointerButton::Primary) {
+                                    Some(DragMode::Pan)
+                                } else if r
+                                    .dragged_by(egui::PointerButton::Secondary)
+                                {
+                                    Some(DragMode::Rotate)
+                                } else {
+                                    None
+                                };
 
-                if r.hovered() {
-                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos =
-                        ctx.input(|i| i.pointer.hover_pos()).map(|p| {
-                            let p = p - rect.min;
-                            image_size
-                                .transform_point(Point3::new(p.x, p.y, 0.0))
-                        });
-                    render_changed |= canvas.zoom(scroll, mouse_pos);
-                }
+                            Some((p, drag))
+                        }
+                        (_, Some(p)) => Some((p, None)),
+                        (None, None) => None,
+                    }
+                    .map(|(p, drag)| {
+                        let p = p - rect.min;
+                        CursorState {
+                            screen_pos: Point2::new(p.x, p.y),
+                            drag,
+                        }
+                    });
+                render_changed |= canvas.interact(
+                    image_size,
+                    cursor_state,
+                    ctx.input(|i| i.smooth_scroll_delta.y),
+                );
             }
         }
 
