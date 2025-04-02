@@ -14,7 +14,7 @@ pub(crate) struct RenderConfig {
     max_depth: u32,
 }
 
-pub(crate) struct Draw3D {
+struct Resources {
     geometry_pipeline: wgpu::RenderPipeline,
     tex: Option<(fidget::render::ImageSize, Vec<CustomTexture>)>,
     geometry_sampler: wgpu::Sampler,
@@ -27,7 +27,7 @@ pub(crate) struct Draw3D {
     render_config_buffer: wgpu::Buffer,
 }
 
-impl Draw3D {
+impl Resources {
     pub fn init(
         device: &wgpu::Device,
         target_format: wgpu::TextureFormat,
@@ -152,7 +152,7 @@ impl Draw3D {
                     | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-        Draw3D {
+        Resources {
             geometry_pipeline,
             tex: None,
             geometry_sampler,
@@ -296,13 +296,14 @@ impl Draw3D {
     }
 }
 
-pub(crate) struct Draw3DCallback {
+/// GPU callback to render 3D images in a particular mode
+pub(crate) struct Draw3D {
     data: Option<(Vec<Vec<GeometryPixel>>, fidget::render::ImageSize)>,
     mode: Mode3D,
     max_depth: u32,
 }
 
-impl Draw3DCallback {
+impl Draw3D {
     pub fn new(
         data: Option<(Vec<Vec<GeometryPixel>>, fidget::render::ImageSize)>,
         mode: Mode3D,
@@ -314,9 +315,19 @@ impl Draw3DCallback {
             max_depth,
         }
     }
+
+    pub fn init(wgpu_state: &eframe::egui_wgpu::RenderState) {
+        let resources =
+            Resources::init(&wgpu_state.device, wgpu_state.target_format);
+        wgpu_state
+            .renderer
+            .write()
+            .callback_resources
+            .insert(resources);
+    }
 }
 
-impl egui_wgpu::CallbackTrait for Draw3DCallback {
+impl egui_wgpu::CallbackTrait for Draw3D {
     fn prepare(
         &self,
         device: &wgpu::Device,
@@ -325,7 +336,7 @@ impl egui_wgpu::CallbackTrait for Draw3DCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let resources: &mut Draw3D = resources.get_mut().unwrap();
+        let resources: &mut Resources = resources.get_mut().unwrap();
         if let Some((image_data, image_size)) = self.data.as_ref() {
             resources.prepare(
                 device,
@@ -345,7 +356,7 @@ impl egui_wgpu::CallbackTrait for Draw3DCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        let resources: &Draw3D = resources.get().unwrap();
+        let resources: &Resources = resources.get().unwrap();
         resources.paint(render_pass);
     }
 }

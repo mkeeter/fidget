@@ -20,8 +20,8 @@ mod canvas2d;
 mod canvas3d;
 mod draw2d;
 mod draw3d;
-mod fs;
 mod script;
+mod watcher;
 
 /// Minimal viewer, using Fidget to render a Rhai script
 #[derive(Parser, Debug)]
@@ -256,7 +256,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let path = Path::new(&args.target).to_owned();
     std::thread::spawn(move || {
-        let _ = fs::file_watcher_thread(&path, file_watcher_rx, rhai_script_tx);
+        let _ = watcher::file_watcher_thread(
+            &path,
+            file_watcher_rx,
+            rhai_script_tx,
+        );
         info!("file watcher thread is done");
     });
     std::thread::spawn(move || {
@@ -432,13 +436,9 @@ impl ViewerApp {
         // Initialize renderer if WGPU is available
         let wgpu_state = cc.wgpu_render_state.as_ref().unwrap();
 
-        // Build the custom render resources for 2D and 3D rendering
-        wgpu_state.renderer.write().callback_resources.insert(
-            draw2d::Draw2D::init(&wgpu_state.device, wgpu_state.target_format),
-        );
-        wgpu_state.renderer.write().callback_resources.insert(
-            draw3d::Draw3D::init(&wgpu_state.device, wgpu_state.target_format),
-        );
+        // Install custom render resources for 2D and 3D rendering
+        draw2d::Draw2D::init(wgpu_state);
+        draw3d::Draw3D::init(wgpu_state);
 
         Self {
             image_data: None,
@@ -523,7 +523,7 @@ impl ViewerApp {
                     // Draw the image using WebGPU
                     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
                         rect,
-                        draw3d::Draw3DCallback::new(
+                        draw3d::Draw3D::new(
                             if images.is_empty() {
                                 None
                             } else {
@@ -541,7 +541,7 @@ impl ViewerApp {
                     // Draw the image using WebGPU
                     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
                         rect,
-                        draw2d::Draw2DCallback::new(if images.is_empty() {
+                        draw2d::Draw2D::new(if images.is_empty() {
                             // use pre-existing data
                             None
                         } else {

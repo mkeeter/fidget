@@ -5,18 +5,15 @@ use eframe::{
 };
 use zerocopy::IntoBytes;
 
-pub(crate) struct Draw2D {
+struct Resources {
     rgba_pipeline: wgpu::RenderPipeline,
     tex: Option<(fidget::render::ImageSize, Vec<CustomTexture>)>,
     rgba_sampler: wgpu::Sampler,
     rgba_bind_group_layout: wgpu::BindGroupLayout,
 }
 
-impl Draw2D {
-    pub fn init(
-        device: &wgpu::Device,
-        target_format: wgpu::TextureFormat,
-    ) -> Self {
+impl Resources {
+    fn init(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
         // Create RGBA shader module
         let rgba_shader =
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -118,7 +115,7 @@ impl Draw2D {
                 },
                 multiview: None,
             });
-        Draw2D {
+        Resources {
             rgba_pipeline,
             tex: None,
             rgba_sampler,
@@ -234,19 +231,30 @@ impl Draw2D {
     }
 }
 
-pub(crate) struct Draw2DCallback {
+/// GPU callback to render 2D RGBA images
+pub(crate) struct Draw2D {
     data: Option<(Vec<Vec<[u8; 4]>>, fidget::render::ImageSize)>,
 }
 
-impl Draw2DCallback {
+impl Draw2D {
     pub fn new(
         data: Option<(Vec<Vec<[u8; 4]>>, fidget::render::ImageSize)>,
     ) -> Self {
         Self { data }
     }
+
+    pub fn init(wgpu_state: &eframe::egui_wgpu::RenderState) {
+        let resources =
+            Resources::init(&wgpu_state.device, wgpu_state.target_format);
+        wgpu_state
+            .renderer
+            .write()
+            .callback_resources
+            .insert(resources);
+    }
 }
 
-impl egui_wgpu::CallbackTrait for Draw2DCallback {
+impl egui_wgpu::CallbackTrait for Draw2D {
     fn prepare(
         &self,
         device: &wgpu::Device,
@@ -255,7 +263,7 @@ impl egui_wgpu::CallbackTrait for Draw2DCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let resources: &mut Draw2D = resources.get_mut().unwrap();
+        let resources: &mut Resources = resources.get_mut().unwrap();
         if let Some((image_data, image_size)) = self.data.as_ref() {
             resources.prepare(device, queue, image_data.as_slice(), *image_size)
         }
@@ -268,7 +276,7 @@ impl egui_wgpu::CallbackTrait for Draw2DCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        let resources: &Draw2D = resources.get().unwrap();
+        let resources: &Resources = resources.get().unwrap();
         resources.paint(render_pass);
     }
 }
