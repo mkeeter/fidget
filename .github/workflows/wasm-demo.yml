@@ -31,3 +31,10 @@ jobs:
       run: npx prettier . --check
     - name: Build wasm-demo
       run: npm run dist
+    - name: Check `git` cleanliness
+      run: |
+        if [[ -n $(git status --porcelain ../crate/Cargo.lock) ]]; then
+          echo "Error: demos/web-editor/crate/Cargo.lock needs to be updated"
+          git diff ../crate/Cargo.lock
+          exit 1
+        fi
