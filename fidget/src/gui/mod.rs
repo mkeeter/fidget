@@ -28,7 +28,7 @@ pub struct Canvas2 {
 #[derive(Copy, Clone, Debug)]
 pub struct CursorState<D> {
     /// Position within the canvas, in screen coordinates
-    pub screen_pos: Point2<f32>,
+    pub screen_pos: Point2<i32>,
 
     /// Current drag state
     ///
@@ -98,7 +98,7 @@ impl Canvas2 {
     /// Begins a new drag with the mouse at the given screen position
     ///
     /// If a drag is already in progress, this function does nothing.
-    pub fn begin_drag(&mut self, pos_screen: Point2<f32>) {
+    pub fn begin_drag(&mut self, pos_screen: Point2<i32>) {
         if self.drag_start.is_none() {
             let pos_world = self.image_size.transform_point(pos_screen);
             self.drag_start = Some(self.view.begin_translate(pos_world));
@@ -111,7 +111,7 @@ impl Canvas2 {
     /// returns a boolean value indicating whether the view has changed;
     /// otherwise, it returns `false`
     #[must_use]
-    pub fn drag(&mut self, pos_screen: Point2<f32>) -> bool {
+    pub fn drag(&mut self, pos_screen: Point2<i32>) -> bool {
         if let Some(prev) = &self.drag_start {
             let pos_world = self.image_size.transform_point(pos_screen);
             self.view.translate(prev, pos_world)
@@ -135,7 +135,7 @@ impl Canvas2 {
     pub fn zoom(
         &mut self,
         amount: f32,
-        pos_screen: Option<Point2<f32>>,
+        pos_screen: Option<Point2<i32>>,
     ) -> bool {
         let pos_world = pos_screen.map(|p| self.image_size.transform_point(p));
         self.view.zoom((amount / 100.0).exp2(), pos_world)
@@ -216,7 +216,7 @@ impl Canvas3 {
         self.view
     }
 
-    pub fn begin_drag(&mut self, pos_screen: Point2<f32>, drag_mode: DragMode) {
+    pub fn begin_drag(&mut self, pos_screen: Point2<i32>, drag_mode: DragMode) {
         if self.drag_start.is_none() {
             let pos_world = self.screen_to_world(pos_screen);
             self.drag_start = Some(match drag_mode {
@@ -230,16 +230,16 @@ impl Canvas3 {
         }
     }
 
-    fn screen_to_world(&self, pos_screen: Point2<f32>) -> Point3<f32> {
+    fn screen_to_world(&self, pos_screen: Point2<i32>) -> Point3<f32> {
         self.image_size.transform_point(Point3::new(
             pos_screen.x,
             pos_screen.y,
-            0.0,
+            0,
         ))
     }
 
     #[must_use]
-    pub fn drag(&mut self, pos_screen: Point2<f32>) -> bool {
+    pub fn drag(&mut self, pos_screen: Point2<i32>) -> bool {
         let pos_world = self.screen_to_world(pos_screen);
         match &self.drag_start {
             Some(Drag3::Pan(prev)) => self.view.translate(prev, pos_world),
@@ -256,7 +256,7 @@ impl Canvas3 {
     pub fn zoom(
         &mut self,
         amount: f32,
-        pos_screen: Option<Point2<f32>>,
+        pos_screen: Option<Point2<i32>>,
     ) -> bool {
         let pos_world = pos_screen.map(|p| self.screen_to_world(p));
         self.view.zoom((amount / 100.0).exp2(), pos_world)

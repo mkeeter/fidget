@@ -648,7 +648,10 @@ impl eframe::App for ViewerApp {
                     .map(|(p, drag)| {
                         let p = p - rect.min;
                         CursorState {
-                            screen_pos: Point2::new(p.x, p.y),
+                            screen_pos: Point2::new(
+                                p.x.round() as i32,
+                                p.y.round() as i32,
+                            ),
                             drag,
                         }
                     });
@@ -687,7 +690,10 @@ impl eframe::App for ViewerApp {
                     .map(|(p, drag)| {
                         let p = p - rect.min;
                         CursorState {
-                            screen_pos: Point2::new(p.x, p.y),
+                            screen_pos: Point2::new(
+                                p.x.round() as i32,
+                                p.y.round() as i32,
+                            ),
                             drag,
                         }
                     });
