@@ -137,16 +137,13 @@ class App {
   }
 
   requestRedraw() {
-    console.log("redraw requested");
     if (this.rendering) {
       if (this.cancel && this.currentDepth != this.startDepth) {
         this.cancel.cancel();
         this.cancel = null;
       }
-      console.log("cancelling render");
       this.rerender = true;
     } else {
-      console.log("starting new render");
       this.currentDepth = this.startDepth;
       this.beginRender(this.tape);
     }
@@ -223,7 +220,6 @@ class App {
           document.getElementById("status").textContent =
             `Rendered in ${dt.toFixed(2)} ms`;
         }
-        console.log(`rendered depth ${req.depth} in ${dt}`);
         this.rendering = false;
 
         // If this is our initial render resolution, adjust our max depth to hit
@@ -236,11 +232,9 @@ class App {
           }
         }
         if (this.rerender) {
-          console.log("new render from cancellation");
           this.currentDepth = this.startDepth;
           this.beginRender(this.tape);
         } else if (this.currentDepth > 0) {
-          console.log("new render from next");
           // Render again at the next resolution
           this.currentDepth -= 1;
           this.beginRender(this.tape);
@@ -466,9 +460,8 @@ class Scene {
   }
 
   resetCamera(kind: CameraKind) {
-    let rect = this.canvas.getBoundingClientRect();
-    let width = rect.right - rect.left;
-    let height = rect.top - rect.bottom;
+    let width = this.canvas.width;
+    let height = this.canvas.height;
     switch (kind) {
       case '2d': {
         this.camera = {
@@ -511,9 +504,7 @@ class Scene {
 
   drag(event: MouseEvent): boolean {
     const [x, y] = this.screenPosition(event);
-    console.log(x, y);
     const out = this.camera.camera.drag(x, y);
-    console.log(" => ", out);
     return out;
   }
 
