@@ -114,7 +114,6 @@ impl Canvas2 {
     pub fn drag(&mut self, pos_screen: Point2<i32>) -> bool {
         if let Some(prev) = &self.drag_start {
             let pos_world = self.image_size.transform_point(pos_screen);
-            println!("{pos_screen} -> {pos_world}");
             self.view.translate(prev, pos_world)
         } else {
             false
@@ -195,7 +194,6 @@ impl Canvas3 {
         self.image_size = image_size;
         let pos_screen = match cursor_state {
             Some(cs) => {
-                println!("{:?}", cs.screen_pos);
                 if let Some(drag_mode) = cs.drag {
                     self.begin_drag(cs.screen_pos, drag_mode); // idempotent
                     changed |= self.drag(cs.screen_pos);
