@@ -6,6 +6,13 @@
   type and is multithreaded using Rayon, meaning it can work in WebAssembly.
 - Changed 3D rendering and effects functions to use a new `GeometryBuffer` type,
   which combines depth and normal data into a single image.
+- Add `fidget::gui` module, which defines `Canvas2` and `Canvas3`. The canvas
+  types are stateful abstractions around a GUI canvas, with support for cursor
+  interactions.
+- Change `ImageSize::transform_point` and `VoxelSize::transform_point` to take
+  a point with `i32` coordinates (instead of `f32`).  This helps us distinguish
+  between screen (pixel) and world (floating-point) coordinates at the type
+  level.
 
 # 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
