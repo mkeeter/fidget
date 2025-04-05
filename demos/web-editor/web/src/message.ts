@@ -1,30 +1,19 @@
 import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 import { Camera } from "./camera";
 
-export enum RequestKind {
-  Start,
-  Script,
-  Shape,
-}
-
 export class ScriptRequest {
-  kind: RequestKind.Script;
+  kind: 'script';
   script: string;
 
   constructor(script: string) {
     this.script = script;
-    this.kind = RequestKind.Script;
+    this.kind = 'script';
   }
 }
 
-export enum RenderMode {
-  Bitmap,
-  Heightmap,
-  Normals,
-}
-
+type RenderMode = 'bitmap' | 'heightmap' | 'normals';
 export class RenderRequest {
-  kind: RequestKind.Shape;
+  kind: 'shape';
   tape: Uint8Array;
   camera: Uint8Array;
   depth: number;
@@ -39,7 +28,7 @@ export class RenderRequest {
     cancel_token_ptr: number,
   ) {
     this.tape = tape;
-    this.kind = RequestKind.Shape;
+    this.kind = 'shape';
     this.camera = camera.camera.serialize_view();
     this.depth = depth;
     this.mode = mode;
@@ -48,12 +37,12 @@ export class RenderRequest {
 }
 
 export class StartRequest {
-  kind: RequestKind.Start;
+  kind: 'start';
   init: object;
 
   constructor(init: object) {
     this.init = init;
-    this.kind = RequestKind.Start;
+    this.kind = 'start';
   }
 }
 
@@ -61,50 +50,43 @@ export type WorkerRequest = StartRequest | ScriptRequest | RenderRequest;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-export enum ResponseKind {
-  Started,
-  Script,
-  Image,
-  Cancelled,
-}
-
 export class StartedResponse {
-  kind: ResponseKind.Started;
+  kind: 'started';
 
   constructor() {
-    this.kind = ResponseKind.Started;
+    this.kind = 'started';
   }
 }
 
 export class ScriptResponse {
-  kind: ResponseKind.Script;
+  kind: 'script';
   output: string;
   tape: Uint8Array | null;
 
   constructor(output: string, tape: Uint8Array | null) {
     this.output = output;
     this.tape = tape;
-    this.kind = ResponseKind.Script;
+    this.kind = 'script';
   }
 }
 
 export class ImageResponse {
-  kind: ResponseKind.Image;
+  kind: 'image';
   data: Uint8Array;
   depth: number;
 
   constructor(data: Uint8Array, depth: number) {
     this.data = data;
     this.depth = depth;
-    this.kind = ResponseKind.Image;
+    this.kind = 'image';
   }
 }
 
 export class CancelledResponse {
-  kind: ResponseKind.Cancelled;
+  kind: 'cancelled';
 
   constructor() {
-    this.kind = ResponseKind.Cancelled;
+    this.kind = 'cancelled';
   }
 }
 

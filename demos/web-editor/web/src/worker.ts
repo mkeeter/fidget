@@ -1,7 +1,5 @@
 import {
   ImageResponse,
-  RenderMode,
-  RequestKind,
   CancelledResponse,
   StartRequest,
   ScriptRequest,
@@ -23,17 +21,17 @@ class Worker {
     const size = Math.round(RENDER_SIZE / Math.pow(2, s.depth));
     try {
       switch (s.mode) {
-        case RenderMode.Bitmap: {
+        case 'bitmap': {
           const camera = fidget.JsCamera2.deserialize(s.camera);
           out = fidget.render_2d(shape, size, camera, cancel);
           break;
         }
-        case RenderMode.Heightmap: {
+        case 'heightmap': {
           const camera = fidget.JsCamera3.deserialize(s.camera);
           out = fidget.render_heightmap(shape, size, camera, cancel);
           break;
         }
-        case RenderMode.Normals: {
+        case 'normals': {
           const camera = fidget.JsCamera3.deserialize(s.camera);
           out = fidget.render_normals(shape, size, camera, cancel);
           break;
@@ -76,16 +74,16 @@ async function run() {
   onmessage = function (e: any) {
     let req = e.data as WorkerRequest;
     switch (req.kind) {
-      case RequestKind.Start: {
+      case 'start': {
         fidget.initSync((req as StartRequest).init);
         postMessage(new StartedResponse());
         break;
       }
-      case RequestKind.Shape: {
+      case 'shape': {
         worker!.render(req as RenderRequest);
         break;
       }
-      case RequestKind.Script: {
+      case 'script': {
         worker!.run(req as ScriptRequest);
         break;
       }

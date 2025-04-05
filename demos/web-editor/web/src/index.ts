@@ -10,8 +10,6 @@ import { defaultKeymap } from "@codemirror/commands";
 import { tags } from "@lezer/highlight";
 
 import {
-  RenderMode,
-  ResponseKind,
   ScriptRequest,
   ScriptResponse,
   StartRequest,
@@ -139,13 +137,16 @@ class App {
   }
 
   requestRedraw() {
+    console.log("redraw requested");
     if (this.rendering) {
       if (this.cancel && this.currentDepth != this.startDepth) {
         this.cancel.cancel();
         this.cancel = null;
       }
+      console.log("cancelling render");
       this.rerender = true;
     } else {
+      console.log("starting new render");
       this.currentDepth = this.startDepth;
       this.beginRender(this.tape);
     }
@@ -153,13 +154,13 @@ class App {
 
   onModeChanged() {
     switch (this.getMode()) {
-      case RenderMode.Heightmap:
-      case RenderMode.Normals: {
-        this.scene.resetCamera(CameraKind.ThreeD);
+      case 'heightmap':
+      case 'normals': {
+        this.scene.resetCamera('3d');
         break;
       }
-      case RenderMode.Bitmap: {
-        this.scene.resetCamera(CameraKind.TwoD);
+      case 'bitmap': {
+        this.scene.resetCamera('2d');
         break;
       }
     }
@@ -174,14 +175,10 @@ class App {
   getMode() {
     const e = document.getElementById("mode") as HTMLSelectElement;
     switch (e.value) {
-      case "bitmap": {
-        return RenderMode.Bitmap;
-      }
-      case "normals": {
-        return RenderMode.Normals;
-      }
+      case "bitmap":
+      case "normals":
       case "heightmap": {
-        return RenderMode.Heightmap;
+        return e.value;
       }
       default: {
         return null;
@@ -209,14 +206,14 @@ class App {
 
   onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
-      case ResponseKind.Started: {
+      case 'started': {
         // Initialize the rest of the app, and do an initial render
         this.init();
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
         break;
       }
-      case ResponseKind.Image: {
+      case 'image': {
         this.scene.setTextureRegion(req.data, req.depth);
         this.scene.draw(req.depth);
 
@@ -239,22 +236,24 @@ class App {
           }
         }
         if (this.rerender) {
+          console.log("new render from cancellation");
           this.currentDepth = this.startDepth;
           this.beginRender(this.tape);
         } else if (this.currentDepth > 0) {
+          console.log("new render from next");
           // Render again at the next resolution
           this.currentDepth -= 1;
           this.beginRender(this.tape);
         }
         break;
       }
-      case ResponseKind.Cancelled: {
+      case 'cancelled': {
         // Cancellation always implies a rerender
         this.currentDepth = this.startDepth;
         this.beginRender(this.tape);
         break;
       }
-      case ResponseKind.Script: {
+      case 'script': {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
@@ -408,7 +407,7 @@ class Scene {
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
     this.camera = {
-      kind: CameraKind.ThreeD,
+      kind: '3d',
       camera: new fidget.JsCanvas3(this.canvas.width, this.canvas.height),
     };
 
@@ -471,14 +470,14 @@ class Scene {
     let width = rect.right - rect.left;
     let height = rect.top - rect.bottom;
     switch (kind) {
-      case CameraKind.TwoD: {
+      case '2d': {
         this.camera = {
           kind,
           camera: new fidget.JsCanvas2(width, height),
         };
         break;
       }
-      case CameraKind.ThreeD: {
+      case '3d': {
         this.camera = {
           kind,
           camera: new fidget.JsCanvas3(width, height),
@@ -490,14 +489,12 @@ class Scene {
 
   zoomAbout(event: WheelEvent) {
     let [x, y] = this.screenPosition(event);
-    this.camera.camera.zoom_about(event.deltaY, x, y);
+    return this.camera.camera.zoom_about(event.deltaY, x, y);
   }
 
   screenPosition(event: MouseEvent): readonly [number, number] {
     let rect = this.canvas.getBoundingClientRect();
     let x = event.clientX - rect.left;
-    console.log(rect);
-    console.log(event);
     let y = event.clientY - rect.top;
     return [x, y];
   }
@@ -505,7 +502,7 @@ class Scene {
   beginDrag(event: MouseEvent) {
     const [x, y] = this.screenPosition(event);
     const button = (event.button === 0);
-    if (this.camera.kind === CameraKind.ThreeD) {
+    if (this.camera.kind === '3d') {
       this.camera.camera.begin_drag(x, y, button);
     } else {
       this.camera.camera.begin_drag(x, y);
@@ -515,7 +512,9 @@ class Scene {
   drag(event: MouseEvent): boolean {
     const [x, y] = this.screenPosition(event);
     console.log(x, y);
-    return this.camera.camera.drag(x, y);
+    const out = this.camera.camera.drag(x, y);
+    console.log(" => ", out);
+    return out;
   }
 
   endDrag() {
