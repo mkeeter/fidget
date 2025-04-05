@@ -40,7 +40,7 @@ export class RenderRequest {
   ) {
     this.tape = tape;
     this.kind = RequestKind.Shape;
-    this.camera = camera.camera.serialize();
+    this.camera = camera.camera.serialize_view();
     this.depth = depth;
     this.mode = mode;
     this.cancel_token_ptr = cancel_token_ptr;

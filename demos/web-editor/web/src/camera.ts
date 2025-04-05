@@ -7,15 +7,12 @@ export enum CameraKind {
 
 export type Camera2D = {
   kind: CameraKind.TwoD;
-  camera: fidget.JsCamera2;
-  translateHandle: fidget.JsTranslateHandle2 | null;
+  camera: fidget.JsCanvas2;
 };
 
 export type Camera3D = {
   kind: CameraKind.ThreeD;
-  camera: fidget.JsCamera3;
-  translateHandle: fidget.JsTranslateHandle3 | null;
-  rotateHandle: fidget.JsRotateHandle | null;
+  camera: fidget.JsCanvas3;
 };
 
 export type Camera = Camera2D | Camera3D;
