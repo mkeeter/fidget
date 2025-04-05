@@ -1,14 +1,15 @@
 use fidget::{
     context::{Context, Tree},
+    gui::{Canvas2, Canvas3, DragMode},
     render::{
         BitRenderMode, CancelToken, GeometryBuffer, ImageRenderConfig,
-        ImageSize, RotateHandle, ThreadPool, TileSizes, TranslateHandle, View2,
-        View3, VoxelRenderConfig, VoxelSize,
+        ImageSize, ThreadPool, TileSizes, View2, View3, VoxelRenderConfig,
+        VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
 };
-use nalgebra::{Point2, Point3};
+use nalgebra::Point2;
 
 use wasm_bindgen::prelude::*;
 pub use wasm_bindgen_rayon::init_thread_pool;
@@ -149,57 +150,58 @@ pub struct JsCamera3(View3);
 
 #[wasm_bindgen]
 impl JsCamera3 {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        Self(View3::default())
-    }
-
-    #[wasm_bindgen]
-    pub fn serialize(&self) -> Vec<u8> {
-        bincode::serialize(&self.0).unwrap()
-    }
-
     #[wasm_bindgen]
     pub fn deserialize(data: &[u8]) -> Self {
         Self(bincode::deserialize::<View3>(data).unwrap())
     }
-
-    #[wasm_bindgen]
-    pub fn begin_translate(&self, x: f32, y: f32) -> JsTranslateHandle3 {
-        JsTranslateHandle3(self.0.begin_translate(Point3::new(x, y, 0.0)))
-    }
-
-    #[wasm_bindgen]
-    pub fn translate(
-        &mut self,
-        h: &JsTranslateHandle3,
-        x: f32,
-        y: f32,
-    ) -> bool {
-        self.0.translate(&h.0, Point3::new(x, y, 0.0))
-    }
-
-    #[wasm_bindgen]
-    pub fn begin_rotate(&self, x: f32, y: f32) -> JsRotateHandle {
-        JsRotateHandle(self.0.begin_rotate(Point3::new(x, y, 0.0)))
-    }
-
-    #[wasm_bindgen]
-    pub fn rotate(&mut self, h: &JsRotateHandle, x: f32, y: f32) -> bool {
-        self.0.rotate(&h.0, Point3::new(x, y, 0.0))
-    }
-
-    #[wasm_bindgen]
-    pub fn zoom_about(&mut self, amount: f32, x: f32, y: f32) -> bool {
-        self.0.zoom(amount, Some(Point3::new(x, y, 0.0)))
-    }
 }
 
 #[wasm_bindgen]
-pub struct JsRotateHandle(RotateHandle);
+pub struct JsCanvas3(Canvas3);
 
 #[wasm_bindgen]
-pub struct JsTranslateHandle3(TranslateHandle<3>);
+impl JsCanvas3 {
+    #[wasm_bindgen(constructor)]
+    pub fn new(width: u32, height: u32) -> Self {
+        Self(Canvas3::new(VoxelSize::new(
+            width,
+            height,
+            width.max(height),
+        )))
+    }
+
+    #[wasm_bindgen]
+    pub fn serialize_view(&self) -> Vec<u8> {
+        bincode::serialize(&self.0.view()).unwrap()
+    }
+
+    #[wasm_bindgen]
+    pub fn begin_drag(&mut self, x: i32, y: i32, button: bool) {
+        self.0.begin_drag(
+            Point2::new(x, y),
+            if button {
+                DragMode::Pan
+            } else {
+                DragMode::Rotate
+            },
+        )
+    }
+
+    #[wasm_bindgen]
+    pub fn drag(&mut self, x: i32, y: i32) -> bool {
+        self.0.drag(Point2::new(x, y))
+    }
+
+    #[wasm_bindgen]
+    pub fn end_drag(&mut self) {
+        self.0.end_drag()
+    }
+
+    #[wasm_bindgen]
+    pub fn zoom_about(&mut self, amount: f32, x: i32, y: i32) -> bool {
+        self.0.zoom(amount, Some(Point2::new(x, y)))
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -207,45 +209,48 @@ pub struct JsTranslateHandle3(TranslateHandle<3>);
 pub struct JsCamera2(View2);
 
 #[wasm_bindgen]
-impl JsCamera2 {
+pub struct JsCanvas2(Canvas2);
+
+#[wasm_bindgen]
+impl JsCanvas2 {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        Self(View2::default())
+    pub fn new(width: u32, height: u32) -> Self {
+        Self(Canvas2::new(ImageSize::new(width, height)))
     }
 
     #[wasm_bindgen]
-    pub fn serialize(&self) -> Vec<u8> {
-        bincode::serialize(&self.0).unwrap()
+    pub fn serialize_view(&self) -> Vec<u8> {
+        bincode::serialize(&self.0.view()).unwrap()
     }
 
     #[wasm_bindgen]
-    pub fn deserialize(data: &[u8]) -> Self {
-        Self(bincode::deserialize::<View2>(data).unwrap())
+    pub fn begin_drag(&mut self, x: i32, y: i32) {
+        self.0.begin_drag(Point2::new(x, y))
     }
 
     #[wasm_bindgen]
-    pub fn begin_translate(&self, x: f32, y: f32) -> JsTranslateHandle2 {
-        JsTranslateHandle2(self.0.begin_translate(Point2::new(x, y)))
+    pub fn drag(&mut self, x: i32, y: i32) -> bool {
+        self.0.drag(Point2::new(x, y))
     }
 
     #[wasm_bindgen]
-    pub fn translate(
-        &mut self,
-        h: &JsTranslateHandle2,
-        x: f32,
-        y: f32,
-    ) -> bool {
-        self.0.translate(&h.0, Point2::new(x, y))
+    pub fn end_drag(&mut self) {
+        self.0.end_drag()
     }
 
     #[wasm_bindgen]
-    pub fn zoom_about(&mut self, amount: f32, x: f32, y: f32) -> bool {
+    pub fn zoom_about(&mut self, amount: f32, x: i32, y: i32) -> bool {
         self.0.zoom(amount, Some(Point2::new(x, y)))
     }
 }
 
 #[wasm_bindgen]
-pub struct JsTranslateHandle2(TranslateHandle<2>);
+impl JsCamera2 {
+    #[wasm_bindgen]
+    pub fn deserialize(data: &[u8]) -> Self {
+        Self(bincode::deserialize::<View2>(data).unwrap())
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -150,8 +150,8 @@ impl ImageSize {
     }
 
     /// Transforms a point from screen to world coordinates
-    pub fn transform_point(&self, p: Point2<f32>) -> Point2<f32> {
-        self.screen_to_world().transform_point(&p)
+    pub fn transform_point(&self, p: Point2<i32>) -> Point2<f32> {
+        self.screen_to_world().transform_point(&p.cast())
     }
 }
 
@@ -171,8 +171,8 @@ impl VoxelSize {
     }
 
     /// Transforms a point from screen to world coordinates
-    pub fn transform_point(&self, p: Point3<f32>) -> Point3<f32> {
-        self.screen_to_world().transform_point(&p)
+    pub fn transform_point(&self, p: Point3<i32>) -> Point3<f32> {
+        self.screen_to_world().transform_point(&p.cast())
     }
 }
 

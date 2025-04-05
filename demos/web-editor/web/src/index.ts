@@ -10,8 +10,6 @@ import { defaultKeymap } from "@codemirror/commands";
 import { tags } from "@lezer/highlight";
 
 import {
-  RenderMode,
-  ResponseKind,
   ScriptRequest,
   ScriptResponse,
   StartRequest,
@@ -69,9 +67,10 @@ class App {
 
     let requestRedraw = this.requestRedraw.bind(this);
     scene.canvas.addEventListener("wheel", (event) => {
-      scene.zoomAbout(event);
       event.preventDefault();
-      requestRedraw();
+      if (scene.zoomAbout(event)) {
+        requestRedraw();
+      }
     });
     scene.canvas.addEventListener("contextmenu", (event) => {
       event.preventDefault();
@@ -80,11 +79,7 @@ class App {
       "pointerdown",
       (event) => {
         event.preventDefault();
-        if (event.button === 0) {
-          scene.beginTranslate(event);
-        } else if (event.button === 2) {
-          scene.beginRotate(event);
-        }
+        scene.beginDrag(event);
       },
       { passive: false },
     );
@@ -156,13 +151,13 @@ class App {
 
   onModeChanged() {
     switch (this.getMode()) {
-      case RenderMode.Heightmap:
-      case RenderMode.Normals: {
-        this.scene.resetCamera(CameraKind.ThreeD);
+      case "heightmap":
+      case "normals": {
+        this.scene.resetCamera("3d");
         break;
       }
-      case RenderMode.Bitmap: {
-        this.scene.resetCamera(CameraKind.TwoD);
+      case "bitmap": {
+        this.scene.resetCamera("2d");
         break;
       }
     }
@@ -177,14 +172,10 @@ class App {
   getMode() {
     const e = document.getElementById("mode") as HTMLSelectElement;
     switch (e.value) {
-      case "bitmap": {
-        return RenderMode.Bitmap;
-      }
-      case "normals": {
-        return RenderMode.Normals;
-      }
+      case "bitmap":
+      case "normals":
       case "heightmap": {
-        return RenderMode.Heightmap;
+        return e.value;
       }
       default: {
         return null;
@@ -212,14 +203,14 @@ class App {
 
   onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
-      case ResponseKind.Started: {
+      case "started": {
         // Initialize the rest of the app, and do an initial render
         this.init();
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
         break;
       }
-      case ResponseKind.Image: {
+      case "image": {
         this.scene.setTextureRegion(req.data, req.depth);
         this.scene.draw(req.depth);
 
@@ -229,7 +220,6 @@ class App {
           document.getElementById("status").textContent =
             `Rendered in ${dt.toFixed(2)} ms`;
         }
-        console.log(`rendered depth ${req.depth} in ${dt}`);
         this.rendering = false;
 
         // If this is our initial render resolution, adjust our max depth to hit
@@ -251,13 +241,13 @@ class App {
         }
         break;
       }
-      case ResponseKind.Cancelled: {
+      case "cancelled": {
         // Cancellation always implies a rerender
         this.currentDepth = this.startDepth;
         this.beginRender(this.tape);
         break;
       }
-      case ResponseKind.Script: {
+      case "script": {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
@@ -376,7 +366,8 @@ class ProgramInfo {
       varying highp vec2 vTextureCoord;
       void main() {
         gl_Position = aVertexPosition;
-        vTextureCoord = (aVertexPosition.xy + 1.0) / 2.0;
+        vTextureCoord = vec2((aVertexPosition.xy + 1.0) / 2.0);
+        vTextureCoord.y = 1.0 - vTextureCoord.y;
       }
     `;
 
@@ -410,10 +401,8 @@ class Scene {
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
     this.camera = {
-      kind: CameraKind.ThreeD,
-      camera: new fidget.JsCamera3(),
-      translateHandle: null,
-      rotateHandle: null,
+      kind: "3d",
+      camera: new fidget.JsCanvas3(this.canvas.width, this.canvas.height),
     };
 
     this.gl = this.canvas.getContext("webgl");
@@ -471,21 +460,20 @@ class Scene {
   }
 
   resetCamera(kind: CameraKind) {
+    let width = this.canvas.width;
+    let height = this.canvas.height;
     switch (kind) {
-      case CameraKind.TwoD: {
+      case "2d": {
         this.camera = {
           kind,
-          camera: new fidget.JsCamera2(),
-          translateHandle: null,
+          camera: new fidget.JsCanvas2(width, height),
         };
         break;
       }
-      case CameraKind.ThreeD: {
+      case "3d": {
         this.camera = {
           kind,
-          camera: new fidget.JsCamera3(),
-          translateHandle: null,
-          rotateHandle: null,
+          camera: new fidget.JsCanvas3(width, height),
         };
         break;
       }
@@ -493,62 +481,35 @@ class Scene {
   }
 
   zoomAbout(event: WheelEvent) {
-    let [x, y] = this.screenToWorld(event);
-    const zoomFactor = Math.pow(2, event.deltaY / 100.0);
-    this.camera.camera.zoom_about(zoomFactor, x, y);
+    let [x, y] = this.screenPosition(event);
+    return this.camera.camera.zoom_about(event.deltaY, x, y);
   }
 
-  screenToWorld(event: MouseEvent): readonly [number, number] {
+  screenPosition(event: MouseEvent): readonly [number, number] {
     let rect = this.canvas.getBoundingClientRect();
-    let x = ((event.clientX - rect.left) / RENDER_SIZE - 0.5) * 2.0;
-    let y = ((event.clientY - rect.top) / RENDER_SIZE - 0.5) * 2.0;
+    let x = event.clientX - rect.left;
+    let y = event.clientY - rect.top;
     return [x, y];
   }
 
-  beginTranslate(event: MouseEvent) {
-    const [x, y] = this.screenToWorld(event);
-    this.camera.translateHandle = this.camera.camera.begin_translate(x, y) as
-      | fidget.JsTranslateHandle2
-      | fidget.JsTranslateHandle3;
-  }
-
-  beginRotate(event: MouseEvent) {
-    if (this.camera.kind === CameraKind.ThreeD) {
-      const [x, y] = this.screenToWorld(event);
-      this.camera.rotateHandle = this.camera.camera.begin_rotate(
-        x,
-        y,
-      ) as fidget.JsRotateHandle;
+  beginDrag(event: MouseEvent) {
+    const [x, y] = this.screenPosition(event);
+    const button = event.button === 0;
+    if (this.camera.kind === "3d") {
+      this.camera.camera.begin_drag(x, y, button);
+    } else {
+      this.camera.camera.begin_drag(x, y);
     }
   }
 
   drag(event: MouseEvent): boolean {
-    const [x, y] = this.screenToWorld(event);
-    let changed = false;
-
-    if (this.camera.translateHandle) {
-      changed =
-        this.camera.camera.translate(this.camera.translateHandle, x, y) ||
-        changed;
-    }
-
-    if (this.camera.kind === CameraKind.ThreeD && this.camera.rotateHandle) {
-      changed =
-        (this.camera.camera as fidget.JsCamera3).rotate(
-          this.camera.rotateHandle,
-          x,
-          y,
-        ) || changed;
-    }
-
-    return changed;
+    const [x, y] = this.screenPosition(event);
+    const out = this.camera.camera.drag(x, y);
+    return out;
   }
 
   endDrag() {
-    this.camera.translateHandle = null;
-    if (this.camera.kind === CameraKind.ThreeD) {
-      this.camera.rotateHandle = null;
-    }
+    this.camera.camera.end_drag();
   }
 
   setTextureRegion(data: Uint8Array, depth: number) {
