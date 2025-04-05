@@ -2,18 +2,18 @@ import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 import { Camera } from "./camera";
 
 export class ScriptRequest {
-  kind: 'script';
+  kind: "script";
   script: string;
 
   constructor(script: string) {
     this.script = script;
-    this.kind = 'script';
+    this.kind = "script";
   }
 }
 
-type RenderMode = 'bitmap' | 'heightmap' | 'normals';
+type RenderMode = "bitmap" | "heightmap" | "normals";
 export class RenderRequest {
-  kind: 'shape';
+  kind: "shape";
   tape: Uint8Array;
   camera: Uint8Array;
   depth: number;
@@ -28,7 +28,7 @@ export class RenderRequest {
     cancel_token_ptr: number,
   ) {
     this.tape = tape;
-    this.kind = 'shape';
+    this.kind = "shape";
     this.camera = camera.camera.serialize_view();
     this.depth = depth;
     this.mode = mode;
@@ -37,12 +37,12 @@ export class RenderRequest {
 }
 
 export class StartRequest {
-  kind: 'start';
+  kind: "start";
   init: object;
 
   constructor(init: object) {
     this.init = init;
-    this.kind = 'start';
+    this.kind = "start";
   }
 }
 
@@ -51,42 +51,42 @@ export type WorkerRequest = StartRequest | ScriptRequest | RenderRequest;
 ////////////////////////////////////////////////////////////////////////////////
 
 export class StartedResponse {
-  kind: 'started';
+  kind: "started";
 
   constructor() {
-    this.kind = 'started';
+    this.kind = "started";
   }
 }
 
 export class ScriptResponse {
-  kind: 'script';
+  kind: "script";
   output: string;
   tape: Uint8Array | null;
 
   constructor(output: string, tape: Uint8Array | null) {
     this.output = output;
     this.tape = tape;
-    this.kind = 'script';
+    this.kind = "script";
   }
 }
 
 export class ImageResponse {
-  kind: 'image';
+  kind: "image";
   data: Uint8Array;
   depth: number;
 
   constructor(data: Uint8Array, depth: number) {
     this.data = data;
     this.depth = depth;
-    this.kind = 'image';
+    this.kind = "image";
   }
 }
 
 export class CancelledResponse {
-  kind: 'cancelled';
+  kind: "cancelled";
 
   constructor() {
-    this.kind = 'cancelled';
+    this.kind = "cancelled";
   }
 }
 

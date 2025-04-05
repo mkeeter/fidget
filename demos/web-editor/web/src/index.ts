@@ -151,13 +151,13 @@ class App {
 
   onModeChanged() {
     switch (this.getMode()) {
-      case 'heightmap':
-      case 'normals': {
-        this.scene.resetCamera('3d');
+      case "heightmap":
+      case "normals": {
+        this.scene.resetCamera("3d");
         break;
       }
-      case 'bitmap': {
-        this.scene.resetCamera('2d');
+      case "bitmap": {
+        this.scene.resetCamera("2d");
         break;
       }
     }
@@ -203,14 +203,14 @@ class App {
 
   onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
-      case 'started': {
+      case "started": {
         // Initialize the rest of the app, and do an initial render
         this.init();
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
         break;
       }
-      case 'image': {
+      case "image": {
         this.scene.setTextureRegion(req.data, req.depth);
         this.scene.draw(req.depth);
 
@@ -241,13 +241,13 @@ class App {
         }
         break;
       }
-      case 'cancelled': {
+      case "cancelled": {
         // Cancellation always implies a rerender
         this.currentDepth = this.startDepth;
         this.beginRender(this.tape);
         break;
       }
-      case 'script': {
+      case "script": {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
@@ -401,7 +401,7 @@ class Scene {
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
     this.camera = {
-      kind: '3d',
+      kind: "3d",
       camera: new fidget.JsCanvas3(this.canvas.width, this.canvas.height),
     };
 
@@ -463,14 +463,14 @@ class Scene {
     let width = this.canvas.width;
     let height = this.canvas.height;
     switch (kind) {
-      case '2d': {
+      case "2d": {
         this.camera = {
           kind,
           camera: new fidget.JsCanvas2(width, height),
         };
         break;
       }
-      case '3d': {
+      case "3d": {
         this.camera = {
           kind,
           camera: new fidget.JsCanvas3(width, height),
@@ -494,8 +494,8 @@ class Scene {
 
   beginDrag(event: MouseEvent) {
     const [x, y] = this.screenPosition(event);
-    const button = (event.button === 0);
-    if (this.camera.kind === '3d') {
+    const button = event.button === 0;
+    if (this.camera.kind === "3d") {
       this.camera.camera.begin_drag(x, y, button);
     } else {
       this.camera.camera.begin_drag(x, y);
