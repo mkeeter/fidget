@@ -13,6 +13,10 @@
   a point with `i32` coordinates (instead of `f32`).  This helps us distinguish
   between screen (pixel) and world (floating-point) coordinates at the type
   level.
+- Add `Tree::remap_affine` (and `TreeOp::RemapAffine`) to perform affine
+  transformations on math expressions.  These transformations are composable;
+  two affine transforms will be combined into a single transform if stacked
+  together.
 
 # 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`

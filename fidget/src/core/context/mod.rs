@@ -30,6 +30,7 @@ use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 
+use nalgebra::Matrix4;
 use ordered_float::OrderedFloat;
 
 define_index!(Node, "An index in the `Context::ops` map");
@@ -1089,10 +1090,13 @@ impl Context {
             Up(&'a Arc<TreeOp>),
             /// Pops the latest axis frame
             Pop,
+            /// Pops the latest affine frame
+            PopAffine,
         }
         let mut axes = vec![(self.x(), self.y(), self.z())];
         let mut todo = vec![Action::Down(tree.arc())];
         let mut stack = vec![];
+        let mut affine: Vec<Matrix4<f64>> = vec![];
 
         // Cache of TreeOp -> Node mapping under a particular frame (axes)
         //
@@ -1145,11 +1149,43 @@ impl Context {
                             todo.push(Action::Down(y));
                             todo.push(Action::Down(z));
                         }
+                        TreeOp::RemapAffine { target, mat } => {
+                            let prev = affine
+                                .last()
+                                .cloned()
+                                .unwrap_or(Matrix4::identity());
+                            let mat = prev * mat.to_homogeneous();
+
+                            // Push either an affine frame or an axis frame,
+                            // depending on whether the target is also affine
+                            if matches!(&**target, TreeOp::RemapAffine { .. }) {
+                                affine.push(mat);
+                                todo.push(Action::PopAffine);
+                            } else {
+                                let (x, y, z) = axes.last().unwrap();
+                                let mut out = [None; 3];
+                                for i in 0..3 {
+                                    let a = self.mul(mat[(i, 0)], *x).unwrap();
+                                    let b = self.mul(mat[(i, 1)], *y).unwrap();
+                                    let c = self.mul(mat[(i, 2)], *z).unwrap();
+                                    let d = self.constant(mat[(i, 3)]);
+                                    let ab = self.add(a, b).unwrap();
+                                    let cd = self.add(c, d).unwrap();
+                                    out[i] = Some(self.add(ab, cd).unwrap());
+                                }
+                                let [x, y, z] = out.map(Option::unwrap);
+                                axes.push((x, y, z));
+                                todo.push(Action::Pop);
+                            }
+                            todo.push(Action::Down(target));
+                        }
                     }
                 }
                 Action::Up(t) => {
                     match t.as_ref() {
-                        TreeOp::Const(..) | TreeOp::Input(..) => unreachable!(),
+                        TreeOp::Const(..)
+                        | TreeOp::Input(..)
+                        | TreeOp::RemapAffine { .. } => unreachable!(),
                         TreeOp::Unary(op, ..) => {
                             let arg = stack.pop().unwrap();
                             let out = self.op_unary(arg, *op).unwrap();
@@ -1194,6 +1230,9 @@ impl Context {
                 }
                 Action::Pop => {
                     axes.pop().unwrap();
+                }
+                Action::PopAffine => {
+                    affine.pop().unwrap();
                 }
             }
         }

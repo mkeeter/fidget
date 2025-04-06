@@ -6,7 +6,8 @@ use std::sync::Arc;
 /// Opcode type for trees
 ///
 /// This is equivalent to [`Op`](crate::context::Op), but also includes the
-/// [`RemapAxes`](TreeOp::RemapAxes) operation for lazy remapping.
+/// [`RemapAxes`](TreeOp::RemapAxes) and [`TreeOp::RemapAffine`] operations for
+/// lazy remapping.
 #[derive(Debug)]
 #[allow(missing_docs)]
 pub enum TreeOp {
@@ -19,11 +20,22 @@ pub enum TreeOp {
     ///
     /// When imported into a `Context`, all `x/y/z` clauses within `target` will
     /// be replaced with the provided `x/y/z` trees.
+    ///
+    /// If the transform is affine, then `RemapAffine` should be preferred,
+    /// because it flattens sequences of affine transformations.
     RemapAxes {
         target: Arc<TreeOp>,
         x: Arc<TreeOp>,
         y: Arc<TreeOp>,
         z: Arc<TreeOp>,
+    },
+    /// Lazy affine transforms
+    ///
+    /// When imported into a `Context`, the `x/y/z` clauses within `target` will
+    /// be transformed with the provided affine matrix.
+    RemapAffine {
+        target: Arc<TreeOp>,
+        mat: nalgebra::Affine3<f64>,
     },
 }
 
@@ -66,6 +78,9 @@ impl TreeOp {
                     && matches!(**y, TreeOp::Const(..))
                     && matches!(**z, TreeOp::Const(..))
             }
+            TreeOp::RemapAffine { target, .. } => {
+                matches!(**target, TreeOp::Const(..))
+            }
         }
     }
 
@@ -76,6 +91,9 @@ impl TreeOp {
             TreeOp::Binary(_op, lhs, rhs) => [Some(lhs), Some(rhs), None, None],
             TreeOp::RemapAxes { target, x, y, z } => {
                 [Some(target), Some(x), Some(y), Some(z)]
+            }
+            TreeOp::RemapAffine { target, .. } => {
+                [Some(target), None, None, None]
             }
         }
         .into_iter()
@@ -155,6 +173,9 @@ impl Tree {
 
     /// Remaps the axes of the given tree
     ///
+    /// If the mapping is affine, then [`remap_affine`](Self::remap_affine)
+    /// should be preferred.
+    ///
     /// The remapping is lazy; it is not evaluated until the tree is imported
     /// into a `Context`.
     pub fn remap_xyz(&self, x: Tree, y: Tree, z: Tree) -> Tree {
@@ -164,6 +185,25 @@ impl Tree {
             y: y.0,
             z: z.0,
         }))
+    }
+
+    /// Performs an affine remapping of the given tree
+    ///
+    /// The remapping is lazy; it is not evaluated until the tree is imported
+    /// into a `Context`.
+    pub fn remap_affine(&self, mat: nalgebra::Affine3<f64>) -> Tree {
+        // Flatten affine trees
+        let out = match &*self.0 {
+            TreeOp::RemapAffine { target, mat: prev } => TreeOp::RemapAffine {
+                target: target.clone(),
+                mat: mat * prev,
+            },
+            _ => TreeOp::RemapAffine {
+                target: self.0.clone(),
+                mat,
+            },
+        };
+        Self(out.into())
     }
 
     /// Returns the inner [`Var`] if this is an input tree, or `None`
@@ -397,6 +437,78 @@ mod test {
         let v = s.remap_xyz(one, Tree::y(), Tree::z());
         let v_ = ctx.import(&v);
         assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 4.0);
+    }
+
+    #[test]
+    fn test_remap_affine() {
+        let s = Tree::x();
+        // Two rotations by 45° -> 90°
+        let t = nalgebra::convert(nalgebra::Rotation3::<f64>::from_axis_angle(
+            &nalgebra::Vector3::<f64>::z_axis(),
+            -std::f64::consts::FRAC_PI_4,
+        ));
+        let s = s.remap_affine(t);
+        let s = s.remap_affine(t);
+
+        let TreeOp::RemapAffine { target, .. } = &*s else {
+            panic!("invalid shape");
+        };
+        assert!(matches!(&**target, TreeOp::Input(Var::X)));
+
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&s);
+
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 1.0);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, -2.0, 0.0).unwrap(), -2.0);
+    }
+
+    #[test]
+    fn test_remap_order() {
+        let translate = nalgebra::convert(nalgebra::Translation3::<f64>::new(
+            3.0, 0.0, 0.0,
+        ));
+        let scale =
+            nalgebra::convert(nalgebra::Scale3::<f64>::new(0.5, 0.5, 0.5));
+
+        let s = Tree::x();
+        let s = s.remap_affine(scale);
+        let s = s.remap_affine(translate);
+
+        // Confirm that we didn't stack up RemapAffine nodes
+        let TreeOp::RemapAffine { target, .. } = &*s else {
+            panic!("invalid shape");
+        };
+        assert!(matches!(&**target, TreeOp::Input(Var::X)));
+
+        // Basic evaluation testing
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&s);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 3.5);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 0.0, 0.0).unwrap(), 4.0);
+
+        // Do the same thing but testing collapsing in `Context::import`
+        let manual = TreeOp::RemapAffine {
+            target: Arc::new(TreeOp::RemapAffine {
+                target: TreeOp::Input(Var::X).into(),
+                mat: scale,
+            }),
+            mat: translate,
+        }
+        .into();
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&manual);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 3.5);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 0.0, 0.0).unwrap(), 4.0);
+
+        // Swap the order and make sure it still works
+        let s = Tree::x();
+        let s = s.remap_affine(translate);
+        let s = s.remap_affine(scale);
+
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&s);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 2.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 0.0, 0.0).unwrap(), 2.5);
     }
 
     #[test]
