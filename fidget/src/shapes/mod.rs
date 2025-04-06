@@ -19,6 +19,22 @@ impl Vec2 {
     }
 }
 
+#[cfg(feature = "rhai")]
+impl FromDynamic for Vec2 {
+    fn from_dynamic(d: rhai::Dynamic) -> Option<Self> {
+        d.clone().try_cast::<Vec2>().or_else(|| {
+            let array = d.into_array().ok()?;
+            if array.len() == 2 {
+                let x = f64::from_dynamic(array[0].clone())?;
+                let y = f64::from_dynamic(array[1].clone())?;
+                Some(Vec2(x, y))
+            } else {
+                None
+            }
+        })
+    }
+}
+
 /// Represents a point in 3D space
 ///
 /// The members are unnamed because it's not necessarily `XYZ` space; it may be
@@ -34,8 +50,22 @@ impl Vec3 {
     }
 }
 
-/// A 3D coordinate space
-pub struct Axes(pub Tree, pub Tree, pub Tree);
+#[cfg(feature = "rhai")]
+impl FromDynamic for Vec3 {
+    fn from_dynamic(d: rhai::Dynamic) -> Option<Self> {
+        d.clone().try_cast::<Vec3>().or_else(|| {
+            let array = d.into_array().ok()?;
+            if array.len() == 2 {
+                let x = f64::from_dynamic(array[0].clone())?;
+                let y = f64::from_dynamic(array[1].clone())?;
+                let z = f64::from_dynamic(array[2].clone())?;
+                Some(Vec3(x, y, z))
+            } else {
+                None
+            }
+        })
+    }
+}
 
 macro_rules! define_shape {
     (
@@ -49,7 +79,7 @@ macro_rules! define_shape {
                 pub $field_name:ident: $field_type:ty = $default:expr,
             )*
 
-            fn build(&$self:ident, $axes:ident: &Axes) -> Tree {
+            fn build(&$self:ident) -> Tree {
                 $($build:stmt);*
             }
         }
@@ -69,7 +99,7 @@ macro_rules! define_shape {
         }
 
         impl ShapeBuilder for $StructName {
-            fn build(&$self, $axes: &Axes) -> Tree {
+            fn build(&$self) -> Tree {
                 $($build)*
             }
             fn to_arc(&self) -> Arc<dyn ShapeBuilder> {
@@ -79,11 +109,23 @@ macro_rules! define_shape {
 
         // Rhai-specific bindings to make scripting more ergonomic
         #[cfg(feature = "rhai")]
+        #[allow(clippy::self_named_constructors)]
         impl $StructName {
             $(
-                fn $field_name(mut self, value: $field_type) -> Self {
-                    self.$field_name = value;
-                    self
+                fn $field_name(
+                    ctx: rhai::NativeCallContext,
+                    mut this: Self,
+                    value: rhai::Dynamic
+                ) -> Result<Self, Box<rhai::EvalAltResult>> {
+                    this.$field_name = <$field_type>::from_dynamic(
+                        value.clone()
+                    ).ok_or_else(||
+                        Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
+                            stringify!($field_type).to_string(),
+                            value.type_name().to_string(),
+                            ctx.position())
+                        ))?;
+                    Ok(this)
                 }
             )*
 
@@ -123,7 +165,7 @@ macro_rules! define_shape {
 }
 
 define_shape! {
-    /// A circle in 2D space
+    /// A 2D circle
     #[derive(Copy)]
     pub struct Circle {
         /// Radius of the circle
@@ -131,11 +173,11 @@ define_shape! {
         /// Center of the circle
         pub center: Vec2 = Vec2(0.0, 0.0),
 
-        fn build(&self, axes: &Axes) -> Tree {
-            ((axes.0.clone() - self.center.0).square()
-                + (axes.1.clone() - self.center.1).square())
-            .sqrt()
-                - self.radius
+        fn build(&self) -> Tree {
+            let (x, y, _z) = Tree::axes();
+            ((x - self.center.0).square()
+            + (y - self.center.1).square())
+            .sqrt() - self.radius
         }
     }
 }
@@ -143,7 +185,7 @@ define_shape! {
 /// Shapes used in modeling
 pub trait ShapeBuilder: Send + Sync + std::fmt::Debug {
     /// Bind a shape to a particular set of axes
-    fn build(&self, axes: &Axes) -> Tree;
+    fn build(&self) -> Tree;
 
     /// Converts yourself to an `Arc<dyn ShapeBuilder>`
     ///
@@ -151,24 +193,60 @@ pub trait ShapeBuilder: Send + Sync + std::fmt::Debug {
     fn to_arc(&self) -> Arc<dyn ShapeBuilder>;
 }
 
+#[cfg(feature = "rhai")]
+trait FromDynamic
+where
+    Self: Sized,
+{
+    fn from_dynamic(d: rhai::Dynamic) -> Option<Self>;
+}
+
+#[cfg(feature = "rhai")]
+impl FromDynamic for f64 {
+    fn from_dynamic(d: rhai::Dynamic) -> Option<Self> {
+        d.clone()
+            .try_cast::<f64>()
+            .or_else(|| d.try_cast::<i64>().map(|f| f as f64))
+    }
+}
+
 define_shape! {
     /// Uniform scaling
-    pub struct Scale3d {
+    pub struct Scale {
         shape: Arc<dyn ShapeBuilder>,
         /// Center about which we are scaling
         pub center: Vec3 = Vec3(0.0, 0.0, 0.0),
         /// Scale factor to apply
         pub scale: f64 = 1.0,
 
-        fn build(&self, axes: &Axes) -> Tree {
-            let a =
-                (axes.0.clone() - self.center.0) * self.scale + self.center.0;
-            let b =
-                (axes.1.clone() - self.center.1) * self.scale + self.center.1;
-            let c =
-                (axes.2.clone() - self.center.2) * self.scale + self.center.2;
+        fn build(&self) -> Tree {
+            let (x, y, z) = Tree::axes();
+            self.shape.build().remap_xyz(
+                (x - self.center.0) * self.scale + self.center.0,
+                (y - self.center.1) * self.scale + self.center.1,
+                (z - self.center.2) * self.scale + self.center.2)
+        }
+    }
+}
 
-            self.shape.build(&Axes(a, b, c))
+define_shape! {
+    /// Uniform scaling
+    pub struct Move {
+        shape: Arc<dyn ShapeBuilder>,
+        /// X translation
+        pub dx: f64 = 0.0,
+        /// Y translation
+        pub dy: f64 = 0.0,
+        /// Z translation
+        pub dz: f64 = 0.0,
+
+        fn build(&self) -> Tree {
+            let (x, y, z) = Tree::axes();
+            self.shape.build().remap_xyz(
+                x - self.dx,
+                y - self.dy,
+                z - self.dz,
+            )
         }
     }
 }
@@ -181,5 +259,6 @@ pub(crate) fn register_types(engine: &mut rhai::Engine) {
     engine.build_type::<Vec3>();
 
     Circle::register(engine);
-    Scale3d::register(engine);
+    Scale::register(engine);
+    Move::register(engine);
 }
