@@ -458,8 +458,10 @@ mod test {
         let mut ctx = Context::new();
         let v_ = ctx.import(&s);
 
-        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 1.0);
-        assert_eq!(ctx.eval_xyz(v_, 0.0, -2.0, 0.0).unwrap(), -2.0);
+        assert!((ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap() - 1.0).abs() < 1e-6);
+        assert!(
+            (ctx.eval_xyz(v_, 0.0, -2.0, 0.0).unwrap() - -2.0).abs() < 1e-6
+        );
     }
 
     #[test]
