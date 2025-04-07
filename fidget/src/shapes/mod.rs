@@ -55,7 +55,7 @@ impl FromDynamic for Vec3 {
     fn from_dynamic(d: rhai::Dynamic) -> Option<Self> {
         d.clone().try_cast::<Vec3>().or_else(|| {
             let array = d.into_array().ok()?;
-            if array.len() == 2 {
+            if array.len() == 3 {
                 let x = f64::from_dynamic(array[0].clone())?;
                 let y = f64::from_dynamic(array[1].clone())?;
                 let z = f64::from_dynamic(array[2].clone())?;
@@ -138,8 +138,7 @@ macro_rules! define_shape {
                         $shape_name: rhai::Dynamic
                     )?| -> Result<Self, Box<rhai::EvalAltResult>> {
                         $(
-                            let $shape_name =
-                                ctx.call_native_fn("to_arc", ($shape_name,))?;
+                            let $shape_name = dyn_to_shape(ctx, $shape_name)?;
                         )?
                         Ok(Self {
                             $( $shape_name, )?
@@ -162,6 +161,24 @@ macro_rules! define_shape {
             }
         }
     };
+}
+
+#[cfg(feature = "rhai")]
+fn dyn_to_shape(
+    ctx: rhai::NativeCallContext,
+    shape: rhai::Dynamic,
+) -> Result<Arc<dyn ShapeBuilder>, Box<rhai::EvalAltResult>> {
+    ctx.call_native_fn("to_arc", (shape.clone(),)).map_err(|e| {
+        if matches!(&*e, rhai::EvalAltResult::ErrorFunctionNotFound(..)) {
+            Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
+                "shape".to_string(),
+                shape.type_name().to_string(),
+                ctx.position(),
+            ))
+        } else {
+            e
+        }
+    })
 }
 
 define_shape! {
