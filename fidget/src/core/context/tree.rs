@@ -194,9 +194,9 @@ impl Tree {
     pub fn remap_affine(&self, mat: nalgebra::Affine3<f64>) -> Tree {
         // Flatten affine trees
         let out = match &*self.0 {
-            TreeOp::RemapAffine { target, mat: prev } => TreeOp::RemapAffine {
+            TreeOp::RemapAffine { target, mat: next } => TreeOp::RemapAffine {
                 target: target.clone(),
-                mat: mat * prev,
+                mat: mat * next,
             },
             _ => TreeOp::RemapAffine {
                 target: self.0.clone(),
