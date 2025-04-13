@@ -10,6 +10,15 @@ pub struct Vec2 {
     pub y: f64,
 }
 
+/// 3D position
+#[derive(Copy, Clone, Facet)]
+#[allow(missing_docs)]
+pub struct Vec3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
 /// 2D circle
 #[derive(Clone, Facet)]
 #[allow(missing_docs)]

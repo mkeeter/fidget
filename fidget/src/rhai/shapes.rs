@@ -1,5 +1,8 @@
 //! Tools for using [`fidget::shapes`](crate::shapes) in Rhai
-use crate::shapes::Vec2;
+use crate::{
+    context::Tree,
+    shapes::{Vec2, Vec3},
+};
 use facet::{ConstTypeId, Facet};
 use rhai::{CustomType, EvalAltResult, TypeBuilder};
 
@@ -23,6 +26,36 @@ impl CustomType for Vec2 {
     }
 }
 
+impl CustomType for Vec3 {
+    fn build(mut builder: TypeBuilder<Self>) {
+        builder
+            .with_name("Vec3")
+            .with_fn(
+                "vec3",
+                |ctx: rhai::NativeCallContext,
+                 x: rhai::Dynamic,
+                 y: rhai::Dynamic,
+                 z: rhai::Dynamic|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    let x = f64::from_dynamic(&ctx, x)?;
+                    let y = f64::from_dynamic(&ctx, y)?;
+                    let z = f64::from_dynamic(&ctx, z)?;
+                    Ok(Self { x, y, z })
+                },
+            )
+            .with_get_set("x", |v: &mut Self| v.x, |v: &mut Self, x| v.x = x)
+            .with_get_set("y", |v: &mut Self| v.y, |v: &mut Self, y| v.y = y)
+            .with_get_set("z", |v: &mut Self| v.z, |v: &mut Self, z| v.z = z);
+    }
+}
+
+impl CustomType for Tree {
+    fn build(mut builder: TypeBuilder<Self>) {
+        builder.with_name("Tree");
+    }
+}
+
+/// Helper trait to go from a Rhai dynamic object to a particular type
 trait FromDynamic
 where
     Self: Sized,
@@ -58,7 +91,7 @@ impl FromDynamic for Vec2 {
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
     ) -> Result<Self, Box<EvalAltResult>> {
-        if let Some(v) = d.clone().try_cast::<Vec2>() {
+        if let Some(v) = d.clone().try_cast() {
             Ok(v)
         } else {
             let array = d.into_array().map_err(|ty| {
@@ -85,15 +118,51 @@ impl FromDynamic for Vec2 {
     }
 }
 
+impl FromDynamic for Vec3 {
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        d: rhai::Dynamic,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        if let Some(v) = d.clone().try_cast() {
+            Ok(v)
+        } else {
+            let array = d.into_array().map_err(|ty| {
+                EvalAltResult::ErrorMismatchDataType(
+                    "array".to_string(),
+                    ty.to_string(),
+                    ctx.position(),
+                )
+            })?;
+            match array.len() {
+                3 => {
+                    let x = f64::from_dynamic(ctx, array[0].clone())?;
+                    let y = f64::from_dynamic(ctx, array[1].clone())?;
+                    let z = f64::from_dynamic(ctx, array[2].clone())?;
+                    Ok(Vec3 { x, y, z })
+                }
+                n => Err(EvalAltResult::ErrorMismatchDataType(
+                    "[float; 3]".to_string(),
+                    format!("[dynamic; {n}]"),
+                    ctx.position(),
+                )
+                .into()),
+            }
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Installs shapes and helper types into the engine
 pub fn register_types(engine: &mut rhai::Engine) {
     use crate::shapes::*;
 
     engine.build_type::<Vec2>();
+    engine.build_type::<Vec3>();
     register::<Circle>(engine);
 }
 
-fn register<T: Facet + Clone + Send + Sync + 'static>(
+fn register<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
     engine: &mut rhai::Engine,
 ) {
     validate_type::<T>(); // panic if the type is invalid
@@ -101,6 +170,7 @@ fn register<T: Facet + Clone + Send + Sync + 'static>(
     use heck::ToSnakeCase;
     use std::io::Write;
 
+    // Get shape type (CamelCase) and builder (snake_case) names
     let mut writer = std::io::BufWriter::new(Vec::new());
     write!(&mut writer, "{}", T::SHAPE).unwrap();
     let name = std::str::from_utf8(writer.buffer()).unwrap();
@@ -108,7 +178,10 @@ fn register<T: Facet + Clone + Send + Sync + 'static>(
 
     engine
         .register_type_with_name::<T>(name)
-        .register_fn(&name_lower, build_from_map::<T>);
+        .register_fn(&name_lower, build_from_map::<T>)
+        .register_fn("build", |_ctx: rhai::NativeCallContext, t: T| -> Tree {
+            t.into()
+        });
 }
 
 /// Checks whether `T` has fields of known types
@@ -124,6 +197,7 @@ fn validate_type<T: Facet>() {
     }
 }
 
+/// Builds a `T` from a Rhai map
 fn build_from_map<T: Facet>(
     ctx: rhai::NativeCallContext,
     m: rhai::Map,
@@ -167,6 +241,8 @@ fn build_from_map<T: Facet>(
     }
     Ok(poke.build(Some(guard)))
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
