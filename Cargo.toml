@@ -35,6 +35,7 @@ crossbeam-deque = "0.8"
 document-features = "0.2"
 dynasmrt = "3.0"
 eframe = { version = "0.31", features = ["wgpu"] }
+facet = { version = "0.2", features = ["reflect"] }
 env_logger = "0.11"
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
