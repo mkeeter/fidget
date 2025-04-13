@@ -49,43 +49,6 @@ impl CustomType for Vec3 {
     }
 }
 
-impl CustomType for Tree {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder.with_name("Tree");
-    }
-}
-
-/// Helper trait to go from a Rhai dynamic object to a particular type
-trait FromDynamic
-where
-    Self: Sized,
-{
-    fn from_dynamic(
-        ctx: &rhai::NativeCallContext,
-        v: rhai::Dynamic,
-    ) -> Result<Self, Box<EvalAltResult>>;
-}
-
-impl FromDynamic for f64 {
-    fn from_dynamic(
-        ctx: &rhai::NativeCallContext,
-        d: rhai::Dynamic,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        let ty = d.type_name();
-        d.clone()
-            .try_cast::<f64>()
-            .or_else(|| d.try_cast::<i64>().map(|f| f as f64))
-            .ok_or_else(|| {
-                EvalAltResult::ErrorMismatchDataType(
-                    "float".to_string(),
-                    ty.to_string(),
-                    ctx.position(),
-                )
-                .into()
-            })
-    }
-}
-
 impl FromDynamic for Vec2 {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,

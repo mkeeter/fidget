@@ -51,7 +51,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{context::Tree, Error};
-use rhai::{CustomType, NativeCallContext, TypeBuilder};
+use rhai::{CustomType, EvalAltResult, NativeCallContext, TypeBuilder};
 
 pub mod shapes;
 
@@ -254,15 +254,27 @@ fn remap_xyz(shape: Tree, x: Tree, y: Tree, z: Tree) -> Tree {
     shape.remap_xyz(x, y, z)
 }
 
-fn draw(ctx: NativeCallContext, tree: Tree) {
+fn draw(
+    ctx: NativeCallContext,
+    tree: rhai::Dynamic,
+) -> Result<(), Box<EvalAltResult>> {
+    let tree = Tree::from_dynamic(&ctx, tree)?;
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     ctx.lock().unwrap().shapes.push(DrawShape {
         tree,
         color_rgb: [u8::MAX; 3],
     });
+    Ok(())
 }
 
-fn draw_rgb(ctx: NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
+fn draw_rgb(
+    ctx: NativeCallContext,
+    tree: rhai::Dynamic,
+    r: f64,
+    g: f64,
+    b: f64,
+) -> Result<(), Box<EvalAltResult>> {
+    let tree = Tree::from_dynamic(&ctx, tree)?;
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     let f = |a| {
         if a < 0.0 {
@@ -277,6 +289,7 @@ fn draw_rgb(ctx: NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
         tree,
         color_rgb: [f(r), f(g), f(b)],
     });
+    Ok(())
 }
 
 macro_rules! define_binary_fns {
@@ -288,45 +301,19 @@ macro_rules! define_binary_fns {
             use std::ops::$op;
             )?
             pub fn node_dyn(
-                _ctx: NativeCallContext,
+                ctx: NativeCallContext,
                 a: Tree,
                 b: rhai::Dynamic,
             ) -> Result<Tree, Box<rhai::EvalAltResult>> {
-                let b = if let Some(v) = b.clone().try_cast::<f64>() {
-                    Tree::constant(v)
-                } else if let Some(v) = b.clone().try_cast::<i64>() {
-                    Tree::constant(v as f64)
-                } else if let Some(t) = b.clone().try_cast::<Tree>() {
-                    t
-                } else {
-                    let e = format!(
-                        "invalid type for {}(Tree, rhs): {}",
-                        stringify!($name),
-                        b.type_name()
-                    );
-                    return Err(e.into());
-                };
+                let b = Tree::from_dynamic(&ctx, b)?;
                 Ok(a.$name(b))
             }
             pub fn dyn_node(
-                _ctx: NativeCallContext,
+                ctx: NativeCallContext,
                 a: rhai::Dynamic,
                 b: Tree,
             ) -> Result<Tree, Box<rhai::EvalAltResult>> {
-                let a = if let Some(v) = a.clone().try_cast::<f64>() {
-                    Tree::constant(v)
-                } else if let Some(v) = a.clone().try_cast::<i64>() {
-                    Tree::constant(v as f64)
-                } else if let Some(t) = a.clone().try_cast::<Tree>() {
-                    t
-                } else {
-                    let e = format!(
-                        "invalid type for {}(lhs, Tree): {}",
-                        stringify!($name),
-                        a.type_name()
-                    );
-                    return Err(e.into());
-                };
+                let a = Tree::from_dynamic(&ctx, a)?;
                 Ok(a.$name(b))
             }
         }
@@ -337,8 +324,12 @@ macro_rules! define_unary_fns {
     ($name:ident) => {
         mod $name {
             use super::*;
-            pub fn node(_ctx: NativeCallContext, a: Tree) -> Tree {
-                a.$name()
+            pub fn node(
+                ctx: NativeCallContext,
+                a: rhai::Dynamic,
+            ) -> Result<Tree, Box<EvalAltResult>> {
+                let a = Tree::from_dynamic(&ctx, a)?;
+                Ok(a.$name())
             }
         }
     };
@@ -396,6 +387,65 @@ define_unary_fns!(round);
 pub fn eval(s: &str) -> Result<Tree, Error> {
     let mut engine = Engine::new();
     engine.eval(s)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Helper trait to go from a Rhai dynamic object to a particular type
+trait FromDynamic
+where
+    Self: Sized,
+{
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        v: rhai::Dynamic,
+    ) -> Result<Self, Box<EvalAltResult>>;
+}
+
+impl FromDynamic for Tree {
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        d: rhai::Dynamic,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        if let Some(t) = d.clone().try_cast::<Tree>() {
+            Ok(t)
+        } else if let Ok(v) = f64::from_dynamic(ctx, d.clone()) {
+            Ok(Tree::constant(v))
+        } else {
+            ctx.call_native_fn("build", (d.clone(),)).map_err(|e| {
+                if matches!(&*e, rhai::EvalAltResult::ErrorFunctionNotFound(..))
+                {
+                    Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
+                        "tree".to_string(),
+                        d.type_name().to_string(),
+                        ctx.position(),
+                    ))
+                } else {
+                    e
+                }
+            })
+        }
+    }
+}
+
+impl FromDynamic for f64 {
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        d: rhai::Dynamic,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        let ty = d.type_name();
+        d.clone()
+            .try_cast::<f64>()
+            .or_else(|| d.try_cast::<i64>().map(|f| f as f64))
+            .ok_or_else(|| {
+                EvalAltResult::ErrorMismatchDataType(
+                    "float".to_string(),
+                    ty.to_string(),
+                    ctx.position(),
+                )
+                .into()
+            })
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
