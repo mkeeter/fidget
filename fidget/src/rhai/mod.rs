@@ -53,6 +53,8 @@ use std::sync::{Arc, Mutex};
 use crate::{context::Tree, Error};
 use rhai::{CustomType, NativeCallContext, TypeBuilder};
 
+pub mod shapes;
+
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
     engine: rhai::Engine,
