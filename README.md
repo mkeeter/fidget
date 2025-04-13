@@ -53,6 +53,14 @@ The [`demos` folder](demos/README.md) contains several demo tools and
 applications built using the Fidget crate,
 ranging from CLI to GUI to web app.
 
+## Projects using Fidget
+- [The Prospero Challenge](https://mattkeeter.com/projects/prospero) was
+  designed around Fidget's rendering implementation, then opened up to
+  third-party submissions
+- [`rsaccon/fidget-koto`](https://github.com/rsaccon/fidget-koto): An adaptation
+  of the `fidget-viewer` demo using [Koto](https://koto.dev/) for scripting
+  (instead of [Rhai](https://rhai.rs))
+
 ## Support matrix
 At the moment, Fidget supports a limited number of platforms:
 
