@@ -57,9 +57,8 @@ fn build_from_map<T: Facet>(
     ctx: NativeCallContext,
     m: rhai::Map,
 ) -> Result<T, Box<EvalAltResult>> {
-    let (poke, guard) = facet::PokeUninit::alloc::<T>();
-    let mut poke = poke.into_struct();
-    let facet::Def::Struct(shape) = poke.shape().def else {
+    let mut builder = facet::Wip::alloc::<T>();
+    let facet::Def::Struct(shape) = T::SHAPE.def else {
         panic!("must build a struct");
     };
     for (i, f) in shape.fields.iter().enumerate() {
@@ -73,15 +72,15 @@ fn build_from_map<T: Facet>(
         };
 
         // NOTE: if you add a new type here, also add it to validate_type
-        if f.shape.id == ConstTypeId::of::<f64>() {
+        builder = if f.shape.id == ConstTypeId::of::<f64>() {
             let v = f64::from_dynamic(&ctx, v)?;
-            poke.set(i, v).unwrap();
+            builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
         } else if f.shape.id == ConstTypeId::of::<Vec2>() {
             let v = Vec2::from_dynamic(&ctx, v)?;
-            poke.set(i, v).unwrap();
+            builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
         } else if f.shape.id == ConstTypeId::of::<Vec3>() {
             let v = Vec3::from_dynamic(&ctx, v)?;
-            poke.set(i, v).unwrap();
+            builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
         } else {
             panic!("unknown type {}", f.shape);
         }
@@ -97,7 +96,7 @@ fn build_from_map<T: Facet>(
             .into());
         }
     }
-    Ok(poke.build(Some(guard)))
+    Ok(builder.build().unwrap().materialize().unwrap())
 }
 
 ////////////////////////////////////////////////////////////////////////////////

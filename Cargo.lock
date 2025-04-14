@@ -1330,8 +1330,7 @@ dependencies = [
 [[package]]
 name = "facet"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ec692e89973dc1759e131424a7e8f4677d46d953219ef631a784a270f58dde6"
+source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
 dependencies = [
  "facet-core",
  "facet-derive",
@@ -1339,10 +1338,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "facet-ansi"
+version = "0.2.0"
+source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
+dependencies = [
+ "anstyle",
+]
+
+[[package]]
 name = "facet-core"
 version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49950131d69ca20f4f3c8872e9c57814551337cc9fbc521e602ab43f468e0365"
+source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
 dependencies = [
  "bitflags 2.9.0",
  "impls",
@@ -1351,8 +1357,7 @@ dependencies = [
 [[package]]
 name = "facet-derive"
 version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b1a35cc325737c87a77820b6cceed0f471bdd594a8429822b155a70ad2326f6"
+source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
 dependencies = [
  "facet-core",
  "unsynn",
@@ -1361,10 +1366,12 @@ dependencies = [
 [[package]]
 name = "facet-reflect"
 version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8df7486371a6ae68e203bf3958a374ecd6f277a5e8065811dfeeba8e259bf21c"
+source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
 dependencies = [
+ "facet-ansi",
  "facet-core",
+ "indexmap",
+ "log",
 ]
 
 [[package]]
@@ -1992,9 +1999,9 @@ checksum = "7a46645bbd70538861a90d0f26c31537cdf1e44aae99a794fb75a664b70951bc"
 
 [[package]]
 name = "indexmap"
-version = "2.7.1"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c9c992b02b5b4c94ea26e32fe5bccb7aa7d9f390ab5c1221ff895bc7ea8b652"
+checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
  "hashbrown",
@@ -2217,9 +2224,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.26"
+version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
+checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "malloc_buf"

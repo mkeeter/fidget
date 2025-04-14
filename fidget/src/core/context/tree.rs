@@ -400,16 +400,15 @@ unsafe impl facet::Facet for Tree {
             .def(facet::Def::SmartPointer(
                 facet::SmartPointerDef::builder()
                     // XXX this is the sketchy part
-                    .t(<[u8; std::mem::size_of::<TreeOp>()]>::SHAPE)
+                    .pointee(<[u8; std::mem::size_of::<TreeOp>()]>::SHAPE)
                     .flags(facet::SmartPointerFlags::ATOMIC)
-                    .known(Some(facet::KnownSmartPointer::Arc))
+                    .known(facet::KnownSmartPointer::Arc)
                     .vtable(
                         &const {
                             facet::SmartPointerVTable::builder()
                                 .borrow_fn(|opaque| {
-                                    let ptr = Self::as_ptr(unsafe {
-                                        opaque.as_ref()
-                                    });
+                                    let ptr =
+                                        Self::as_ptr(unsafe { opaque.get() });
                                     facet::OpaqueConst::new(ptr)
                                 })
                                 .new_into_fn(|this, ptr| {
@@ -728,12 +727,29 @@ mod test {
     }
     #[test]
     fn tree_poke() {
-        let (poke, _guard) = facet::PokeUninit::alloc::<Tree>();
-        let tree: Tree = {
-            let poke = poke.into_smart_pointer();
-            let t = poke.from_t(TreeOp::Input(Var::X)).unwrap();
-            t.build_in_place()
-        };
-        assert!(matches!(*tree, TreeOp::Input(Var::X)));
+        #[derive(facet::Facet)]
+        struct Transform {
+            tree: Tree,
+            x: f64,
+        }
+
+        let builder = facet::Wip::alloc::<Transform>()
+            .field_named("tree")
+            .unwrap()
+            .put(Tree::x() + 2.0 * Tree::y())
+            .unwrap()
+            .pop()
+            .unwrap()
+            .field_named("x")
+            .unwrap()
+            .put(1.0)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let t: Transform = builder.build().unwrap().materialize().unwrap();
+        assert_eq!(t.x, 1.0);
+        let mut ctx = Context::new();
+        let node = ctx.import(&t.tree);
+        assert_eq!(ctx.eval_xyz(node, 1.0, 2.0, 3.0).unwrap(), 5.0);
     }
 }
