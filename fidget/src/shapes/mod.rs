@@ -21,6 +21,26 @@ impl From<Circle> for Tree {
     }
 }
 
+/// Move a shape
+#[derive(Clone)]
+#[allow(missing_docs)]
+pub struct Move {
+    pub shape: Tree,
+    pub offset: Vec3,
+}
+
+impl From<Move> for Tree {
+    fn from(v: Move) -> Self {
+        v.shape.remap_affine(nalgebra::convert(
+            nalgebra::Translation3::<f64>::new(
+                v.offset.x, v.offset.y, v.offset.z,
+            ),
+        ))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     use super::*;

@@ -392,6 +392,44 @@ impl_binary!(Sub, SubAssign, sub, sub_assign);
 impl_binary!(Mul, MulAssign, mul, mul_assign);
 impl_binary!(Div, DivAssign, div, div_assign);
 
+unsafe impl facet::Facet for Tree {
+    const SHAPE: &'static facet::Shape = &const {
+        facet::Shape::builder()
+            .id(facet::ConstTypeId::of::<Self>())
+            .layout(std::alloc::Layout::new::<Self>())
+            .def(facet::Def::SmartPointer(
+                facet::SmartPointerDef::builder()
+                    // XXX this is the sketchy part
+                    .t(<[u8; std::mem::size_of::<TreeOp>()]>::SHAPE)
+                    .flags(facet::SmartPointerFlags::ATOMIC)
+                    .known(Some(facet::KnownSmartPointer::Arc))
+                    .vtable(
+                        &const {
+                            facet::SmartPointerVTable::builder()
+                                .borrow_fn(|opaque| {
+                                    let ptr = Self::as_ptr(unsafe {
+                                        opaque.as_ref()
+                                    });
+                                    facet::OpaqueConst::new(ptr)
+                                })
+                                .new_into_fn(|this, ptr| {
+                                    let t = unsafe { ptr.read::<TreeOp>() };
+                                    let arc = std::sync::Arc::new(t);
+                                    unsafe { this.put(arc) }
+                                })
+                                .build()
+                        },
+                    )
+                    .build(),
+            ))
+            .vtable(facet::value_vtable!(
+                std::sync::Arc<TreeOp>,
+                |f, _opts| write!(f, "Arc")
+            ))
+            .build()
+    };
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -687,5 +725,15 @@ mod test {
         ctx.clear();
         let root = ctx.import(&d);
         assert_eq!(ctx.get_const(root).unwrap(), 1.0);
+    }
+    #[test]
+    fn tree_poke() {
+        let (poke, _guard) = facet::PokeUninit::alloc::<Tree>();
+        let tree: Tree = {
+            let poke = poke.into_smart_pointer();
+            let t = poke.from_t(TreeOp::Input(Var::X)).unwrap();
+            t.build_in_place()
+        };
+        assert!(matches!(*tree, TreeOp::Input(Var::X)));
     }
 }
