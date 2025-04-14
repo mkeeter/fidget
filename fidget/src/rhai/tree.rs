@@ -8,13 +8,13 @@ pub(super) fn register(engine: &mut rhai::Engine) {
 
     macro_rules! register_binary_fns {
         ($op:literal, $name:ident, $engine:ident) => {
-            $engine.register_fn($op, $name::node_dyn);
-            $engine.register_fn($op, $name::dyn_node);
+            $engine.register_fn($op, $name::tree_dyn);
+            $engine.register_fn($op, $name::dyn_tree);
         };
     }
     macro_rules! register_unary_fns {
         ($op:literal, $name:ident, $engine:ident) => {
-            $engine.register_fn($op, $name::node);
+            $engine.register_fn($op, $name::tree);
         };
     }
 
@@ -48,8 +48,8 @@ pub(super) fn register(engine: &mut rhai::Engine) {
 
     // Ban comparison operators
     for op in ["==", "!=", "<", ">", "<=", ">="] {
-        engine.register_fn(op, bad_cmp_node_dyn);
-        engine.register_fn(op, bad_cmp_dyn_node);
+        engine.register_fn(op, bad_cmp_tree_dyn);
+        engine.register_fn(op, bad_cmp_dyn_tree);
     }
 }
 
@@ -72,7 +72,7 @@ macro_rules! define_binary_fns {
             $(
             use std::ops::$op;
             )?
-            pub fn node_dyn(
+            pub fn tree_dyn(
                 ctx: NativeCallContext,
                 a: Tree,
                 b: rhai::Dynamic,
@@ -80,7 +80,7 @@ macro_rules! define_binary_fns {
                 let b = Tree::from_dynamic(&ctx, b)?;
                 Ok(a.$name(b))
             }
-            pub fn dyn_node(
+            pub fn dyn_tree(
                 ctx: NativeCallContext,
                 a: rhai::Dynamic,
                 b: Tree,
@@ -96,7 +96,7 @@ macro_rules! define_unary_fns {
     ($name:ident) => {
         mod $name {
             use super::*;
-            pub fn node(
+            pub fn tree(
                 ctx: NativeCallContext,
                 a: rhai::Dynamic,
             ) -> Result<Tree, Box<EvalAltResult>> {
@@ -107,7 +107,7 @@ macro_rules! define_unary_fns {
     };
 }
 
-fn bad_cmp_node_dyn(
+fn bad_cmp_tree_dyn(
     _ctx: NativeCallContext,
     _a: Tree,
     _b: rhai::Dynamic,
@@ -116,7 +116,7 @@ fn bad_cmp_node_dyn(
     Err(e.into())
 }
 
-fn bad_cmp_dyn_node(
+fn bad_cmp_dyn_tree(
     _ctx: NativeCallContext,
     _a: rhai::Dynamic,
     _b: Tree,

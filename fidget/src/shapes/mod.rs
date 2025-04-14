@@ -1,4 +1,4 @@
-/// Standard library of shapes and transforms
+//! Standard library of shapes and transforms
 use crate::context::Tree;
 use facet::Facet;
 
