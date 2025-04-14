@@ -1,131 +1,19 @@
 //! Tools for using [`fidget::shapes`](crate::shapes) in Rhai
 use crate::{
     context::Tree,
+    rhai::FromDynamic,
     shapes::{Vec2, Vec3},
 };
 use facet::{ConstTypeId, Facet};
-use rhai::{CustomType, EvalAltResult, TypeBuilder};
+use rhai::{EvalAltResult, NativeCallContext};
 
-impl CustomType for Vec2 {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder
-            .with_name("Vec2")
-            .with_fn(
-                "vec2",
-                |ctx: rhai::NativeCallContext,
-                 x: rhai::Dynamic,
-                 y: rhai::Dynamic|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    let x = f64::from_dynamic(&ctx, x)?;
-                    let y = f64::from_dynamic(&ctx, y)?;
-                    Ok(Self { x, y })
-                },
-            )
-            .with_get_set("x", |v: &mut Self| v.x, |v: &mut Self, x| v.x = x)
-            .with_get_set("y", |v: &mut Self| v.y, |v: &mut Self, y| v.y = y);
-    }
-}
-
-impl CustomType for Vec3 {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder
-            .with_name("Vec3")
-            .with_fn(
-                "vec3",
-                |ctx: rhai::NativeCallContext,
-                 x: rhai::Dynamic,
-                 y: rhai::Dynamic,
-                 z: rhai::Dynamic|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    let x = f64::from_dynamic(&ctx, x)?;
-                    let y = f64::from_dynamic(&ctx, y)?;
-                    let z = f64::from_dynamic(&ctx, z)?;
-                    Ok(Self { x, y, z })
-                },
-            )
-            .with_get_set("x", |v: &mut Self| v.x, |v: &mut Self, x| v.x = x)
-            .with_get_set("y", |v: &mut Self| v.y, |v: &mut Self, y| v.y = y)
-            .with_get_set("z", |v: &mut Self| v.z, |v: &mut Self, z| v.z = z);
-    }
-}
-
-impl FromDynamic for Vec2 {
-    fn from_dynamic(
-        ctx: &rhai::NativeCallContext,
-        d: rhai::Dynamic,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        if let Some(v) = d.clone().try_cast() {
-            Ok(v)
-        } else {
-            let array = d.into_array().map_err(|ty| {
-                EvalAltResult::ErrorMismatchDataType(
-                    "array".to_string(),
-                    ty.to_string(),
-                    ctx.position(),
-                )
-            })?;
-            match array.len() {
-                2 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone())?;
-                    let y = f64::from_dynamic(ctx, array[1].clone())?;
-                    Ok(Vec2 { x, y })
-                }
-                n => Err(EvalAltResult::ErrorMismatchDataType(
-                    "[float; 2]".to_string(),
-                    format!("[dynamic; {n}]"),
-                    ctx.position(),
-                )
-                .into()),
-            }
-        }
-    }
-}
-
-impl FromDynamic for Vec3 {
-    fn from_dynamic(
-        ctx: &rhai::NativeCallContext,
-        d: rhai::Dynamic,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        if let Some(v) = d.clone().try_cast() {
-            Ok(v)
-        } else {
-            let array = d.into_array().map_err(|ty| {
-                EvalAltResult::ErrorMismatchDataType(
-                    "array".to_string(),
-                    ty.to_string(),
-                    ctx.position(),
-                )
-            })?;
-            match array.len() {
-                3 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone())?;
-                    let y = f64::from_dynamic(ctx, array[1].clone())?;
-                    let z = f64::from_dynamic(ctx, array[2].clone())?;
-                    Ok(Vec3 { x, y, z })
-                }
-                n => Err(EvalAltResult::ErrorMismatchDataType(
-                    "[float; 3]".to_string(),
-                    format!("[dynamic; {n}]"),
-                    ctx.position(),
-                )
-                .into()),
-            }
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Installs shapes and helper types into the engine
-pub fn register_types(engine: &mut rhai::Engine) {
+pub(crate) fn register(engine: &mut rhai::Engine) {
     use crate::shapes::*;
 
-    engine.build_type::<Vec2>();
-    engine.build_type::<Vec3>();
-    register::<Circle>(engine);
+    register_one::<Circle>(engine);
 }
 
-fn register<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
+fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
     engine: &mut rhai::Engine,
 ) {
     validate_type::<T>(); // panic if the type is invalid
@@ -142,7 +30,7 @@ fn register<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
     engine
         .register_type_with_name::<T>(name)
         .register_fn(&name_lower, build_from_map::<T>)
-        .register_fn("build", |_ctx: rhai::NativeCallContext, t: T| -> Tree {
+        .register_fn("build", |_ctx: NativeCallContext, t: T| -> Tree {
             t.into()
         });
 }
@@ -154,7 +42,11 @@ fn validate_type<T: Facet>() {
     };
     // Linear search is faster than anything fancy for small N
     // NOTE: if you add a new type here, also add it to build_from_map
-    let known_types = [ConstTypeId::of::<f64>(), ConstTypeId::of::<Vec2>()];
+    let known_types = [
+        ConstTypeId::of::<f64>(),
+        ConstTypeId::of::<Vec2>(),
+        ConstTypeId::of::<Vec3>(),
+    ];
     for f in s.fields {
         assert!(known_types.contains(&f.shape.id));
     }
@@ -162,7 +54,7 @@ fn validate_type<T: Facet>() {
 
 /// Builds a `T` from a Rhai map
 fn build_from_map<T: Facet>(
-    ctx: rhai::NativeCallContext,
+    ctx: NativeCallContext,
     m: rhai::Map,
 ) -> Result<T, Box<EvalAltResult>> {
     let (poke, guard) = facet::PokeUninit::alloc::<T>();
@@ -186,6 +78,9 @@ fn build_from_map<T: Facet>(
             poke.set(i, v).unwrap();
         } else if f.shape.id == ConstTypeId::of::<Vec2>() {
             let v = Vec2::from_dynamic(&ctx, v)?;
+            poke.set(i, v).unwrap();
+        } else if f.shape.id == ConstTypeId::of::<Vec3>() {
+            let v = Vec3::from_dynamic(&ctx, v)?;
             poke.set(i, v).unwrap();
         } else {
             panic!("unknown type {}", f.shape);
@@ -215,7 +110,7 @@ mod test {
     #[test]
     fn circle_builder() {
         let mut e = rhai::Engine::new();
-        register::<Circle>(&mut e);
+        register_one::<Circle>(&mut e);
         e.build_type::<Vec2>();
         let c: Circle = e
             .eval("circle(#{ center: vec2(1, 2), radius: 3 })")
