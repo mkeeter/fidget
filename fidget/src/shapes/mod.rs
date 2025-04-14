@@ -2,22 +2,8 @@
 use crate::context::Tree;
 use facet::Facet;
 
-/// 2D position
-#[derive(Copy, Clone, Facet)]
-#[allow(missing_docs)]
-pub struct Vec2 {
-    pub x: f64,
-    pub y: f64,
-}
-
-/// 3D position
-#[derive(Copy, Clone, Facet)]
-#[allow(missing_docs)]
-pub struct Vec3 {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-}
+mod vec;
+pub use vec::{Vec2, Vec3};
 
 /// 2D circle
 #[derive(Clone, Facet)]
