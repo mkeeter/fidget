@@ -53,7 +53,7 @@ impl Mmap {
             )
         };
 
-        if ptr == libc::MAP_FAILED {
+        if std::ptr::eq(ptr, libc::MAP_FAILED) {
             Err(std::io::Error::last_os_error())
         } else {
             Ok(Self { ptr, capacity })
