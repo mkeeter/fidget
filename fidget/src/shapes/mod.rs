@@ -21,6 +21,27 @@ impl From<Circle> for Tree {
     }
 }
 
+/// 3D circle
+#[derive(Clone, Facet)]
+#[allow(missing_docs)]
+pub struct Sphere {
+    pub center: Vec3,
+    pub radius: f64,
+}
+
+impl From<Sphere> for Tree {
+    fn from(v: Sphere) -> Self {
+        let (x, y, z) = Tree::axes();
+        ((x - v.center.x).square()
+            + (y - v.center.y).square()
+            + (z - v.center.z).square())
+        .sqrt()
+            - v.radius
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Move a shape
 #[derive(Clone)]
 #[allow(missing_docs)]

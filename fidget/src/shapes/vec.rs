@@ -15,6 +15,21 @@ pub struct Vec2 {
     pub y: f64,
 }
 
+impl From<nalgebra::Vector2<f64>> for Vec2 {
+    fn from(value: nalgebra::Vector2<f64>) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+        }
+    }
+}
+
+impl From<Vec2> for nalgebra::Vector2<f64> {
+    fn from(value: Vec2) -> Self {
+        Self::new(value.x, value.y)
+    }
+}
+
 /// 3D position
 #[derive(Copy, Clone, Facet)]
 #[allow(missing_docs)]
@@ -22,4 +37,20 @@ pub struct Vec3 {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+}
+
+impl From<nalgebra::Vector3<f64>> for Vec3 {
+    fn from(value: nalgebra::Vector3<f64>) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            z: value.z,
+        }
+    }
+}
+
+impl From<Vec3> for nalgebra::Vector3<f64> {
+    fn from(value: Vec3) -> Self {
+        Self::new(value.x, value.y, value.z)
+    }
 }
