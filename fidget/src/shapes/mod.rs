@@ -42,6 +42,34 @@ impl From<Sphere> for Tree {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Take the union of a set of shapes
+///
+/// If the input is empty, returns an empty constant tree (at +∞)
+#[derive(Clone)]
+#[allow(missing_docs)]
+pub struct Union {
+    pub input: Vec<Tree>,
+}
+
+impl From<Union> for Tree {
+    fn from(v: Union) -> Self {
+        if v.input.is_empty() {
+            // XXX should this be an error instead?
+            Tree::constant(f64::INFINITY)
+        } else {
+            fn recurse(s: &[Tree]) -> Tree {
+                match s.len() {
+                    1 => s[0].clone(),
+                    n => recurse(&s[..n]).min(recurse(&s[n..])),
+                }
+            }
+            recurse(&v.input)
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Move a shape
 #[derive(Clone)]
 #[allow(missing_docs)]
