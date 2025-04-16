@@ -132,8 +132,8 @@ impl From<TreeOp> for Tree {
 }
 
 /// Owned handle for a standalone math tree
-#[derive(Clone, Debug)]
-pub struct Tree(Arc<TreeOp>);
+#[derive(Clone, Debug, facet::Facet)]
+pub struct Tree(#[facet(opaque)] Arc<TreeOp>);
 
 impl std::ops::Deref for Tree {
     type Target = TreeOp;
@@ -391,43 +391,6 @@ impl_binary!(Add, AddAssign, add, add_assign);
 impl_binary!(Sub, SubAssign, sub, sub_assign);
 impl_binary!(Mul, MulAssign, mul, mul_assign);
 impl_binary!(Div, DivAssign, div, div_assign);
-
-unsafe impl facet::Facet for Tree {
-    const SHAPE: &'static facet::Shape = &const {
-        facet::Shape::builder()
-            .id(facet::ConstTypeId::of::<Self>())
-            .layout(std::alloc::Layout::new::<Self>())
-            .def(facet::Def::SmartPointer(
-                facet::SmartPointerDef::builder()
-                    // XXX this is the sketchy part
-                    .pointee(<[u8; std::mem::size_of::<TreeOp>()]>::SHAPE)
-                    .flags(facet::SmartPointerFlags::ATOMIC)
-                    .known(facet::KnownSmartPointer::Arc)
-                    .vtable(
-                        &const {
-                            facet::SmartPointerVTable::builder()
-                                .borrow_fn(|opaque| {
-                                    let ptr =
-                                        Self::as_ptr(unsafe { opaque.get() });
-                                    facet::OpaqueConst::new(ptr)
-                                })
-                                .new_into_fn(|this, ptr| {
-                                    let t = unsafe { ptr.read::<TreeOp>() };
-                                    let arc = std::sync::Arc::new(t);
-                                    unsafe { this.put(arc) }
-                                })
-                                .build()
-                        },
-                    )
-                    .build(),
-            ))
-            .vtable(facet::value_vtable!(
-                std::sync::Arc<TreeOp>,
-                |f, _opts| write!(f, "Arc")
-            ))
-            .build()
-    };
-}
 
 #[cfg(test)]
 mod test {

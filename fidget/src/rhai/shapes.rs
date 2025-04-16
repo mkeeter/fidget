@@ -48,7 +48,7 @@ fn validate_type<T: Facet>() {
         ConstTypeId::of::<Vec3>(),
     ];
     for f in s.fields {
-        assert!(known_types.contains(&f.shape.id));
+        assert!(known_types.contains(&f.shape().id));
     }
 }
 
@@ -72,17 +72,18 @@ fn build_from_map<T: Facet>(
         };
 
         // NOTE: if you add a new type here, also add it to validate_type
-        builder = if f.shape.id == ConstTypeId::of::<f64>() {
+        let field_shape = f.shape();
+        builder = if field_shape.id == ConstTypeId::of::<f64>() {
             let v = f64::from_dynamic(&ctx, v)?;
             builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
-        } else if f.shape.id == ConstTypeId::of::<Vec2>() {
+        } else if field_shape.id == ConstTypeId::of::<Vec2>() {
             let v = Vec2::from_dynamic(&ctx, v)?;
             builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
-        } else if f.shape.id == ConstTypeId::of::<Vec3>() {
+        } else if field_shape.id == ConstTypeId::of::<Vec3>() {
             let v = Vec3::from_dynamic(&ctx, v)?;
             builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
         } else {
-            panic!("unknown type {}", f.shape);
+            panic!("unknown type {}", field_shape);
         }
     }
 

@@ -1329,8 +1329,9 @@ dependencies = [
 
 [[package]]
 name = "facet"
-version = "0.2.0"
-source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09f18ad58bc565e291e045c6ad4740fd01c2b3ecbfee5169bb937d6aacd74908"
 dependencies = [
  "facet-core",
  "facet-derive",
@@ -1338,17 +1339,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "facet-ansi"
-version = "0.2.0"
-source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
-dependencies = [
- "anstyle",
-]
-
-[[package]]
 name = "facet-core"
-version = "0.5.3"
-source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "068fb5c8cf92d972de761002753158ae660eedb23c8e1e4503949b5c915c66ce"
 dependencies = [
  "bitflags 2.9.0",
  "impls",
@@ -1356,22 +1350,42 @@ dependencies = [
 
 [[package]]
 name = "facet-derive"
-version = "0.1.20"
-source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a604c8a7a58222485216173d41619084f0a48a3dab39209fb0ec0d764060b7fc"
 dependencies = [
  "facet-core",
+ "facet-derive-emit",
+]
+
+[[package]]
+name = "facet-derive-emit"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0d6eb8fe28de06dd80b16892062515cdb04a09e4abf7ee99a8aff2966f42661"
+dependencies = [
+ "facet-derive-parse",
+]
+
+[[package]]
+name = "facet-derive-parse"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e57da72d1c1a74b2ed21417769396a8b8a86e97281388011e19c58a37d8dc1"
+dependencies = [
  "unsynn",
 ]
 
 [[package]]
 name = "facet-reflect"
-version = "0.6.2"
-source = "git+https://github.com/facet-rs/facet#a681d9a011335910d942f82a2656566082bbe58a"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28bd057cb4d8fd0d99cf928e781d067f70d3f218afe3cce68fb980253fd2c787"
 dependencies = [
- "facet-ansi",
+ "bitflags 2.9.0",
  "facet-core",
- "indexmap",
  "log",
+ "yansi",
 ]
 
 [[package]]
@@ -4823,6 +4837,12 @@ name = "xml-rs"
 version = "0.8.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5b940ebc25896e71dd073bad2dbaa2abfe97b0a391415e22ad1326d9c54e3c4"
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yoke"
