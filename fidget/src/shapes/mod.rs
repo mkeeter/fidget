@@ -45,7 +45,7 @@ impl From<Sphere> for Tree {
 /// Take the union of a set of shapes
 ///
 /// If the input is empty, returns an empty constant tree (at +∞)
-#[derive(Clone)]
+#[derive(Clone, Facet)]
 #[allow(missing_docs)]
 pub struct Union {
     pub input: Vec<Tree>,
@@ -71,7 +71,7 @@ impl From<Union> for Tree {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Move a shape
-#[derive(Clone)]
+#[derive(Clone, Facet)]
 #[allow(missing_docs)]
 pub struct Move {
     pub shape: Tree,

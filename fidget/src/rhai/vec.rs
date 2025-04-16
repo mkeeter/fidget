@@ -89,7 +89,13 @@ impl FromDynamic for Vec3 {
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
     ) -> Result<Self, Box<EvalAltResult>> {
-        if let Some(v) = d.clone().try_cast() {
+        if let Ok(v) = Vec2::from_dynamic(ctx, d.clone()) {
+            Ok(Vec3 {
+                x: v.x,
+                y: v.y,
+                z: 0.0,
+            })
+        } else if let Some(v) = d.clone().try_cast() {
             Ok(v)
         } else {
             let array = d.into_array().map_err(|ty| {

@@ -53,9 +53,9 @@ use std::sync::{Arc, Mutex};
 use crate::{context::Tree, Error};
 use rhai::{CustomType, EvalAltResult, NativeCallContext, TypeBuilder};
 
-mod shapes;
-mod tree;
-mod vec;
+pub mod shapes;
+pub mod tree;
+pub mod vec;
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -281,6 +281,27 @@ impl FromDynamic for Tree {
                     e
                 }
             })
+        }
+    }
+}
+
+impl FromDynamic for Vec<Tree> {
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        d: rhai::Dynamic,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        if let Ok(t) = Tree::from_dynamic(ctx, d.clone()) {
+            Ok(vec![t])
+        } else if let Ok(d) = d.clone().into_array() {
+            d.into_iter()
+                .map(|v| Tree::from_dynamic(ctx, v))
+                .collect::<Result<Vec<_>, _>>()
+        } else {
+            Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
+                "Vec<tree>".to_string(),
+                d.type_name().to_string(),
+                ctx.position(),
+            )))
         }
     }
 }
