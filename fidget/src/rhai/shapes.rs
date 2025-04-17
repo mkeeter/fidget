@@ -112,6 +112,9 @@ pub(crate) fn register(engine: &mut rhai::Engine) {
     register_one::<Sphere>(engine);
     register_one::<Move>(engine);
     register_one::<Union>(engine);
+    register_one::<Intersection>(engine);
+    register_one::<Difference>(engine);
+    register_one::<Inverse>(engine);
 }
 
 fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
@@ -128,9 +131,7 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
     let name = std::str::from_utf8(writer.buffer()).unwrap();
     let name_lower = name.to_snake_case();
 
-    engine
-        .register_type_with_name::<T>(name)
-        .register_fn(&name_lower, build_from_map::<T>);
+    engine.register_fn(&name_lower, build_from_map::<T>);
 
     // Special handling for transform-shaped functions
     let tree_count = s

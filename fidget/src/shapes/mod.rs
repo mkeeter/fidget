@@ -5,11 +5,15 @@ use facet::Facet;
 mod vec;
 pub use vec::{Vec2, Vec3};
 
+////////////////////////////////////////////////////////////////////////////////
+// 2D shapes
+
 /// 2D circle
 #[derive(Clone, Facet)]
-#[allow(missing_docs)]
 pub struct Circle {
+    /// Center of the circle (in XY)
     pub center: Vec2,
+    /// Circle radius
     pub radius: f64,
 }
 
@@ -21,11 +25,15 @@ impl From<Circle> for Tree {
     }
 }
 
-/// 3D circle
+////////////////////////////////////////////////////////////////////////////////
+// 3D shapes
+
+/// 3D sphere
 #[derive(Clone, Facet)]
-#[allow(missing_docs)]
 pub struct Sphere {
+    /// Center of the circle (in XYZ)
     pub center: Vec3,
+    /// Sphere radius
     pub radius: f64,
 }
 
@@ -41,13 +49,14 @@ impl From<Sphere> for Tree {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// CSG operations
 
 /// Take the union of a set of shapes
 ///
 /// If the input is empty, returns an constant empty tree (at +∞)
 #[derive(Clone, Facet)]
-#[allow(missing_docs)]
 pub struct Union {
+    /// List of shapes to merge
     pub input: Vec<Tree>,
 }
 
@@ -72,8 +81,8 @@ impl From<Union> for Tree {
 ///
 /// If the input is empty, returns a constant full tree (at -∞)
 #[derive(Clone, Facet)]
-#[allow(missing_docs)]
 pub struct Intersection {
+    /// List of shapes to intersect
     pub input: Vec<Tree>,
 }
 
@@ -94,13 +103,43 @@ impl From<Intersection> for Tree {
     }
 }
 
+/// Computes the inverse of a shape
+#[derive(Clone, Facet)]
+pub struct Inverse {
+    /// Shape to invert
+    pub shape: Tree,
+}
+
+impl From<Inverse> for Tree {
+    fn from(v: Inverse) -> Self {
+        -v.shape
+    }
+}
+
+/// Take the difference of two shapes
+#[derive(Clone, Facet)]
+pub struct Difference {
+    /// Original shape
+    pub shape: Tree,
+    /// Shape to be subtracted from the original
+    pub cutout: Tree,
+}
+
+impl From<Difference> for Tree {
+    fn from(v: Difference) -> Self {
+        v.shape.max(-v.cutout)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
+// Transforms
 
 /// Move a shape
 #[derive(Clone, Facet)]
-#[allow(missing_docs)]
 pub struct Move {
+    /// Shape to move
     pub shape: Tree,
+    /// Position offset
     pub offset: Vec3,
 }
 
@@ -111,6 +150,24 @@ impl From<Move> for Tree {
                 v.offset.x, v.offset.y, v.offset.z,
             ),
         ))
+    }
+}
+
+/// Non-uniform scaling
+#[derive(Clone, Facet)]
+pub struct Scale {
+    /// Shape to scale
+    pub shape: Tree,
+    /// Scale to apply on each axis
+    pub scale: Vec3,
+}
+
+impl From<Scale> for Tree {
+    fn from(v: Scale) -> Self {
+        v.shape
+            .remap_affine(nalgebra::convert(nalgebra::Scale3::<f64>::new(
+                v.scale.x, v.scale.y, v.scale.z,
+            )))
     }
 }
 

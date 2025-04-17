@@ -392,6 +392,13 @@ impl_binary!(Sub, SubAssign, sub, sub_assign);
 impl_binary!(Mul, MulAssign, mul, mul_assign);
 impl_binary!(Div, DivAssign, div, div_assign);
 
+impl std::ops::Neg for Tree {
+    type Output = Tree;
+    fn neg(self) -> Self::Output {
+        Tree::op_unary(self, UnaryOpcode::Neg)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
