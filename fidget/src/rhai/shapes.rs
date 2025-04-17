@@ -65,6 +65,17 @@
 //! # ").unwrap();
 //! ```
 //!
+//! A transform which only take a single argument may skip the object map:
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! circle(#{ center: [1, 2], radius: 3 })
+//!     .move([1, 1]);
+//! # ").unwrap();
+//! ```
+//!
 //! # Functions of two trees
 //! Shapes which take two trees can be called with two (unnamed) arguments:
 //!
@@ -161,6 +172,9 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
             .all(|f| f.shape().id != ConstTypeId::of::<Vec<Tree>>())
     {
         engine.register_fn(&name_lower, build_transform::<T>);
+        if s.fields.len() == 2 {
+            engine.register_fn(&name_lower, build_transform_one::<T>);
+        }
     }
     if tree_count == 2 && s.fields.len() == 2 {
         engine.register_fn(&name_lower, build_binary::<T>);
@@ -260,6 +274,48 @@ fn build_transform<T: Facet + Into<Tree>>(
             .into());
         }
     }
+    let t: T = builder.build().unwrap().materialize().unwrap();
+    Ok(t.into())
+}
+
+/// Builds a transform-shaped `T` from a Rhai map
+fn build_transform_one<T: Facet + Into<Tree>>(
+    ctx: NativeCallContext,
+    t: rhai::Dynamic,
+    arg: rhai::Dynamic,
+) -> Result<Tree, Box<EvalAltResult>> {
+    let mut t = Some(Tree::from_dynamic(&ctx, t)?);
+    let mut arg = Some(arg);
+
+    let mut builder = facet::Wip::alloc::<T>();
+    let facet::Def::Struct(shape) = T::SHAPE.def else {
+        panic!("must build a struct");
+    };
+
+    for (i, f) in shape.fields.iter().enumerate() {
+        let field_shape = f.shape();
+        if field_shape.id == ConstTypeId::of::<Tree>() {
+            let t = t.take().unwrap();
+            builder = builder.field(i).unwrap().put(t).unwrap().pop().unwrap();
+        } else {
+            let v = arg.take().unwrap();
+
+            // NOTE: if you add a new type here, also add it to validate_type
+            builder = if field_shape.id == ConstTypeId::of::<f64>() {
+                let v = f64::from_dynamic(&ctx, v)?;
+                builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
+            } else if field_shape.id == ConstTypeId::of::<Vec2>() {
+                let v = Vec2::from_dynamic(&ctx, v)?;
+                builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
+            } else if field_shape.id == ConstTypeId::of::<Vec3>() {
+                let v = Vec3::from_dynamic(&ctx, v)?;
+                builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
+            } else {
+                panic!("unknown type {}", field_shape);
+            }
+        }
+    }
+
     let t: T = builder.build().unwrap().materialize().unwrap();
     Ok(t.into())
 }
