@@ -65,6 +65,19 @@
 //! # ").unwrap();
 //! ```
 //!
+//! # Functions of two trees
+//! Shapes which take two trees can be called with two (unnamed) arguments:
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! let a = circle(#{ center: [0, 0], radius: 1 });
+//! let b = circle(#{ center: [1, 0], radius: 0.5 });
+//! difference(a, b);
+//! # ").unwrap();
+//! ```
+//!
 //! # Tree reduction functions
 //! Any function which takes a single `Vec<Tree>` will accept both an array of
 //! trees or individual tree arguments (up to an 8-tuple).
@@ -110,7 +123,10 @@ pub(crate) fn register(engine: &mut rhai::Engine) {
 
     register_one::<Circle>(engine);
     register_one::<Sphere>(engine);
+
     register_one::<Move>(engine);
+    register_one::<Scale>(engine);
+
     register_one::<Union>(engine);
     register_one::<Intersection>(engine);
     register_one::<Difference>(engine);
@@ -145,6 +161,9 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
             .all(|f| f.shape().id != ConstTypeId::of::<Vec<Tree>>())
     {
         engine.register_fn(&name_lower, build_transform::<T>);
+    }
+    if tree_count == 2 && s.fields.len() == 2 {
+        engine.register_fn(&name_lower, build_binary::<T>);
     }
 
     // Pure tree reduction functions
@@ -186,7 +205,7 @@ fn validate_type<T: Facet>() -> facet::Struct {
     s
 }
 
-/// Builds a transform-shaped`T` from a Rhai map
+/// Builds a transform-shaped `T` from a Rhai map
 fn build_transform<T: Facet + Into<Tree>>(
     ctx: NativeCallContext,
     t: rhai::Dynamic,
@@ -241,6 +260,33 @@ fn build_transform<T: Facet + Into<Tree>>(
             .into());
         }
     }
+    let t: T = builder.build().unwrap().materialize().unwrap();
+    Ok(t.into())
+}
+
+/// Builds a binary function of two trees
+fn build_binary<T: Facet + Into<Tree>>(
+    ctx: NativeCallContext,
+    a: rhai::Dynamic,
+    b: rhai::Dynamic,
+) -> Result<Tree, Box<EvalAltResult>> {
+    let a = Tree::from_dynamic(&ctx, a)?;
+    let b = Tree::from_dynamic(&ctx, b)?;
+
+    let mut builder = facet::Wip::alloc::<T>();
+    let facet::Def::Struct(shape) = T::SHAPE.def else {
+        panic!("must build a struct");
+    };
+
+    assert_eq!(shape.fields.len(), 2);
+    for f in shape.fields.iter() {
+        let field_shape = f.shape();
+        assert_eq!(field_shape.id, ConstTypeId::of::<Tree>());
+    }
+
+    builder = builder.field(0).unwrap().put(a).unwrap().pop().unwrap();
+    builder = builder.field(1).unwrap().put(b).unwrap().pop().unwrap();
+
     let t: T = builder.build().unwrap().materialize().unwrap();
     Ok(t.into())
 }
