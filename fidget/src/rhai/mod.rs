@@ -93,12 +93,6 @@ impl Engine {
         engine.set_default_tag(rhai::Dynamic::from(context.clone()));
         engine.set_max_expr_depths(64, 32);
 
-        let ast = engine.compile(include_str!("core.rhai")).unwrap();
-        let module =
-            rhai::Module::eval_ast_as_new(rhai::Scope::new(), &ast, &engine)
-                .unwrap();
-        engine.register_global_module(rhai::Shared::new(module));
-
         Self { engine, context }
     }
 
@@ -392,5 +386,3 @@ mod test {
         ));
     }
 }
-
-pub mod core;
