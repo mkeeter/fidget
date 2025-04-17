@@ -1,5 +1,9 @@
 //! Rhai bindings to Fidget
 //!
+//! This module details how to construct and use a
+//! [`fidget::rhai::Engine`](Engine) object; for details on writing scripts
+//! to be evaluated in an `Engine`, see the [`docs`] module.
+//!
 //! There are two main ways to use these bindings.
 //!
 //! The simplest option is to call [`eval`], which evaluates a single expression
@@ -53,9 +57,10 @@ use std::sync::{Arc, Mutex};
 use crate::{context::Tree, Error};
 use rhai::{CustomType, EvalAltResult, NativeCallContext, TypeBuilder};
 
-pub mod shapes;
-pub mod tree;
-pub mod vec;
+pub mod docs;
+mod shapes;
+mod tree;
+mod vec;
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -73,10 +78,8 @@ impl Engine {
     /// Constructs a script evaluation engine with Fidget bindings
     ///
     /// The context includes a variety of functions that operate on [`Tree`]
-    /// handles.
-    ///
-    /// In addition, it includes everything in [`core.rhai`](crate::rhai::core),
-    /// which is effectively our standard library.
+    /// handles, as well as [bindings](crate::rhai::shapes) to everything in
+    /// [`fidget::shapes`](crate::shapes).
     pub fn new() -> Self {
         let mut engine = rhai::Engine::new();
 
