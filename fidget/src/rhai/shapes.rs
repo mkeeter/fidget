@@ -130,10 +130,7 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
 
     engine
         .register_type_with_name::<T>(name)
-        .register_fn(&name_lower, build_from_map::<T>)
-        .register_fn("build", |_ctx: NativeCallContext, t: T| -> Tree {
-            t.into()
-        });
+        .register_fn(&name_lower, build_from_map::<T>);
 
     // Special handling for transform-shaped functions
     let tree_count = s
@@ -189,11 +186,11 @@ fn validate_type<T: Facet>() -> facet::Struct {
 }
 
 /// Builds a transform-shaped`T` from a Rhai map
-fn build_transform<T: Facet>(
+fn build_transform<T: Facet + Into<Tree>>(
     ctx: NativeCallContext,
     t: rhai::Dynamic,
     m: rhai::Map,
-) -> Result<T, Box<EvalAltResult>> {
+) -> Result<Tree, Box<EvalAltResult>> {
     let mut t = Some(Tree::from_dynamic(&ctx, t)?);
 
     let mut builder = facet::Wip::alloc::<T>();
@@ -243,14 +240,15 @@ fn build_transform<T: Facet>(
             .into());
         }
     }
-    Ok(builder.build().unwrap().materialize().unwrap())
+    let t: T = builder.build().unwrap().materialize().unwrap();
+    Ok(t.into())
 }
 
 /// Builds a `T` from a Rhai map
-fn build_from_map<T: Facet>(
+fn build_from_map<T: Facet + Into<Tree>>(
     ctx: NativeCallContext,
     m: rhai::Map,
-) -> Result<T, Box<EvalAltResult>> {
+) -> Result<Tree, Box<EvalAltResult>> {
     let mut builder = facet::Wip::alloc::<T>();
     let facet::Def::Struct(shape) = T::SHAPE.def else {
         panic!("must build a struct");
@@ -297,16 +295,17 @@ fn build_from_map<T: Facet>(
             .into());
         }
     }
-    Ok(builder.build().unwrap().materialize().unwrap())
+    let t: T = builder.build().unwrap().materialize().unwrap();
+    Ok(t.into())
 }
 
 macro_rules! reducer {
     ($name:ident, $($v:ident),*) => {
         #[allow(clippy::too_many_arguments)]
-        fn $name<T: Facet>(
+        fn $name<T: Facet + Into<Tree>>(
             ctx: NativeCallContext,
             $($v: rhai::Dynamic),*
-        ) -> Result<T, Box<EvalAltResult>> {
+        ) -> Result<Tree, Box<EvalAltResult>> {
             let mut builder = facet::Wip::alloc::<T>();
             let facet::Def::Struct(shape) = T::SHAPE.def else {
                 panic!("must build a struct");
@@ -318,7 +317,8 @@ macro_rules! reducer {
             ),*];
             builder = builder.field(0).unwrap().put(v).unwrap().pop().unwrap();
 
-            Ok(builder.build().unwrap().materialize().unwrap())
+            let t: T = builder.build().unwrap().materialize().unwrap();
+            Ok(t.into())
         }
     }
 }

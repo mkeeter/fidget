@@ -268,8 +268,6 @@ impl FromDynamic for Tree {
             Ok(t)
         } else if let Ok(v) = f64::from_dynamic(ctx, d.clone()) {
             Ok(Tree::constant(v))
-        } else if let Ok(v) = ctx.call_native_fn("build", (d.clone(),)) {
-            Ok(v)
         } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, d.clone()) {
             Ok(crate::shapes::Union { input: v }.into())
         } else {
