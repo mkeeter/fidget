@@ -44,7 +44,7 @@ impl From<Sphere> for Tree {
 
 /// Take the union of a set of shapes
 ///
-/// If the input is empty, returns an empty constant tree (at +∞)
+/// If the input is empty, returns an constant empty tree (at +∞)
 #[derive(Clone, Facet)]
 #[allow(missing_docs)]
 pub struct Union {
@@ -60,7 +60,33 @@ impl From<Union> for Tree {
             fn recurse(s: &[Tree]) -> Tree {
                 match s.len() {
                     1 => s[0].clone(),
-                    n => recurse(&s[..n]).min(recurse(&s[n..])),
+                    n => recurse(&s[..n / 2]).min(recurse(&s[n / 2..])),
+                }
+            }
+            recurse(&v.input)
+        }
+    }
+}
+
+/// Take the intersection of a set of shapes
+///
+/// If the input is empty, returns a constant full tree (at -∞)
+#[derive(Clone, Facet)]
+#[allow(missing_docs)]
+pub struct Intersection {
+    pub input: Vec<Tree>,
+}
+
+impl From<Intersection> for Tree {
+    fn from(v: Intersection) -> Self {
+        if v.input.is_empty() {
+            // XXX should this be an error instead?
+            Tree::constant(-f64::INFINITY)
+        } else {
+            fn recurse(s: &[Tree]) -> Tree {
+                match s.len() {
+                    1 => s[0].clone(),
+                    n => recurse(&s[..n / 2]).max(recurse(&s[n / 2..])),
                 }
             }
             recurse(&v.input)

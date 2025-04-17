@@ -5,10 +5,14 @@
 //! # use fidget::rhai::Engine;
 //! # let mut e = Engine::new();
 //! # e.run("
-//! circle(#{ center: vec2(1, 2), radius: 3 })
+//! circle(#{ center: vec2(1.0, 2.0), radius: 3.0 })
 //! # ").unwrap();
 //! ```
 //!
+//! This works for any object type; in addition, there are a bunch of ergonomic
+//! improvements on top of this low-level syntax.
+//!
+//! # Type coercions
 //! Shapes are built from a set of Rust primitives, with generous conversions
 //! from Rhai's native types:
 //!
@@ -20,8 +24,6 @@
 //!     - Appropriately-sized arrays of numbers will be automatically converted
 //!     - A `vec2` (or something convertible into a `vec2`) will be converted
 //!       into a `vec3` with a `z` value of 0.
-//!
-//! Here are a few examples using type coercions:
 //! ```
 //! # use fidget::rhai::Engine;
 //! # let mut e = Engine::new();
@@ -36,8 +38,6 @@
 //! move(#{ shape: c, offset: [1, 1] });
 //! # ").unwrap();
 //! ```
-//!
-//! There are additional special cases to improve ergonomics.
 //!
 //! # Function chaining
 //! Shapes which have a single `Tree` member are typically transforms (e.g.
@@ -65,8 +65,38 @@
 //! # ").unwrap();
 //! ```
 //!
-//! #
-//! Shapes which take a single `Vec<Tree>` as their first argument benefit from
+//! # Tree reduction functions
+//! Any function which takes a single `Vec<Tree>` will accept both an array of
+//! trees or individual tree arguments (up to an 8-tuple).
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! let a = circle(#{ center: [1, 1], radius: 3 });
+//! let b = circle(#{ center: [2, 2], radius: 3 });
+//! let c = circle(#{ center: [3, 3], radius: 3 });
+//! union([a, b, c]);
+//! union(a, b, c);
+//! union(a, b, c, a, b, c, a, b);
+//! # ").unwrap();
+//! ```
+//!
+//! # Automatic tree reduction
+//! Any shape which takes a `Tree` will also accept an array of trees, which are
+//! automatically reduced with a union operation.
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! [
+//!     circle(#{ center: [0, 0], radius: 3 }),
+//!     circle(#{ center: [2, 2], radius: 3 }),
+//! ]
+//! .move(#{ offset: [1, 1] });
+//! # ").unwrap();
+//! ```
 use crate::{
     context::Tree,
     rhai::FromDynamic,
@@ -117,6 +147,20 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
             .all(|f| f.shape().id != ConstTypeId::of::<Vec<Tree>>())
     {
         engine.register_fn(&name_lower, build_transform::<T>);
+    }
+
+    // Pure tree reduction functions
+    if s.fields.len() == 1
+        && s.fields[0].shape().id == ConstTypeId::of::<Vec<Tree>>()
+    {
+        engine.register_fn(&name_lower, build_reduce1::<T>);
+        engine.register_fn(&name_lower, build_reduce2::<T>);
+        engine.register_fn(&name_lower, build_reduce3::<T>);
+        engine.register_fn(&name_lower, build_reduce4::<T>);
+        engine.register_fn(&name_lower, build_reduce5::<T>);
+        engine.register_fn(&name_lower, build_reduce6::<T>);
+        engine.register_fn(&name_lower, build_reduce7::<T>);
+        engine.register_fn(&name_lower, build_reduce8::<T>);
     }
 }
 
@@ -236,7 +280,8 @@ fn build_from_map<T: Facet>(
             let v = Tree::from_dynamic(&ctx, v)?;
             builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
         } else if field_shape.id == ConstTypeId::of::<Vec<Tree>>() {
-            todo!()
+            let v = <Vec<Tree>>::from_dynamic(&ctx, v)?;
+            builder.field(i).unwrap().put(v).unwrap().pop().unwrap()
         } else {
             panic!("unknown type {}", field_shape);
         }
@@ -254,6 +299,37 @@ fn build_from_map<T: Facet>(
     }
     Ok(builder.build().unwrap().materialize().unwrap())
 }
+
+macro_rules! reducer {
+    ($name:ident, $($v:ident),*) => {
+        #[allow(clippy::too_many_arguments)]
+        fn $name<T: Facet>(
+            ctx: NativeCallContext,
+            $($v: rhai::Dynamic),*
+        ) -> Result<T, Box<EvalAltResult>> {
+            let mut builder = facet::Wip::alloc::<T>();
+            let facet::Def::Struct(shape) = T::SHAPE.def else {
+                panic!("must build a struct");
+            };
+            assert_eq!(shape.fields[0].shape().id, ConstTypeId::of::<Vec<Tree>>());
+            assert_eq!(shape.fields.len(), 1);
+            let v = vec![$(
+                Tree::from_dynamic(&ctx, $v)?
+            ),*];
+            builder = builder.field(0).unwrap().put(v).unwrap().pop().unwrap();
+
+            Ok(builder.build().unwrap().materialize().unwrap())
+        }
+    }
+}
+reducer!(build_reduce1, a);
+reducer!(build_reduce2, a, b);
+reducer!(build_reduce3, a, b, c);
+reducer!(build_reduce4, a, b, c, d);
+reducer!(build_reduce5, a, b, c, d, e);
+reducer!(build_reduce6, a, b, c, d, e, f);
+reducer!(build_reduce7, a, b, c, d, e, f, g);
+reducer!(build_reduce8, a, b, c, d, e, f, g, h);
 
 ////////////////////////////////////////////////////////////////////////////////
 
