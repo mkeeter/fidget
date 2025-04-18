@@ -1,7 +1,7 @@
 //! Context-free math trees
 use super::op::{BinaryOpcode, UnaryOpcode};
 use crate::{var::Var, Error};
-use std::sync::Arc;
+use std::{cmp::Ordering, sync::Arc};
 
 /// Opcode type for trees
 ///
@@ -220,6 +220,48 @@ impl Tree {
         let mut ctx = crate::Context::new();
         let node = ctx.import(self);
         ctx.deriv(node, v).and_then(|d| ctx.export(d)).unwrap()
+    }
+
+    /// Raises this tree to the power of an integer using exponentiation by squaring
+    pub fn pow(&self, other: i64) -> Self {
+        let mut n = other;
+        let mut x = match other.cmp(&0) {
+            Ordering::Less => {
+                n = -n;
+                self.recip().0.clone()
+            }
+            Ordering::Equal => {
+                return Tree::from(1.0);
+            }
+            Ordering::Greater => self.0.clone(),
+        };
+        let mut y: Option<Arc<TreeOp>> = None;
+        let mut skipped_first_y_mul = false;
+        while n > 1 {
+            if n % 2 == 1 {
+                if skipped_first_y_mul {
+                    y = Some(Arc::new(TreeOp::Binary(
+                        BinaryOpcode::Mul,
+                        x.clone(),
+                        y.unwrap().clone(),
+                    )))
+                } else {
+                    y = Some(x.clone());
+                    skipped_first_y_mul = true;
+                }
+                n -= 1;
+            }
+            x = Arc::new(TreeOp::Unary(UnaryOpcode::Square, x.clone()));
+            n /= 2;
+        }
+        if skipped_first_y_mul {
+            x = Arc::new(TreeOp::Binary(
+                BinaryOpcode::Mul,
+                x.clone(),
+                y.unwrap().clone(),
+            ));
+        }
+        Tree(x)
     }
 }
 
@@ -638,5 +680,23 @@ mod test {
             panic!("invalid deriv {d:?}")
         };
         assert_eq!(v, 0.0);
+    }
+
+    #[test]
+    fn tree_pow() {
+        let a = Tree::from(3);
+        let b = a.pow(3);
+        let c = a.pow(-3);
+        let d = a.pow(0);
+
+        let mut ctx = Context::new();
+        let root = ctx.import(&b);
+        assert_eq!(ctx.get_const(root).unwrap(), 27.0);
+        ctx.clear();
+        let root = ctx.import(&c);
+        assert_eq!(ctx.get_const(root).unwrap(), 1.0 / 27.0);
+        ctx.clear();
+        let root = ctx.import(&d);
+        assert_eq!(ctx.get_const(root).unwrap(), 1.0);
     }
 }
