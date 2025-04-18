@@ -3,7 +3,7 @@ use crate::context::Tree;
 use facet::Facet;
 
 mod vec;
-pub use vec::{Vec2, Vec3};
+pub use vec::{Vec2, Vec3, Vec4};
 
 ////////////////////////////////////////////////////////////////////////////////
 // 2D shapes
