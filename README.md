@@ -60,6 +60,8 @@ ranging from CLI to GUI to web app.
 - [`rsaccon/fidget-koto`](https://github.com/rsaccon/fidget-koto): An adaptation
   of the `fidget-viewer` demo using [Koto](https://koto.dev/) for scripting
   (instead of [Rhai](https://rhai.rs))
+- [`alexneufeld/fidgetpy`](https://github.com/alexneufeld/fidgetpy): Python
+  bindings and high-level API
 
 ## Support matrix
 At the moment, Fidget supports a limited number of platforms:
