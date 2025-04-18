@@ -290,6 +290,9 @@ impl Tree {
     pub fn neg(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Neg)
     }
+    pub fn recip(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Recip)
+    }
     pub fn sin(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Sin)
     }
