@@ -78,8 +78,8 @@ impl Engine {
     /// Constructs a script evaluation engine with Fidget bindings
     ///
     /// The context includes a variety of functions that operate on [`Tree`]
-    /// handles, as well as [bindings](crate::rhai::shapes) to everything in
-    /// [`fidget::shapes`](crate::shapes).
+    /// handles, as well as bindings to everything in
+    /// [`fidget::shapes`](crate::shapes) (see [`docs`] for details).
     pub fn new() -> Self {
         let mut engine = rhai::Engine::new();
 
