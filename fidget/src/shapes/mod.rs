@@ -147,7 +147,9 @@ impl From<Move> for Tree {
     fn from(v: Move) -> Self {
         v.shape.remap_affine(nalgebra::convert(
             nalgebra::Translation3::<f64>::new(
-                v.offset.x, v.offset.y, v.offset.z,
+                -v.offset.x,
+                -v.offset.y,
+                -v.offset.z,
             ),
         ))
     }

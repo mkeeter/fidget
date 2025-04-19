@@ -317,8 +317,8 @@ mod test {
         let out = engine
             .run(
                 "
-                let s = circle(0, 0, 2);
-                draw(move_xy(s, 1, 3));
+                let s = circle(#{ center: [0, 0], radius: 2 });
+                draw(s.move([1, 3]));
                 ",
             )
             .unwrap();

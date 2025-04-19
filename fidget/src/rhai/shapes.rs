@@ -90,7 +90,7 @@ fn validate_type<T: Facet>() -> facet::Struct {
     for f in s.fields {
         assert!(
             known_types.contains(&f.shape().id),
-            "unkonwn type {}",
+            "unknown type {}",
             f.shape()
         );
     }
@@ -324,24 +324,21 @@ mod test {
         let mut e = rhai::Engine::new();
         register_one::<Circle>(&mut e);
         e.build_type::<Vec2>();
-        let c: Circle = e
-            .eval("circle(#{ center: vec2(1, 2), radius: 3 })")
-            .unwrap();
-        assert_eq!(c.center.x, 1.0);
-        assert_eq!(c.center.y, 2.0);
-        assert_eq!(c.radius, 3.0);
+        assert!(e
+            .eval::<Tree>("circle(#{ center: vec2(1, 2), radius: 3 })")
+            .is_ok());
 
         assert!(e
-            .eval::<Circle>("circle(#{ center: 3.0, radius: 3 })")
+            .eval::<Tree>("circle(#{ center: 3.0, radius: 3 })")
             .is_err());
         assert!(e
-            .eval::<Circle>(
+            .eval::<Tree>(
                 "circle(#{ center: vec2(\"omg\", \"wtf\"), radius: 3 })"
             )
             .is_err());
-        assert!(e.eval::<Circle>("circle(#{ radius: 4 })").is_err());
+        assert!(e.eval::<Tree>("circle(#{ radius: 4 })").is_err());
         assert!(e
-            .eval::<Circle>("circle(#{ radius: 4, xy: vec2(1, 2) })")
+            .eval::<Tree>("circle(#{ radius: 4, xy: vec2(1, 2) })")
             .is_err());
     }
 }
