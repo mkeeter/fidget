@@ -8,7 +8,7 @@ use eframe::{
 use env_logger::Env;
 use log::{debug, error, info};
 use nalgebra::Point2;
-use notify::Watcher;
+use notify::{Event, EventKind, Watcher};
 
 use fidget::{
     gui::{Canvas2, Canvas3, CursorState, DragMode},
@@ -281,13 +281,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // Automatically select the best implementation for your platform.
-    let mut watcher = notify::recommended_watcher(move |res| match res {
-        Ok(event) => {
-            info!("file watcher: {event:?}");
-            file_watcher_tx.send(()).unwrap();
-        }
-        Err(e) => panic!("watch error: {:?}", e),
-    })
+    let mut watcher = notify::recommended_watcher(
+        move |res: Result<Event, notify::Error>| match res {
+            Ok(event) => {
+                info!("file watcher: {event:?}");
+                if let EventKind::Modify(..) = event.kind {
+                    file_watcher_tx.send(()).unwrap()
+                }
+            }
+            Err(e) => panic!("watch error: {:?}", e),
+        },
+    )
     .unwrap();
     watcher
         .watch(Path::new(&args.target), notify::RecursiveMode::NonRecursive)
