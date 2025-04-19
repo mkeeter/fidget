@@ -1,5 +1,28 @@
 //! Documentation for writing Rhai scripts with Fidget bindings
 //!
+//! # Trees
+//! The basic type for math expressions is a `Tree`, which is equivalent to
+//! [`fidget::context::Tree`](crate::context::Tree).  Trees are typically built
+//! from `(x, y, z)` primitives, which can be constructed with the `axes()`
+//! function:
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! let (x, y, z) = axes();
+//! # ").unwrap();
+//! ```
+//!
+//! `x, y, z` variables are also automatically injected into the `Engine`'s
+//! context before evaluation.
+//!
+//! # Vector types
+//! The Rhai context includes `vec2`, `vec3`, and `vec4` types, which are
+//! roughly analogous to their GLSL equivalents (for floating-point only).
+//! Many (but not all) functions are implemented and overloaded for these types;
+//! if you encounter something missing, feel free to open an issue.
+//!
 //! # Shapes
 //! In Rhai scripts, shapes can be constructed using object map notation:
 //! ```

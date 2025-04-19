@@ -7,6 +7,7 @@ repository = "https://github.com/mkeeter/fidget"
 description = "Infrastructure for complex closed-form implicit surfaces"
 authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
 readme = "../README.md"
+rust-version = "1.86"
 
 [dependencies]
 arrayvec.workspace = true
