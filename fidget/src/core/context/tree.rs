@@ -223,45 +223,34 @@ impl Tree {
     }
 
     /// Raises this tree to the power of an integer using exponentiation by squaring
-    pub fn pow(&self, other: i64) -> Self {
-        let mut n = other;
-        let mut x = match other.cmp(&0) {
+    pub fn pow(&self, mut n: i64) -> Self {
+        // TODO should this also be in `Context`?
+        let mut x = match n.cmp(&0) {
             Ordering::Less => {
                 n = -n;
-                self.recip().0.clone()
+                self.recip()
             }
             Ordering::Equal => {
                 return Tree::from(1.0);
             }
-            Ordering::Greater => self.0.clone(),
+            Ordering::Greater => self.clone(),
         };
-        let mut y: Option<Arc<TreeOp>> = None;
-        let mut skipped_first_y_mul = false;
+        let mut y: Option<Tree> = None;
         while n > 1 {
             if n % 2 == 1 {
-                if skipped_first_y_mul {
-                    y = Some(Arc::new(TreeOp::Binary(
-                        BinaryOpcode::Mul,
-                        x.clone(),
-                        y.unwrap().clone(),
-                    )))
-                } else {
-                    y = Some(x.clone());
-                    skipped_first_y_mul = true;
-                }
+                y = match y {
+                    Some(y) => Some(x.clone() * y),
+                    None => Some(x.clone()),
+                };
                 n -= 1;
             }
-            x = Arc::new(TreeOp::Unary(UnaryOpcode::Square, x.clone()));
+            x = x.square();
             n /= 2;
         }
-        if skipped_first_y_mul {
-            x = Arc::new(TreeOp::Binary(
-                BinaryOpcode::Mul,
-                x.clone(),
-                y.unwrap().clone(),
-            ));
+        if let Some(y) = y {
+            x *= y;
         }
-        Tree(x)
+        x
     }
 }
 
