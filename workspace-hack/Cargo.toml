@@ -22,6 +22,7 @@ byteorder = { version = "1" }
 clap = { version = "4", features = ["derive"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+log = { version = "0.4", default-features = false, features = ["std"] }
 num-traits = { version = "0.2", features = ["i128"] }
 once_cell = { version = "1", features = ["portable-atomic"] }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
@@ -32,7 +33,7 @@ zerocopy = { version = "0.7", features = ["derive", "simd"] }
 [build-dependencies]
 byteorder = { version = "1" }
 once_cell = { version = "1", features = ["portable-atomic"] }
-proc-macro2 = { version = "1" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 syn = { version = "2", features = ["extra-traits", "full"] }
 
@@ -44,7 +45,6 @@ bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
@@ -77,7 +77,6 @@ bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
