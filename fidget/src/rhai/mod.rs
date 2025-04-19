@@ -256,46 +256,6 @@ where
     ) -> Result<Self, Box<EvalAltResult>>;
 }
 
-impl FromDynamic for Tree {
-    fn from_dynamic(
-        ctx: &rhai::NativeCallContext,
-        d: rhai::Dynamic,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        if let Some(t) = d.clone().try_cast::<Tree>() {
-            Ok(t)
-        } else if let Ok(v) = f64::from_dynamic(ctx, d.clone()) {
-            Ok(Tree::constant(v))
-        } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, d.clone()) {
-            Ok(crate::shapes::Union { input: v }.into())
-        } else {
-            Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
-                "tree".to_string(),
-                d.type_name().to_string(),
-                ctx.position(),
-            )))
-        }
-    }
-}
-
-impl FromDynamic for Vec<Tree> {
-    fn from_dynamic(
-        ctx: &rhai::NativeCallContext,
-        d: rhai::Dynamic,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        if let Ok(d) = d.clone().into_array() {
-            d.into_iter()
-                .map(|v| Tree::from_dynamic(ctx, v))
-                .collect::<Result<Vec<_>, _>>()
-        } else {
-            Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
-                "Vec<tree>".to_string(),
-                d.type_name().to_string(),
-                ctx.position(),
-            )))
-        }
-    }
-}
-
 impl FromDynamic for f64 {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
