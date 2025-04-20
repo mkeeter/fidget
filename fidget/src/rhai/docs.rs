@@ -91,7 +91,7 @@
 //! ```
 //!
 //! ## Function chaining
-//! Shapes which have a single `Tree` member are typically transforms (e.g.
+//! Shapes with a single initial `Tree` member are typically transforms (e.g.
 //! `move` from above).  These functions may be called with the tree as their
 //! first (unnamed) argument, followed by an object map of remaining parameters.
 //!

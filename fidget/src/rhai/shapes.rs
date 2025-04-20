@@ -146,6 +146,7 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
         .filter(|t| t.shape().id == ConstTypeId::of::<Tree>())
         .count();
     if tree_count == 1
+        && s.fields[0].shape().id == ConstTypeId::of::<Tree>()
         && s.fields
             .iter()
             .all(|f| f.shape().id != ConstTypeId::of::<Vec<Tree>>())
