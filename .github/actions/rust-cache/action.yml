@@ -8,6 +8,9 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Update rustup
+      run: rustup update
+      shell: bash
     - uses: actions/cache@v4
       with:
         path: |

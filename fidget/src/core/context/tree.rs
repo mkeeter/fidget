@@ -132,8 +132,8 @@ impl From<TreeOp> for Tree {
 }
 
 /// Owned handle for a standalone math tree
-#[derive(Clone, Debug)]
-pub struct Tree(Arc<TreeOp>);
+#[derive(Clone, Debug, facet::Facet)]
+pub struct Tree(#[facet(opaque)] Arc<TreeOp>);
 
 impl std::ops::Deref for Tree {
     type Target = TreeOp;
@@ -391,6 +391,13 @@ impl_binary!(Add, AddAssign, add, add_assign);
 impl_binary!(Sub, SubAssign, sub, sub_assign);
 impl_binary!(Mul, MulAssign, mul, mul_assign);
 impl_binary!(Div, DivAssign, div, div_assign);
+
+impl std::ops::Neg for Tree {
+    type Output = Tree;
+    fn neg(self) -> Self::Output {
+        Tree::op_unary(self, UnaryOpcode::Neg)
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -687,5 +694,32 @@ mod test {
         ctx.clear();
         let root = ctx.import(&d);
         assert_eq!(ctx.get_const(root).unwrap(), 1.0);
+    }
+    #[test]
+    fn tree_poke() {
+        #[derive(facet::Facet)]
+        struct Transform {
+            tree: Tree,
+            x: f64,
+        }
+
+        let builder = facet::Wip::alloc::<Transform>()
+            .field_named("tree")
+            .unwrap()
+            .put(Tree::x() + 2.0 * Tree::y())
+            .unwrap()
+            .pop()
+            .unwrap()
+            .field_named("x")
+            .unwrap()
+            .put(1.0)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let t: Transform = builder.build().unwrap().materialize().unwrap();
+        assert_eq!(t.x, 1.0);
+        let mut ctx = Context::new();
+        let node = ctx.import(&t.tree);
+        assert_eq!(ctx.eval_xyz(node, 1.0, 2.0, 3.0).unwrap(), 5.0);
     }
 }

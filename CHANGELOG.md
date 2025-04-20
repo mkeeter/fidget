@@ -17,6 +17,10 @@
   transformations on math expressions.  These transformations are composable;
   two affine transforms will be combined into a single transform if stacked
   together.
+- Major updates to the Rhai standard library and default bindings:
+    - Add `vec2`, `vec3`, `vec4` types
+    - Shapes are now constructed with object maps
+    - Added documentation in `fidget::rhai::docs` module
 
 # 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`

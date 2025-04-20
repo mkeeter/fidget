@@ -7,12 +7,15 @@ repository = "https://github.com/mkeeter/fidget"
 description = "Infrastructure for complex closed-form implicit surfaces"
 authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
 readme = "../README.md"
+rust-version = "1.86"
 
 [dependencies]
 arrayvec.workspace = true
 bimap.workspace = true
 crossbeam-deque.workspace = true
 document-features.workspace = true
+facet.workspace = true
+heck.workspace = true
 nalgebra.workspace = true
 num-traits.workspace = true
 ordered-float.workspace = true

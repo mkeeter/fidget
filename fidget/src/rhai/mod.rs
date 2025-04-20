@@ -1,5 +1,9 @@
 //! Rhai bindings to Fidget
 //!
+//! This module details how to construct and use a
+//! [`fidget::rhai::Engine`](Engine) object; for details on writing scripts
+//! to be evaluated in an `Engine`, see the [`docs`] module.
+//!
 //! There are two main ways to use these bindings.
 //!
 //! The simplest option is to call [`eval`], which evaluates a single expression
@@ -51,7 +55,12 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{context::Tree, Error};
-use rhai::{CustomType, NativeCallContext, TypeBuilder};
+use rhai::{CustomType, EvalAltResult, NativeCallContext, TypeBuilder};
+
+pub mod docs;
+mod shapes;
+mod tree;
+mod vec;
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -69,78 +78,23 @@ impl Engine {
     /// Constructs a script evaluation engine with Fidget bindings
     ///
     /// The context includes a variety of functions that operate on [`Tree`]
-    /// handles.
-    ///
-    /// In addition, it includes everything in [`core.rhai`](crate::rhai::core),
-    /// which is effectively our standard library.
+    /// handles, as well as bindings to everything in
+    /// [`fidget::shapes`](crate::shapes) (see [`docs`] for details).
     pub fn new() -> Self {
         let mut engine = rhai::Engine::new();
-        engine
-            .register_type::<Tree>()
-            .register_fn("remap_xyz", remap_xyz);
+
+        tree::register(&mut engine);
+        vec::register(&mut engine);
+        shapes::register(&mut engine);
 
         engine.build_type::<Axes>();
         engine.register_fn("axes", axes);
         engine.register_fn("draw", draw);
         engine.register_fn("draw_rgb", draw_rgb);
 
-        macro_rules! register_binary_fns {
-            ($op:literal, $name:ident, $engine:ident) => {
-                $engine.register_fn($op, $name::node_dyn);
-                $engine.register_fn($op, $name::dyn_node);
-            };
-        }
-        macro_rules! register_unary_fns {
-            ($op:literal, $name:ident, $engine:ident) => {
-                $engine.register_fn($op, $name::node);
-            };
-        }
-
-        register_binary_fns!("+", add, engine);
-        register_binary_fns!("-", sub, engine);
-        register_binary_fns!("*", mul, engine);
-        register_binary_fns!("/", div, engine);
-        register_binary_fns!("%", modulo, engine);
-        register_binary_fns!("min", min, engine);
-        register_binary_fns!("max", max, engine);
-        register_binary_fns!("compare", compare, engine);
-        register_binary_fns!("and", and, engine);
-        register_binary_fns!("or", or, engine);
-        register_binary_fns!("atan2", atan2, engine);
-        register_unary_fns!("abs", abs, engine);
-        register_unary_fns!("sqrt", sqrt, engine);
-        register_unary_fns!("square", square, engine);
-        register_unary_fns!("sin", sin, engine);
-        register_unary_fns!("cos", cos, engine);
-        register_unary_fns!("tan", tan, engine);
-        register_unary_fns!("asin", asin, engine);
-        register_unary_fns!("acos", acos, engine);
-        register_unary_fns!("atan", atan, engine);
-        register_unary_fns!("exp", exp, engine);
-        register_unary_fns!("ln", ln, engine);
-        register_unary_fns!("not", not, engine);
-        register_unary_fns!("ceil", ceil, engine);
-        register_unary_fns!("floor", floor, engine);
-        register_unary_fns!("round", round, engine);
-        register_unary_fns!("-", neg, engine);
-
-        // Ban comparison operators
-        for op in ["==", "!=", "<", ">", "<=", ">="] {
-            engine.register_fn(op, bad_cmp_node_dyn);
-            engine.register_fn(op, bad_cmp_dyn_node);
-        }
-
-        engine.set_fast_operators(false);
-
         let context = Arc::new(Mutex::new(ScriptContext::new()));
         engine.set_default_tag(rhai::Dynamic::from(context.clone()));
         engine.set_max_expr_depths(64, 32);
-
-        let ast = engine.compile(include_str!("core.rhai")).unwrap();
-        let module =
-            rhai::Module::eval_ast_as_new(rhai::Scope::new(), &ast, &engine)
-                .unwrap();
-        engine.register_global_module(rhai::Shared::new(module));
 
         Self { engine, context }
     }
@@ -173,19 +127,14 @@ impl Engine {
 
     /// Evaluates a single expression, in terms of `x`, `y`, and `z`
     pub fn eval(&mut self, script: &str) -> Result<Tree, Error> {
+        self.context.lock().unwrap().clear();
+
+        let mut scope = rhai::Scope::new();
+        scope.push("x", Tree::x());
+        scope.push("y", Tree::y());
+        scope.push("z", Tree::z());
+
         let ast = self.engine.compile(script)?;
-        let mut scope = {
-            let mut ctx = self.context.lock().unwrap();
-            ctx.clear();
-
-            // Create initialized scope with x/y/z
-            let mut scope = rhai::Scope::new();
-            scope.push("x", Tree::x());
-            scope.push("y", Tree::y());
-            scope.push("z", Tree::z());
-            scope
-        };
-
         let out = self.engine.eval_ast_with_scope::<Tree>(&mut scope, &ast)?;
 
         Ok(out)
@@ -248,19 +197,27 @@ fn axes(_ctx: NativeCallContext) -> Axes {
     Axes { x, y, z }
 }
 
-fn remap_xyz(shape: Tree, x: Tree, y: Tree, z: Tree) -> Tree {
-    shape.remap_xyz(x, y, z)
-}
-
-fn draw(ctx: NativeCallContext, tree: Tree) {
+fn draw(
+    ctx: NativeCallContext,
+    tree: rhai::Dynamic,
+) -> Result<(), Box<EvalAltResult>> {
+    let tree = Tree::from_dynamic(&ctx, tree)?;
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     ctx.lock().unwrap().shapes.push(DrawShape {
         tree,
         color_rgb: [u8::MAX; 3],
     });
+    Ok(())
 }
 
-fn draw_rgb(ctx: NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
+fn draw_rgb(
+    ctx: NativeCallContext,
+    tree: rhai::Dynamic,
+    r: f64,
+    g: f64,
+    b: f64,
+) -> Result<(), Box<EvalAltResult>> {
+    let tree = Tree::from_dynamic(&ctx, tree)?;
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     let f = |a| {
         if a < 0.0 {
@@ -275,118 +232,8 @@ fn draw_rgb(ctx: NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
         tree,
         color_rgb: [f(r), f(g), f(b)],
     });
+    Ok(())
 }
-
-macro_rules! define_binary_fns {
-    ($name:ident $(, $op:ident)?) => {
-        mod $name {
-            use super::*;
-            use NativeCallContext;
-            $(
-            use std::ops::$op;
-            )?
-            pub fn node_dyn(
-                _ctx: NativeCallContext,
-                a: Tree,
-                b: rhai::Dynamic,
-            ) -> Result<Tree, Box<rhai::EvalAltResult>> {
-                let b = if let Some(v) = b.clone().try_cast::<f64>() {
-                    Tree::constant(v)
-                } else if let Some(v) = b.clone().try_cast::<i64>() {
-                    Tree::constant(v as f64)
-                } else if let Some(t) = b.clone().try_cast::<Tree>() {
-                    t
-                } else {
-                    let e = format!(
-                        "invalid type for {}(Tree, rhs): {}",
-                        stringify!($name),
-                        b.type_name()
-                    );
-                    return Err(e.into());
-                };
-                Ok(a.$name(b))
-            }
-            pub fn dyn_node(
-                _ctx: NativeCallContext,
-                a: rhai::Dynamic,
-                b: Tree,
-            ) -> Result<Tree, Box<rhai::EvalAltResult>> {
-                let a = if let Some(v) = a.clone().try_cast::<f64>() {
-                    Tree::constant(v)
-                } else if let Some(v) = a.clone().try_cast::<i64>() {
-                    Tree::constant(v as f64)
-                } else if let Some(t) = a.clone().try_cast::<Tree>() {
-                    t
-                } else {
-                    let e = format!(
-                        "invalid type for {}(lhs, Tree): {}",
-                        stringify!($name),
-                        a.type_name()
-                    );
-                    return Err(e.into());
-                };
-                Ok(a.$name(b))
-            }
-        }
-    };
-}
-
-macro_rules! define_unary_fns {
-    ($name:ident) => {
-        mod $name {
-            use super::*;
-            pub fn node(_ctx: NativeCallContext, a: Tree) -> Tree {
-                a.$name()
-            }
-        }
-    };
-}
-
-fn bad_cmp_node_dyn(
-    _ctx: NativeCallContext,
-    _a: Tree,
-    _b: rhai::Dynamic,
-) -> Result<Tree, Box<rhai::EvalAltResult>> {
-    let e = "cannot compare Tree types during function tracing";
-    Err(e.into())
-}
-
-fn bad_cmp_dyn_node(
-    _ctx: NativeCallContext,
-    _a: rhai::Dynamic,
-    _b: Tree,
-) -> Result<Tree, Box<rhai::EvalAltResult>> {
-    let e = "cannot compare Tree types during function tracing";
-    Err(e.into())
-}
-
-define_binary_fns!(add, Add);
-define_binary_fns!(sub, Sub);
-define_binary_fns!(mul, Mul);
-define_binary_fns!(div, Div);
-define_binary_fns!(min);
-define_binary_fns!(max);
-define_binary_fns!(compare);
-define_binary_fns!(modulo);
-define_binary_fns!(and);
-define_binary_fns!(or);
-define_binary_fns!(atan2);
-define_unary_fns!(sqrt);
-define_unary_fns!(square);
-define_unary_fns!(neg);
-define_unary_fns!(sin);
-define_unary_fns!(cos);
-define_unary_fns!(tan);
-define_unary_fns!(asin);
-define_unary_fns!(acos);
-define_unary_fns!(atan);
-define_unary_fns!(exp);
-define_unary_fns!(ln);
-define_unary_fns!(not);
-define_unary_fns!(abs);
-define_unary_fns!(floor);
-define_unary_fns!(ceil);
-define_unary_fns!(round);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -394,6 +241,39 @@ define_unary_fns!(round);
 pub fn eval(s: &str) -> Result<Tree, Error> {
     let mut engine = Engine::new();
     engine.eval(s)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Helper trait to go from a Rhai dynamic object to a particular type
+trait FromDynamic
+where
+    Self: Sized,
+{
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        v: rhai::Dynamic,
+    ) -> Result<Self, Box<EvalAltResult>>;
+}
+
+impl FromDynamic for f64 {
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        d: rhai::Dynamic,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        let ty = d.type_name();
+        d.clone()
+            .try_cast::<f64>()
+            .or_else(|| d.try_cast::<i64>().map(|f| f as f64))
+            .ok_or_else(|| {
+                EvalAltResult::ErrorMismatchDataType(
+                    "float".to_string(),
+                    ty.to_string(),
+                    ctx.position(),
+                )
+                .into()
+            })
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -437,8 +317,8 @@ mod test {
         let out = engine
             .run(
                 "
-                let s = circle(0, 0, 2);
-                draw(move_xy(s, 1, 3));
+                let s = circle(#{ center: [0, 0], radius: 2 });
+                draw(s.move([1, 3]));
                 ",
             )
             .unwrap();
@@ -469,5 +349,3 @@ mod test {
         ));
     }
 }
-
-pub mod core;

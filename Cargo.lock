@@ -1328,6 +1328,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "facet"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09f18ad58bc565e291e045c6ad4740fd01c2b3ecbfee5169bb937d6aacd74908"
+dependencies = [
+ "facet-core",
+ "facet-derive",
+ "facet-reflect",
+]
+
+[[package]]
+name = "facet-core"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "068fb5c8cf92d972de761002753158ae660eedb23c8e1e4503949b5c915c66ce"
+dependencies = [
+ "bitflags 2.9.0",
+ "impls",
+]
+
+[[package]]
+name = "facet-derive"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a604c8a7a58222485216173d41619084f0a48a3dab39209fb0ec0d764060b7fc"
+dependencies = [
+ "facet-core",
+ "facet-derive-emit",
+]
+
+[[package]]
+name = "facet-derive-emit"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0d6eb8fe28de06dd80b16892062515cdb04a09e4abf7ee99a8aff2966f42661"
+dependencies = [
+ "facet-derive-parse",
+]
+
+[[package]]
+name = "facet-derive-parse"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e57da72d1c1a74b2ed21417769396a8b8a86e97281388011e19c58a37d8dc1"
+dependencies = [
+ "unsynn",
+]
+
+[[package]]
+name = "facet-reflect"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28bd057cb4d8fd0d99cf928e781d067f70d3f218afe3cce68fb980253fd2c787"
+dependencies = [
+ "bitflags 2.9.0",
+ "facet-core",
+ "log",
+ "yansi",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1353,8 +1414,10 @@ dependencies = [
  "crossbeam-deque",
  "document-features",
  "dynasmrt",
+ "facet",
  "getrandom 0.2.15",
  "getrandom 0.3.1",
+ "heck",
  "libc",
  "nalgebra",
  "num-traits",
@@ -1943,10 +2006,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "indexmap"
-version = "2.7.1"
+name = "impls"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c9c992b02b5b4c94ea26e32fe5bccb7aa7d9f390ab5c1221ff895bc7ea8b652"
+checksum = "7a46645bbd70538861a90d0f26c31537cdf1e44aae99a794fb75a664b70951bc"
+
+[[package]]
+name = "indexmap"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
  "hashbrown",
@@ -2169,9 +2238,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.26"
+version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
+checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "malloc_buf"
@@ -2252,6 +2321,12 @@ dependencies = [
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "mutants"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 
 [[package]]
 name = "naga"
@@ -3183,7 +3258,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.2",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3294,6 +3369,12 @@ dependencies = [
  "cpufeatures",
  "digest",
 ]
+
+[[package]]
+name = "shadow_counted"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65da48d447333cebe1aadbdd3662f3ba56e76e67f53bc46f3dd5f67c74629d6b"
 
 [[package]]
 name = "shlex"
@@ -3525,7 +3606,7 @@ dependencies = [
  "getrandom 0.3.1",
  "once_cell",
  "rustix 1.0.0",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3751,6 +3832,17 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unsynn"
+version = "0.0.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14013db4ac11f92d4df4b56edb431eab9c1d9f7aee4791f3205b6a1119b83f54"
+dependencies = [
+ "mutants",
+ "proc-macro2",
+ "shadow_counted",
+]
 
 [[package]]
 name = "url"
@@ -4745,6 +4837,12 @@ name = "xml-rs"
 version = "0.8.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5b940ebc25896e71dd073bad2dbaa2abfe97b0a391415e22ad1326d9c54e3c4"
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yoke"
