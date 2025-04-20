@@ -64,8 +64,34 @@
 //! # ").unwrap();
 //! ```
 //!
+//! ## Uniquely typed functions
+//! Any shape with unique arguments may skip the object map and pass arguments
+//! directly; order doesn't matter, because the type is unambiguous.
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! // array -> vec2
+//! let c1 = circle([1, 2], 3);
+//! let c2 = circle(3, [1, 2]); // order doesn't matter!
+//! # ").unwrap();
+//! ```
+//!
+//! Note that some kinds of type coercion will not work in this regime, e.g.
+//! `vec2 -> vec3`:
+//!
+//! ```should_panic
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! // array -> vec2
+//! let c1 = sphere([1, 1], 4); // vec2 -> vec3 conversion
+//! # ").unwrap();
+//! ```
+//!
 //! ## Function chaining
-//! Shapes which have a single `Tree` member are typically transforms (e.g.
+//! Shapes with a single initial `Tree` member are typically transforms (e.g.
 //! `move` from above).  These functions may be called with the tree as their
 //! first (unnamed) argument, followed by an object map of remaining parameters.
 //!
