@@ -23,7 +23,7 @@
 //!     vm::VmShape
 //! };
 //!
-//! let tree = fidget::rhai::eval("sphere(0, 0, 0, 0.6)")?;
+//! let tree = fidget::rhai::eval("sphere(#{ center: [0, 0, 0], radius: 0.6 })")?;
 //! let shape = VmShape::from(tree);
 //! let settings = Settings {
 //!     depth: 4,

@@ -10,7 +10,8 @@
 //! # use fidget::rhai::Engine;
 //! # let mut e = Engine::new();
 //! # e.run("
-//! let (x, y, z) = axes();
+//! let xyz = axes();
+//! xyz.x + xyz.y
 //! # ").unwrap();
 //! ```
 //!
