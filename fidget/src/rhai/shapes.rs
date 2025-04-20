@@ -68,30 +68,12 @@ impl TypeTag {
         v: rhai::Dynamic,
     ) -> Result<Type, Box<EvalAltResult>> {
         let out = match self {
-            TypeTag::Float => {
-                let v = f64::from_dynamic(ctx, v)?;
-                Type::Float(v)
-            }
-            TypeTag::Vec2 => {
-                let v = Vec2::from_dynamic(ctx, v)?;
-                Type::Vec2(v)
-            }
-            TypeTag::Vec3 => {
-                let v = Vec3::from_dynamic(ctx, v)?;
-                Type::Vec3(v)
-            }
-            TypeTag::Vec4 => {
-                let v = Vec4::from_dynamic(ctx, v)?;
-                Type::Vec4(v)
-            }
-            TypeTag::Tree => {
-                let v = Tree::from_dynamic(ctx, v)?;
-                Type::Tree(v)
-            }
-            TypeTag::VecTree => {
-                let v = <Vec<Tree>>::from_dynamic(ctx, v)?;
-                Type::VecTree(v)
-            }
+            TypeTag::Float => Type::Float(<_>::from_dynamic(ctx, v)?),
+            TypeTag::Vec2 => Type::Vec2(<_>::from_dynamic(ctx, v)?),
+            TypeTag::Vec3 => Type::Vec3(<_>::from_dynamic(ctx, v)?),
+            TypeTag::Vec4 => Type::Vec4(<_>::from_dynamic(ctx, v)?),
+            TypeTag::Tree => Type::Tree(<_>::from_dynamic(ctx, v)?),
+            TypeTag::VecTree => Type::VecTree(<_>::from_dynamic(ctx, v)?),
         };
         Ok(out)
     }
@@ -105,25 +87,20 @@ impl Type {
         // This chain is ordered to prevent implicit conversions, e.g. we check
         // `Vec<Tree>` before `Tree` becaues Tree::from_dynamic` will
         // automaticalyl collapse a `[Tree]` list.
-        if let Ok(v) = f64::from_dynamic(ctx, v.clone()) {
-            Ok(Type::Float(v))
-        } else if let Ok(v) = Vec2::from_dynamic(ctx, v.clone()) {
-            Ok(Type::Vec2(v))
-        } else if let Ok(v) = Vec3::from_dynamic(ctx, v.clone()) {
-            Ok(Type::Vec3(v))
-        } else if let Ok(v) = Vec4::from_dynamic(ctx, v.clone()) {
-            Ok(Type::Vec4(v))
-        } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, v.clone()) {
-            Ok(Type::VecTree(v))
-        } else if let Ok(v) = Tree::from_dynamic(ctx, v.clone()) {
-            Ok(Type::Tree(v))
-        } else {
-            Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
-                "any Rust-compatible Type".to_string(),
-                v.type_name().to_string(),
-                ctx.position(),
-            )))
-        }
+        <_>::from_dynamic(ctx, v.clone())
+            .map(Type::Float)
+            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Vec2))
+            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Vec3))
+            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Vec4))
+            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::VecTree))
+            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Tree))
+            .map_err(|_| {
+                Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
+                    "any Rust-compatible Type".to_string(),
+                    v.type_name().to_string(),
+                    ctx.position(),
+                ))
+            })
     }
 
     /// Puts the type into an in-progress builder
