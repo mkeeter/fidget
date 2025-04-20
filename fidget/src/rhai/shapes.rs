@@ -6,6 +6,7 @@ use crate::{
 };
 use facet::{ConstTypeId, Facet};
 use rhai::{EvalAltResult, NativeCallContext};
+use strum::IntoDiscriminant;
 
 /// Register all shapes with the Rhai engine
 pub(crate) fn register(engine: &mut rhai::Engine) {
@@ -57,42 +58,72 @@ impl TryFrom<facet::ConstTypeId> for TypeTag {
     }
 }
 
-impl Type {
+impl TypeTag {
     /// Build a [`Type`] from a dynamic value and tag hint
     ///
     /// The resulting type is guaranteed to match the tag.
-    fn from_dynamic(
+    fn into_type(
+        self,
         ctx: &NativeCallContext,
         v: rhai::Dynamic,
-        hint: TypeTag,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        let out = match hint {
+    ) -> Result<Type, Box<EvalAltResult>> {
+        let out = match self {
             TypeTag::Float => {
                 let v = f64::from_dynamic(ctx, v)?;
-                Self::Float(v)
+                Type::Float(v)
             }
             TypeTag::Vec2 => {
                 let v = Vec2::from_dynamic(ctx, v)?;
-                Self::Vec2(v)
+                Type::Vec2(v)
             }
             TypeTag::Vec3 => {
                 let v = Vec3::from_dynamic(ctx, v)?;
-                Self::Vec3(v)
+                Type::Vec3(v)
             }
             TypeTag::Vec4 => {
                 let v = Vec4::from_dynamic(ctx, v)?;
-                Self::Vec4(v)
+                Type::Vec4(v)
             }
             TypeTag::Tree => {
                 let v = Tree::from_dynamic(ctx, v)?;
-                Self::Tree(v)
+                Type::Tree(v)
             }
             TypeTag::VecTree => {
                 let v = <Vec<Tree>>::from_dynamic(ctx, v)?;
-                Self::VecTree(v)
+                Type::VecTree(v)
             }
         };
         Ok(out)
+    }
+}
+
+impl Type {
+    fn from_dynamic(
+        ctx: &NativeCallContext,
+        v: rhai::Dynamic,
+    ) -> Result<Type, Box<EvalAltResult>> {
+        // This chain is ordered to prevent implicit conversions, e.g. we check
+        // `Vec<Tree>` before `Tree` becaues Tree::from_dynamic` will
+        // automaticalyl collapse a `[Tree]` list.
+        if let Ok(v) = f64::from_dynamic(ctx, v.clone()) {
+            Ok(Type::Float(v))
+        } else if let Ok(v) = Vec2::from_dynamic(ctx, v.clone()) {
+            Ok(Type::Vec2(v))
+        } else if let Ok(v) = Vec3::from_dynamic(ctx, v.clone()) {
+            Ok(Type::Vec3(v))
+        } else if let Ok(v) = Vec4::from_dynamic(ctx, v.clone()) {
+            Ok(Type::Vec4(v))
+        } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, v.clone()) {
+            Ok(Type::VecTree(v))
+        } else if let Ok(v) = Tree::from_dynamic(ctx, v.clone()) {
+            Ok(Type::Tree(v))
+        } else {
+            Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
+                "any Rust-compatible Type".to_string(),
+                v.type_name().to_string(),
+                ctx.position(),
+            )))
+        }
     }
 
     /// Puts the type into an in-progress builder
@@ -131,6 +162,7 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
     engine.register_fn(&name_lower, build_from_map::<T>);
 
     // Special handling for transform-shaped functions
+    let mut skip_build_unique = false;
     let tree_count = s
         .fields
         .iter()
@@ -144,6 +176,7 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
         engine.register_fn(&name_lower, build_transform::<T>);
         if s.fields.len() == 2 {
             engine.register_fn(&name_lower, build_transform_one::<T>);
+            skip_build_unique = true;
         }
     }
     if tree_count == 2 && s.fields.len() == 2 {
@@ -162,6 +195,25 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
         engine.register_fn(&name_lower, build_reduce6::<T>);
         engine.register_fn(&name_lower, build_reduce7::<T>);
         engine.register_fn(&name_lower, build_reduce8::<T>);
+    }
+
+    let mut count = enum_map::EnumMap::<TypeTag, usize>::default();
+    for f in s.fields {
+        let t = TypeTag::try_from(f.shape().id).unwrap();
+        count[t] += 1;
+    }
+    if !skip_build_unique && count.iter().all(|(_k, v)| *v <= 1) {
+        match s.fields.len() {
+            1 => engine.register_fn(&name_lower, build_unique1::<T>),
+            2 => engine.register_fn(&name_lower, build_unique2::<T>),
+            3 => engine.register_fn(&name_lower, build_unique3::<T>),
+            4 => engine.register_fn(&name_lower, build_unique4::<T>),
+            5 => engine.register_fn(&name_lower, build_unique5::<T>),
+            6 => engine.register_fn(&name_lower, build_unique6::<T>),
+            7 => engine.register_fn(&name_lower, build_unique7::<T>),
+            8 => engine.register_fn(&name_lower, build_unique8::<T>),
+            _ => engine,
+        };
     }
 }
 
@@ -212,7 +264,7 @@ fn build_transform<T: Facet + Into<Tree>>(
             )
             .into());
         };
-        let v = Type::from_dynamic(&ctx, v, tag)?;
+        let v = tag.into_type(&ctx, v)?;
         builder = v.put(builder.field(i).unwrap())
     }
 
@@ -256,7 +308,7 @@ fn build_transform_one<T: Facet + Into<Tree>>(
             let t = t.take().unwrap();
             builder = builder.field(i).unwrap().put(t).unwrap().pop().unwrap();
         } else {
-            let v = Type::from_dynamic(&ctx, arg.take().unwrap(), tag)?;
+            let v = tag.into_type(&ctx, arg.take().unwrap())?;
             builder = v.put(builder.field(i).unwrap())
         }
     }
@@ -318,7 +370,7 @@ fn build_from_map<T: Facet + Into<Tree>>(
         };
 
         let tag = TypeTag::try_from(f.shape().id).unwrap();
-        let v = Type::from_dynamic(&ctx, v, tag)?;
+        let v = tag.into_type(&ctx, v)?;
         builder = v.put(builder.field(i).unwrap())
     }
 
@@ -341,7 +393,7 @@ macro_rules! reducer {
         /// Builds a `T` from a list of Rhai values
         ///
         /// # Panics
-        /// `T` must be a `struct` one `Vec<Tree>` field
+        /// `T` must be a `struct` with a single `Vec<Tree>` field
         #[allow(clippy::too_many_arguments)]
         fn $name<T: Facet + Into<Tree>>(
             ctx: NativeCallContext,
@@ -372,6 +424,58 @@ reducer!(build_reduce5, a, b, c, d, e);
 reducer!(build_reduce6, a, b, c, d, e, f);
 reducer!(build_reduce7, a, b, c, d, e, f, g);
 reducer!(build_reduce8, a, b, c, d, e, f, g, h);
+
+macro_rules! unique {
+    ($name:ident, $($v:ident),*) => {
+        /// Builds a `T` from a list of Rhai values of unique types
+        ///
+        /// # Panics
+        /// `T` must be a `struct` with [`Type`]-compatible fields
+        #[allow(clippy::too_many_arguments)]
+        fn $name<T: Facet + Into<Tree>>(
+            ctx: NativeCallContext,
+            $($v: rhai::Dynamic),*
+        ) -> Result<Tree, Box<EvalAltResult>> {
+            let facet::Def::Struct(shape) = T::SHAPE.def else {
+                panic!("must build a struct");
+            };
+
+            // Build a map of our known values
+            let mut vs = enum_map::EnumMap::<TypeTag, Option<Type>>::default();
+            $(
+                let $v = Type::from_dynamic(&ctx, $v)?;
+                let tag = $v.discriminant();
+                vs[tag] = Some($v);
+            )*
+
+            let mut builder = facet::Wip::alloc::<T>();
+            for (i, f) in shape.fields.iter().enumerate() {
+                let t = TypeTag::try_from(f.shape().id).unwrap();
+                let Some(v) = vs[t].take() else {
+                    return Err(EvalAltResult::ErrorRuntime(
+                        format!("missing argument of type {}", f.shape())
+                            .into(),
+                        ctx.position(),
+                    )
+                    .into());
+                };
+                builder = v.put(builder.field(i).unwrap())
+            }
+
+            let t: T = builder.build().unwrap().materialize().unwrap();
+            Ok(t.into())
+        }
+    }
+}
+
+unique!(build_unique1, a);
+unique!(build_unique2, a, b);
+unique!(build_unique3, a, b, c);
+unique!(build_unique4, a, b, c, d);
+unique!(build_unique5, a, b, c, d, e);
+unique!(build_unique6, a, b, c, d, e, f);
+unique!(build_unique7, a, b, c, d, e, f, g);
+unique!(build_unique8, a, b, c, d, e, f, g, h);
 
 ////////////////////////////////////////////////////////////////////////////////
 
