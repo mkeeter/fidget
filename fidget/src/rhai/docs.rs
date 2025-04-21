@@ -1,5 +1,27 @@
 //! Documentation for writing Rhai scripts with Fidget bindings
 //!
+//! # Introduction
+//! Rhai is a general-purpose scripting language embedded in Rust.  When used
+//! for Fidget scripting, we use the Rhai script to capture a math expression.
+//! This math expression can then be processed by Fidget's optimized evaluators.
+//!
+//! It's important to distinguish between the Rhai script and the target math
+//! expression:
+//!
+//! - The Rhai script is general-purpose, evaluated a single time to compute
+//!   math expressions, and supports language features like conditionals and
+//!   loops
+//! - The math expression is closed-form arithmetic, evaluated _many_ times
+//!   over the course of rendering, and only supports operations from
+//!   [`TreeOp`](crate::context::TreeOp)
+//!
+//! The purpose of evaluating the Rhai script is to capture a _trace_ of a math
+//! expression.  Evaluating `x + y` in a Rhai script does not actually do any
+//! arithmetic; instead, it creates a math expression `Add(Var::X, Var::Y)`.
+//!
+//! Operator overloading makes this ergonomic, but can mask the fact that the
+//! Rhai script is not the math expression!
+//!
 //! # Trees
 //! The basic type for math expressions is a `Tree`, which is equivalent to
 //! [`fidget::context::Tree`](crate::context::Tree).  Trees are typically built
