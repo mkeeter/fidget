@@ -1,4 +1,4 @@
-# 0.3.6 (unreleased)
+# 0.3.6
 - Change `Option<ThreadPool<'a>>` to `Option<&'a ThreadPool>` throughout the
   codebase; moving the reference out of the `ThreadPool` eliminates the need for
   a separate `rayon::ThreadPool` object on the stack.
