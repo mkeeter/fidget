@@ -168,7 +168,9 @@ impl From<Scale> for Tree {
     fn from(v: Scale) -> Self {
         v.shape
             .remap_affine(nalgebra::convert(nalgebra::Scale3::<f64>::new(
-                v.scale.x, v.scale.y, v.scale.z,
+                1.0 / v.scale.x,
+                1.0 / v.scale.y,
+                1.0 / v.scale.z,
             )))
     }
 }
