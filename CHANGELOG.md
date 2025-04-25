@@ -1,3 +1,6 @@
+# 0.3.7 (unreleased)
+(nothing here yet)
+
 # 0.3.6
 - Change `Option<ThreadPool<'a>>` to `Option<&'a ThreadPool>` throughout the
   codebase; moving the reference out of the `ThreadPool` eliminates the need for
