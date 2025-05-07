@@ -1,5 +1,6 @@
 # 0.3.7 (unreleased)
-(nothing here yet)
+- Mark functions on `Interval` and `Grad` as `#[inline]`, to improve performance
+  when those types are used outside of the Fidget crate itself.
 
 # 0.3.6
 - Change `Option<ThreadPool<'a>>` to `Option<&'a ThreadPool>` throughout the

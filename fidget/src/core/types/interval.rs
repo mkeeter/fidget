@@ -57,10 +57,12 @@ impl Interval {
         v >= self.lower && v <= self.upper
     }
     /// Returns `true` if either bound of the interval is `NaN`
+    #[inline]
     pub fn has_nan(&self) -> bool {
         self.lower.is_nan() || self.upper.is_nan()
     }
     /// Calculates the absolute value of the interval
+    #[inline]
     pub fn abs(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
@@ -76,6 +78,7 @@ impl Interval {
     ///
     /// Note that this has tighter bounds than multiplication, because we know
     /// that both sides of the multiplication are the same value.
+    #[inline]
     pub fn square(self) -> Self {
         if self.upper < 0.0 {
             Interval::new(self.upper.powi(2), self.lower.powi(2))
@@ -90,6 +93,7 @@ impl Interval {
     /// Computes the sine of the interval
     ///
     /// Right now, this always returns the maximum range of `[-1, 1]`
+    #[inline]
     pub fn sin(self) -> Self {
         if self.has_nan() {
             f32::NAN.into()
@@ -101,6 +105,7 @@ impl Interval {
     /// Computes the cosine of the interval
     ///
     /// Right now, this always returns the maximum range of `[-1, 1]`
+    #[inline]
     pub fn cos(self) -> Self {
         if self.has_nan() {
             f32::NAN.into()
@@ -112,6 +117,7 @@ impl Interval {
     /// Computes the tangent of the interval
     ///
     /// Returns the `NAN` interval if the result contains a undefined point
+    #[inline]
     pub fn tan(self) -> Self {
         let size = self.upper - self.lower;
         if size >= std::f32::consts::PI {
@@ -129,6 +135,7 @@ impl Interval {
     /// Computes the arcsine of the interval
     ///
     /// Returns the `NAN` interval if the input is invalid
+    #[inline]
     pub fn asin(self) -> Self {
         if self.lower < -1.0 || self.upper > 1.0 {
             f32::NAN.into()
@@ -139,6 +146,7 @@ impl Interval {
     /// Computes the arccosine of the interval
     ///
     /// Returns the `NAN` interval if the input is invalid
+    #[inline]
     pub fn acos(self) -> Self {
         if self.lower < -1.0 || self.upper > 1.0 {
             f32::NAN.into()
@@ -147,16 +155,19 @@ impl Interval {
         }
     }
     /// Computes the arctangent of the interval
+    #[inline]
     pub fn atan(self) -> Self {
         Interval::new(self.lower.atan(), self.upper.atan())
     }
     /// Computes the exponent function applied to the interval
+    #[inline]
     pub fn exp(self) -> Self {
         Interval::new(self.lower.exp(), self.upper.exp())
     }
     /// Computes the natural log of the input interval
     ///
     /// Returns the `NAN` interval if the input contains zero
+    #[inline]
     pub fn ln(self) -> Self {
         if self.lower <= 0.0 {
             f32::NAN.into()
@@ -167,6 +178,7 @@ impl Interval {
     /// Calculates the square root of the interval
     ///
     /// If the interval contains values below 0, returns a `NAN` interval.
+    #[inline]
     pub fn sqrt(self) -> Self {
         if self.lower < 0.0 {
             f32::NAN.into()
@@ -177,6 +189,7 @@ impl Interval {
     /// Calculates the reciprocal of the interval
     ///
     /// If the interval includes 0, returns the `NAN` interval
+    #[inline]
     pub fn recip(self) -> Self {
         if self.lower > 0.0 || self.upper < 0.0 {
             Interval::new(1.0 / self.upper, 1.0 / self.lower)
@@ -190,6 +203,7 @@ impl Interval {
     /// always less than the other.
     ///
     /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
+    #[inline]
     pub fn min_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
             return (f32::NAN.into(), Choice::Both);
@@ -212,6 +226,7 @@ impl Interval {
     /// always greater than the other.
     ///
     /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
+    #[inline]
     pub fn max_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
             return (f32::NAN.into(), Choice::Both);
@@ -234,6 +249,7 @@ impl Interval {
     /// Returns both the result and a [`Choice`] indicating whether one side is
     /// always selected.  An unambiguous 0 in `self` selects itself; an
     /// unambiguous 1 selects the opposite branch.
+    #[inline]
     pub fn and_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
             (f32::NAN.into(), Choice::Both)
@@ -256,6 +272,7 @@ impl Interval {
     /// Returns both the result and a [`Choice`] indicating whether one side is
     /// always selected.  An unambiguous 0 in `self` selects the opposite
     /// branch; an unambiguous 1 selects itself.
+    #[inline]
     pub fn or_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
             (f32::NAN.into(), Choice::Both)
@@ -276,6 +293,7 @@ impl Interval {
     }
 
     /// Returns the midpoint of the interval
+    #[inline]
     pub fn midpoint(self) -> f32 {
         (self.lower + self.upper) / 2.0
     }
@@ -289,6 +307,7 @@ impl Interval {
     /// assert_eq!(lo, Interval::new(0.0, 0.5));
     /// assert_eq!(hi, Interval::new(0.5, 1.0));
     /// ```
+    #[inline]
     pub fn split(self) -> (Self, Self) {
         let mid = self.midpoint();
         (
@@ -306,6 +325,7 @@ impl Interval {
     /// assert_eq!(a.lerp(0.75), 1.5);
     /// assert_eq!(a.lerp(2.0), 4.0);
     /// ```
+    #[inline]
     pub fn lerp(self, frac: f32) -> f32 {
         self.lower * (1.0 - frac) + self.upper * frac
     }
@@ -319,6 +339,7 @@ impl Interval {
     /// let b = Interval::new(2.0, 5.0);
     /// assert_eq!(b.width(), 3.0);
     /// ```
+    #[inline]
     pub fn width(self) -> f32 {
         self.upper - self.lower
     }
@@ -335,6 +356,7 @@ impl Interval {
     }
 
     /// Least non-negative remainder
+    #[inline]
     pub fn rem_euclid(&self, other: Interval) -> Self {
         // TODO optimize this more?
         if self.has_nan() || other.has_nan() || other.contains(0.0) {
@@ -356,21 +378,25 @@ impl Interval {
     }
 
     /// Largest value that is less-than-or-equal to this value
+    #[inline]
     pub fn floor(&self) -> Self {
         Interval::new(self.lower.floor(), self.upper.floor())
     }
 
     /// Smallest value that is greater-than-or-equal to this value
+    #[inline]
     pub fn ceil(&self) -> Self {
         Interval::new(self.lower.ceil(), self.upper.ceil())
     }
 
     /// Rounded value
+    #[inline]
     pub fn round(&self) -> Self {
         Interval::new(self.lower.round(), self.upper.round())
     }
 
     /// Four-quadrant arctangent
+    #[inline]
     pub fn atan2(self, x: Self) -> Self {
         if self.has_nan() || x.has_nan() {
             f32::NAN.into()
@@ -388,12 +414,14 @@ impl std::fmt::Display for Interval {
 }
 
 impl From<[f32; 2]> for Interval {
+    #[inline]
     fn from(i: [f32; 2]) -> Interval {
         Interval::new(i[0], i[1])
     }
 }
 
 impl From<f32> for Interval {
+    #[inline]
     fn from(f: f32) -> Self {
         Interval::new(f, f)
     }
@@ -401,6 +429,7 @@ impl From<f32> for Interval {
 
 impl std::ops::Add<Interval> for Interval {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Interval::new(self.lower + rhs.lower, self.upper + rhs.upper)
     }
@@ -408,6 +437,7 @@ impl std::ops::Add<Interval> for Interval {
 
 impl std::ops::Mul<Interval> for Interval {
     type Output = Self;
+    #[inline]
     fn mul(self, rhs: Self) -> Self {
         if self.has_nan() || rhs.has_nan() {
             return f32::NAN.into();
@@ -432,6 +462,8 @@ impl std::ops::Mul<Interval> for Interval {
 
 impl std::ops::Mul<f32> for Interval {
     type Output = Self;
+
+    #[inline]
     fn mul(self, rhs: f32) -> Self {
         if self.has_nan() || rhs.is_nan() {
             f32::NAN.into()
@@ -445,6 +477,8 @@ impl std::ops::Mul<f32> for Interval {
 
 impl std::ops::Div<Interval> for Interval {
     type Output = Self;
+
+    #[inline]
     fn div(self, rhs: Self) -> Self {
         if self.has_nan() {
             return f32::NAN.into();
@@ -473,6 +507,8 @@ impl std::ops::Div<Interval> for Interval {
 
 impl std::ops::Sub<Interval> for Interval {
     type Output = Self;
+
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Interval::new(self.lower - rhs.upper, self.upper - rhs.lower)
     }
@@ -480,6 +516,8 @@ impl std::ops::Sub<Interval> for Interval {
 
 impl std::ops::Neg for Interval {
     type Output = Self;
+
+    #[inline]
     fn neg(self) -> Self {
         Interval::new(-self.upper, -self.lower)
     }
