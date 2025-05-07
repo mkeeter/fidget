@@ -20,6 +20,7 @@ impl std::fmt::Display for Grad {
 
 impl Grad {
     /// Constructs a new gradient
+    #[inline]
     pub fn new(v: f32, dx: f32, dy: f32, dz: f32) -> Self {
         Self { v, dx, dy, dz }
     }
@@ -28,6 +29,7 @@ impl Grad {
     ///
     /// # Panics
     /// If the index is not in the 0-2 range
+    #[inline]
     pub fn d(&self, i: usize) -> f32 {
         match i {
             0 => self.dx,
@@ -38,6 +40,7 @@ impl Grad {
     }
 
     /// Absolute value
+    #[inline]
     pub fn abs(self) -> Self {
         if self.v < 0.0 {
             Grad {
@@ -52,6 +55,7 @@ impl Grad {
     }
 
     /// Square root
+    #[inline]
     pub fn sqrt(self) -> Self {
         let v = self.v.sqrt();
         Grad {
@@ -63,6 +67,7 @@ impl Grad {
     }
 
     /// Sine
+    #[inline]
     pub fn sin(self) -> Self {
         let c = self.v.cos();
         Grad {
@@ -73,6 +78,7 @@ impl Grad {
         }
     }
     /// Cosine
+    #[inline]
     pub fn cos(self) -> Self {
         let s = -self.v.sin();
         Grad {
@@ -83,6 +89,7 @@ impl Grad {
         }
     }
     /// Tangent
+    #[inline]
     pub fn tan(self) -> Self {
         let c = self.v.cos().powi(2);
         Grad {
@@ -93,6 +100,7 @@ impl Grad {
         }
     }
     /// Arcsin
+    #[inline]
     pub fn asin(self) -> Self {
         let r = (1.0 - self.v.powi(2)).sqrt();
         Grad {
@@ -103,6 +111,7 @@ impl Grad {
         }
     }
     /// Arccos
+    #[inline]
     pub fn acos(self) -> Self {
         let r = (1.0 - self.v.powi(2)).sqrt();
         Grad {
@@ -113,6 +122,7 @@ impl Grad {
         }
     }
     /// Arctangent
+    #[inline]
     pub fn atan(self) -> Self {
         let r = self.v.powi(2) + 1.0;
         Grad {
@@ -123,6 +133,7 @@ impl Grad {
         }
     }
     /// Exponential function
+    #[inline]
     pub fn exp(self) -> Self {
         let v = self.v.exp();
         Grad {
@@ -133,6 +144,7 @@ impl Grad {
         }
     }
     /// Natural log
+    #[inline]
     pub fn ln(self) -> Self {
         Grad {
             v: self.v.ln(),
@@ -143,6 +155,7 @@ impl Grad {
     }
 
     /// Reciprocal
+    #[inline]
     pub fn recip(self) -> Self {
         let v2 = -self.v.powi(2);
         Grad {
@@ -154,6 +167,7 @@ impl Grad {
     }
 
     /// Minimum of two values
+    #[inline]
     pub fn min(self, rhs: Self) -> Self {
         if self.v < rhs.v {
             self
@@ -163,6 +177,7 @@ impl Grad {
     }
 
     /// Maximum of two values
+    #[inline]
     pub fn max(self, rhs: Self) -> Self {
         if self.v > rhs.v {
             self
@@ -172,6 +187,7 @@ impl Grad {
     }
 
     /// Least non-negative remainder
+    #[inline]
     pub fn rem_euclid(&self, rhs: Grad) -> Self {
         let e = self.v.div_euclid(rhs.v);
         Grad {
@@ -183,6 +199,7 @@ impl Grad {
     }
 
     /// Snap to the largest less-than-or-equal value
+    #[inline]
     pub fn floor(&self) -> Self {
         Grad {
             v: self.v.floor(),
@@ -193,6 +210,7 @@ impl Grad {
     }
 
     /// Snap to the smallest greater-than-or-equal value
+    #[inline]
     pub fn ceil(&self) -> Self {
         Grad {
             v: self.v.ceil(),
@@ -203,6 +221,7 @@ impl Grad {
     }
 
     /// Rounds to the nearest integer
+    #[inline]
     pub fn round(&self) -> Self {
         Grad {
             v: self.v.round(),
@@ -213,6 +232,7 @@ impl Grad {
     }
 
     /// Four-quadrant arctangent
+    #[inline]
     pub fn atan2(self, x: Self) -> Self {
         let y = self;
 
@@ -240,6 +260,7 @@ impl Grad {
 }
 
 impl From<f32> for Grad {
+    #[inline]
     fn from(v: f32) -> Self {
         Grad {
             v,
@@ -251,6 +272,7 @@ impl From<f32> for Grad {
 }
 
 impl From<Grad> for nalgebra::Vector4<f32> {
+    #[inline]
     fn from(g: Grad) -> Self {
         nalgebra::Vector4::new(g.dx, g.dy, g.dz, g.v)
     }
@@ -258,6 +280,8 @@ impl From<Grad> for nalgebra::Vector4<f32> {
 
 impl std::ops::Add<Grad> for Grad {
     type Output = Self;
+
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Grad {
             v: self.v + rhs.v,
@@ -270,6 +294,8 @@ impl std::ops::Add<Grad> for Grad {
 
 impl std::ops::Mul<Grad> for Grad {
     type Output = Self;
+
+    #[inline]
     fn mul(self, rhs: Self) -> Self {
         Self {
             v: self.v * rhs.v,
@@ -282,6 +308,8 @@ impl std::ops::Mul<Grad> for Grad {
 
 impl std::ops::Mul<f32> for Grad {
     type Output = Self;
+
+    #[inline]
     fn mul(self, rhs: f32) -> Self {
         Self {
             v: self.v * rhs,
@@ -294,6 +322,8 @@ impl std::ops::Mul<f32> for Grad {
 
 impl std::ops::Div<Grad> for Grad {
     type Output = Self;
+
+    #[inline]
     fn div(self, rhs: Self) -> Self {
         let d = rhs.v.powi(2);
         Self {
@@ -307,6 +337,8 @@ impl std::ops::Div<Grad> for Grad {
 
 impl std::ops::Sub<Grad> for Grad {
     type Output = Self;
+
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Self {
             v: self.v - rhs.v,
@@ -319,6 +351,8 @@ impl std::ops::Sub<Grad> for Grad {
 
 impl std::ops::Neg for Grad {
     type Output = Self;
+
+    #[inline]
     fn neg(self) -> Self {
         Self {
             v: -self.v,
