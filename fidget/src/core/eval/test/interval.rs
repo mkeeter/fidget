@@ -4,8 +4,8 @@
 //! for interval evaluators; otherwise, the module has no public exports.
 
 use super::{
-    bind_xy, bind_xyz, build_stress_fn, test_args, test_args_n,
-    CanonicalBinaryOp, CanonicalUnaryOp,
+    CanonicalBinaryOp, CanonicalUnaryOp, bind_xy, bind_xyz, build_stress_fn,
+    test_args, test_args_n,
 };
 use crate::{
     context::Context,

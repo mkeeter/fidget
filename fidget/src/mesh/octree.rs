@@ -1,13 +1,13 @@
 //! An octree data structure and implementation of Manifold Dual Contouring
 
 use super::{
+    Mesh, Settings,
     builder::MeshBuilder,
     cell::{Cell, CellIndex, CellVertex, Leaf},
+    codegen::CELL_TO_VERT_TO_EDGES,
     frame::Frame,
-    gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
     types::{Axis, CellMask, Corner, Edge},
-    Mesh, Settings,
 };
 use crate::{
     eval::Function,
@@ -610,7 +610,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         let mask = out
             .iter()
             .enumerate()
-            .filter(|(_i, &v)| v < 0.0)
+            .filter(|(_i, v)| **v < 0.0)
             .fold(0, |acc, (i, _v)| acc | (1 << i));
 
         // Early exit if the cell is completely empty or full

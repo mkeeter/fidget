@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use eframe::{
     egui,
     egui_wgpu::{self, wgpu},

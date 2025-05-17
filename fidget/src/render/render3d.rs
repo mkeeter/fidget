@@ -3,8 +3,8 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::{
-        config::{Tile, VoxelRenderConfig},
         GeometryBuffer, RenderWorker, TileSizes, VoxelSize,
+        config::{Tile, VoxelRenderConfig},
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
@@ -376,12 +376,12 @@ pub fn render<F: Function>(
 mod test {
     use super::*;
     use crate::{
+        Context,
         context::Tree,
         eval::MathFunction,
         render::{View3, VoxelSize},
         var::Var,
         vm::VmShape,
-        Context,
     };
 
     /// Make sure we don't crash if there's only a single tile

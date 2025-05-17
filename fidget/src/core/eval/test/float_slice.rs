@@ -4,14 +4,14 @@
 //! for such evaluators; otherwise, the module has no public exports.
 
 use super::{
-    bind_xyz, build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp,
+    CanonicalBinaryOp, CanonicalUnaryOp, bind_xyz, build_stress_fn, test_args,
 };
 use crate::{
+    Error,
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
     shape::{EzShape, Shape, ShapeVars},
     var::Var,
-    Error,
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -122,13 +122,15 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         let mut eval = Shape::<F>::new_float_slice_eval();
         let tape = s.ez_float_slice_tape();
-        assert!(eval
-            .eval(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0])
-            .is_err());
+        assert!(
+            eval.eval(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0])
+                .is_err()
+        );
         let mut h: ShapeVars<&[f32]> = ShapeVars::new();
-        assert!(eval
-            .eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
-            .is_err());
+        assert!(
+            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
+                .is_err()
+        );
         let index = v.index().unwrap();
         h.insert(index, &[4.0, 5.0]);
         assert_eq!(

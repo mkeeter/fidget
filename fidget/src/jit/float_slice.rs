@@ -1,4 +1,4 @@
-use crate::jit::{arch::float_slice::SIMD_WIDTH, AssemblerData, SimdSize};
+use crate::jit::{AssemblerData, SimdSize, arch::float_slice::SIMD_WIDTH};
 
 pub struct FloatSliceAssembler(pub(crate) AssemblerData<[f32; SIMD_WIDTH]>);
 

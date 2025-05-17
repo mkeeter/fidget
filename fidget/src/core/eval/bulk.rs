@@ -6,7 +6,7 @@
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.
 
-use crate::{eval::Tape, Error};
+use crate::{Error, eval::Tape};
 
 /// Trait for bulk evaluation returning the given type `T`
 ///

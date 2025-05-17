@@ -1,5 +1,6 @@
 //! Simple virtual machine for shape evaluation
 use crate::{
+    Context, Error,
     compiler::RegOp,
     context::Node,
     eval::{
@@ -10,7 +11,6 @@ use crate::{
     shape::Shape,
     types::{Grad, Interval},
     var::VarMap,
-    Context, Error,
 };
 use std::sync::Arc;
 

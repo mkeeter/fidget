@@ -1,9 +1,9 @@
 //! Mesh builder data structure and implementation
 use super::{
+    Mesh, Octree,
     cell::{CellIndex, CellVertex},
     dc,
     frame::Frame,
-    Mesh, Octree,
 };
 
 /// Container used during construction of a [`Mesh`]

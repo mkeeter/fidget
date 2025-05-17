@@ -5,8 +5,8 @@
 //! it is wrapped in a [`Op::Input`](crate::context::Op::Input)) to evaluation
 //! (where [`Tape::vars`](crate::eval::Tape::vars) maps from `Var` to index in
 //! the argument list).
-use crate::context::{Context, IntoNode, Node};
 use crate::Error;
+use crate::context::{Context, IntoNode, Node};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -71,11 +71,7 @@ impl Var {
 
     /// Returns the [`VarIndex`] from a [`Var::V`] instance, or `None`
     pub fn index(&self) -> Option<VarIndex> {
-        if let Var::V(i) = *self {
-            Some(i)
-        } else {
-            None
-        }
+        if let Var::V(i) = *self { Some(i) } else { None }
     }
 }
 

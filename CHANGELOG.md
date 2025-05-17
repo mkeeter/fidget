@@ -1,6 +1,12 @@
-# 0.3.7 (unreleased)
+# 0.3.7
+- Small release to fix an issue with 0.3.6 being published with invalid local
+  changes (I thought `cargo` prevented this, dunno how it happened)
 - Mark functions on `Interval` and `Grad` as `#[inline]`, to improve performance
   when those types are used outside of the Fidget crate itself.
+- Make `fidget::rhai` submodules visible (`vec`, `shape`, `tree`) for
+  finer-grained usage outside of Fidget.
+- Update to Rust 2024 edition, set minimum `rustc` version to 1.87
+- Update dependencies; remove some that have become unused
 
 # 0.3.6
 - Change `Option<ThreadPool<'a>>` to `Option<&'a ThreadPool>` throughout the

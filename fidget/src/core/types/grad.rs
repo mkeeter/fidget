@@ -169,21 +169,13 @@ impl Grad {
     /// Minimum of two values
     #[inline]
     pub fn min(self, rhs: Self) -> Self {
-        if self.v < rhs.v {
-            self
-        } else {
-            rhs
-        }
+        if self.v < rhs.v { self } else { rhs }
     }
 
     /// Maximum of two values
     #[inline]
     pub fn max(self, rhs: Self) -> Self {
-        if self.v > rhs.v {
-            self
-        } else {
-            rhs
-        }
+        if self.v > rhs.v { self } else { rhs }
     }
 
     /// Least non-negative remainder

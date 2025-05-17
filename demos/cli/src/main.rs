@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;

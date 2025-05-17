@@ -1,9 +1,9 @@
 //! Solver for systems of equations expressed as sets of [Function] objects
 use crate::{
+    Error,
     eval::{BulkEvaluator, Function, Tape, TracingEvaluator},
     types::Grad,
     var::Var,
-    Error,
 };
 use std::collections::HashMap;
 

@@ -3,8 +3,8 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::{
-        config::{ImageRenderConfig, Tile},
         Image, RenderWorker, TileSizes,
+        config::{ImageRenderConfig, Tile},
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
@@ -438,12 +438,12 @@ pub fn render<F: Function, M: RenderMode + Sync>(
 mod test {
     use super::*;
     use crate::{
+        Context,
         eval::{Function, MathFunction},
         render::{ImageSize, View2},
         shape::Shape,
         var::Var,
         vm::{GenericVmFunction, VmFunction},
-        Context,
     };
 
     const HI: &str =

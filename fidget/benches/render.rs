@@ -1,5 +1,5 @@
 use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
+    BenchmarkId, Criterion, black_box, criterion_group, criterion_main,
 };
 use fidget::render::{ImageSize, RenderHints, ThreadPool};
 

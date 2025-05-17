@@ -1,12 +1,12 @@
 use crate::{
-    jit::{
-        mmap::Mmap, point::PointAssembler, reg, Assembler, AssemblerData,
-        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
-        REGISTER_LIMIT,
-    },
     Error,
+    jit::{
+        Assembler, AssemblerData, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT,
+        IMM_REG, OFFSET, REGISTER_LIMIT, mmap::Mmap, point::PointAssembler,
+        reg,
+    },
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{DynasmApi, DynasmLabelApi, dynasm};
 
 /// Implementation of the single-point assembler on `x86_64`
 ///

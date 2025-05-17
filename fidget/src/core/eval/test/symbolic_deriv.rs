@@ -1,4 +1,4 @@
-use super::{test_args, CanonicalBinaryOp, CanonicalUnaryOp};
+use super::{CanonicalBinaryOp, CanonicalUnaryOp, test_args};
 use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction},

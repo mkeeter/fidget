@@ -1,3 +1,4 @@
+//! Rhai bindings for the Fidget [`Tree`] type
 use crate::{context::Tree, rhai::FromDynamic};
 use rhai::{EvalAltResult, NativeCallContext};
 
@@ -41,7 +42,8 @@ impl FromDynamic for Vec<Tree> {
     }
 }
 
-pub(super) fn register(engine: &mut rhai::Engine) {
+/// Installs the [`Tree`] type into a Rhai engine, with various overloads
+pub fn register(engine: &mut rhai::Engine) {
     engine
         .register_type::<Tree>()
         .register_fn("remap_xyz", remap_xyz);

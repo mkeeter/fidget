@@ -9,19 +9,19 @@ use rhai::{EvalAltResult, NativeCallContext};
 use strum::IntoDiscriminant;
 
 /// Register all shapes with the Rhai engine
-pub(crate) fn register(engine: &mut rhai::Engine) {
+pub fn register(engine: &mut rhai::Engine) {
     use crate::shapes::*;
 
-    register_one::<Circle>(engine);
-    register_one::<Sphere>(engine);
+    register_shape::<Circle>(engine);
+    register_shape::<Sphere>(engine);
 
-    register_one::<Move>(engine);
-    register_one::<Scale>(engine);
+    register_shape::<Move>(engine);
+    register_shape::<Scale>(engine);
 
-    register_one::<Union>(engine);
-    register_one::<Intersection>(engine);
-    register_one::<Difference>(engine);
-    register_one::<Inverse>(engine);
+    register_shape::<Union>(engine);
+    register_shape::<Intersection>(engine);
+    register_shape::<Difference>(engine);
+    register_shape::<Inverse>(engine);
 }
 
 /// Type used for Rust-Rhai interop
@@ -124,8 +124,10 @@ impl Type {
     }
 }
 
-/// Register a type into a Rhai runtime
-fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
+/// Register a shape-building type into a Rhai runtime
+pub fn register_shape<
+    T: Facet<'static> + Clone + Send + Sync + Into<Tree> + 'static,
+>(
     engine: &mut rhai::Engine,
 ) {
     let s = validate_type::<T>(); // panic if the type is invalid
@@ -196,9 +198,9 @@ fn register_one<T: Facet + Clone + Send + Sync + Into<Tree> + 'static>(
 }
 
 /// Checks whether `T`'s fields are all [`Type`]-compatible.
-fn validate_type<T: Facet>() -> facet::Struct {
+fn validate_type<T: Facet<'static>>() -> facet::StructType {
     // TODO could we make this `const`?
-    let facet::Def::Struct(s) = T::SHAPE.def else {
+    let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty else {
         panic!("must be a struct-shaped type");
     };
     for f in s.fields {
@@ -214,15 +216,15 @@ fn validate_type<T: Facet>() -> facet::Struct {
 /// # Panics
 /// `T` must be a `struct` with exactly one `Tree` field; the other fields must
 /// be [`Type`]-compatible.
-fn build_transform<T: Facet + Into<Tree>>(
+fn build_transform<T: Facet<'static> + Into<Tree>>(
     ctx: NativeCallContext,
     t: rhai::Dynamic,
     m: rhai::Map,
 ) -> Result<Tree, Box<EvalAltResult>> {
     let mut t = Some(Tree::from_dynamic(&ctx, t)?);
 
-    let mut builder = facet::Wip::alloc::<T>();
-    let facet::Def::Struct(shape) = T::SHAPE.def else {
+    let mut builder = facet::Wip::alloc::<T>().unwrap();
+    let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
 
@@ -265,12 +267,12 @@ fn build_transform<T: Facet + Into<Tree>>(
 /// # Panics
 /// `T` must be a `struct` with two fields; one must be a `Tree`, and the other
 /// must be [`Type`]-compatible.
-fn build_transform_one<T: Facet + Into<Tree>>(
+fn build_transform_one<T: Facet<'static> + Into<Tree>>(
     ctx: NativeCallContext,
     t: rhai::Dynamic,
     arg: rhai::Dynamic,
 ) -> Result<Tree, Box<EvalAltResult>> {
-    let facet::Def::Struct(shape) = T::SHAPE.def else {
+    let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
     assert_eq!(shape.fields.len(), 2);
@@ -278,7 +280,7 @@ fn build_transform_one<T: Facet + Into<Tree>>(
     let mut t = Some(Tree::from_dynamic(&ctx, t)?);
     let mut arg = Some(arg);
 
-    let mut builder = facet::Wip::alloc::<T>();
+    let mut builder = facet::Wip::alloc::<T>().unwrap();
 
     for (i, f) in shape.fields.iter().enumerate() {
         let tag = TypeTag::try_from(f.shape().id).unwrap();
@@ -299,24 +301,26 @@ fn build_transform_one<T: Facet + Into<Tree>>(
 ///
 /// # Panics
 /// `T` must be a `struct` with two fields, which both must be `Tree`s
-fn build_binary<T: Facet + Into<Tree>>(
+fn build_binary<T: Facet<'static> + Into<Tree>>(
     ctx: NativeCallContext,
     a: rhai::Dynamic,
     b: rhai::Dynamic,
 ) -> Result<Tree, Box<EvalAltResult>> {
-    let facet::Def::Struct(shape) = T::SHAPE.def else {
+    let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
     assert_eq!(shape.fields.len(), 2);
-    assert!(shape
-        .fields
-        .iter()
-        .all(|f| f.shape().id == ConstTypeId::of::<Tree>()));
+    assert!(
+        shape
+            .fields
+            .iter()
+            .all(|f| f.shape().id == ConstTypeId::of::<Tree>())
+    );
 
     let a = Tree::from_dynamic(&ctx, a)?;
     let b = Tree::from_dynamic(&ctx, b)?;
 
-    let mut builder = facet::Wip::alloc::<T>();
+    let mut builder = facet::Wip::alloc::<T>().unwrap();
 
     builder = builder.field(0).unwrap().put(a).unwrap().pop().unwrap();
     builder = builder.field(1).unwrap().put(b).unwrap().pop().unwrap();
@@ -329,12 +333,12 @@ fn build_binary<T: Facet + Into<Tree>>(
 ///
 /// # Panics
 /// `T` must be a `struct` with fields that are [`Type`]-compatible
-fn build_from_map<T: Facet + Into<Tree>>(
+fn build_from_map<T: Facet<'static> + Into<Tree>>(
     ctx: NativeCallContext,
     m: rhai::Map,
 ) -> Result<Tree, Box<EvalAltResult>> {
-    let mut builder = facet::Wip::alloc::<T>();
-    let facet::Def::Struct(shape) = T::SHAPE.def else {
+    let mut builder = facet::Wip::alloc::<T>().unwrap();
+    let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
     for (i, f) in shape.fields.iter().enumerate() {
@@ -373,17 +377,18 @@ macro_rules! reducer {
         /// # Panics
         /// `T` must be a `struct` with a single `Vec<Tree>` field
         #[allow(clippy::too_many_arguments)]
-        fn $name<T: Facet + Into<Tree>>(
+        fn $name<T: Facet<'static> + Into<Tree>>(
             ctx: NativeCallContext,
             $($v: rhai::Dynamic),*
         ) -> Result<Tree, Box<EvalAltResult>> {
-            let facet::Def::Struct(shape) = T::SHAPE.def else {
+            let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty
+            else {
                 panic!("must build a struct");
             };
             assert_eq!(shape.fields[0].shape().id, ConstTypeId::of::<Vec<Tree>>());
             assert_eq!(shape.fields.len(), 1);
 
-            let mut builder = facet::Wip::alloc::<T>();
+            let mut builder = facet::Wip::alloc::<T>().unwrap();
             let v = vec![$(
                 Tree::from_dynamic(&ctx, $v)?
             ),*];
@@ -410,11 +415,12 @@ macro_rules! unique {
         /// # Panics
         /// `T` must be a `struct` with [`Type`]-compatible fields
         #[allow(clippy::too_many_arguments)]
-        fn $name<T: Facet + Into<Tree>>(
+        fn $name<T: Facet<'static> + Into<Tree>>(
             ctx: NativeCallContext,
             $($v: rhai::Dynamic),*
         ) -> Result<Tree, Box<EvalAltResult>> {
-            let facet::Def::Struct(shape) = T::SHAPE.def else {
+            let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty
+            else {
                 panic!("must build a struct");
             };
 
@@ -426,7 +432,7 @@ macro_rules! unique {
                 vs[tag] = Some($v);
             )*
 
-            let mut builder = facet::Wip::alloc::<T>();
+            let mut builder = facet::Wip::alloc::<T>().unwrap();
             for (i, f) in shape.fields.iter().enumerate() {
                 let t = TypeTag::try_from(f.shape().id).unwrap();
                 let Some(v) = vs[t].take() else {
@@ -465,23 +471,27 @@ mod test {
     #[test]
     fn circle_builder() {
         let mut e = rhai::Engine::new();
-        register_one::<Circle>(&mut e);
+        register_shape::<Circle>(&mut e);
         e.build_type::<Vec2>();
-        assert!(e
-            .eval::<Tree>("circle(#{ center: vec2(1, 2), radius: 3 })")
-            .is_ok());
+        assert!(
+            e.eval::<Tree>("circle(#{ center: vec2(1, 2), radius: 3 })")
+                .is_ok()
+        );
 
-        assert!(e
-            .eval::<Tree>("circle(#{ center: 3.0, radius: 3 })")
-            .is_err());
-        assert!(e
-            .eval::<Tree>(
+        assert!(
+            e.eval::<Tree>("circle(#{ center: 3.0, radius: 3 })")
+                .is_err()
+        );
+        assert!(
+            e.eval::<Tree>(
                 "circle(#{ center: vec2(\"omg\", \"wtf\"), radius: 3 })"
             )
-            .is_err());
+            .is_err()
+        );
         assert!(e.eval::<Tree>("circle(#{ radius: 4 })").is_err());
-        assert!(e
-            .eval::<Tree>("circle(#{ radius: 4, xy: vec2(1, 2) })")
-            .is_err());
+        assert!(
+            e.eval::<Tree>("circle(#{ radius: 4, xy: vec2(1, 2) })")
+                .is_err()
+        );
     }
 }

@@ -30,6 +30,6 @@ impl Drop for WritePermit {
 
 #[cfg(target_os = "macos")]
 #[link(name = "pthread")]
-extern "C" {
+unsafe extern "C" {
     pub fn pthread_jit_write_protect_np(enabled: std::ffi::c_int);
 }

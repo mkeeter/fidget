@@ -1,7 +1,7 @@
 use nalgebra::{
-    allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSum,
-    Matrix3, Matrix4, OMatrix, OPoint, OVector, Point2, Point3, Vector2,
-    Vector3, U1,
+    Const, DefaultAllocator, DimNameAdd, DimNameSum, Matrix3, Matrix4, OMatrix,
+    OPoint, OVector, Point2, Point3, U1, Vector2, Vector3,
+    allocator::Allocator,
 };
 use serde::{Deserialize, Serialize};
 

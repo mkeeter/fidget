@@ -1,5 +1,5 @@
 use crate::{
-    context::{indexed::Index, Node},
+    context::{Node, indexed::Index},
     var::Var,
 };
 use ordered_float::OrderedFloat;

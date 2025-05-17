@@ -65,9 +65,9 @@ pub mod vm;
 
 #[cfg(test)]
 mod test {
+    use crate::Error;
     use crate::context::*;
     use crate::var::Var;
-    use crate::Error;
 
     #[test]
     fn it_works() {

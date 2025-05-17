@@ -3,8 +3,8 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for point evaluators; otherwise, the module has no public exports.
 use super::{
-    bind_xy, bind_xyz, build_stress_fn, test_args, CanonicalBinaryOp,
-    CanonicalUnaryOp,
+    CanonicalBinaryOp, CanonicalUnaryOp, bind_xy, bind_xyz, build_stress_fn,
+    test_args,
 };
 use crate::{
     context::Context,

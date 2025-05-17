@@ -54,13 +54,13 @@
 //! members.
 use std::sync::{Arc, Mutex};
 
-use crate::{context::Tree, Error};
+use crate::{Error, context::Tree};
 use rhai::{CustomType, EvalAltResult, NativeCallContext, TypeBuilder};
 
 pub mod docs;
-mod shapes;
-mod tree;
-mod vec;
+pub mod shapes;
+pub mod tree;
+pub mod vec;
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -282,8 +282,8 @@ impl FromDynamic for f64 {
 mod test {
     use super::*;
     use crate::{
-        context::{BinaryOpcode, Op},
         Context,
+        context::{BinaryOpcode, Op},
     };
 
     #[test]
