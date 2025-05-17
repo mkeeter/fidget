@@ -27,11 +27,11 @@
 //! ```
 
 use crate::{
+    Error,
     context::{Context, Node, Tree},
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     types::{Grad, Interval},
     var::{Var, VarIndex, VarMap},
-    Error,
 };
 use nalgebra::{Matrix4, Point3};
 use std::collections::HashMap;

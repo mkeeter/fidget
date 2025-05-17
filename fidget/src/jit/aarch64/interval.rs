@@ -1,13 +1,13 @@
 use crate::{
+    Error,
     jit::{
-        interval::IntervalAssembler, mmap::Mmap, reg, Assembler, AssemblerData,
-        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
-        REGISTER_LIMIT,
+        Assembler, AssemblerData, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT,
+        IMM_REG, OFFSET, REGISTER_LIMIT, interval::IntervalAssembler,
+        mmap::Mmap, reg,
     },
     types::Interval,
-    Error,
 };
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{DynasmApi, dynasm};
 
 /// Implementation for the interval assembler on `aarch64`
 ///

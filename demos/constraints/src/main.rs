@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{emath, pos2, Color32, Pos2, Rect, Sense, Shape, Vec2};
+use egui::{Color32, Pos2, Rect, Sense, Shape, Vec2, emath, pos2};
 use fidget::{context::Tree, eval::MathFunction};
 use log::{info, trace};
 use std::collections::HashMap;

@@ -1,3 +1,4 @@
+//! Rhai bindings for Fidget's 2D and 3D vector types
 use crate::{
     rhai::FromDynamic,
     shapes::{Vec2, Vec3, Vec4},
@@ -55,12 +56,12 @@ macro_rules! register_unary {
     };
 }
 
-pub(crate) fn register(engine: &mut rhai::Engine) {
+/// Installs the `Vec2` and `Vec3` types into a Rhai engine
+pub fn register(engine: &mut rhai::Engine) {
     engine.build_type::<Vec2>();
     engine.build_type::<Vec3>();
     register_all!(engine, Vec2);
     register_all!(engine, Vec3);
-    register_all!(engine, Vec4);
 }
 
 impl CustomType for Vec2 {

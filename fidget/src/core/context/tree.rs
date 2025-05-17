@@ -1,6 +1,6 @@
 //! Context-free math trees
 use super::op::{BinaryOpcode, UnaryOpcode};
-use crate::{var::Var, Error};
+use crate::{Error, var::Var};
 use std::{cmp::Ordering, sync::Arc};
 
 /// Opcode type for trees
@@ -704,6 +704,7 @@ mod test {
         }
 
         let builder = facet::Wip::alloc::<Transform>()
+            .unwrap()
             .field_named("tree")
             .unwrap()
             .put(Tree::x() + 2.0 * Tree::y())

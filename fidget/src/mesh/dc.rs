@@ -1,11 +1,11 @@
 //! Dual contouring implementation
 
 use crate::mesh::{
+    Octree,
     builder::MeshBuilder,
     cell::{Cell, CellIndex},
     frame::{Frame, XYZ, YZX, ZXY},
     types::{Corner, Edge, X, Y, Z},
-    Octree,
 };
 
 pub fn dc_cell(octree: &Octree, cell: CellIndex<3>, out: &mut MeshBuilder) {

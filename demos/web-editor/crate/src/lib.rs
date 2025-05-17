@@ -276,7 +276,8 @@ impl JsCancelToken {
 
     #[wasm_bindgen]
     pub unsafe fn from_ptr(ptr: *const std::sync::atomic::AtomicBool) -> Self {
-        Self(CancelToken::from_raw(ptr))
+        let token = unsafe { CancelToken::from_raw(ptr) };
+        Self(token)
     }
 }
 

@@ -1,8 +1,8 @@
 use crate::jit::{
-    float_slice::FloatSliceAssembler, mmap::Mmap, reg, Assembler,
-    AssemblerData, Error, IMM_REG, OFFSET, REGISTER_LIMIT,
+    Assembler, AssemblerData, Error, IMM_REG, OFFSET, REGISTER_LIMIT,
+    float_slice::FloatSliceAssembler, mmap::Mmap, reg,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{DynasmApi, DynasmLabelApi, dynasm};
 
 pub const SIMD_WIDTH: usize = 4;
 

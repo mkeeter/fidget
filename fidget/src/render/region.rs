@@ -1,6 +1,6 @@
 use nalgebra::{
-    allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
-    DimNameSum, OMatrix, OVector, Point2, Point3, Vector2, Vector3, U1,
+    Const, DefaultAllocator, DimNameAdd, DimNameSub, DimNameSum, OMatrix,
+    OVector, Point2, Point3, U1, Vector2, Vector3, allocator::Allocator,
 };
 
 /// Image size in pixels, used to generate a screen-to-world matrix

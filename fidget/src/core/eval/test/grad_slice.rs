@@ -2,7 +2,7 @@
 //!
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
-use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
+use super::{CanonicalBinaryOp, CanonicalUnaryOp, build_stress_fn, test_args};
 use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},

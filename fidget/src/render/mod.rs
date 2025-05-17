@@ -3,9 +3,9 @@
 //! To render something, build a configuration object then call its `run`
 //! function, e.g. [`ImageRenderConfig::run`] and [`VoxelRenderConfig::run`].
 use crate::{
+    Error,
     eval::{BulkEvaluator, Function, Trace, TracingEvaluator},
     shape::{Shape, ShapeTape, ShapeVars},
-    Error,
 };
 use nalgebra::Point2;
 use rayon::prelude::*;
@@ -322,7 +322,7 @@ where
         (worker, rh)
     };
 
-    let out = match config.threads() {
+    match config.threads() {
         None => {
             let mut worker = W::new(config);
             tiles
@@ -353,9 +353,7 @@ where
                 .collect::<Result<Vec<_>, ()>>()
                 .ok()
         }),
-    };
-
-    out
+    }
 }
 
 /// Helper trait for tiled rendering configuration

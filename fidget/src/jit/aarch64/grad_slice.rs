@@ -1,12 +1,12 @@
 use crate::{
+    Error,
     jit::{
-        grad_slice::GradSliceAssembler, mmap::Mmap, reg, Assembler,
-        AssemblerData, IMM_REG, OFFSET, REGISTER_LIMIT,
+        Assembler, AssemblerData, IMM_REG, OFFSET, REGISTER_LIMIT,
+        grad_slice::GradSliceAssembler, mmap::Mmap, reg,
     },
     types::Grad,
-    Error,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{DynasmApi, DynasmLabelApi, dynasm};
 
 /// Implementation for the gradient slice assembler on `aarch64`
 ///

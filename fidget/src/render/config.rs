@@ -8,8 +8,8 @@ use crate::{
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 /// Thread pool to use for multithreaded rendering
@@ -82,7 +82,8 @@ impl CancelToken {
     /// [`CancelToken::into_raw`].
     #[doc(hidden)]
     pub unsafe fn from_raw(ptr: *const AtomicBool) -> Self {
-        Self(Arc::from_raw(ptr))
+        let a = unsafe { Arc::from_raw(ptr) };
+        Self(a)
     }
 }
 

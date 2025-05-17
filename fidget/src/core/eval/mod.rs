@@ -1,9 +1,9 @@
 //! Traits and data structures for function evaluation
 use crate::{
+    Error,
     context::{Context, Node},
     types::{Grad, Interval},
     var::VarMap,
-    Error,
 };
 
 #[cfg(any(test, feature = "eval-tests"))]

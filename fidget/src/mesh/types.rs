@@ -66,11 +66,7 @@ impl Axis<3> {
     /// Cycles through X-Y-Z axes, returning the next one
     pub const fn next(self) -> Self {
         let u = self.0 << 1;
-        if u > Z.0 {
-            X
-        } else {
-            Axis(u)
-        }
+        if u > Z.0 { X } else { Axis(u) }
     }
 }
 
@@ -84,11 +80,7 @@ pub const Z: Axis<3> = Axis(4);
 impl<const D: usize> std::ops::Mul<bool> for Axis<D> {
     type Output = Self;
     fn mul(self, rhs: bool) -> Self {
-        if rhs {
-            self
-        } else {
-            Axis(0)
-        }
+        if rhs { self } else { Axis(0) }
     }
 }
 

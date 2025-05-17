@@ -24,6 +24,7 @@
 //! ```
 
 use crate::{
+    Error,
     compiler::RegOp,
     context::{Context, Node},
     eval::{
@@ -35,12 +36,11 @@ use crate::{
     types::{Grad, Interval},
     var::VarMap,
     vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
-    Error,
 };
 
 use dynasmrt::{
-    components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
-    DynasmError, DynasmLabelApi, TargetKind,
+    AssemblyOffset, DynamicLabel, DynasmApi, DynasmError, DynasmLabelApi,
+    TargetKind, components::PatchLoc, dynasm,
 };
 use std::sync::Arc;
 

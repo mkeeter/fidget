@@ -19,11 +19,11 @@ mod indexed;
 mod op;
 mod tree;
 
-use indexed::{define_index, Index, IndexMap, IndexVec};
+use indexed::{Index, IndexMap, IndexVec, define_index};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 pub use tree::{Tree, TreeOp};
 
-use crate::{var::Var, Error};
+use crate::{Error, var::Var};
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
@@ -384,11 +384,7 @@ impl Context {
 
         let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
         if let Op::Const(v) = op_a {
-            if v.0 == 0.0 {
-                Ok(a)
-            } else {
-                Ok(b)
-            }
+            if v.0 == 0.0 { Ok(a) } else { Ok(b) }
         } else {
             self.op_binary(a, b, BinaryOpcode::And)
         }

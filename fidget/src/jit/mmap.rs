@@ -1,7 +1,7 @@
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{
-    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
-    PAGE_EXECUTE_READWRITE,
+    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, VirtualAlloc,
+    VirtualFree,
 };
 
 pub struct Mmap {
@@ -153,7 +153,7 @@ impl Mmap {
     /// evaluation, but that's on a per-thread (rather than per-mmap) basis.
     pub fn flush_cache(&self, size: usize) {
         #[link(name = "c")]
-        extern "C" {
+        unsafe extern "C" {
             pub fn sys_icache_invalidate(
                 start: *const std::ffi::c_void,
                 size: libc::size_t,

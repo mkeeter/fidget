@@ -2,7 +2,7 @@
 use crate::types::Interval;
 
 use super::{
-    gen::CELL_TO_EDGE_TO_VERT,
+    codegen::CELL_TO_EDGE_TO_VERT,
     types::{Axis, CellMask, Corner, Edge, Intersection},
 };
 

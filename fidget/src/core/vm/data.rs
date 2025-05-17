@@ -1,10 +1,10 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
+    Error,
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
     var::VarMap,
     vm::Choice,
-    Error,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
