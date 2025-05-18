@@ -506,15 +506,10 @@ impl ViewerApp {
     }
 
     fn paint_image(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let pos = ui.next_widget_position();
-        let size = ui.available_size();
-        let painter = ui.painter_at(egui::Rect {
-            min: pos,
-            max: pos + size,
-        });
+        let painter = ui.painter();
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
-        let rect = ui.ctx().available_rect();
+        let rect = painter.clip_rect();
 
         if let Some(Ok(image_data)) = &mut self.image_data {
             // Get current 3D render mode if applicable
@@ -618,7 +613,7 @@ impl eframe::App for ViewerApp {
         self.try_recv_image();
 
         let rect = ctx.available_rect();
-        let size = rect.max - rect.min;
+        let size = rect.size();
         let image_size = fidget::render::ImageSize::new(
             (size.x * ctx.pixels_per_point()) as u32,
             (size.y * ctx.pixels_per_point()) as u32,

@@ -1,5 +1,5 @@
 # 0.3.8 (unreleased)
-Nothing here yet!
+- Bug fix: `Image::height()` was returning width instead!
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

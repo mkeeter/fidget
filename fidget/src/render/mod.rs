@@ -511,7 +511,7 @@ impl<P, S: ImageSizeLike> Image<P, S> {
 
     /// Returns the image height
     pub fn height(&self) -> usize {
-        self.size.width() as usize
+        self.size.height() as usize
     }
 
     /// Checks a `(row, column)` position
