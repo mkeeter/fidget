@@ -48,7 +48,7 @@ use serde::{Deserialize, Serialize};
 /// See also
 /// [`RegionSize::screen_to_world`](crate::render::RegionSize::screen_to_world),
 /// which converts from screen to world coordinates.
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct View2 {
     center: Vector2<f32>,
     scale: f32,
@@ -134,7 +134,7 @@ impl View2 {
 }
 
 /// Object providing a view-to-model transform in 2D
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct View3 {
     center: Vector3<f32>,
     scale: f32,
