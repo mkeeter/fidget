@@ -1,5 +1,6 @@
 # 0.3.8 (unreleased)
 - Bug fix: `Image::height()` was returning width instead!
+- Add `#[derive(PartialEq)]` to `View2` and `View3`
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local
