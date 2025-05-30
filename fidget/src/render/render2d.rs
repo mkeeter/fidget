@@ -3,7 +3,7 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::{
-        Image, RenderWorker, TileSizes,
+        Image, RenderConfig, RenderWorker, TileSizesRef,
         config::{ImageRenderConfig, Tile},
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
@@ -205,7 +205,7 @@ impl Scratch {
 
 /// Per-thread worker
 struct Worker<'a, F: Function, M: RenderMode> {
-    tile_sizes: &'a TileSizes,
+    tile_sizes: TileSizesRef<'a>,
     scratch: Scratch,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
@@ -230,10 +230,11 @@ impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
     type Config = ImageRenderConfig<'a>;
     type Output = Image<M::Output>;
     fn new(cfg: &'a Self::Config) -> Self {
+        let tile_sizes = cfg.tile_sizes();
         Worker::<F, M> {
-            scratch: Scratch::new(cfg.tile_sizes.last().pow(2)),
+            scratch: Scratch::new(tile_sizes.last().pow(2)),
             image: Default::default(),
-            tile_sizes: &cfg.tile_sizes,
+            tile_sizes,
             eval_float_slice: Default::default(),
             eval_interval: Default::default(),
             tape_storage: vec![],
@@ -414,15 +415,16 @@ pub fn render<F: Function, M: RenderMode + Sync>(
     let shape = shape.apply_transform(mat);
 
     let tiles = super::render_tiles::<F, Worker<F, M>>(shape, vars, config)?;
+    let tile_sizes = config.tile_sizes();
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
     let mut image = Image::new(config.image_size);
     for (tile, data) in tiles.iter() {
         let mut index = 0;
-        for j in 0..config.tile_sizes[0] {
+        for j in 0..tile_sizes[0] {
             let y = j + tile.corner.y;
-            for i in 0..config.tile_sizes[0] {
+            for i in 0..tile_sizes[0] {
                 let x = i + tile.corner.x;
                 if y < height && x < width {
                     image[(y, x)] = data[index];

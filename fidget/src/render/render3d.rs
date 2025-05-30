@@ -3,7 +3,7 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::{
-        GeometryBuffer, RenderWorker, TileSizes, VoxelSize,
+        GeometryBuffer, RenderConfig, RenderWorker, TileSizesRef, VoxelSize,
         config::{Tile, VoxelRenderConfig},
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
@@ -49,7 +49,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, F: Function> {
-    tile_sizes: &'a TileSizes,
+    tile_sizes: TileSizesRef<'a>,
     image_size: VoxelSize,
 
     /// Reusable workspace for evaluation, to minimize allocation
@@ -72,12 +72,13 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     type Output = GeometryBuffer;
 
     fn new(cfg: &'a Self::Config) -> Self {
-        let buf_size = cfg.tile_sizes.last();
+        let tile_sizes = cfg.tile_sizes();
+        let buf_size = tile_sizes.last();
         let scratch = Scratch::new(buf_size);
         Worker {
             scratch,
             out: Default::default(),
-            tile_sizes: &cfg.tile_sizes,
+            tile_sizes,
             image_size: cfg.image_size,
 
             eval_float_slice: Default::default(),
@@ -349,15 +350,16 @@ pub fn render<F: Function>(
     let shape = shape.apply_transform(config.mat());
 
     let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config)?;
+    let tile_sizes = config.tile_sizes();
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
     let mut image = GeometryBuffer::new(config.image_size);
     for (tile, out) in tiles {
         let mut index = 0;
-        for j in 0..config.tile_sizes[0] {
+        for j in 0..tile_sizes[0] {
             let y = j + tile.corner.y;
-            for i in 0..config.tile_sizes[0] {
+            for i in 0..tile_sizes[0] {
                 let x = i + tile.corner.x;
                 if x < width && y < height {
                     let o = y * width + x;
@@ -413,6 +415,7 @@ mod test {
                 view: View3::from_center_and_scale(Vector3::zeros(), scale),
                 ..Default::default()
             };
+            let m = cfg.image_size.screen_to_world();
 
             for r in [0.5, 0.75] {
                 let mut vars = ShapeVars::new();
@@ -420,34 +423,35 @@ mod test {
                 let image =
                     cfg.run_with_vars::<_>(shape.clone(), &vars).unwrap();
 
-                let epsilon = 0.08;
+                // Handwavey calculation: ±1 split into `size` voxels, max error
+                // of two voxels (top to bottom), and dividing for `scale` for
+                // bonus corrections.
+                let epsilon = 2.0 / size as f32 / scale * 2.0;
                 for (i, p) in image.iter().enumerate() {
                     let p = p.depth;
                     let size = size as i32;
                     let i = i as i32;
-                    let x = (((i % size) - size / 2) as f32 / size as f32)
-                        * 2.0
-                        * scale;
-                    let y = (((i / size) - size / 2) as f32 / size as f32)
-                        * 2.0
-                        * scale;
-                    let z = (p as i32 - size / 2) as f32 / size as f32
-                        * 2.0
+                    let x = (i % size) as f32;
+                    let y = (i / size) as f32;
+                    let z = p as f32;
+                    let pos = m
+                        .transform_point(&nalgebra::Point3::new(x, y, z))
                         * scale;
                     if p == 0 {
-                        let v = (x.powi(2) + y.powi(2)).sqrt();
+                        let v = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
                         assert!(
                             v + epsilon > r,
                             "got z = 0 inside the sphere ({x}, {y}, {z}); \
-                         radius is {v}"
+                             radius is {v}"
                         );
                     } else {
-                        let v = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+                        let v = (pos.x.powi(2) + pos.y.powi(2) + pos.z.powi(2))
+                            .sqrt();
                         let err = (r - v).abs();
                         assert!(
                             err < epsilon,
-                            "too much error {err} at ({x}, {y}, {z}); \
-                         radius is {v}, expected {r}"
+                            "too much error {err} at ({x}, {y}, {z}) ({pos}) \
+                             (scale = {scale}); radius is {v}, expected {r}"
                         );
                     }
                 }

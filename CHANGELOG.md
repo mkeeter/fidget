@@ -1,6 +1,13 @@
 # 0.3.8 (unreleased)
 - Bug fix: `Image::height()` was returning width instead!
 - Add `#[derive(PartialEq)]` to `View2` and `View3`
+- Improve rendering at small images sizes
+    - Previously, we rendered at least one tile of size `cfg.tile_sizes[0]`
+    - Now, we pick the smallest possible tile size for the root tiles; if we're
+      rendering a 32×32 image with tile sizes of `[128, 32, 8]`, then we'll
+      render a single 32×32 tile (instead of 128×128)
+    - As part of this change, a few functions were removed from the `TileSizes`
+      public API; they're now attached to an internal `struct TileSizesRef`.
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

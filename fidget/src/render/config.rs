@@ -2,7 +2,7 @@ use crate::{
     eval::Function,
     render::{
         GeometryBuffer, Image, ImageSize, RenderConfig, RenderMode, TileSizes,
-        View2, View3, VoxelSize,
+        TileSizesRef, View2, View3, VoxelSize,
     },
     shape::{Shape, ShapeVars},
 };
@@ -134,8 +134,9 @@ impl RenderConfig for ImageRenderConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
     }
-    fn tile_sizes(&self) -> &TileSizes {
-        &self.tile_sizes
+    fn tile_sizes(&self) -> TileSizesRef {
+        let max_size = self.width().max(self.height()) as usize;
+        TileSizesRef::new(&self.tile_sizes, max_size)
     }
     fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
@@ -218,8 +219,9 @@ impl RenderConfig for VoxelRenderConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
     }
-    fn tile_sizes(&self) -> &TileSizes {
-        &self.tile_sizes
+    fn tile_sizes(&self) -> TileSizesRef {
+        let max_size = self.width().max(self.height()) as usize;
+        TileSizesRef::new(&self.tile_sizes, max_size)
     }
     fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
