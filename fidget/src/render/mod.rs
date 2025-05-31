@@ -204,14 +204,6 @@ impl<F: Function> RenderHandle<F> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TileSizes(Vec<usize>);
 
-impl std::ops::Index<usize> for TileSizes {
-    type Output = usize;
-
-    fn index(&self, i: usize) -> &Self::Output {
-        &self.0[i]
-    }
-}
-
 impl TileSizes {
     /// Builds a new tile size list, checking invariants
     pub fn new(sizes: &[usize]) -> Result<Self, Error> {
@@ -227,6 +219,7 @@ impl TileSizes {
         }
         Ok(Self(sizes.to_vec()))
     }
+
     /// Returns the length of the tile list
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
@@ -236,6 +229,41 @@ impl TileSizes {
     /// Returns an iterator over tile sizes (largest to smallest)
     pub fn iter(&self) -> impl Iterator<Item = &usize> {
         self.0.iter()
+    }
+}
+
+impl std::ops::Index<usize> for TileSizes {
+    type Output = usize;
+
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[i]
+    }
+}
+
+/// Helper struct to borrow from [`TileSizes`]
+///
+/// This object has the same guarantees as `TileSizes`, but trims items off the
+/// front of the `Vec<usize>` based on the image size.
+pub(crate) struct TileSizesRef<'a>(&'a [usize]);
+
+impl<'a> std::ops::Index<usize> for TileSizesRef<'a> {
+    type Output = usize;
+
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[i]
+    }
+}
+
+impl TileSizesRef<'_> {
+    /// Builds a new `TileSizesRef` based on the maximum tile size
+    fn new(tiles: &TileSizes, max_size: usize) -> TileSizesRef {
+        let i = tiles
+            .0
+            .iter()
+            .position(|t| *t < max_size)
+            .unwrap_or(tiles.0.len())
+            .saturating_sub(1);
+        TileSizesRef(&tiles.0[i..])
     }
 
     /// Returns the last (smallest) tile size
@@ -360,7 +388,7 @@ where
 pub(crate) trait RenderConfig {
     fn width(&self) -> u32;
     fn height(&self) -> u32;
-    fn tile_sizes(&self) -> &TileSizes;
+    fn tile_sizes(&self) -> TileSizesRef;
     fn threads(&self) -> Option<&ThreadPool>;
     fn is_cancelled(&self) -> bool;
 }
