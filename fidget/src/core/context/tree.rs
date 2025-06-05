@@ -695,27 +695,22 @@ mod test {
         let root = ctx.import(&d);
         assert_eq!(ctx.get_const(root).unwrap(), 1.0);
     }
+
     #[test]
     fn tree_poke() {
+        use facet::Facet;
         #[derive(facet::Facet)]
         struct Transform {
             tree: Tree,
             x: f64,
         }
 
-        let builder = facet::Wip::alloc::<Transform>()
+        let mut builder =
+            facet::Partial::alloc_shape(Transform::SHAPE).unwrap();
+        builder
+            .set_field("tree", Tree::x() + 2.0 * Tree::y())
             .unwrap()
-            .field_named("tree")
-            .unwrap()
-            .put(Tree::x() + 2.0 * Tree::y())
-            .unwrap()
-            .pop()
-            .unwrap()
-            .field_named("x")
-            .unwrap()
-            .put(1.0)
-            .unwrap()
-            .pop()
+            .set_field("x", 1.0)
             .unwrap();
         let t: Transform = builder.build().unwrap().materialize().unwrap();
         assert_eq!(t.x, 1.0);
