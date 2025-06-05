@@ -8,6 +8,12 @@
       render a single 32×32 tile (instead of 128×128)
     - As part of this change, a few functions were removed from the `TileSizes`
       public API; they're now attached to an internal `struct TileSizesRef`.
+- Add a new `trait ShapeVisitor` and `pub fn visit_shapes(..)` for introspection
+  into shapes and transforms defined in the `shapes` module.  This is expected
+  to be useful for automatically generated scripted bindings (indeed,
+  `fidget::rhai` now uses it).
+- Added more document to `fidget::shapes`
+- Made `fidget::rhai::shapes::register_shape` private
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local
