@@ -109,18 +109,20 @@ impl Type {
     ///
     /// # Panics
     /// If the currently-selected builder field does not match our type
-    fn put(self, builder: facet::Wip) -> facet::Wip {
+    fn put<'facet, 'shape>(
+        self,
+        builder: &mut facet::Partial<'facet, 'shape>,
+        i: usize,
+    ) {
         match self {
-            Type::Float(v) => builder.put(v),
-            Type::Vec2(v) => builder.put(v),
-            Type::Vec3(v) => builder.put(v),
-            Type::Vec4(v) => builder.put(v),
-            Type::Tree(v) => builder.put(v),
-            Type::VecTree(v) => builder.put(v),
+            Type::Float(v) => builder.set_nth_field(i, v),
+            Type::Vec2(v) => builder.set_nth_field(i, v),
+            Type::Vec3(v) => builder.set_nth_field(i, v),
+            Type::Vec4(v) => builder.set_nth_field(i, v),
+            Type::Tree(v) => builder.set_nth_field(i, v),
+            Type::VecTree(v) => builder.set_nth_field(i, v),
         }
-        .unwrap()
-        .pop()
-        .unwrap()
+        .unwrap();
     }
 }
 
@@ -198,7 +200,7 @@ pub fn register_shape<
 }
 
 /// Checks whether `T`'s fields are all [`Type`]-compatible.
-fn validate_type<T: Facet<'static>>() -> facet::StructType {
+fn validate_type<T: Facet<'static>>() -> facet::StructType<'static> {
     // TODO could we make this `const`?
     let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty else {
         panic!("must be a struct-shaped type");
@@ -223,7 +225,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
 ) -> Result<Tree, Box<EvalAltResult>> {
     let mut t = Some(Tree::from_dynamic(&ctx, t)?);
 
-    let mut builder = facet::Wip::alloc::<T>().unwrap();
+    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
     let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
@@ -232,7 +234,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
         let tag = TypeTag::try_from(f.shape().id).unwrap();
         if matches!(tag, TypeTag::Tree) {
             let t = t.take().unwrap();
-            builder = builder.field(i).unwrap().put(t).unwrap().pop().unwrap();
+            builder.set_nth_field(i, t).unwrap();
             continue;
         }
 
@@ -245,7 +247,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
             .into());
         };
         let v = tag.into_type(&ctx, v)?;
-        builder = v.put(builder.field(i).unwrap())
+        v.put(&mut builder, i);
     }
 
     // This is quadratic, but N is small
@@ -280,16 +282,16 @@ fn build_transform_one<T: Facet<'static> + Into<Tree>>(
     let mut t = Some(Tree::from_dynamic(&ctx, t)?);
     let mut arg = Some(arg);
 
-    let mut builder = facet::Wip::alloc::<T>().unwrap();
+    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
 
     for (i, f) in shape.fields.iter().enumerate() {
         let tag = TypeTag::try_from(f.shape().id).unwrap();
         if matches!(tag, TypeTag::Tree) {
             let t = t.take().unwrap();
-            builder = builder.field(i).unwrap().put(t).unwrap().pop().unwrap();
+            builder.set_nth_field(i, t).unwrap();
         } else {
             let v = tag.into_type(&ctx, arg.take().unwrap())?;
-            builder = v.put(builder.field(i).unwrap())
+            v.put(&mut builder, i);
         }
     }
 
@@ -320,10 +322,10 @@ fn build_binary<T: Facet<'static> + Into<Tree>>(
     let a = Tree::from_dynamic(&ctx, a)?;
     let b = Tree::from_dynamic(&ctx, b)?;
 
-    let mut builder = facet::Wip::alloc::<T>().unwrap();
+    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
 
-    builder = builder.field(0).unwrap().put(a).unwrap().pop().unwrap();
-    builder = builder.field(1).unwrap().put(b).unwrap().pop().unwrap();
+    builder.set_nth_field(0, a).unwrap();
+    builder.set_nth_field(1, b).unwrap();
 
     let t: T = builder.build().unwrap().materialize().unwrap();
     Ok(t.into())
@@ -337,7 +339,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
     ctx: NativeCallContext,
     m: rhai::Map,
 ) -> Result<Tree, Box<EvalAltResult>> {
-    let mut builder = facet::Wip::alloc::<T>().unwrap();
+    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
     let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
@@ -353,7 +355,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
 
         let tag = TypeTag::try_from(f.shape().id).unwrap();
         let v = tag.into_type(&ctx, v)?;
-        builder = v.put(builder.field(i).unwrap())
+        v.put(&mut builder, i);
     }
 
     // This is quadratic, but N is small
@@ -388,11 +390,11 @@ macro_rules! reducer {
             assert_eq!(shape.fields[0].shape().id, ConstTypeId::of::<Vec<Tree>>());
             assert_eq!(shape.fields.len(), 1);
 
-            let mut builder = facet::Wip::alloc::<T>().unwrap();
+            let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
             let v = vec![$(
                 Tree::from_dynamic(&ctx, $v)?
             ),*];
-            builder = builder.field(0).unwrap().put(v).unwrap().pop().unwrap();
+            builder.set_nth_field(0, v).unwrap();
 
             let t: T = builder.build().unwrap().materialize().unwrap();
             Ok(t.into())
@@ -432,7 +434,7 @@ macro_rules! unique {
                 vs[tag] = Some($v);
             )*
 
-            let mut builder = facet::Wip::alloc::<T>().unwrap();
+            let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
             for (i, f) in shape.fields.iter().enumerate() {
                 let t = TypeTag::try_from(f.shape().id).unwrap();
                 let Some(v) = vs[t].take() else {
@@ -443,7 +445,7 @@ macro_rules! unique {
                     )
                     .into());
                 };
-                builder = v.put(builder.field(i).unwrap())
+                 v.put(&mut builder, i);
             }
 
             let t: T = builder.build().unwrap().materialize().unwrap();

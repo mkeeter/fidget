@@ -35,7 +35,10 @@ document-features = "0.2"
 dynasmrt = "3.0"
 eframe = { version = "0.31", features = ["wgpu"] }
 enum-map = "2.7.3"
-facet = { version = "0.27.1", features = ["reflect"] }
+facet = { version = "=0.27.12", features = ["reflect"] }
+facet-reflect = { version = "=0.27.12" } # see facet-rs/facet#748
+facet-core = { version = "=0.27.12" }
+facet-macros = { version = "=0.27.12" }
 env_logger = "0.11"
 heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }
