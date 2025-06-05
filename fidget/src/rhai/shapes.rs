@@ -2,7 +2,7 @@
 use crate::{
     context::Tree,
     rhai::FromDynamic,
-    shapes::{Vec2, Vec3, Vec4},
+    shapes::{ShapeVisitor, Vec2, Vec3, Vec4, visit_shapes},
 };
 use facet::{ConstTypeId, Facet};
 use rhai::{EvalAltResult, NativeCallContext};
@@ -10,18 +10,18 @@ use strum::IntoDiscriminant;
 
 /// Register all shapes with the Rhai engine
 pub fn register(engine: &mut rhai::Engine) {
-    use crate::shapes::*;
-
-    register_shape::<Circle>(engine);
-    register_shape::<Sphere>(engine);
-
-    register_shape::<Move>(engine);
-    register_shape::<Scale>(engine);
-
-    register_shape::<Union>(engine);
-    register_shape::<Intersection>(engine);
-    register_shape::<Difference>(engine);
-    register_shape::<Inverse>(engine);
+    struct EngineVisitor<'a>(&'a mut rhai::Engine);
+    impl ShapeVisitor for EngineVisitor<'_> {
+        fn visit<
+            T: Facet<'static> + Clone + Send + Sync + Into<Tree> + 'static,
+        >(
+            &mut self,
+        ) {
+            register_shape::<T>(self.0);
+        }
+    }
+    let mut v = EngineVisitor(engine);
+    visit_shapes(&mut v);
 }
 
 /// Type used for Rust-Rhai interop
@@ -127,7 +127,7 @@ impl Type {
 }
 
 /// Register a shape-building type into a Rhai runtime
-pub fn register_shape<
+fn register_shape<
     T: Facet<'static> + Clone + Send + Sync + Into<Tree> + 'static,
 >(
     engine: &mut rhai::Engine,
