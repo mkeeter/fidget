@@ -49,6 +49,7 @@ impl DistancePixel {
     /// Checks whether the pixel is inside or outside the model
     ///
     /// This will return `false` if the distance value is `NAN`
+    #[inline]
     pub fn inside(self) -> bool {
         match self.fill() {
             Ok(f) => f.inside,
@@ -57,6 +58,7 @@ impl DistancePixel {
     }
 
     /// Checks whether this is a distance point sample
+    #[inline]
     pub fn is_distance(self) -> bool {
         if !self.0.is_nan() {
             return true;
@@ -66,6 +68,7 @@ impl DistancePixel {
     }
 
     /// Returns the distance value (if present)
+    #[inline]
     pub fn distance(self) -> Result<f32, PixelFill> {
         match self.fill() {
             Ok(v) => Err(v),
@@ -74,6 +77,7 @@ impl DistancePixel {
     }
 
     /// Returns the fill details (if present)
+    #[inline]
     pub fn fill(self) -> Result<PixelFill, f32> {
         if self.is_distance() {
             Err(self.0)
@@ -87,6 +91,7 @@ impl DistancePixel {
 }
 
 impl From<PixelFill> for DistancePixel {
+    #[inline]
     fn from(p: PixelFill) -> Self {
         let bits = 0x7FC00000
             | (u32::from(p.depth) << 1)
@@ -97,6 +102,7 @@ impl From<PixelFill> for DistancePixel {
 }
 
 impl From<f32> for DistancePixel {
+    #[inline]
     fn from(p: f32) -> Self {
         // Canonicalize the NAN value to avoid colliding with a fill
         Self(if p.is_nan() { f32::NAN } else { p })

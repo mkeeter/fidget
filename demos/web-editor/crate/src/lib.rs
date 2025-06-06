@@ -2,9 +2,8 @@ use fidget::{
     context::{Context, Tree},
     gui::{Canvas2, Canvas3, DragMode},
     render::{
-        BitRenderMode, CancelToken, GeometryBuffer, ImageRenderConfig,
-        ImageSize, ThreadPool, TileSizes, View2, View3, VoxelRenderConfig,
-        VoxelSize,
+        CancelToken, GeometryBuffer, ImageRenderConfig, ImageSize, ThreadPool,
+        TileSizes, View2, View3, VoxelRenderConfig, VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
@@ -67,17 +66,17 @@ pub fn render_2d(
             image_size: ImageSize::from(image_size as u32),
             threads: Some(&ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
+            pixel_perfect: false,
             view,
             cancel,
         };
 
-        let out = cfg.run::<_, BitRenderMode>(shape)?;
+        let tmp = cfg.run(shape)?;
         Some(
-            out.into_iter()
-                .flat_map(|b| {
-                    let b = b as u8 * u8::MAX;
-                    [b, b, b, 255]
-                })
+            tmp.into_iter()
+                .flat_map(
+                    |p| if p.inside() { [255; 4] } else { [0, 0, 0, 255] },
+                )
                 .collect(),
         )
     }
