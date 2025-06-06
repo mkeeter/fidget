@@ -1,7 +1,8 @@
 //! Post-processing effects for rendered images
 
 use super::{
-    ColorImage, GeometryBuffer, GeometryPixel, Image, ImageSize, ThreadPool,
+    ColorImage, DistancePixel, GeometryBuffer, GeometryPixel, Image, ImageSize,
+    ThreadPool,
 };
 use nalgebra::{
     Const, Matrix3, MatrixXx2, MatrixXx3, OMatrix, RowVector2, RowVector3,
@@ -401,4 +402,114 @@ pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
         noise.set_row(i, &(row / row.norm()));
     }
     noise
+}
+
+/// Converts a [`DistancePixel`] image into an RGBA bitmap
+///
+/// Filled pixels are `[255u8; 4]`; empty pixels are `[0u8; 4]` (i.e.
+/// transparent) if `transparent` is set or `[0, 0, 0, 255]` otherwise.
+pub fn to_rgba_bitmap(
+    image: Image<DistancePixel>,
+    transparent: bool,
+    threads: Option<&ThreadPool>,
+) -> Image<[u8; 4]> {
+    let mut out = Image::new(image.size());
+    out.apply_effect(
+        |x, y| {
+            let p = image[(y, x)];
+            if p.inside() {
+                [255u8; 4]
+            } else if transparent {
+                [0u8; 4]
+            } else {
+                [0, 0, 0, 255]
+            }
+        },
+        threads,
+    );
+    out
+}
+
+/// Converts a [`DistancePixel`] image into a debug visualization
+pub fn to_debug_bitmap(
+    image: Image<DistancePixel>,
+    threads: Option<&ThreadPool>,
+) -> Image<[u8; 4]> {
+    let mut out = Image::new(image.size());
+    out.apply_effect(
+        |x, y| match image[(y, x)].distance() {
+            Ok(v) => {
+                if v < 0.0 {
+                    [255u8; 4]
+                } else {
+                    [0, 0, 0, 255]
+                }
+            }
+            // Debug color scheme for fill regions
+            Err(f) => match (f.depth, f.inside) {
+                (0, true) => [255, 0, 0, 255],
+                (0, false) => [50, 0, 0, 255],
+                (1, true) => [0, 255, 0, 255],
+                (1, false) => [0, 50, 0, 255],
+                (2, true) => [0, 0, 255, 255],
+                (2, false) => [0, 0, 50, 255],
+                (_, true) => [255, 255, 0, 255],
+                (_, false) => [50, 50, 0, 255],
+            },
+        },
+        threads,
+    );
+    out
+}
+
+/// Converts a [`DistancePixel`] image to a SDF rendering
+///
+/// The shading style is pervasive on Shadertoy, so I'm not sure where it
+/// originated; I borrowed it from
+/// [Inigo Quilez](https://www.shadertoy.com/view/t3X3z4)
+///
+/// `NAN` distance pixels are shown in pure red (`[255, 0, 0]`).
+pub fn to_rgba_distance(
+    image: Image<DistancePixel>,
+    threads: Option<&ThreadPool>,
+) -> Image<[u8; 4]> {
+    let mut out = Image::new(image.size());
+    out.apply_effect(
+        |x, y| match image[(y, x)].distance() {
+            Ok(f) if f.is_nan() => [255, 0, 0, 255],
+            Ok(f) => {
+                let r = 1.0 - 0.1f32.copysign(f);
+                let g = 1.0 - 0.4f32.copysign(f);
+                let b = 1.0 - 0.7f32.copysign(f);
+
+                let dim = 1.0 - (-4.0 * f.abs()).exp(); // dimming near 0
+                let bands = 0.8 + 0.2 * (140.0 * f).cos(); // banding
+
+                let smoothstep = |edge0: f32, edge1: f32, x: f32| {
+                    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+                    t * t * (3.0 - 2.0 * t)
+                };
+                let mix = |x: f32, y: f32, a: f32| x * (1.0 - a) + y * a;
+
+                let run = |v: f32| {
+                    let mut v = v * dim * bands;
+                    v = mix(v, 1.0, 1.0 - smoothstep(0.0, 0.015, f.abs()));
+                    v = mix(v, 1.0, 1.0 - smoothstep(0.0, 0.005, f.abs()));
+                    (v.clamp(0.0, 1.0) * 255.0) as u8
+                };
+
+                [run(r), run(g), run(b), 255]
+            }
+            // Pick a single orange / blue for fill regions
+            Err(f) => {
+                if f.inside {
+                    [184, 235, 255, 255]
+                } else {
+                    [217, 144, 72, 255]
+                }
+            }
+        },
+        threads,
+    );
+    out
 }

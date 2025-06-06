@@ -2,9 +2,8 @@ use fidget::{
     context::{Context, Tree},
     gui::{Canvas2, Canvas3, DragMode},
     render::{
-        BitRenderMode, CancelToken, GeometryBuffer, ImageRenderConfig,
-        ImageSize, ThreadPool, TileSizes, View2, View3, VoxelRenderConfig,
-        VoxelSize,
+        CancelToken, GeometryBuffer, ImageRenderConfig, ImageSize, ThreadPool,
+        TileSizes, View2, View3, VoxelRenderConfig, VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
@@ -67,19 +66,15 @@ pub fn render_2d(
             image_size: ImageSize::from(image_size as u32),
             threads: Some(&ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
+            pixel_perfect: false,
             view,
             cancel,
         };
 
-        let out = cfg.run::<_, BitRenderMode>(shape)?;
-        Some(
-            out.into_iter()
-                .flat_map(|b| {
-                    let b = b as u8 * u8::MAX;
-                    [b, b, b, 255]
-                })
-                .collect(),
-        )
+        let tmp = cfg.run(shape)?;
+        let out =
+            fidget::render::effects::to_rgba_bitmap(tmp, false, cfg.threads);
+        Some(out.into_iter().flatten().collect())
     }
     inner(shape.0, image_size, camera.0, cancel.0)
         .ok_or_else(|| "cancelled".to_owned())

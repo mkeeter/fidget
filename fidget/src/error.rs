@@ -83,17 +83,17 @@ pub enum Error {
 
     /// Rhai error; see inner code for details
     #[cfg(feature = "rhai")]
-    #[error("Rhai evaluation error: {0}")]
+    #[error("Rhai parse error")]
     RhaiParseError(#[from] rhai::ParseError),
 
     /// Rhai error; see inner code for details
     #[cfg(feature = "rhai")]
-    #[error("Rhai evaluation error: {0}")]
+    #[error("Rhai evaluation error")]
     RhaiEvalError(#[from] rhai::EvalAltResult),
 
     #[cfg(feature = "jit")]
     /// Dynasm error; see inner code for details
-    #[error("dynasm error: {0}")]
+    #[error("dynasm error")]
     DynasmError(#[from] dynasmrt::DynasmError),
 }
 

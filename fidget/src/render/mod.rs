@@ -24,15 +24,11 @@ pub use config::{
     CancelToken, ImageRenderConfig, ThreadPool, VoxelRenderConfig,
 };
 pub use region::{ImageSize, RegionSize, VoxelSize};
+pub use render2d::DistancePixel;
 pub use view::{RotateHandle, TranslateHandle, View2, View3};
 
 use render2d::render as render2d;
 use render3d::render as render3d;
-
-pub use render2d::{
-    BitRenderMode, DebugRenderMode, RenderMode, SdfPixelRenderMode,
-    SdfRenderMode,
-};
 
 /// A `RenderHandle` contains lazily-populated tapes for rendering
 ///
@@ -425,6 +421,7 @@ pub(crate) trait RenderWorker<'a, F: Function> {
 ///        V--------------
 ///   height (rows)
 /// ```
+#[derive(Clone)]
 pub struct Image<P, S = ImageSize> {
     data: Vec<P>,
     size: S,
@@ -554,7 +551,7 @@ impl<P, S: ImageSizeLike> Image<P, S> {
         );
         assert!(
             col < self.width(),
-            "column ({row}) must be less than image width ({})",
+            "column ({col}) must be less than image width ({})",
             self.width()
         );
         row * self.width() + col

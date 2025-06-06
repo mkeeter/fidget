@@ -23,7 +23,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("vm", size), move |b| {
             b.iter(|| {
                 let tape = shape_vm.clone();
-                black_box(cfg.run::<_, fidget::render::BitRenderMode>(tape))
+                black_box(cfg.run(tape))
             })
         });
 
@@ -37,7 +37,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new("jit", size), move |b| {
                 b.iter(|| {
                     let tape = shape_jit.clone();
-                    black_box(cfg.run::<_, fidget::render::BitRenderMode>(tape))
+                    black_box(cfg.run(tape))
                 })
             });
         }
@@ -77,7 +77,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("vm", &name), move |b| {
             b.iter(|| {
                 let tape = shape_vm.clone();
-                black_box(cfg.run::<_, fidget::render::BitRenderMode>(tape))
+                black_box(cfg.run(tape))
             })
         });
         #[cfg(feature = "jit")]
@@ -91,7 +91,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new("jit", &name), move |b| {
                 b.iter(|| {
                     let tape = shape_jit.clone();
-                    black_box(cfg.run::<_, fidget::render::BitRenderMode>(tape))
+                    black_box(cfg.run(tape))
                 })
             });
         }

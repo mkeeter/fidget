@@ -14,6 +14,20 @@
   `fidget::rhai` now uses it).
 - Added more document to `fidget::shapes`
 - Made `fidget::rhai::shapes::register_shape` private
+- Significant changes to 2D rendering API:
+    - Changed `fidget::render::render2d` to always return an
+      `Image<DistancePixel>`, which encodes either a distance sample or details
+      on fill at that point.
+    - Removed the `trait RenderMode`, which was previously used to generate
+      pixel samples from a distance field.
+    - Added `ImageRenderConfig::pixel_perfect`, which forces sampling down to
+      individual pixels.
+    - Added `fidget::render::effects::{to_rgba_bitmap, to_debug_bitmap,
+      to_rgba_distance}` to post-process an `Image<DistancePixel>`.  These
+      replace the previous `RenderMode` objects for generating specific flavors
+      of image.
+    - Note that **approximate SDFs are entirely removed**; they were not
+      substantially faster, added complexity, and looked bad.
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

@@ -178,33 +178,25 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         image_size,
         tile_sizes: F::tile_sizes_2d(),
         view,
+        pixel_perfect: matches!(mode, Mode2D::Sdf),
         ..Default::default()
     };
 
     let out = match mode {
         Mode2D::Color => {
-            let image = config
-                .run::<_, fidget::render::BitRenderMode>(shape)
-                .unwrap();
+            let tmp = config.run(shape).unwrap();
             let c = [color[0], color[1], color[2], u8::MAX];
-            image.map(|p| if *p { c } else { [0u8; 4] })
+            tmp.map(|p| if p.inside() { c } else { [0u8; 4] })
         }
 
-        Mode2D::Sdf => config
-            .run::<_, fidget::render::SdfRenderMode>(shape)
-            .unwrap()
-            .map(|&[r, g, b]| [r, g, b, u8::MAX]),
-
-        Mode2D::ExactSdf => config
-            .run::<_, fidget::render::SdfPixelRenderMode>(shape)
-            .unwrap()
-            .map(|&[r, g, b]| [r, g, b, u8::MAX]),
+        Mode2D::Sdf => {
+            let tmp = config.run(shape).unwrap();
+            fidget::render::effects::to_rgba_distance(tmp, config.threads)
+        }
 
         Mode2D::Debug => {
-            let image = config
-                .run::<_, fidget::render::DebugRenderMode>(shape)
-                .unwrap();
-            image.map(|p| p.as_debug_color())
+            let tmp = config.run(shape).unwrap();
+            fidget::render::effects::to_debug_bitmap(tmp, config.threads)
         }
     };
     let (data, _) = out.take();
@@ -331,7 +323,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 enum Mode2D {
     Color,
     Sdf,
-    ExactSdf,
     Debug,
 }
 
@@ -339,8 +330,7 @@ impl Mode2D {
     fn description(&self) -> &'static str {
         match self {
             Self::Color => "2D color",
-            Self::Sdf => "2D SDF (approx)",
-            Self::ExactSdf => "2D SDF (exact)",
+            Self::Sdf => "2D SDF",
             Self::Debug => "2D debug",
         }
     }
@@ -479,12 +469,7 @@ impl ViewerApp {
                         RenderMode::TwoD { mode, .. } => Some(*mode),
                         RenderMode::ThreeD { .. } => None,
                     };
-                    for m in [
-                        Mode2D::Debug,
-                        Mode2D::Sdf,
-                        Mode2D::ExactSdf,
-                        Mode2D::Color,
-                    ] {
+                    for m in [Mode2D::Debug, Mode2D::Sdf, Mode2D::Color] {
                         ui.radio_value(&mut mode_2d, Some(m), m.description());
                     }
 

@@ -123,10 +123,8 @@ enum RenderMode2D {
     Debug,
     /// Monochrome rendering (white-on-black)
     Mono,
-    /// Approximate signed distance field visualization
-    SdfApprox,
-    /// Exact signed distance field visualization (more expensive)
-    SdfExact,
+    /// Signed distance field visualization
+    Sdf,
     /// Brute-force (pixel-by-pixel) evaluation
     Brute,
 }
@@ -419,63 +417,42 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
             threads: threads.as_ref(),
+            pixel_perfect: matches!(mode, RenderMode2D::Sdf),
             ..Default::default()
         };
+        let mut image = fidget::render::Image::default();
         match mode {
             RenderMode2D::Mono => {
-                let mut image = fidget::render::Image::default();
                 for _ in 0..settings.n {
-                    image = cfg
-                        .run::<_, fidget::render::BitRenderMode>(shape.clone())
-                        .unwrap();
+                    let tmp = cfg.run::<_>(shape.clone()).unwrap();
+                    image = fidget::render::effects::to_rgba_bitmap(
+                        tmp,
+                        false,
+                        cfg.threads,
+                    );
                 }
-                image
-                    .into_iter()
-                    .flat_map(|a| if a { [255; 4] } else { [0, 0, 0, 255] })
-                    .collect()
             }
-            RenderMode2D::SdfExact => {
-                let mut image = fidget::render::Image::default();
+            RenderMode2D::Sdf => {
                 for _ in 0..settings.n {
-                    image = cfg
-                        .run::<_, fidget::render::SdfPixelRenderMode>(
-                            shape.clone(),
-                        )
-                        .unwrap();
+                    let tmp = cfg.run(shape.clone()).unwrap();
+                    image = fidget::render::effects::to_rgba_distance(
+                        tmp,
+                        cfg.threads,
+                    );
                 }
-                image
-                    .into_iter()
-                    .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
-                    .collect()
-            }
-            RenderMode2D::SdfApprox => {
-                let mut image = fidget::render::Image::default();
-                for _ in 0..settings.n {
-                    image = cfg
-                        .run::<_, fidget::render::SdfRenderMode>(shape.clone())
-                        .unwrap();
-                }
-                image
-                    .into_iter()
-                    .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
-                    .collect()
             }
             RenderMode2D::Debug => {
-                let mut image = fidget::render::Image::default();
                 for _ in 0..settings.n {
-                    image = cfg
-                        .run::<_, fidget::render::DebugRenderMode>(
-                            shape.clone(),
-                        )
-                        .unwrap();
+                    let tmp = cfg.run::<_>(shape.clone()).unwrap();
+                    image = fidget::render::effects::to_debug_bitmap(
+                        tmp,
+                        cfg.threads,
+                    );
                 }
-                image
-                    .into_iter()
-                    .flat_map(|p| p.as_debug_color().into_iter())
-                    .collect()
             }
             RenderMode2D::Brute => unreachable!(),
         }
+        image.into_iter().flatten().collect()
     }
 }
 
