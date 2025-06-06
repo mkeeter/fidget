@@ -109,6 +109,7 @@ impl From<f32> for DistancePixel {
 struct Worker<'a, F: Function> {
     tile_sizes: TileSizesRef<'a>,
     pixel_perfect: bool,
+    require_corners: bool,
     scratch: Scratch,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
@@ -137,6 +138,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
         Worker::<F> {
             scratch: Scratch::new(tile_sizes.last().pow(2)),
             pixel_perfect: cfg.pixel_perfect,
+            require_corners: cfg.require_corners,
             image: Default::default(),
             tile_sizes,
             eval_float_slice: Default::default(),
@@ -202,6 +204,36 @@ impl<F: Function> Worker<'_, F> {
                         .tile_sizes
                         .pixel_offset(tile.add(Vector2::new(0, y)));
                     self.image[start..][..tile_size].fill(fill);
+                }
+
+                if self.require_corners {
+                    let x0 = base.x;
+                    let x1 = base.x + tile_size as f32 - 1.0;
+                    let y0 = base.y;
+                    let y1 = base.y + tile_size as f32 - 1.0;
+                    let xs = [x0, x1, x0, x1];
+                    let ys = [y0, y0, y1, y1];
+
+                    let tape = shape.f_tape(&mut self.tape_storage);
+
+                    let out = self
+                        .eval_float_slice
+                        .eval_v(tape, &xs, &ys, &[0.0; 4], vars)
+                        .unwrap();
+                    for ((dx, dy), v) in [
+                        (0, 0),
+                        (tile_size - 1, 0),
+                        (0, tile_size - 1),
+                        (tile_size - 1, tile_size - 1),
+                    ]
+                    .into_iter()
+                    .zip(out)
+                    {
+                        let i = self
+                            .tile_sizes
+                            .pixel_offset(tile.add(Vector2::new(dx, dy)));
+                        self.image[i] = (*v).into();
+                    }
                 }
                 return;
             }

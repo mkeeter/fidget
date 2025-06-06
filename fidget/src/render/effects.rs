@@ -467,7 +467,6 @@ pub fn distance_fill(
     mut image: Image<DistancePixel>,
     threads: Option<&ThreadPool>,
 ) -> Result<Image<DistancePixel>, Error> {
-    let mut width_buffer = vec![(usize::MAX, usize::MAX); image.width()];
     for row in [0, image.height() - 1] {
         for col in [0, image.width() - 1] {
             if !image[(row, col)].is_distance() {
@@ -475,7 +474,8 @@ pub fn distance_fill(
             }
         }
     }
-    // Make sure the top and bottom rows are populated
+    // Make sure the top and bottom rows are fully populated
+    let mut width_buffer = vec![(usize::MAX, usize::MAX); image.width()];
     for row in [0, image.height() - 1] {
         let mut last_good = 0;
         for col in 0..image.width() {
@@ -516,7 +516,7 @@ pub fn distance_fill(
             }
         }
     }
-    // Make sure the left and right edges are populated
+    // Make sure the left and right edges are fully populated
     let mut height_buffer = vec![(usize::MAX, usize::MAX); image.height()];
     for col in [0, image.width() - 1] {
         let mut last_good = 0;
@@ -558,7 +558,9 @@ pub fn distance_fill(
             }
         }
     }
+    return Ok(image);
 
+    /*
     // Okay, now populate the nearest values for every internal pixel.
     #[derive(Copy, Clone, Default)]
     struct Nearest {
@@ -636,6 +638,7 @@ pub fn distance_fill(
     );
 
     Ok(out)
+    */
 }
 
 /// Converts a [`DistancePixel`] image to a SDF rendering
