@@ -13,178 +13,6 @@ use nalgebra::{Point2, Vector2};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Response type for [`RenderMode::interval`]
-pub enum IntervalAction<T> {
-    Fill(T),
-    Interpolate,
-    Recurse,
-}
-
-/// Configuration trait for rendering
-pub trait RenderMode {
-    /// Type of output pixel
-    type Output: Default + Copy + Clone + Send;
-
-    /// Decide whether to subdivide or fill an interval
-    fn interval(i: Interval, depth: usize) -> IntervalAction<Self::Output>;
-
-    /// Per-pixel drawing
-    fn pixel(f: f32) -> Self::Output;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Renderer that emits `DebugPixel`
-pub struct DebugRenderMode;
-
-impl RenderMode for DebugRenderMode {
-    type Output = DebugPixel;
-    fn interval(i: Interval, depth: usize) -> IntervalAction<DebugPixel> {
-        if i.upper() < 0.0 {
-            if depth > 1 {
-                IntervalAction::Fill(DebugPixel::FilledSubtile)
-            } else {
-                IntervalAction::Fill(DebugPixel::FilledTile)
-            }
-        } else if i.lower() > 0.0 {
-            if depth > 1 {
-                IntervalAction::Fill(DebugPixel::EmptySubtile)
-            } else {
-                IntervalAction::Fill(DebugPixel::EmptyTile)
-            }
-        } else {
-            IntervalAction::Recurse
-        }
-    }
-    fn pixel(f: f32) -> DebugPixel {
-        if f < 0.0 {
-            DebugPixel::Filled
-        } else {
-            DebugPixel::Empty
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Default)]
-pub enum DebugPixel {
-    EmptyTile,
-    FilledTile,
-    EmptySubtile,
-    FilledSubtile,
-    Empty,
-    Filled,
-    #[default]
-    Invalid,
-}
-
-impl DebugPixel {
-    #[inline]
-    pub fn as_debug_color(&self) -> [u8; 4] {
-        match self {
-            DebugPixel::EmptyTile => [50, 0, 0, 255],
-            DebugPixel::FilledTile => [255, 0, 0, 255],
-            DebugPixel::EmptySubtile => [0, 50, 0, 255],
-            DebugPixel::FilledSubtile => [0, 255, 0, 255],
-            DebugPixel::Empty => [0, 0, 0, 255],
-            DebugPixel::Filled => [255, 255, 255, 255],
-            DebugPixel::Invalid => panic!(),
-        }
-    }
-
-    #[inline]
-    pub fn is_filled(&self) -> bool {
-        match self {
-            DebugPixel::EmptyTile
-            | DebugPixel::EmptySubtile
-            | DebugPixel::Empty => false,
-            DebugPixel::FilledTile
-            | DebugPixel::FilledSubtile
-            | DebugPixel::Filled => true,
-            DebugPixel::Invalid => panic!(),
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Renderer that emits `bool`
-pub struct BitRenderMode;
-
-impl RenderMode for BitRenderMode {
-    type Output = bool;
-    fn interval(i: Interval, _depth: usize) -> IntervalAction<bool> {
-        if i.upper() < 0.0 {
-            IntervalAction::Fill(true)
-        } else if i.lower() > 0.0 {
-            IntervalAction::Fill(false)
-        } else {
-            IntervalAction::Recurse
-        }
-    }
-    fn pixel(f: f32) -> bool {
-        f < 0.0
-    }
-}
-
-/// Pixel-perfect render mode which mimics many SDF demos on ShaderToy
-///
-/// This mode recurses down to individual pixels, so it doesn't take advantage
-/// of skipping empty / full regions; use [`SdfRenderMode`] for a
-/// faster-but-approximate visualization.
-pub struct SdfPixelRenderMode;
-
-impl RenderMode for SdfPixelRenderMode {
-    type Output = [u8; 3];
-    fn interval(_i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
-        IntervalAction::Recurse
-    }
-    fn pixel(f: f32) -> [u8; 3] {
-        let r = 1.0 - 0.1f32.copysign(f);
-        let g = 1.0 - 0.4f32.copysign(f);
-        let b = 1.0 - 0.7f32.copysign(f);
-
-        let dim = 1.0 - (-4.0 * f.abs()).exp(); // dimming near 0
-        let bands = 0.8 + 0.2 * (140.0 * f).cos(); // banding
-
-        let smoothstep = |edge0: f32, edge1: f32, x: f32| {
-            let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-            t * t * (3.0 - 2.0 * t)
-        };
-        let mix = |x: f32, y: f32, a: f32| x * (1.0 - a) + y * a;
-
-        let run = |v: f32| {
-            let mut v = v * dim * bands;
-            v = mix(v, 1.0, 1.0 - smoothstep(0.0, 0.015, f.abs()));
-            v = mix(v, 1.0, 1.0 - smoothstep(0.0, 0.005, f.abs()));
-            (v.clamp(0.0, 1.0) * 255.0) as u8
-        };
-
-        [run(r), run(g), run(b)]
-    }
-}
-
-/// Fast rendering mode which mimics many SDF demos on ShaderToy
-///
-/// Unlike [`SdfPixelRenderMode`], this mode uses linear interpolation when
-/// evaluating empty or full regions, which is significantly faster.
-pub struct SdfRenderMode;
-
-impl RenderMode for SdfRenderMode {
-    type Output = [u8; 3];
-    fn interval(i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
-        if i.upper() < 0.0 || i.lower() > 0.0 {
-            IntervalAction::Interpolate
-        } else {
-            IntervalAction::Recurse
-        }
-    }
-    fn pixel(f: f32) -> [u8; 3] {
-        SdfPixelRenderMode::pixel(f)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
@@ -201,11 +29,86 @@ impl Scratch {
     }
 }
 
+/// A pixel in a 2D image
+///
+/// This is either a single distance value or a description of a fill; both
+/// cases are packed into an `f32` (using `NaN`-boxing in the latter case).
+#[derive(Copy, Clone, Debug, Default)]
+pub struct DistancePixel(f32);
+
+#[derive(Copy, Clone, Debug)]
+pub struct PixelFill {
+    pub depth: u8,
+    pub inside: bool,
+}
+
+impl DistancePixel {
+    const KEY: u32 = 0b1111_0110 << 9;
+    const KEY_MASK: u32 = 0b1111_1111 << 9;
+
+    /// Checks whether the pixel is inside or outside the model
+    ///
+    /// This will return `false` if the distance value is `NAN`
+    pub fn inside(self) -> bool {
+        match self.fill() {
+            Ok(f) => f.inside,
+            Err(v) => v < 0.0,
+        }
+    }
+
+    /// Checks whether this is a distance point sample
+    pub fn is_distance(self) -> bool {
+        if !self.0.is_nan() {
+            return true;
+        }
+        let bits = self.0.to_bits();
+        (bits & Self::KEY_MASK) != Self::KEY
+    }
+
+    /// Returns the distance value (if present)
+    pub fn distance(self) -> Result<f32, PixelFill> {
+        match self.fill() {
+            Ok(v) => Err(v),
+            Err(v) => Ok(v),
+        }
+    }
+
+    /// Returns the fill details (if present)
+    pub fn fill(self) -> Result<PixelFill, f32> {
+        if self.is_distance() {
+            Err(self.0)
+        } else {
+            let bits = self.0.to_bits();
+            let inside = (bits & 1) == 1;
+            let depth = (bits >> 1) as u8;
+            Ok(PixelFill { inside, depth })
+        }
+    }
+}
+
+impl From<PixelFill> for DistancePixel {
+    fn from(p: PixelFill) -> Self {
+        let bits = 0x7FC00000
+            | (u32::from(p.depth) << 1)
+            | u32::from(p.inside)
+            | Self::KEY;
+        DistancePixel(f32::from_bits(bits))
+    }
+}
+
+impl From<f32> for DistancePixel {
+    fn from(p: f32) -> Self {
+        // Canonicalize the NAN value to avoid colliding with a fill
+        Self(if p.is_nan() { f32::NAN } else { p })
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Per-thread worker
-struct Worker<'a, F: Function, M: RenderMode> {
+struct Worker<'a, F: Function> {
     tile_sizes: TileSizesRef<'a>,
+    pixel_perfect: bool,
     scratch: Scratch,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
@@ -223,16 +126,17 @@ struct Worker<'a, F: Function, M: RenderMode> {
     /// Tile being rendered
     ///
     /// This is a root tile, i.e. width and height of `config.tile_sizes[0]`
-    image: Image<M::Output>,
+    image: Image<DistancePixel>,
 }
 
-impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
+impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     type Config = ImageRenderConfig<'a>;
-    type Output = Image<M::Output>;
+    type Output = Image<DistancePixel>;
     fn new(cfg: &'a Self::Config) -> Self {
         let tile_sizes = cfg.tile_sizes();
-        Worker::<F, M> {
+        Worker::<F> {
             scratch: Scratch::new(tile_sizes.last().pow(2)),
+            pixel_perfect: cfg.pixel_perfect,
             image: Default::default(),
             tile_sizes,
             eval_float_slice: Default::default(),
@@ -255,7 +159,7 @@ impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
     }
 }
 
-impl<F: Function, M: RenderMode> Worker<'_, F, M> {
+impl<F: Function> Worker<'_, F> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
@@ -277,8 +181,22 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
             .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
             .unwrap();
 
-        match M::interval(i, depth) {
-            IntervalAction::Fill(fill) => {
+        if !self.pixel_perfect {
+            let pixel = if i.upper() < 0.0 {
+                Some(PixelFill {
+                    inside: true,
+                    depth: depth as u8,
+                })
+            } else if i.lower() > 0.0 {
+                Some(PixelFill {
+                    inside: false,
+                    depth: depth as u8,
+                })
+            } else {
+                None
+            };
+            if let Some(pixel) = pixel {
+                let fill = pixel.into();
                 for y in 0..tile_size {
                     let start = self
                         .tile_sizes
@@ -287,38 +205,6 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                 }
                 return;
             }
-            IntervalAction::Interpolate => {
-                let xs = [x.lower(), x.lower(), x.upper(), x.upper()];
-                let ys = [y.lower(), y.upper(), y.lower(), y.upper()];
-                let zs = [0.0; 4];
-                let vs = self
-                    .eval_float_slice
-                    .eval(shape.f_tape(&mut self.tape_storage), &xs, &ys, &zs)
-                    .unwrap();
-
-                // Bilinear interpolation on a per-pixel basis
-                for y in 0..tile_size {
-                    // Y interpolation
-                    let y_frac = (y as f32 - 1.0) / (tile_size as f32);
-                    let v0 = vs[0] * (1.0 - y_frac) + vs[1] * y_frac;
-                    let v1 = vs[2] * (1.0 - y_frac) + vs[3] * y_frac;
-
-                    let mut i = self
-                        .tile_sizes
-                        .pixel_offset(tile.add(Vector2::new(0, y)));
-                    for x in 0..tile_size {
-                        // X interpolation
-                        let x_frac = (x as f32 - 1.0) / (tile_size as f32);
-                        let v = v0 * (1.0 - x_frac) + v1 * x_frac;
-
-                        // Write out the pixel
-                        self.image[i] = M::pixel(v);
-                        i += 1;
-                    }
-                }
-                return;
-            }
-            IntervalAction::Recurse => (), // keep going
         }
 
         let sub_tape = if let Some(trace) = simplify.as_ref() {
@@ -382,7 +268,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         for j in 0..tile_size {
             let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, j)));
             for i in 0..tile_size {
-                self.image[o + i] = M::pixel(out[index]);
+                self.image[o + i] = out[index].into();
                 index += 1;
             }
         }
@@ -397,24 +283,24 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 /// The tape provides the shape; the configuration supplies resolution,
 /// transforms, etc.
 ///
-/// This function is parameterized by both shape type (which determines how we
-/// perform evaluation) and render mode (which tells us how to color in the
-/// resulting pixels).
+/// This function is parameterized by shape type (which determines how we
+/// perform evaluation).
 ///
-/// Returns a `Vec` of pixel data if rendering succeeds, or `None` if rendering
-/// was cancelled (using the [`ImageRenderConfig::cancel`] token)
-pub fn render<F: Function, M: RenderMode + Sync>(
+/// Returns an `Image<f32>` of pixel data if rendering succeeds, or `None` if
+/// rendering was cancelled (using the [`ImageRenderConfig::cancel`] token)
+pub fn render<F: Function>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
-) -> Option<Image<M::Output>> {
+) -> Option<Image<DistancePixel>> {
     // Convert to a 4x4 matrix and apply to the shape
     let mat = config.mat();
     let mat = mat.insert_row(2, 0.0);
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.apply_transform(mat);
 
-    let tiles = super::render_tiles::<F, Worker<F, M>>(shape, vars, config)?;
+    let tiles =
+        super::render_tiles::<F, Worker<F>>(shape.clone(), vars, config)?;
     let tile_sizes = config.tile_sizes();
 
     let width = config.image_size.width() as usize;
@@ -430,6 +316,38 @@ pub fn render<F: Function, M: RenderMode + Sync>(
                     image[(y, x)] = data[index];
                 }
                 index += 1;
+            }
+        }
+    }
+    if config.require_corners {
+        let mut missing_corner = false;
+        let h = image.height() - 1;
+        let w = image.width() - 1;
+        for row in [0, h] {
+            for col in [0, w] {
+                if !image[(row, col)].is_distance() {
+                    missing_corner = true;
+                }
+            }
+        }
+        let xs = [0, 0, w, w];
+        let ys = [0, h, 0, h];
+        if missing_corner {
+            let mut rh = RenderHandle::new(shape);
+            let tape = rh.f_tape(&mut vec![]);
+
+            let mut eval: ShapeBulkEval<F::FloatSliceEval> = Default::default();
+            let out = eval
+                .eval_v(
+                    tape,
+                    &xs.map(|v| v as f32),
+                    &ys.map(|v| v as f32),
+                    &[0.0; 4],
+                    vars,
+                )
+                .unwrap();
+            for i in 0..4 {
+                image[(ys[i], xs[i])] = out[i].into();
             }
         }
     }
@@ -471,14 +389,14 @@ mod test {
                 ..Default::default()
             };
             let out = cfg
-                .run_with_vars::<_, BitRenderMode>(shape, &self.vars)
+                .run_with_vars(shape, &self.vars)
                 .expect("rendering should not be cancelled");
             let mut img_str = String::new();
             for (i, b) in out.iter().enumerate() {
                 if i % width as usize == 0 {
                     img_str += "\n            ";
                 }
-                img_str.push(if *b { 'X' } else { '.' });
+                img_str.push(if b.inside() { 'X' } else { '.' });
             }
             if img_str != expected {
                 println!("image mismatch detected!");
@@ -835,7 +753,7 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        let out = cfg.run::<_, BitRenderMode>(shape);
+        let out = cfg.run(shape);
         assert!(out.is_none());
     }
 }

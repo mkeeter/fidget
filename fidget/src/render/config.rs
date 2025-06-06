@@ -1,8 +1,8 @@
 use crate::{
     eval::Function,
     render::{
-        GeometryBuffer, Image, ImageSize, RenderConfig, RenderMode, TileSizes,
-        TileSizesRef, View2, View3, VoxelSize,
+        DistancePixel, GeometryBuffer, Image, ImageSize, RenderConfig,
+        TileSizes, TileSizesRef, View2, View3, VoxelSize,
     },
     shape::{Shape, ShapeVars},
 };
@@ -95,6 +95,14 @@ pub struct ImageRenderConfig<'a> {
     /// World-to-model transform
     pub view: View2,
 
+    /// Render the distance values of individual pixels
+    pub pixel_perfect: bool,
+
+    /// Ensure that the four corners of the image have valid (pixel) data
+    ///
+    /// This is used for interpolation when rendering approximate SDFs
+    pub require_corners: bool,
+
     /// Tile sizes to use during evaluation.
     ///
     /// You'll likely want to use
@@ -118,6 +126,8 @@ impl Default for ImageRenderConfig<'_> {
             image_size: ImageSize::from(512),
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
+            pixel_perfect: false,
+            require_corners: false,
             threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
         }
@@ -145,20 +155,20 @@ impl RenderConfig for ImageRenderConfig<'_> {
 
 impl ImageRenderConfig<'_> {
     /// Render a shape in 2D using this configuration
-    pub fn run<F: Function, M: RenderMode + Sync>(
+    pub fn run<F: Function>(
         &self,
         shape: Shape<F>,
-    ) -> Option<Image<<M as RenderMode>::Output>> {
-        self.run_with_vars::<F, M>(shape, &ShapeVars::new())
+    ) -> Option<Image<DistancePixel>> {
+        self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
     /// Render a shape in 2D using this configuration and variables
-    pub fn run_with_vars<F: Function, M: RenderMode + Sync>(
+    pub fn run_with_vars<F: Function>(
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<Image<<M as RenderMode>::Output>> {
-        crate::render::render2d::<F, M>(shape, vars, self)
+    ) -> Option<Image<DistancePixel>> {
+        crate::render::render2d::<F>(shape, vars, self)
     }
 
     /// Returns the combined screen-to-model transform matrix
