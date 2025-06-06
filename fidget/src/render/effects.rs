@@ -464,10 +464,9 @@ pub fn to_debug_bitmap(
 /// [`ImageRenderConfig::require_corners`](crate::render::ImageRenderConfig::require_corners).
 /// to `true`.
 pub fn distance_fill(
-    image: Image<DistancePixel>,
+    mut image: Image<DistancePixel>,
     threads: Option<&ThreadPool>,
 ) -> Result<Image<DistancePixel>, Error> {
-    let mut out = image.clone();
     let mut width_buffer = vec![(usize::MAX, usize::MAX); image.width()];
     for row in [0, image.height() - 1] {
         for col in [0, image.width() - 1] {
@@ -500,8 +499,19 @@ pub fn distance_fill(
                 let a = image[(row, first)].distance().unwrap();
                 let b = image[(row, last)].distance().unwrap();
                 let scale = (last - first) as f32;
-                out[(row, col)] = (b * (col - first) as f32 / scale
-                    + a * (last - col) as f32 / scale)
+                let i = b * (col - first) as f32 / scale
+                    + a * (last - col) as f32 / scale;
+
+                // If interpolation returned a valid with a matching sign, then
+                // we can use it; otherwise, we have to fall back
+                image[(row, col)] =
+                    if (i < 0.0) == image[(row, col)].inside() {
+                        i
+                    } else if image[(row, col)].inside() {
+                        -1.0
+                    } else {
+                        1.0
+                    }
                     .into();
             }
         }
@@ -531,12 +541,100 @@ pub fn distance_fill(
                 let a = image[(first, col)].distance().unwrap();
                 let b = image[(last, col)].distance().unwrap();
                 let scale = (last - first) as f32;
-                out[(row, col)] = (b * (row - first) as f32 / scale
-                    + a * (last - row) as f32 / scale)
+                let i = b * (row - first) as f32 / scale
+                    + a * (last - row) as f32 / scale;
+
+                // If interpolation returned a valid with a matching sign, then
+                // we can use it; otherwise, we have to fall back
+                image[(row, col)] =
+                    if (i < 0.0) == image[(row, col)].inside() {
+                        i
+                    } else if image[(row, col)].inside() {
+                        -1.0
+                    } else {
+                        1.0
+                    }
                     .into();
             }
         }
     }
+
+    // Okay, now populate the nearest values for every internal pixel.
+    #[derive(Copy, Clone, Default)]
+    struct Nearest {
+        left: usize,
+        right: usize,
+        up: usize,
+        down: usize,
+    }
+    let mut nearest_buffer = Image::<Nearest>::new(image.size());
+    for col in 1..image.width() - 1 {
+        let mut last_good = 0;
+        for row in 0..image.height() {
+            if image[(row, col)].is_distance() {
+                last_good = row;
+            } else {
+                nearest_buffer[(row, col)].left = last_good
+            }
+        }
+        let mut last_good = image.height() - 1;
+        for row in (0..image.height()).rev() {
+            if image[(row, col)].is_distance() {
+                last_good = row;
+            } else {
+                nearest_buffer[(row, col)].right = last_good
+            }
+        }
+    }
+    for row in 1..image.height() - 1 {
+        let mut last_good = 0;
+        for col in 0..image.width() {
+            if image[(row, col)].is_distance() {
+                last_good = col;
+            } else {
+                nearest_buffer[(row, col)].up = last_good
+            }
+        }
+        let mut last_good = image.width() - 1;
+        for col in (0..image.width()).rev() {
+            if image[(row, col)].is_distance() {
+                last_good = col;
+            } else {
+                nearest_buffer[(row, col)].down = last_good
+            }
+        }
+    }
+
+    // Finally, build up the distance values
+    let mut out = Image::new(image.size());
+    out.apply_effect(
+        |col, row| match image[(row, col)].distance() {
+            Ok(v) => v.into(),
+            Err(_) => {
+                let r = nearest_buffer[(row, col)];
+                let (first, last) = (r.left, r.right);
+                let a = image[(first, col)].distance().unwrap();
+                let b = image[(last, col)].distance().unwrap();
+                let scale = (last - first) as f32;
+                let i = b * (row - first) as f32 / scale
+                    + a * (last - row) as f32 / scale;
+                let di = (row - first).min(last - row);
+
+                let (first, last) = (r.up, r.down);
+                let a = image[(row, first)].distance().unwrap();
+                let b = image[(row, last)].distance().unwrap();
+                let scale = (last - first) as f32;
+                let j = b * (col - first) as f32 / scale
+                    + a * (last - col) as f32 / scale;
+                let dj = (col - first).min(last - col);
+
+                let scale = (di + dj) as f32;
+                (i * dj as f32 / scale + j * di as f32 / scale).into()
+            }
+        },
+        threads,
+    );
+
     Ok(out)
 }
 
