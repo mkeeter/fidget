@@ -123,10 +123,8 @@ enum RenderMode2D {
     Debug,
     /// Monochrome rendering (white-on-black)
     Mono,
-    /// Approximate signed distance field visualization
-    SdfApprox,
-    /// Exact signed distance field visualization (more expensive)
-    SdfExact,
+    /// Signed distance field visualization
+    Sdf,
     /// Brute-force (pixel-by-pixel) evaluation
     Brute,
 }
@@ -419,8 +417,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
             threads: threads.as_ref(),
-            pixel_perfect: matches!(mode, RenderMode2D::SdfExact),
-            require_corners: matches!(mode, RenderMode2D::SdfApprox),
+            pixel_perfect: matches!(mode, RenderMode2D::Sdf),
             ..Default::default()
         };
         let mut image = fidget::render::Image::default();
@@ -434,23 +431,9 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
                     );
                 }
             }
-            RenderMode2D::SdfExact => {
+            RenderMode2D::Sdf => {
                 for _ in 0..settings.n {
                     let tmp = cfg.run(shape.clone()).unwrap();
-                    image = fidget::render::effects::to_rgba_distance(
-                        tmp,
-                        cfg.threads,
-                    );
-                }
-            }
-            RenderMode2D::SdfApprox => {
-                for _ in 0..settings.n {
-                    let tmp = cfg.run(shape.clone()).unwrap();
-                    let tmp = fidget::render::effects::distance_fill(
-                        tmp,
-                        cfg.threads,
-                    )
-                    .unwrap();
                     image = fidget::render::effects::to_rgba_distance(
                         tmp,
                         cfg.threads,

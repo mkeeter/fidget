@@ -178,8 +178,7 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         image_size,
         tile_sizes: F::tile_sizes_2d(),
         view,
-        pixel_perfect: matches!(mode, Mode2D::ExactSdf),
-        require_corners: matches!(mode, Mode2D::Sdf),
+        pixel_perfect: matches!(mode, Mode2D::Sdf),
         ..Default::default()
     };
 
@@ -191,14 +190,6 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
 
         Mode2D::Sdf => {
-            let tmp = config.run(shape).unwrap();
-            let tmp =
-                fidget::render::effects::distance_fill(tmp, config.threads)
-                    .unwrap();
-            fidget::render::effects::to_rgba_distance(tmp, config.threads)
-        }
-
-        Mode2D::ExactSdf => {
             let tmp = config.run(shape).unwrap();
             fidget::render::effects::to_rgba_distance(tmp, config.threads)
         }
@@ -332,7 +323,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 enum Mode2D {
     Color,
     Sdf,
-    ExactSdf,
     Debug,
 }
 
@@ -340,8 +330,7 @@ impl Mode2D {
     fn description(&self) -> &'static str {
         match self {
             Self::Color => "2D color",
-            Self::Sdf => "2D SDF (approx)",
-            Self::ExactSdf => "2D SDF (exact)",
+            Self::Sdf => "2D SDF",
             Self::Debug => "2D debug",
         }
     }
@@ -480,12 +469,7 @@ impl ViewerApp {
                         RenderMode::TwoD { mode, .. } => Some(*mode),
                         RenderMode::ThreeD { .. } => None,
                     };
-                    for m in [
-                        Mode2D::Debug,
-                        Mode2D::Sdf,
-                        Mode2D::ExactSdf,
-                        Mode2D::Color,
-                    ] {
+                    for m in [Mode2D::Debug, Mode2D::Sdf, Mode2D::Color] {
                         ui.radio_value(&mut mode_2d, Some(m), m.description());
                     }
 

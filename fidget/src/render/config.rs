@@ -98,11 +98,6 @@ pub struct ImageRenderConfig<'a> {
     /// Render the distance values of individual pixels
     pub pixel_perfect: bool,
 
-    /// Ensure that the four corners of the image have valid (pixel) data
-    ///
-    /// This is used for interpolation when rendering approximate SDFs
-    pub require_corners: bool,
-
     /// Tile sizes to use during evaluation.
     ///
     /// You'll likely want to use
@@ -127,7 +122,6 @@ impl Default for ImageRenderConfig<'_> {
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
             pixel_perfect: false,
-            require_corners: false,
             threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
         }
