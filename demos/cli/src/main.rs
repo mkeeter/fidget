@@ -427,6 +427,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
                     let tmp = cfg.run::<_>(shape.clone()).unwrap();
                     image = fidget::render::effects::to_rgba_bitmap(
                         tmp,
+                        false,
                         cfg.threads,
                     );
                 }

@@ -72,13 +72,9 @@ pub fn render_2d(
         };
 
         let tmp = cfg.run(shape)?;
-        Some(
-            tmp.into_iter()
-                .flat_map(
-                    |p| if p.inside() { [255; 4] } else { [0, 0, 0, 255] },
-                )
-                .collect(),
-        )
+        let out =
+            fidget::render::effects::to_rgba_bitmap(tmp, false, cfg.threads);
+        Some(out.into_iter().flatten().collect())
     }
     inner(shape.0, image_size, camera.0, cancel.0)
         .ok_or_else(|| "cancelled".to_owned())

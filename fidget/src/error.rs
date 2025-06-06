@@ -81,10 +81,6 @@ pub enum Error {
     #[error("tile size list must not be empty")]
     EmptyTileSizes,
 
-    /// Image does not have valid corner values for interpolation
-    #[error("image does not have valid corner values for interpolation")]
-    BadInterpolation,
-
     /// Rhai error; see inner code for details
     #[cfg(feature = "rhai")]
     #[error("Rhai parse error")]

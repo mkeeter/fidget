@@ -292,8 +292,9 @@ impl<F: Function> Worker<'_, F> {
 /// This function is parameterized by shape type (which determines how we
 /// perform evaluation).
 ///
-/// Returns an `Image<f32>` of pixel data if rendering succeeds, or `None` if
-/// rendering was cancelled (using the [`ImageRenderConfig::cancel`] token)
+/// Returns an `Image<DistancePixel>` of pixel data if rendering succeeds, or
+/// `None` if rendering was cancelled (using the [`ImageRenderConfig::cancel`]
+/// token)
 pub fn render<F: Function>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,

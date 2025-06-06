@@ -407,16 +407,23 @@ pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
 /// Converts a [`DistancePixel`] image into an RGBA bitmap
 ///
 /// Filled pixels are `[255u8; 4]`; empty pixels are `[0u8; 4]` (i.e.
-/// transparent).
+/// transparent) if `transparent` is set or `[0, 0, 0, 255]` otherwise.
 pub fn to_rgba_bitmap(
     image: Image<DistancePixel>,
+    transparent: bool,
     threads: Option<&ThreadPool>,
 ) -> Image<[u8; 4]> {
     let mut out = Image::new(image.size());
     out.apply_effect(
         |x, y| {
             let p = image[(y, x)];
-            if p.inside() { [255u8; 4] } else { [0u8; 4] }
+            if p.inside() {
+                [255u8; 4]
+            } else if transparent {
+                [0u8; 4]
+            } else {
+                [0, 0, 0, 255]
+            }
         },
         threads,
     );

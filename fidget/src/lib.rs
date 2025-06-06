@@ -209,7 +209,7 @@
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     render::{BitRenderMode, ImageSize, ImageRenderConfig},
+//!     render::{ImageSize, ImageRenderConfig},
 //!     vm::VmShape,
 //! };
 //!
@@ -221,11 +221,11 @@
 //!     ..Default::default()
 //! };
 //! let shape = VmShape::from(tree);
-//! let out = cfg.run::<_, BitRenderMode>(shape).unwrap();
+//! let out = cfg.run(shape).unwrap();
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size.height() {
 //!     for x in 0..cfg.image_size.width() {
-//!         if *iter.next().unwrap() {
+//!         if iter.next().unwrap().inside() {
 //!             print!("XX");
 //!         } else {
 //!             print!("  ");
