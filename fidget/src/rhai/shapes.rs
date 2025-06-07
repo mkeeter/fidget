@@ -215,22 +215,32 @@ fn register_shape<
     }
 
     let mut count = enum_map::EnumMap::<TypeTag, usize>::default();
+    let mut default_count = 0;
     for f in s.fields {
         let t = TypeTag::try_from(f.shape().id).unwrap();
         count[t] += 1;
+        if f.vtable.default_fn.is_some() {
+            default_count += 1;
+        }
     }
     if !skip_build_unique && count.iter().all(|(_k, v)| *v <= 1) {
-        match s.fields.len() {
-            1 => engine.register_fn(&name_lower, build_unique1::<T>),
-            2 => engine.register_fn(&name_lower, build_unique2::<T>),
-            3 => engine.register_fn(&name_lower, build_unique3::<T>),
-            4 => engine.register_fn(&name_lower, build_unique4::<T>),
-            5 => engine.register_fn(&name_lower, build_unique5::<T>),
-            6 => engine.register_fn(&name_lower, build_unique6::<T>),
-            7 => engine.register_fn(&name_lower, build_unique7::<T>),
-            8 => engine.register_fn(&name_lower, build_unique8::<T>),
-            _ => engine,
-        };
+        // Generate typed unique builders for all possible argument counts
+        let field_count = s.fields.len();
+        let min_field_count = field_count - default_count;
+        for n in min_field_count..=field_count {
+            match n {
+                0 => engine.register_fn(&name_lower, build_unique0::<T>),
+                1 => engine.register_fn(&name_lower, build_unique1::<T>),
+                2 => engine.register_fn(&name_lower, build_unique2::<T>),
+                3 => engine.register_fn(&name_lower, build_unique3::<T>),
+                4 => engine.register_fn(&name_lower, build_unique4::<T>),
+                5 => engine.register_fn(&name_lower, build_unique5::<T>),
+                6 => engine.register_fn(&name_lower, build_unique6::<T>),
+                7 => engine.register_fn(&name_lower, build_unique7::<T>),
+                8 => engine.register_fn(&name_lower, build_unique8::<T>),
+                _ => engine,
+            };
+        }
     }
 }
 
@@ -379,7 +389,6 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
         panic!("must build a struct");
     };
     for (i, f) in shape.fields.iter().enumerate() {
-        println!("{i}: {f:?}");
         let tag = TypeTag::try_from(f.shape().id).unwrap();
 
         let v = if let Some(v) = m.get(f.name).cloned() {
@@ -451,7 +460,7 @@ reducer!(build_reduce7, a, b, c, d, e, f, g);
 reducer!(build_reduce8, a, b, c, d, e, f, g, h);
 
 macro_rules! unique {
-    ($name:ident, $($v:ident),*) => {
+    ($name:ident$(,)? $($v:ident),*) => {
         /// Builds a `T` from a list of Rhai values of unique types
         ///
         /// # Panics
@@ -476,8 +485,12 @@ macro_rules! unique {
 
             let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
             for (i, f) in shape.fields.iter().enumerate() {
-                let t = TypeTag::try_from(f.shape().id).unwrap();
-                let Some(v) = vs[t].take() else {
+                let tag = TypeTag::try_from(f.shape().id).unwrap();
+                let v = if let Some(v) = vs[tag].take() {
+                    v
+                } else if let Some(df) = f.vtable.default_fn {
+                    unsafe { tag.build_from_default_fn(df) }
+                } else {
                     return Err(EvalAltResult::ErrorRuntime(
                         format!("missing argument of type {}", f.shape())
                             .into(),
@@ -488,12 +501,23 @@ macro_rules! unique {
                  v.put(&mut builder, i);
             }
 
+            if let Some((k, _v)) = vs.iter().find(|(_k, v)| v.is_some()) {
+                return Err(EvalAltResult::ErrorRuntime(
+                    format!("shape does not have an argument of type {:?}", k)
+                        .into(),
+                    ctx.position(),
+                )
+                .into());
+            }
+
+
             let t: T = builder.build().unwrap().materialize().unwrap();
             Ok(t.into())
         }
     }
 }
 
+unique!(build_unique0);
 unique!(build_unique1, a);
 unique!(build_unique2, a, b);
 unique!(build_unique3, a, b, c);
@@ -530,11 +554,12 @@ mod test {
             )
             .is_err()
         );
-        assert!(e.eval::<Tree>("circle(#{ radius: 4 })").is_err());
         assert!(
             e.eval::<Tree>("circle(#{ radius: 4, xy: vec2(1, 2) })")
                 .is_err()
         );
+
+        assert!(e.eval::<Tree>("circle([1, 2], 3)").is_ok());
     }
 
     #[test]
@@ -544,5 +569,10 @@ mod test {
         e.build_type::<Vec2>();
         assert!(e.eval::<Tree>("circle(#{ center: vec2(1, 2)})").is_ok());
         assert!(e.eval::<Tree>("circle(#{ radius: 1})").is_ok());
+
+        assert!(e.eval::<Tree>("circle(3)").is_ok());
+        assert!(e.eval::<Tree>("circle([1, 2])").is_ok());
+
+        assert!(e.eval::<Tree>("circle()").is_ok());
     }
 }
