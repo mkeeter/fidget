@@ -34,6 +34,10 @@ impl From<f64> for Vec2 {
 }
 
 impl Vec2 {
+    /// Builds a new `Vec2` from `x, y` coordinates
+    pub fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
     fn combine<F: Fn(f64, f64) -> f64>(self, rhs: Self, f: F) -> Self {
         Self {
             x: f(self.x, rhs.x),
@@ -86,6 +90,10 @@ impl From<f64> for Vec3 {
 }
 
 impl Vec3 {
+    /// Builds a new `Vec3` from `x, y, z` coordinates
+    pub fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
     fn combine<F: Fn(f64, f64) -> f64>(self, rhs: Self, f: F) -> Self {
         Self {
             x: f(self.x, rhs.x),
