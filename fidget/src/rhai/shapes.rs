@@ -59,6 +59,41 @@ impl TryFrom<facet::ConstTypeId> for TypeTag {
 }
 
 impl TypeTag {
+    /// Executes a default builder function for the given type
+    ///
+    /// # Safety
+    /// `f` must be a builder for the inner type associated with this tag
+    unsafe fn build_from_default_fn(
+        &self,
+        f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
+    ) -> Type {
+        unsafe {
+            match self {
+                TypeTag::Float => Type::Float(Self::eval_default_fn(f)),
+                TypeTag::Vec2 => Type::Vec2(Self::eval_default_fn(f)),
+                TypeTag::Vec3 => Type::Vec3(Self::eval_default_fn(f)),
+                TypeTag::Vec4 => Type::Vec4(Self::eval_default_fn(f)),
+                TypeTag::Tree => Type::Tree(Self::eval_default_fn(f)),
+                TypeTag::VecTree => Type::VecTree(Self::eval_default_fn(f)),
+            }
+        }
+    }
+
+    /// Evaluates a default builder function, returning a value
+    ///
+    /// # Safety
+    /// `f` must be a builder for type `T`
+    unsafe fn eval_default_fn<T>(
+        f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
+    ) -> T {
+        let mut v = std::mem::MaybeUninit::<T>::uninit();
+        let ptr = facet::PtrUninit::new(&mut v);
+        // SAFETY: `f` must be a builder for type `T`
+        unsafe { f(ptr) };
+        // SAFETY: `v` is initialized by `f`
+        unsafe { v.assume_init() }
+    }
+
     /// Build a [`Type`] from a dynamic value and tag hint
     ///
     /// The resulting type is guaranteed to match the tag.
@@ -264,7 +299,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
     Ok(t.into())
 }
 
-/// Builds a transform-shaped `T` from a Rhai map
+/// Builds a transform-shaped `T` from a Rhai value
 ///
 /// # Panics
 /// `T` must be a `struct` with two fields; one must be a `Tree`, and the other
@@ -344,7 +379,14 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
         panic!("must build a struct");
     };
     for (i, f) in shape.fields.iter().enumerate() {
-        let Some(v) = m.get(f.name).cloned() else {
+        println!("{i}: {f:?}");
+        let tag = TypeTag::try_from(f.shape().id).unwrap();
+
+        let v = if let Some(v) = m.get(f.name).cloned() {
+            tag.into_type(&ctx, v)?
+        } else if let Some(df) = f.vtable.default_fn {
+            unsafe { tag.build_from_default_fn(df) }
+        } else {
             return Err(EvalAltResult::ErrorRuntime(
                 format!("field {} must be provided for {}", f.name, T::SHAPE)
                     .into(),
@@ -353,8 +395,6 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
             .into());
         };
 
-        let tag = TypeTag::try_from(f.shape().id).unwrap();
-        let v = tag.into_type(&ctx, v)?;
         v.put(&mut builder, i);
     }
 
@@ -495,5 +535,14 @@ mod test {
             e.eval::<Tree>("circle(#{ radius: 4, xy: vec2(1, 2) })")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn circle_builder_default() {
+        let mut e = rhai::Engine::new();
+        register_shape::<Circle>(&mut e);
+        e.build_type::<Vec2>();
+        assert!(e.eval::<Tree>("circle(#{ center: vec2(1, 2)})").is_ok());
+        assert!(e.eval::<Tree>("circle(#{ radius: 1})").is_ok());
     }
 }
