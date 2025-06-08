@@ -548,16 +548,14 @@ where
             return Err(Error::BadVarSlice(vars.len(), expected_vars));
         }
 
-        self.scratch.resize_with(vs.len(), Vec::new);
+        // We need at least one item in the scratch array to set evaluation
+        // size; otherwise, evaluating a single constant will return []
+        self.scratch.resize_with(vs.len().max(1), Vec::new);
         for s in &mut self.scratch {
             s.resize(n, 0.0.into());
         }
 
         if let Some(mat) = tape.transform {
-            self.scratch.resize_with(tape.vars().len(), Vec::new);
-            for s in &mut self.scratch {
-                s.resize(n, 0.0.into());
-            }
             for i in 0..n {
                 let (x, y, z) = Transformable::transform(x[i], y[i], z[i], mat);
                 if let Some(a) = tape.axes[0] {
@@ -747,5 +745,26 @@ mod test {
             seen[vs[&v]] = true;
         }
         assert!(seen.iter().all(|i| *i));
+    }
+
+    #[test]
+    fn shape_eval_bulk_size() {
+        let s = Tree::constant(1.0);
+        let mut ctx = Context::new();
+        let s = ctx.import(&s);
+
+        let s = VmShape::new(&ctx, s).unwrap();
+        let tape = s.ez_float_slice_tape();
+        let mut eval = VmShape::new_float_slice_eval();
+        let out = eval
+            .eval_v::<f32>(
+                &tape,
+                &[1.0, 2.0, 3.0],
+                &[4.0, 5.0, 6.0],
+                &[7.0, 8.0, 9.0],
+                &ShapeVars::default(),
+            )
+            .unwrap();
+        assert_eq!(out, [1.0, 1.0, 1.0]);
     }
 }

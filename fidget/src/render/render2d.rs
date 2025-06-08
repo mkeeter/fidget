@@ -689,6 +689,21 @@ mod test {
         .test(shape, EXPECTED_05);
     }
 
+    fn check_neg_infinity<F: Function + MathFunction>() {
+        let mut ctx = Context::new();
+        let root = ctx.constant(-f64::INFINITY);
+        let shape = Shape::<F>::new(&ctx, root).unwrap();
+
+        let cfg = ImageRenderConfig {
+            image_size: ImageSize::new(256, 256),
+            pixel_perfect: true,
+            threads: None,
+            ..Default::default()
+        };
+        let out = cfg.run(shape).unwrap();
+        assert!(out.into_iter().all(|i| i.inside()));
+    }
+
     macro_rules! render_tests {
         ($i:ident) => {
             mod $i {
@@ -716,6 +731,7 @@ mod test {
     render_tests!(check_hi_bounded);
     render_tests!(check_quarter);
     render_tests!(check_circle_var);
+    render_tests!(check_neg_infinity);
 
     #[test]
     fn render2d_cancel() {
