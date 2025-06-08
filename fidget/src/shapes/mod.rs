@@ -26,8 +26,10 @@ pub use vec::{Vec2, Vec3, Vec4};
 #[derive(Clone, Facet)]
 pub struct Circle {
     /// Center of the circle (in XY)
+    #[facet(default = Vec2::new(0.0, 0.0))]
     pub center: Vec2,
     /// Circle radius
+    #[facet(default = 1.0)]
     pub radius: f64,
 }
 
@@ -46,8 +48,10 @@ impl From<Circle> for Tree {
 #[derive(Clone, Facet)]
 pub struct Sphere {
     /// Center of the circle (in XYZ)
+    #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
     pub center: Vec3,
     /// Sphere radius
+    #[facet(default = 1.0)]
     pub radius: f64,
 }
 
@@ -154,6 +158,7 @@ pub struct Move {
     /// Shape to move
     pub shape: Tree,
     /// Position offset
+    #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
     pub offset: Vec3,
 }
 
@@ -175,6 +180,7 @@ pub struct Scale {
     /// Shape to scale
     pub shape: Tree,
     /// Scale to apply on each axis
+    #[facet(default = Vec3::new(1.0, 1.0, 1.0))]
     pub scale: Vec3,
 }
 
@@ -222,5 +228,28 @@ mod test {
     #[test]
     fn circle_docstring() {
         assert_eq!(Circle::SHAPE.doc, &[" 2D circle"]);
+    }
+
+    #[test]
+    fn scale_default_fn() {
+        let facet::Type::User(facet::UserType::Struct(s)) = Scale::SHAPE.ty
+        else {
+            panic!();
+        };
+        for f in s.fields {
+            if f.name == "scale" {
+                let Some(f) = f.vtable.default_fn else {
+                    panic!()
+                };
+                let mut v = std::mem::MaybeUninit::<Vec3>::uninit();
+                let ptr = facet::PtrUninit::new(&mut v);
+                let v: Vec3 = unsafe { *f(ptr).as_ptr() };
+                assert_eq!(v.x, 1.0);
+                assert_eq!(v.y, 1.0);
+                assert_eq!(v.z, 1.0);
+            } else {
+                assert!(f.vtable.default_fn.is_none());
+            }
+        }
     }
 }

@@ -86,6 +86,20 @@
 //! # ").unwrap();
 //! ```
 //!
+//! ## Default values
+//! Many shape fields have sensibly-defined default values; these are usually
+//! either 0 or 1 (or the equivalent `VecX` values).  Fields with default values
+//! may be omitted from the map:
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! let c = circle(#{ center: [1, 2] }); // radius = 1
+//! let s = sphere(#{ radius: 3 }); // center = [0, 0, 0]
+//! # ").unwrap();
+//! ```
+//!
 //! ## Uniquely typed functions
 //! Any shape with unique arguments may skip the object map and pass arguments
 //! directly; order doesn't matter, because the type is unambiguous.
@@ -100,6 +114,18 @@
 //! # ").unwrap();
 //! ```
 //!
+//! In addition, fields with default values may be skipped:
+//!
+//! ```
+//! # use fidget::rhai::Engine;
+//! # let mut e = Engine::new();
+//! # e.run("
+//! // array -> vec2
+//! let c1 = circle([1, 2]); // radius = 1
+//! let c2 = circle(); // center = [0, 0], radius = 1
+//! # ").unwrap();
+//! ```
+//!
 //! Note that some kinds of type coercion will not work in this regime, e.g.
 //! `vec2 -> vec3`:
 //!
@@ -108,7 +134,7 @@
 //! # let mut e = Engine::new();
 //! # e.run("
 //! // array -> vec2
-//! let c1 = sphere([1, 1], 4); // vec2 -> vec3 conversion
+//! let c1 = sphere([1, 1], 4); // no vec2 -> vec3 conversion!
 //! # ").unwrap();
 //! ```
 //!

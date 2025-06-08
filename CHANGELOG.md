@@ -28,6 +28,11 @@
       of image.
     - Note that **approximate SDFs are entirely removed**; they were not
       substantially faster, added complexity, and looked bad.
+- Add `#[facet(default = ...)]` annotations to relevant fields in
+  `fidget::shapes`.
+    - These annotations are used in the Rhai bindings to build shapes without
+      specifying every field, e.g. `circle(1)` leaves the center as a default
+      value.
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

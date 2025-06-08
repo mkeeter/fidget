@@ -59,6 +59,41 @@ impl TryFrom<facet::ConstTypeId> for TypeTag {
 }
 
 impl TypeTag {
+    /// Executes a default builder function for the given type
+    ///
+    /// # Safety
+    /// `f` must be a builder for the inner type associated with this tag
+    unsafe fn build_from_default_fn(
+        &self,
+        f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
+    ) -> Type {
+        unsafe {
+            match self {
+                TypeTag::Float => Type::Float(Self::eval_default_fn(f)),
+                TypeTag::Vec2 => Type::Vec2(Self::eval_default_fn(f)),
+                TypeTag::Vec3 => Type::Vec3(Self::eval_default_fn(f)),
+                TypeTag::Vec4 => Type::Vec4(Self::eval_default_fn(f)),
+                TypeTag::Tree => Type::Tree(Self::eval_default_fn(f)),
+                TypeTag::VecTree => Type::VecTree(Self::eval_default_fn(f)),
+            }
+        }
+    }
+
+    /// Evaluates a default builder function, returning a value
+    ///
+    /// # Safety
+    /// `f` must be a builder for type `T`
+    unsafe fn eval_default_fn<T>(
+        f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
+    ) -> T {
+        let mut v = std::mem::MaybeUninit::<T>::uninit();
+        let ptr = facet::PtrUninit::new(&mut v);
+        // SAFETY: `f` must be a builder for type `T`
+        unsafe { f(ptr) };
+        // SAFETY: `v` is initialized by `f`
+        unsafe { v.assume_init() }
+    }
+
     /// Build a [`Type`] from a dynamic value and tag hint
     ///
     /// The resulting type is guaranteed to match the tag.
@@ -180,22 +215,32 @@ fn register_shape<
     }
 
     let mut count = enum_map::EnumMap::<TypeTag, usize>::default();
+    let mut default_count = 0;
     for f in s.fields {
         let t = TypeTag::try_from(f.shape().id).unwrap();
         count[t] += 1;
+        if f.vtable.default_fn.is_some() {
+            default_count += 1;
+        }
     }
     if !skip_build_unique && count.iter().all(|(_k, v)| *v <= 1) {
-        match s.fields.len() {
-            1 => engine.register_fn(&name_lower, build_unique1::<T>),
-            2 => engine.register_fn(&name_lower, build_unique2::<T>),
-            3 => engine.register_fn(&name_lower, build_unique3::<T>),
-            4 => engine.register_fn(&name_lower, build_unique4::<T>),
-            5 => engine.register_fn(&name_lower, build_unique5::<T>),
-            6 => engine.register_fn(&name_lower, build_unique6::<T>),
-            7 => engine.register_fn(&name_lower, build_unique7::<T>),
-            8 => engine.register_fn(&name_lower, build_unique8::<T>),
-            _ => engine,
-        };
+        // Generate typed unique builders for all possible argument counts
+        let field_count = s.fields.len();
+        let min_field_count = field_count - default_count;
+        for n in min_field_count..=field_count {
+            match n {
+                0 => engine.register_fn(&name_lower, build_unique0::<T>),
+                1 => engine.register_fn(&name_lower, build_unique1::<T>),
+                2 => engine.register_fn(&name_lower, build_unique2::<T>),
+                3 => engine.register_fn(&name_lower, build_unique3::<T>),
+                4 => engine.register_fn(&name_lower, build_unique4::<T>),
+                5 => engine.register_fn(&name_lower, build_unique5::<T>),
+                6 => engine.register_fn(&name_lower, build_unique6::<T>),
+                7 => engine.register_fn(&name_lower, build_unique7::<T>),
+                8 => engine.register_fn(&name_lower, build_unique8::<T>),
+                _ => engine,
+            };
+        }
     }
 }
 
@@ -264,7 +309,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
     Ok(t.into())
 }
 
-/// Builds a transform-shaped `T` from a Rhai map
+/// Builds a transform-shaped `T` from a Rhai value
 ///
 /// # Panics
 /// `T` must be a `struct` with two fields; one must be a `Tree`, and the other
@@ -344,7 +389,13 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
         panic!("must build a struct");
     };
     for (i, f) in shape.fields.iter().enumerate() {
-        let Some(v) = m.get(f.name).cloned() else {
+        let tag = TypeTag::try_from(f.shape().id).unwrap();
+
+        let v = if let Some(v) = m.get(f.name).cloned() {
+            tag.into_type(&ctx, v)?
+        } else if let Some(df) = f.vtable.default_fn {
+            unsafe { tag.build_from_default_fn(df) }
+        } else {
             return Err(EvalAltResult::ErrorRuntime(
                 format!("field {} must be provided for {}", f.name, T::SHAPE)
                     .into(),
@@ -353,8 +404,6 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
             .into());
         };
 
-        let tag = TypeTag::try_from(f.shape().id).unwrap();
-        let v = tag.into_type(&ctx, v)?;
         v.put(&mut builder, i);
     }
 
@@ -411,7 +460,7 @@ reducer!(build_reduce7, a, b, c, d, e, f, g);
 reducer!(build_reduce8, a, b, c, d, e, f, g, h);
 
 macro_rules! unique {
-    ($name:ident, $($v:ident),*) => {
+    ($name:ident$(,)? $($v:ident),*) => {
         /// Builds a `T` from a list of Rhai values of unique types
         ///
         /// # Panics
@@ -436,8 +485,12 @@ macro_rules! unique {
 
             let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
             for (i, f) in shape.fields.iter().enumerate() {
-                let t = TypeTag::try_from(f.shape().id).unwrap();
-                let Some(v) = vs[t].take() else {
+                let tag = TypeTag::try_from(f.shape().id).unwrap();
+                let v = if let Some(v) = vs[tag].take() {
+                    v
+                } else if let Some(df) = f.vtable.default_fn {
+                    unsafe { tag.build_from_default_fn(df) }
+                } else {
                     return Err(EvalAltResult::ErrorRuntime(
                         format!("missing argument of type {}", f.shape())
                             .into(),
@@ -448,12 +501,23 @@ macro_rules! unique {
                  v.put(&mut builder, i);
             }
 
+            if let Some((k, _v)) = vs.iter().find(|(_k, v)| v.is_some()) {
+                return Err(EvalAltResult::ErrorRuntime(
+                    format!("shape does not have an argument of type {:?}", k)
+                        .into(),
+                    ctx.position(),
+                )
+                .into());
+            }
+
+
             let t: T = builder.build().unwrap().materialize().unwrap();
             Ok(t.into())
         }
     }
 }
 
+unique!(build_unique0);
 unique!(build_unique1, a);
 unique!(build_unique2, a, b);
 unique!(build_unique3, a, b, c);
@@ -490,10 +554,25 @@ mod test {
             )
             .is_err()
         );
-        assert!(e.eval::<Tree>("circle(#{ radius: 4 })").is_err());
         assert!(
             e.eval::<Tree>("circle(#{ radius: 4, xy: vec2(1, 2) })")
                 .is_err()
         );
+
+        assert!(e.eval::<Tree>("circle([1, 2], 3)").is_ok());
+    }
+
+    #[test]
+    fn circle_builder_default() {
+        let mut e = rhai::Engine::new();
+        register_shape::<Circle>(&mut e);
+        e.build_type::<Vec2>();
+        assert!(e.eval::<Tree>("circle(#{ center: vec2(1, 2)})").is_ok());
+        assert!(e.eval::<Tree>("circle(#{ radius: 1})").is_ok());
+
+        assert!(e.eval::<Tree>("circle(3)").is_ok());
+        assert!(e.eval::<Tree>("circle([1, 2])").is_ok());
+
+        assert!(e.eval::<Tree>("circle()").is_ok());
     }
 }
