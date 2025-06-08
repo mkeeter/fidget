@@ -33,6 +33,9 @@
     - These annotations are used in the Rhai bindings to build shapes without
       specifying every field, e.g. `circle(1)` leaves the center as a default
       value.
+- Fix issue where `Shape::eval_*` functions would return an empty slice if there
+  were no active variables in the shape; it now returns a slice that's the
+  correct size (i.e. matching the input slices).
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local
