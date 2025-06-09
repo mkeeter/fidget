@@ -201,7 +201,7 @@ fn draw(
     ctx: NativeCallContext,
     tree: rhai::Dynamic,
 ) -> Result<(), Box<EvalAltResult>> {
-    let tree = Tree::from_dynamic(&ctx, tree)?;
+    let tree = Tree::from_dynamic(&ctx, tree, None)?;
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     ctx.lock().unwrap().shapes.push(DrawShape {
         tree,
@@ -217,7 +217,7 @@ fn draw_rgb(
     g: f64,
     b: f64,
 ) -> Result<(), Box<EvalAltResult>> {
-    let tree = Tree::from_dynamic(&ctx, tree)?;
+    let tree = Tree::from_dynamic(&ctx, tree, None)?;
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     let f = |a| {
         if a < 0.0 {
@@ -253,6 +253,7 @@ where
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         v: rhai::Dynamic,
+        default: Option<&Self>,
     ) -> Result<Self, Box<EvalAltResult>>;
 }
 
@@ -260,6 +261,7 @@ impl FromDynamic for f64 {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
+        _default: Option<&f64>,
     ) -> Result<Self, Box<EvalAltResult>> {
         let ty = d.type_name();
         d.clone()

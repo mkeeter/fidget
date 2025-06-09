@@ -6,12 +6,13 @@ impl FromDynamic for Tree {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
+        _default: Option<&Tree>,
     ) -> Result<Self, Box<EvalAltResult>> {
         if let Some(t) = d.clone().try_cast::<Tree>() {
             Ok(t)
-        } else if let Ok(v) = f64::from_dynamic(ctx, d.clone()) {
+        } else if let Ok(v) = f64::from_dynamic(ctx, d.clone(), None) {
             Ok(Tree::constant(v))
-        } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, d.clone()) {
+        } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, d.clone(), None) {
             Ok(crate::shapes::Union { input: v }.into())
         } else {
             Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
@@ -27,10 +28,11 @@ impl FromDynamic for Vec<Tree> {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
+        _default: Option<&Vec<Tree>>,
     ) -> Result<Self, Box<EvalAltResult>> {
         if let Ok(d) = d.clone().into_array() {
             d.into_iter()
-                .map(|v| Tree::from_dynamic(ctx, v))
+                .map(|v| Tree::from_dynamic(ctx, v, None))
                 .collect::<Result<Vec<_>, _>>()
         } else {
             Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
@@ -102,7 +104,7 @@ fn remap_xyz(
     y: Tree,
     z: Tree,
 ) -> Result<Tree, Box<EvalAltResult>> {
-    let shape = Tree::from_dynamic(&ctx, shape)?;
+    let shape = Tree::from_dynamic(&ctx, shape, None)?;
     Ok(shape.remap_xyz(x, y, z))
 }
 
@@ -119,7 +121,7 @@ macro_rules! define_binary_fns {
                 a: Tree,
                 b: rhai::Dynamic,
             ) -> Result<Tree, Box<rhai::EvalAltResult>> {
-                let b = Tree::from_dynamic(&ctx, b)?;
+                let b = Tree::from_dynamic(&ctx, b, None)?;
                 Ok(a.$name(b))
             }
             pub fn dyn_tree(
@@ -127,7 +129,7 @@ macro_rules! define_binary_fns {
                 a: rhai::Dynamic,
                 b: Tree,
             ) -> Result<Tree, Box<rhai::EvalAltResult>> {
-                let a = Tree::from_dynamic(&ctx, a)?;
+                let a = Tree::from_dynamic(&ctx, a, None)?;
                 Ok(a.$name(b))
             }
         }
@@ -142,7 +144,7 @@ macro_rules! define_unary_fns {
                 ctx: NativeCallContext,
                 a: rhai::Dynamic,
             ) -> Result<Tree, Box<EvalAltResult>> {
-                let a = Tree::from_dynamic(&ctx, a)?;
+                let a = Tree::from_dynamic(&ctx, a, None)?;
                 Ok(a.$name())
             }
         }

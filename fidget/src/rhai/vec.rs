@@ -74,8 +74,8 @@ impl CustomType for Vec2 {
                  x: rhai::Dynamic,
                  y: rhai::Dynamic|
                  -> Result<Self, Box<EvalAltResult>> {
-                    let x = f64::from_dynamic(&ctx, x)?;
-                    let y = f64::from_dynamic(&ctx, y)?;
+                    let x = f64::from_dynamic(&ctx, x, None)?;
+                    let y = f64::from_dynamic(&ctx, y, None)?;
                     Ok(Self { x, y })
                 },
             )
@@ -95,9 +95,9 @@ impl CustomType for Vec3 {
                  y: rhai::Dynamic,
                  z: rhai::Dynamic|
                  -> Result<Self, Box<EvalAltResult>> {
-                    let x = f64::from_dynamic(&ctx, x)?;
-                    let y = f64::from_dynamic(&ctx, y)?;
-                    let z = f64::from_dynamic(&ctx, z)?;
+                    let x = f64::from_dynamic(&ctx, x, None)?;
+                    let y = f64::from_dynamic(&ctx, y, None)?;
+                    let z = f64::from_dynamic(&ctx, z, None)?;
                     Ok(Self { x, y, z })
                 },
             )
@@ -111,6 +111,7 @@ impl FromDynamic for Vec2 {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
+        _default: Option<&Vec2>,
     ) -> Result<Self, Box<EvalAltResult>> {
         if let Some(v) = d.clone().try_cast() {
             Ok(v)
@@ -124,8 +125,8 @@ impl FromDynamic for Vec2 {
             })?;
             match array.len() {
                 2 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone())?;
-                    let y = f64::from_dynamic(ctx, array[1].clone())?;
+                    let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+                    let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
                     Ok(Vec2 { x, y })
                 }
                 n => Err(EvalAltResult::ErrorMismatchDataType(
@@ -143,12 +144,13 @@ impl FromDynamic for Vec3 {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
+        default: Option<&Vec3>,
     ) -> Result<Self, Box<EvalAltResult>> {
-        if let Ok(v) = Vec2::from_dynamic(ctx, d.clone()) {
+        if let Ok(v) = Vec2::from_dynamic(ctx, d.clone(), None) {
             Ok(Vec3 {
                 x: v.x,
                 y: v.y,
-                z: 0.0,
+                z: default.map(|d| d.z).unwrap_or(0.0),
             })
         } else if let Some(v) = d.clone().try_cast() {
             Ok(v)
@@ -162,9 +164,9 @@ impl FromDynamic for Vec3 {
             })?;
             match array.len() {
                 3 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone())?;
-                    let y = f64::from_dynamic(ctx, array[1].clone())?;
-                    let z = f64::from_dynamic(ctx, array[2].clone())?;
+                    let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+                    let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+                    let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
                     Ok(Vec3 { x, y, z })
                 }
                 n => Err(EvalAltResult::ErrorMismatchDataType(
@@ -182,6 +184,7 @@ impl FromDynamic for Vec4 {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
+        _default: Option<&Vec4>,
     ) -> Result<Self, Box<EvalAltResult>> {
         if let Some(v) = d.clone().try_cast() {
             Ok(v)
@@ -195,10 +198,10 @@ impl FromDynamic for Vec4 {
             })?;
             match array.len() {
                 4 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone())?;
-                    let y = f64::from_dynamic(ctx, array[1].clone())?;
-                    let z = f64::from_dynamic(ctx, array[2].clone())?;
-                    let w = f64::from_dynamic(ctx, array[3].clone())?;
+                    let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+                    let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+                    let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
+                    let w = f64::from_dynamic(ctx, array[3].clone(), None)?;
                     Ok(Vec4 { x, y, z, w })
                 }
                 n => Err(EvalAltResult::ErrorMismatchDataType(
