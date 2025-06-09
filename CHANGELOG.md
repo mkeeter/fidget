@@ -36,6 +36,10 @@
 - Fix issue where `Shape::eval_*` functions would return an empty slice if there
   were no active variables in the shape; it now returns a slice that's the
   correct size (i.e. matching the input slices).
+- In Rhai bindings, `FromDynamic` now takes the field's default value as a hint,
+  which may be used when promoting other types.  For example, if you pass a
+  `vec2` (instead of a `vec3`) to both `Move` and `Scale`, the `z` component
+  will be set to 0 for `Move` and 1 for `Scale`.
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

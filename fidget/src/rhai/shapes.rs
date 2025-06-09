@@ -101,34 +101,100 @@ impl TypeTag {
         self,
         ctx: &NativeCallContext,
         v: rhai::Dynamic,
+        default: Option<Type>,
     ) -> Result<Type, Box<EvalAltResult>> {
+        let default = default.as_ref();
         let out = match self {
-            TypeTag::Float => Type::Float(<_>::from_dynamic(ctx, v)?),
-            TypeTag::Vec2 => Type::Vec2(<_>::from_dynamic(ctx, v)?),
-            TypeTag::Vec3 => Type::Vec3(<_>::from_dynamic(ctx, v)?),
-            TypeTag::Vec4 => Type::Vec4(<_>::from_dynamic(ctx, v)?),
-            TypeTag::Tree => Type::Tree(<_>::from_dynamic(ctx, v)?),
-            TypeTag::VecTree => Type::VecTree(<_>::from_dynamic(ctx, v)?),
+            TypeTag::Float => {
+                Type::Float(from_dynamic_with_hint(ctx, v, default)?)
+            }
+            TypeTag::Vec2 => {
+                Type::Vec2(from_dynamic_with_hint(ctx, v, default)?)
+            }
+            TypeTag::Vec3 => {
+                Type::Vec3(from_dynamic_with_hint(ctx, v, default)?)
+            }
+            TypeTag::Vec4 => {
+                Type::Vec4(from_dynamic_with_hint(ctx, v, default)?)
+            }
+            TypeTag::Tree => {
+                Type::Tree(from_dynamic_with_hint(ctx, v, default)?)
+            }
+            TypeTag::VecTree => {
+                Type::VecTree(from_dynamic_with_hint(ctx, v, default)?)
+            }
         };
         Ok(out)
     }
 }
 
+fn from_dynamic_with_hint<T: FromDynamic>(
+    ctx: &NativeCallContext,
+    v: rhai::Dynamic,
+    default: Option<&Type>,
+) -> Result<T, Box<EvalAltResult>>
+where
+    Type: TypeGet<T>,
+{
+    <_>::from_dynamic(ctx, v, default.as_ref().and_then(|d| d.get()))
+}
+
+trait TypeGet<T> {
+    fn get(&self) -> Option<&T>;
+}
+
+macro_rules! type_get {
+    ($ty:ty, $name:ident) => {
+        impl TypeGet<$ty> for Type {
+            fn get(&self) -> Option<&$ty> {
+                if let Type::$name(f) = self {
+                    Some(f)
+                } else {
+                    None
+                }
+            }
+        }
+    };
+    ($ty:ident) => {
+        type_get!($ty, $ty);
+    };
+}
+
+type_get!(f64, Float);
+type_get!(Vec2);
+type_get!(Vec3);
+type_get!(Vec4);
+type_get!(Tree);
+type_get!(Vec<Tree>, VecTree);
+
 impl Type {
     fn from_dynamic(
         ctx: &NativeCallContext,
         v: rhai::Dynamic,
+        default: Option<Type>,
     ) -> Result<Type, Box<EvalAltResult>> {
         // This chain is ordered to prevent implicit conversions, e.g. we check
         // `Vec<Tree>` before `Tree` becaues Tree::from_dynamic` will
-        // automaticalyl collapse a `[Tree]` list.
-        <_>::from_dynamic(ctx, v.clone())
+        // automatically collapse a `[Tree]` list.
+        let default = default.as_ref();
+        from_dynamic_with_hint(ctx, v.clone(), default)
             .map(Type::Float)
-            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Vec2))
-            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Vec3))
-            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Vec4))
-            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::VecTree))
-            .or_else(|_| <_>::from_dynamic(ctx, v.clone()).map(Type::Tree))
+            .or_else(|_| {
+                from_dynamic_with_hint(ctx, v.clone(), default).map(Type::Vec2)
+            })
+            .or_else(|_| {
+                from_dynamic_with_hint(ctx, v.clone(), default).map(Type::Vec3)
+            })
+            .or_else(|_| {
+                from_dynamic_with_hint(ctx, v.clone(), default).map(Type::Vec4)
+            })
+            .or_else(|_| {
+                from_dynamic_with_hint(ctx, v.clone(), default)
+                    .map(Type::VecTree)
+            })
+            .or_else(|_| {
+                from_dynamic_with_hint(ctx, v.clone(), default).map(Type::Tree)
+            })
             .map_err(|_| {
                 Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
                     "any Rust-compatible Type".to_string(),
@@ -268,7 +334,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
     t: rhai::Dynamic,
     m: rhai::Map,
 ) -> Result<Tree, Box<EvalAltResult>> {
-    let mut t = Some(Tree::from_dynamic(&ctx, t)?);
+    let mut t = Some(Tree::from_dynamic(&ctx, t, None)?);
 
     let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
     let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
@@ -291,7 +357,11 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
             )
             .into());
         };
-        let v = tag.into_type(&ctx, v)?;
+        let d = f
+            .vtable
+            .default_fn
+            .map(|df| unsafe { tag.build_from_default_fn(df) });
+        let v = tag.into_type(&ctx, v, d)?;
         v.put(&mut builder, i);
     }
 
@@ -324,7 +394,7 @@ fn build_transform_one<T: Facet<'static> + Into<Tree>>(
     };
     assert_eq!(shape.fields.len(), 2);
 
-    let mut t = Some(Tree::from_dynamic(&ctx, t)?);
+    let mut t = Some(Tree::from_dynamic(&ctx, t, None)?);
     let mut arg = Some(arg);
 
     let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
@@ -335,7 +405,11 @@ fn build_transform_one<T: Facet<'static> + Into<Tree>>(
             let t = t.take().unwrap();
             builder.set_nth_field(i, t).unwrap();
         } else {
-            let v = tag.into_type(&ctx, arg.take().unwrap())?;
+            let d = f
+                .vtable
+                .default_fn
+                .map(|df| unsafe { tag.build_from_default_fn(df) });
+            let v = tag.into_type(&ctx, arg.take().unwrap(), d)?;
             v.put(&mut builder, i);
         }
     }
@@ -364,8 +438,8 @@ fn build_binary<T: Facet<'static> + Into<Tree>>(
             .all(|f| f.shape().id == ConstTypeId::of::<Tree>())
     );
 
-    let a = Tree::from_dynamic(&ctx, a)?;
-    let b = Tree::from_dynamic(&ctx, b)?;
+    let a = Tree::from_dynamic(&ctx, a, None)?;
+    let b = Tree::from_dynamic(&ctx, b, None)?;
 
     let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
 
@@ -391,10 +465,14 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
     for (i, f) in shape.fields.iter().enumerate() {
         let tag = TypeTag::try_from(f.shape().id).unwrap();
 
+        let d = f
+            .vtable
+            .default_fn
+            .map(|df| unsafe { tag.build_from_default_fn(df) });
         let v = if let Some(v) = m.get(f.name).cloned() {
-            tag.into_type(&ctx, v)?
-        } else if let Some(df) = f.vtable.default_fn {
-            unsafe { tag.build_from_default_fn(df) }
+            tag.into_type(&ctx, v, d)?
+        } else if let Some(v) = d {
+            v
         } else {
             return Err(EvalAltResult::ErrorRuntime(
                 format!("field {} must be provided for {}", f.name, T::SHAPE)
@@ -441,7 +519,7 @@ macro_rules! reducer {
 
             let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
             let v = vec![$(
-                Tree::from_dynamic(&ctx, $v)?
+                Tree::from_dynamic(&ctx, $v, None)?
             ),*];
             builder.set_nth_field(0, v).unwrap();
 
@@ -476,20 +554,24 @@ macro_rules! unique {
             };
 
             // Build a map of our known values
-            let mut vs = enum_map::EnumMap::<TypeTag, Option<Type>>::default();
+            let mut vs = enum_map::EnumMap::<TypeTag, Option<rhai::Dynamic>>::default();
             $(
-                let $v = Type::from_dynamic(&ctx, $v)?;
-                let tag = $v.discriminant();
+                let tag = Type::from_dynamic(&ctx, $v.clone(), None)?.discriminant();
                 vs[tag] = Some($v);
             )*
 
             let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
             for (i, f) in shape.fields.iter().enumerate() {
                 let tag = TypeTag::try_from(f.shape().id).unwrap();
+
+                let d = f
+                    .vtable
+                    .default_fn
+                    .map(|df| unsafe { tag.build_from_default_fn(df) });
                 let v = if let Some(v) = vs[tag].take() {
+                    tag.into_type(&ctx, v, d).unwrap()
+                } else if let Some(v) = d {
                     v
-                } else if let Some(df) = f.vtable.default_fn {
-                    unsafe { tag.build_from_default_fn(df) }
                 } else {
                     return Err(EvalAltResult::ErrorRuntime(
                         format!("missing argument of type {}", f.shape())
@@ -533,6 +615,7 @@ unique!(build_unique8, a, b, c, d, e, f, g, h);
 mod test {
     use super::*;
     use crate::shapes::*;
+    use crate::{Context, context::Op, var::Var};
 
     #[test]
     fn circle_builder() {
@@ -574,5 +657,22 @@ mod test {
         assert!(e.eval::<Tree>("circle([1, 2])").is_ok());
 
         assert!(e.eval::<Tree>("circle()").is_ok());
+    }
+
+    #[test]
+    fn scale_and_move_defaults() {
+        // Move should default to 0 on the Z axis
+        let mut e = crate::rhai::Engine::new();
+        let v = e.eval("z.move([1, 1])").unwrap();
+        let mut ctx = Context::new();
+        let root = ctx.import(&v);
+        assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::Z));
+
+        // Scale should default to 1 on the Z axis
+        let mut e = crate::rhai::Engine::new();
+        let v = e.eval("z.scale([1, 1])").unwrap();
+        let mut ctx = Context::new();
+        let root = ctx.import(&v);
+        assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::Z));
     }
 }
