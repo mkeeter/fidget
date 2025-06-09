@@ -533,6 +533,7 @@ unique!(build_unique8, a, b, c, d, e, f, g, h);
 mod test {
     use super::*;
     use crate::shapes::*;
+    use crate::{Context, context::Op, var::Var};
 
     #[test]
     fn circle_builder() {
@@ -574,5 +575,20 @@ mod test {
         assert!(e.eval::<Tree>("circle([1, 2])").is_ok());
 
         assert!(e.eval::<Tree>("circle()").is_ok());
+    }
+
+    #[test]
+    fn scale_and_move_defaults() {
+        let mut e = crate::rhai::Engine::new();
+        let v = e.eval("z.move([1, 1])").unwrap();
+        let mut ctx = Context::new();
+        let root = ctx.import(&v);
+        assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::Z));
+
+        let mut e = crate::rhai::Engine::new();
+        let v = e.eval("z.scale([1, 1])").unwrap();
+        let mut ctx = Context::new();
+        let root = ctx.import(&v);
+        assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::Z));
     }
 }
