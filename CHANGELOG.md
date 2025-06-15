@@ -40,6 +40,8 @@
   which may be used when promoting other types.  For example, if you pass a
   `vec2` (instead of a `vec3`) to both `Move` and `Scale`, the `z` component
   will be set to 0 for `Move` and 1 for `Scale`.
+- Add helper functions to destructure and rebuild `Canvas2`, `Canvas3`, `View2`,
+  and `View3` into their component values.
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

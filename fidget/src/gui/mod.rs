@@ -46,6 +46,20 @@ impl Canvas2 {
         }
     }
 
+    /// Destructures the canvas into its components
+    pub fn components(&self) -> (View2, ImageSize) {
+        (self.view, self.image_size)
+    }
+
+    /// Builds the canvas from components
+    pub fn from_components(view: View2, image_size: ImageSize) -> Self {
+        Self {
+            view,
+            image_size,
+            drag_start: None,
+        }
+    }
+
     /// Stateful interaction with the canvas
     ///
     /// The `cursor_state` indicates whether cursor is on-screen, and if so,
@@ -174,6 +188,18 @@ impl Canvas3 {
     pub fn new(image_size: VoxelSize) -> Self {
         Self {
             view: View3::default(),
+            image_size,
+            drag_start: None,
+        }
+    }
+
+    pub fn components(&self) -> (View3, VoxelSize) {
+        (self.view, self.image_size)
+    }
+
+    pub fn from_components(view: View3, image_size: VoxelSize) -> Self {
+        Self {
+            view,
             image_size,
             drag_start: None,
         }

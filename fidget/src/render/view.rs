@@ -72,6 +72,19 @@ impl View2 {
         Self { center, scale }
     }
 
+    /// Returns a `(center, scale)` tuple
+    pub fn components(&self) -> (Vector2<f32>, f32) {
+        (self.center, self.scale)
+    }
+
+    /// Builds a view from its components
+    ///
+    /// This function is identical to
+    /// [`from_center_and_scale`](Self::from_center_and_scale)
+    pub fn from_components(center: Vector2<f32>, scale: f32) -> Self {
+        Self::from_center_and_scale(center, scale)
+    }
+
     /// Returns the scaling matrix for this view
     fn scale_mat(&self) -> Matrix3<f32> {
         Matrix3::new_scaling(self.scale)
@@ -170,6 +183,26 @@ impl View3 {
             scale,
             yaw: 0.0,
             pitch: 0.0,
+        }
+    }
+
+    /// Returns a `(center, scale, yaw, pitch)` tuple
+    pub fn components(&self) -> (Vector3<f32>, f32, f32, f32) {
+        (self.center, self.scale, self.yaw, self.pitch)
+    }
+
+    /// Builds the view from its components
+    pub fn from_components(
+        center: Vector3<f32>,
+        scale: f32,
+        yaw: f32,
+        pitch: f32,
+    ) -> Self {
+        Self {
+            center,
+            scale,
+            yaw,
+            pitch,
         }
     }
 
