@@ -2,7 +2,7 @@
 use crate::{
     context::Tree,
     rhai::FromDynamic,
-    shapes::{ShapeVisitor, Vec2, Vec3, Vec4, visit_shapes},
+    shapes::{Axis, Plane, ShapeVisitor, Vec2, Vec3, Vec4, visit_shapes},
 };
 use facet::{ConstTypeId, Facet};
 use rhai::{EvalAltResult, NativeCallContext};
@@ -32,6 +32,8 @@ enum Type {
     Vec2(Vec2),
     Vec3(Vec3),
     Vec4(Vec4),
+    Axis(Axis),
+    Plane(Plane),
     Tree(Tree),
     VecTree(Vec<Tree>),
 }
@@ -48,6 +50,10 @@ impl TryFrom<facet::ConstTypeId> for TypeTag {
             Ok(Self::Vec3)
         } else if t == ConstTypeId::of::<Vec4>() {
             Ok(Self::Vec4)
+        } else if t == ConstTypeId::of::<Axis>() {
+            Ok(Self::Axis)
+        } else if t == ConstTypeId::of::<Plane>() {
+            Ok(Self::Plane)
         } else if t == ConstTypeId::of::<Tree>() {
             Ok(Self::Tree)
         } else if t == ConstTypeId::of::<Vec<Tree>>() {
@@ -73,6 +79,8 @@ impl TypeTag {
                 TypeTag::Vec2 => Type::Vec2(Self::eval_default_fn(f)),
                 TypeTag::Vec3 => Type::Vec3(Self::eval_default_fn(f)),
                 TypeTag::Vec4 => Type::Vec4(Self::eval_default_fn(f)),
+                TypeTag::Axis => Type::Axis(Self::eval_default_fn(f)),
+                TypeTag::Plane => Type::Plane(Self::eval_default_fn(f)),
                 TypeTag::Tree => Type::Tree(Self::eval_default_fn(f)),
                 TypeTag::VecTree => Type::VecTree(Self::eval_default_fn(f)),
             }
@@ -120,6 +128,12 @@ impl TypeTag {
             TypeTag::Tree => {
                 Type::Tree(from_dynamic_with_hint(ctx, v, default)?)
             }
+            TypeTag::Axis => {
+                Type::Axis(from_dynamic_with_hint(ctx, v, default)?)
+            }
+            TypeTag::Plane => {
+                Type::Plane(from_dynamic_with_hint(ctx, v, default)?)
+            }
             TypeTag::VecTree => {
                 Type::VecTree(from_dynamic_with_hint(ctx, v, default)?)
             }
@@ -165,6 +179,8 @@ type_get!(Vec2);
 type_get!(Vec3);
 type_get!(Vec4);
 type_get!(Tree);
+type_get!(Plane);
+type_get!(Axis);
 type_get!(Vec<Tree>, VecTree);
 
 impl Type {
@@ -220,6 +236,8 @@ impl Type {
             Type::Vec2(v) => builder.set_nth_field(i, v),
             Type::Vec3(v) => builder.set_nth_field(i, v),
             Type::Vec4(v) => builder.set_nth_field(i, v),
+            Type::Axis(v) => builder.set_nth_field(i, v),
+            Type::Plane(v) => builder.set_nth_field(i, v),
             Type::Tree(v) => builder.set_nth_field(i, v),
             Type::VecTree(v) => builder.set_nth_field(i, v),
         }

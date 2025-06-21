@@ -42,6 +42,11 @@
   will be set to 0 for `Move` and 1 for `Scale`.
 - Add helper functions to destructure and rebuild `Canvas2`, `Canvas3`, `View2`,
   and `View3` into their component values.
+- Rename `fidget::{shapes, rhai}::vec` to `fidget::{shapes, rhai}::types`
+- Add more common types used in shapes and Rhai bindings:
+    - `Axis` is a unit `Vec3`
+    - `Plane` is an `Axis` and offset
+- Add `Reflect` shape, as well as `ReflectX/Y/Z`
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

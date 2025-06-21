@@ -1,7 +1,7 @@
 //! Rhai bindings for Fidget's 2D and 3D vector types
 use crate::{
     rhai::FromDynamic,
-    shapes::{Vec2, Vec3, Vec4},
+    shapes::{Axis, Plane, Vec2, Vec3, Vec4},
 };
 use rhai::{CustomType, EvalAltResult, TypeBuilder};
 
@@ -56,12 +56,15 @@ macro_rules! register_unary {
     };
 }
 
-/// Installs the `Vec2` and `Vec3` types into a Rhai engine
+/// Installs our common types into the engine
 pub fn register(engine: &mut rhai::Engine) {
     engine.build_type::<Vec2>();
     engine.build_type::<Vec3>();
     register_all!(engine, Vec2);
     register_all!(engine, Vec3);
+
+    engine.build_type::<Axis>();
+    engine.build_type::<Plane>();
 }
 
 impl CustomType for Vec2 {
@@ -212,5 +215,186 @@ impl FromDynamic for Vec4 {
                 .into()),
             }
         }
+    }
+}
+
+const AXIS_EXPECTED_TYPE: &str = "axis or [float; 3]";
+
+impl FromDynamic for Axis {
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        d: rhai::Dynamic,
+        _default: Option<&Self>,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        if let Some(v) = d.clone().try_cast() {
+            Ok(v)
+        } else if let Ok(v) = Vec3::from_dynamic(ctx, d.clone(), None) {
+            v.try_into().map_err(|e| {
+                EvalAltResult::ErrorMismatchDataType(
+                    format!("conversion failed: {e}"),
+                    AXIS_EXPECTED_TYPE.to_string(),
+                    ctx.position(),
+                )
+                .into()
+            })
+        } else {
+            Err(EvalAltResult::ErrorMismatchDataType(
+                "axis or [float; 3]".to_string(),
+                d.type_name().to_owned(),
+                ctx.position(),
+            )
+            .into())
+        }
+    }
+}
+
+impl CustomType for Axis {
+    fn build(mut builder: TypeBuilder<Self>) {
+        builder
+            .with_name("Axis")
+            .with_fn(
+                "axis",
+                |ctx: rhai::NativeCallContext,
+                 v: rhai::Dynamic|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    Axis::from_dynamic(&ctx, v, None)
+                },
+            )
+            .with_fn(
+                "axis",
+                |ctx: rhai::NativeCallContext,
+                 t: crate::context::Tree|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    // Magic: make `axis` work on `Tree` axes
+                    use crate::{context::TreeOp, var::Var};
+                    match &*t {
+                        TreeOp::Input(Var::X) => Ok(Axis::X),
+                        TreeOp::Input(Var::Y) => Ok(Axis::Y),
+                        TreeOp::Input(Var::Z) => Ok(Axis::Z),
+                        _ => Err(EvalAltResult::ErrorMismatchDataType(
+                            AXIS_EXPECTED_TYPE.to_string(),
+                            "Tree".to_owned(),
+                            ctx.position(),
+                        )
+                        .into()),
+                    }
+                },
+            )
+            .with_fn(
+                "axis",
+                |ctx: rhai::NativeCallContext,
+                 c: char|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    match c {
+                        'x' => Ok(Axis::X),
+                        'y' => Ok(Axis::Y),
+                        'z' => Ok(Axis::Z),
+                        _ => Err(EvalAltResult::ErrorMismatchDataType(
+                            AXIS_EXPECTED_TYPE.to_string(),
+                            "char".to_owned(),
+                            ctx.position(),
+                        )
+                        .into()),
+                    }
+                },
+            )
+            .with_fn(
+                "axis",
+                |ctx: rhai::NativeCallContext,
+                 c: &str|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    match c {
+                        "x" => Ok(Axis::X),
+                        "y" => Ok(Axis::Y),
+                        "z" => Ok(Axis::Z),
+                        _ => Err(EvalAltResult::ErrorMismatchDataType(
+                            AXIS_EXPECTED_TYPE.to_string(),
+                            "char".to_owned(),
+                            ctx.position(),
+                        )
+                        .into()),
+                    }
+                },
+            );
+    }
+}
+
+impl FromDynamic for Plane {
+    fn from_dynamic(
+        ctx: &rhai::NativeCallContext,
+        d: rhai::Dynamic,
+        _default: Option<&Self>,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        if let Some(v) = d.clone().try_cast() {
+            Ok(v)
+        } else if let Some(axis) = d.clone().try_cast() {
+            Ok(Self { axis, offset: 0.0 })
+        } else if let Ok(v) = Vec3::from_dynamic(ctx, d.clone(), None) {
+            v.try_into()
+                .map_err(|e| {
+                    EvalAltResult::ErrorMismatchDataType(
+                        format!("conversion failed: {e}"),
+                        "axis or [float; 3]".to_string(),
+                        ctx.position(),
+                    )
+                    .into()
+                })
+                .map(|axis| Self { axis, offset: 0.0 })
+        } else {
+            Err(EvalAltResult::ErrorMismatchDataType(
+                "plane, axis, or [float; 3]".to_string(),
+                d.type_name().to_owned(),
+                ctx.position(),
+            )
+            .into())
+        }
+    }
+}
+
+impl CustomType for Plane {
+    fn build(mut builder: TypeBuilder<Self>) {
+        builder
+            .with_name("Plane")
+            .with_fn(
+                "plane",
+                |ctx: rhai::NativeCallContext,
+                 v: rhai::Dynamic|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    Plane::from_dynamic(&ctx, v, None)
+                },
+            )
+            .with_fn(
+                "plane",
+                |ctx: rhai::NativeCallContext,
+                 v: rhai::Dynamic,
+                 offset: f64|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    let axis = Axis::from_dynamic(&ctx, v, None)?;
+                    Ok(Self { axis, offset })
+                },
+            );
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn type_constructors() {
+        let mut e = rhai::Engine::new();
+        register(&mut e);
+        assert_eq!(e.eval::<Axis>("axis([1, 0])").unwrap(), Axis::X);
+        assert_eq!(e.eval::<Axis>("axis([0, 0, 1])").unwrap(), Axis::Z);
+        assert!(e.eval::<Axis>("axis([0, 0, 0])").is_err());
+
+        assert_eq!(e.eval::<Plane>("plane([1, 0])").unwrap(), Plane::YZ);
+        assert_eq!(
+            e.eval::<Plane>("plane([1, 0], 0.5)").unwrap(),
+            Plane {
+                axis: Axis::X,
+                offset: 0.5
+            }
+        );
     }
 }
