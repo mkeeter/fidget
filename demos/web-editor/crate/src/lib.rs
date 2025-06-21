@@ -23,8 +23,7 @@ pub struct JsVmShape(VmShape);
 
 #[wasm_bindgen]
 pub fn eval_script(s: &str) -> Result<JsTree, String> {
-    let mut engine = fidget::rhai::Engine::new();
-    engine.set_limit(50_000); // ¯\_(ツ)_/¯
+    let engine = fidget::rhai::engine();
     let out = engine.eval(s);
     out.map(JsTree).map_err(|e| format!("{e}"))
 }

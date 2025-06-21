@@ -1,260 +1,273 @@
 //! Rhai bindings to Fidget
 //!
-//! This module details how to construct and use a
-//! [`fidget::rhai::Engine`](Engine) object; for details on writing scripts
-//! to be evaluated in an `Engine`, see the [`docs`] module.
+//! The [`engine`] function lets you construct a [`rhai::Engine`] with
+//! Fidget-specific bindings.  The rest of this documentation explains the
+//! behavior of those bindings; for low-level details, see the [`engine`]
+//! docstring.
 //!
-//! There are two main ways to use these bindings.
+//! # Introduction
+//! Rhai is a general-purpose scripting language embedded in Rust.  When used
+//! for Fidget scripting, we use the Rhai script to capture a math expression.
+//! This math expression can then be processed by Fidget's optimized evaluators.
 //!
-//! The simplest option is to call [`eval`], which evaluates a single expression
-//! with pre-defined variables `x`, `y`, `z`.
+//! It's important to distinguish between the Rhai script and the target math
+//! expression:
+//!
+//! - The Rhai script is general-purpose, evaluated a single time to compute
+//!   math expressions, and supports language features like conditionals and
+//!   loops
+//! - The math expression is closed-form arithmetic, evaluated _many_ times
+//!   over the course of rendering, and only supports operations from
+//!   [`TreeOp`](crate::context::TreeOp)
+//!
+//! The purpose of evaluating the Rhai script is to capture a _trace_ of a math
+//! expression.  Evaluating `x + y` in a Rhai script does not actually do any
+//! arithmetic; instead, it creates a math expression `Add(Var::X, Var::Y)`.
+//!
+//! Operator overloading makes this ergonomic, but can mask the fact that the
+//! Rhai script is not the math expression!
+//!
+//! # Trees
+//! The basic type for math expressions is a `Tree`, which is equivalent to
+//! [`fidget::context::Tree`](crate::context::Tree).  Trees are typically built
+//! from `(x, y, z)` primitives, which can be constructed with the `axes()`
+//! function:
 //!
 //! ```
-//! use fidget::{
-//!     shape::EzShape,
-//!     vm::VmShape,
-//! };
-//!
-//! let tree = fidget::rhai::eval("x + y")?;
-//! let shape = VmShape::from(tree);
-//! let mut eval = VmShape::new_point_eval();
-//! let tape = shape.ez_point_tape();
-//! assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0)?.0, 3.0);
-//! # Ok::<(), fidget::Error>(())
+//! # fidget::rhai::engine().run("
+//! let xyz = axes();
+//! xyz.x + xyz.y
+//! # ").unwrap();
 //! ```
 //!
-//! `eval` returns a single value.  To evaluate a script with multiple outputs,
-//! construct an [`Engine`] then call [`Engine::run`]:
+//! `x, y, z` variables are also automatically injected into the `Engine`'s
+//! context before evaluation.
 //!
+//! # Vector types
+//! The Rhai context includes `vec2`, `vec3`, and `vec4` types, which are
+//! roughly analogous to their GLSL equivalents (for floating-point only).
+//! Many (but not all) functions are implemented and overloaded for these types;
+//! if you encounter something missing, feel free to open an issue.
+//!
+//! # Shapes
+//! In Rhai scripts, shapes can be constructed using object map notation:
 //! ```
-//! use fidget::{
-//!     shape::EzShape,
-//!     vm::VmShape,
-//!     rhai::Engine
-//! };
-//!
-//! let mut engine = Engine::new();
-//! let mut out = engine.run("draw(x + y - 1)")?;
-//!
-//! assert_eq!(out.shapes.len(), 1);
-//! let shape = VmShape::from(out.shapes.pop().unwrap().tree);
-//! let mut eval = VmShape::new_point_eval();
-//! let tape = shape.ez_point_tape();
-//! assert_eq!(eval.eval(&tape, 0.5, 2.0, 0.0)?.0, 1.5);
-//! # Ok::<(), fidget::Error>(())
+//! # fidget::rhai::engine().run("
+//! circle(#{ center: vec2(1.0, 2.0), radius: 3.0 })
+//! # ").unwrap();
 //! ```
 //!
-//! Within a call to [`Engine::run`], `draw` and `draw_rgb` insert shapes into
-//! [`ScriptContext::shapes`], which is returned after script evaluation is
-//! complete.
+//! This works for any object type; in addition, there are a bunch of ergonomic
+//! improvements on top of this low-level syntax.
 //!
-//! Scripts are evaluated in a Rhai context that includes [`core.rhai`](core),
-//! which defines a few simple shapes and transforms.  `x`, `y`, and `z` are
-//! defined in the root scope, and `axes()` returns an object with `x`/`y`/`z`
-//! members.
-use std::sync::{Arc, Mutex};
-
-use crate::{Error, context::Tree};
-use rhai::{CustomType, EvalAltResult, NativeCallContext, TypeBuilder};
-
-pub mod docs;
+//! ## Type coercions
+//! Shapes are built from a set of Rust primitives, with generous conversions
+//! from Rhai's native types:
+//!
+//! - Scalar values (`f64`)
+//!     - Both floating-point and integer Rhai values will be accepted
+//! - Vectors (`vec2` and `vec3`)
+//!     - These may be explicitly constructed with `vec2(x, y)` and
+//!       `vec3(x, y, z)`
+//!     - Appropriately-sized arrays of numbers will be automatically converted
+//!     - A `vec2` (or something convertible into a `vec2`) will be converted
+//!       into a `vec3` with a default `z` value.  This default value is
+//!       shape-specific, e.g. it will be 0 for a position and 1 for a scale.
+//! ```
+//! # fidget::rhai::engine().run("
+//! // array -> vec2
+//! let c = circle(#{ center: [1, 2], radius: 3 });
+//!
+//! // array -> vec3
+//! let s = sphere(#{ center: [1, 2, 4], radius: 3 });
+//!
+//! // array -> vec2 -> vec3
+//! move(#{ shape: c, offset: [1, 1] });
+//! # ").unwrap();
+//! ```
+//!
+//! ## Default values
+//! Many shape fields have sensibly-defined default values; these are usually
+//! either 0 or 1 (or the equivalent `VecX` values).  Fields with default values
+//! may be omitted from the map:
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! let c = circle(#{ center: [1, 2] }); // radius = 1
+//! let s = sphere(#{ radius: 3 }); // center = [0, 0, 0]
+//! # ").unwrap();
+//! ```
+//!
+//! ## Uniquely typed functions
+//! Any shape with unique arguments may skip the object map and pass arguments
+//! directly; order doesn't matter, because the type is unambiguous.
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! // array -> vec2
+//! let c1 = circle([1, 2], 3);
+//! let c2 = circle(3, [1, 2]); // order doesn't matter!
+//! # ").unwrap();
+//! ```
+//!
+//! In addition, fields with default values may be skipped:
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! // array -> vec2
+//! let c1 = circle([1, 2]); // radius = 1
+//! let c2 = circle(); // center = [0, 0], radius = 1
+//! # ").unwrap();
+//! ```
+//!
+//! Note that some kinds of type coercion will not work in this regime, e.g.
+//! `vec2 -> vec3`:
+//!
+//! ```should_panic
+//! # fidget::rhai::engine().run("
+//! // array -> vec2
+//! let c1 = sphere([1, 1], 4); // no vec2 -> vec3 conversion!
+//! # ").unwrap();
+//! ```
+//!
+//! ## Function chaining
+//! Shapes with a single initial `Tree` member are typically transforms (e.g.
+//! `move` from above).  These functions may be called with the tree as their
+//! first (unnamed) argument, followed by an object map of remaining parameters.
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! let c = circle(#{ center: [1, 2], radius: 3 });
+//! move(c, #{ offset: [1, 1] });
+//! # ").unwrap();
+//! ```
+//!
+//! Given Rhai's dispatch strategy, this can also be written as a function
+//! chain, which is more ergonomic for a string of transforms:
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! circle(#{ center: [1, 2], radius: 3 })
+//!     .move(#{ offset: [1, 1] });
+//! # ").unwrap();
+//! ```
+//!
+//! A transform which only take a single argument may skip the object map:
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! circle(#{ center: [1, 2], radius: 3 })
+//!     .move([1, 1]);
+//! # ").unwrap();
+//! ```
+//!
+//! ## Functions of two trees
+//! Shapes which take two trees can be called with two (unnamed) arguments:
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! let a = circle(#{ center: [0, 0], radius: 1 });
+//! let b = circle(#{ center: [1, 0], radius: 0.5 });
+//! difference(a, b);
+//! # ").unwrap();
+//! ```
+//!
+//! ## Tree reduction functions
+//! Any function which takes a single `Vec<Tree>` will accept both an array of
+//! trees or individual tree arguments (up to an 8-tuple).
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! let a = circle(#{ center: [1, 1], radius: 3 });
+//! let b = circle(#{ center: [2, 2], radius: 3 });
+//! let c = circle(#{ center: [3, 3], radius: 3 });
+//! union([a, b, c]);
+//! union(a, b, c);
+//! union(a, b, c, a, b, c, a, b);
+//! # ").unwrap();
+//! ```
+//!
+//! ## Automatic tree reduction
+//! Any shape which takes a `Tree` will also accept an array of trees, which are
+//! automatically reduced with a union operation.
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! [
+//!     circle(#{ center: [0, 0], radius: 3 }),
+//!     circle(#{ center: [2, 2], radius: 3 }),
+//! ]
+//! .move(#{ offset: [1, 1] });
+//! # ").unwrap();
+//! ```
 pub mod shapes;
 pub mod tree;
 pub mod types;
 
-/// Engine for evaluating a Rhai script with Fidget-specific bindings
-pub struct Engine {
-    engine: rhai::Engine,
-    context: Arc<Mutex<ScriptContext>>,
-}
+use crate::context::Tree;
 
-impl Default for Engine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Engine {
-    /// Constructs a script evaluation engine with Fidget bindings
-    ///
-    /// The context includes a variety of functions that operate on [`Tree`]
-    /// handles, as well as bindings to everything in
-    /// [`fidget::shapes`](crate::shapes) (see [`docs`] for details).
-    pub fn new() -> Self {
-        let mut engine = rhai::Engine::new();
-
-        tree::register(&mut engine);
-        types::register(&mut engine);
-        shapes::register(&mut engine);
-
-        engine.build_type::<Axes>();
-        engine.register_fn("axes", axes);
-        engine.register_fn("draw", draw);
-        engine.register_fn("draw_rgb", draw_rgb);
-
-        let context = Arc::new(Mutex::new(ScriptContext::new()));
-        engine.set_default_tag(rhai::Dynamic::from(context.clone()));
-        engine.set_max_expr_depths(64, 32);
-
-        Self { engine, context }
-    }
-
-    /// Sets the operation limit (e.g. for untrusted scripts)
-    pub fn set_limit(&mut self, limit: u64) {
-        self.engine.on_progress(move |count| {
-            if count > limit {
-                Some("script runtime exceeded".into())
-            } else {
-                None
-            }
-        });
-    }
-
-    /// Executes a full script
-    pub fn run(&mut self, script: &str) -> Result<ScriptContext, Error> {
-        self.context.lock().unwrap().clear();
-
-        let mut scope = rhai::Scope::new();
-        scope.push("x", Tree::x());
-        scope.push("y", Tree::y());
-        scope.push("z", Tree::z());
-        self.engine.run_with_scope(&mut scope, script)?;
-
-        // Steal the ScriptContext's contents
-        let mut lock = self.context.lock().unwrap();
-        Ok(std::mem::take(&mut lock))
-    }
-
-    /// Evaluates a single expression, in terms of `x`, `y`, and `z`
-    pub fn eval(&mut self, script: &str) -> Result<Tree, Error> {
-        self.context.lock().unwrap().clear();
-
-        let mut scope = rhai::Scope::new();
-        scope.push("x", Tree::x());
-        scope.push("y", Tree::y());
-        scope.push("z", Tree::z());
-
-        let ast = self.engine.compile(script)?;
-        let out = self.engine.eval_ast_with_scope::<Tree>(&mut scope, &ast)?;
-
-        Ok(out)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Shape to render
+/// Build a new engine with Fidget-specific bindings
 ///
-/// Populated by calls to `draw(...)` or `draw_rgb(...)` in a Rhai script
-pub struct DrawShape {
-    /// Tree to render
-    pub tree: Tree,
-    /// Color to use when drawing the shape
-    pub color_rgb: [u8; 3],
-}
-
-/// Context for shape evaluation
+/// The bindings are as follows:
 ///
-/// This object stores a set of shapes, which is populated by calls to `draw` or
-/// `draw_rgb` during script evaluation.
-pub struct ScriptContext {
-    /// List of shapes populated since the last call to [`clear`](Self::clear)
-    pub shapes: Vec<DrawShape>,
-}
+/// - `Tree`-specific type, overloads, and `axes()` ([`tree::register`])
+/// - Custom types (e.g. GLSL-style vectors), provided by [`types::register`]
+/// - Shapes and transforms ([`shapes::register`])
+/// - An `on_progress` limit of 50,000 steps (chosen arbitrarily)
+/// - A custom resolver ([`resolver`]) which provides fallbacks for `x`, `y`,
+///   and `z` (if not defined)
+pub fn engine() -> rhai::Engine {
+    let mut engine = rhai::Engine::new();
 
-impl Default for ScriptContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+    tree::register(&mut engine);
+    types::register(&mut engine);
+    shapes::register(&mut engine);
 
-impl ScriptContext {
-    /// Builds a new empty script context
-    pub fn new() -> Self {
-        Self { shapes: vec![] }
-    }
-    /// Resets the script context
-    pub fn clear(&mut self) {
-        self.shapes.clear();
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Functions injected into the Rhai context
-
-#[derive(Clone, CustomType)]
-struct Axes {
-    #[rhai_type(readonly)]
-    x: Tree,
-    #[rhai_type(readonly)]
-    y: Tree,
-    #[rhai_type(readonly)]
-    z: Tree,
-}
-
-fn axes(_ctx: NativeCallContext) -> Axes {
-    let (x, y, z) = Tree::axes();
-    Axes { x, y, z }
-}
-
-fn draw(
-    ctx: NativeCallContext,
-    tree: rhai::Dynamic,
-) -> Result<(), Box<EvalAltResult>> {
-    let tree = Tree::from_dynamic(&ctx, tree, None)?;
-    let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
-    ctx.lock().unwrap().shapes.push(DrawShape {
-        tree,
-        color_rgb: [u8::MAX; 3],
-    });
-    Ok(())
-}
-
-fn draw_rgb(
-    ctx: NativeCallContext,
-    tree: rhai::Dynamic,
-    r: f64,
-    g: f64,
-    b: f64,
-) -> Result<(), Box<EvalAltResult>> {
-    let tree = Tree::from_dynamic(&ctx, tree, None)?;
-    let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
-    let f = |a| {
-        if a < 0.0 {
-            0
-        } else if a > 1.0 {
-            255
+    engine.on_progress(move |count| {
+        if count > 50_000 {
+            Some("script runtime exceeded".into())
         } else {
-            (a * 255.0) as u8
+            None
         }
-    };
-    ctx.lock().unwrap().shapes.push(DrawShape {
-        tree,
-        color_rgb: [f(r), f(g), f(b)],
     });
-    Ok(())
+
+    #[allow(deprecated, reason = "not actually deprecated, just unstable")]
+    engine.on_var(resolver);
+
+    engine
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-/// One-shot evaluation of a single expression, in terms of `x, y, z`
-pub fn eval(s: &str) -> Result<Tree, Error> {
-    let mut engine = Engine::new();
-    engine.eval(s)
+/// Variable resolver which provides `x`, `y`, `z` if not found
+pub fn resolver(
+    name: &str,
+    _index: usize,
+    ctx: rhai::EvalContext,
+) -> Result<Option<rhai::Dynamic>, Box<rhai::EvalAltResult>> {
+    if let Some(out) = ctx.scope().get_value(name) {
+        Ok(Some(out))
+    } else {
+        match name {
+            "x" => Ok(Some(rhai::Dynamic::from(Tree::x()))),
+            "y" => Ok(Some(rhai::Dynamic::from(Tree::y()))),
+            "z" => Ok(Some(rhai::Dynamic::from(Tree::z()))),
+            _ => Ok(None),
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Helper trait to go from a Rhai dynamic object to a particular type
-trait FromDynamic
+pub trait FromDynamic
 where
     Self: Sized,
 {
+    /// Build an object from a dynamic value and optional default
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         v: rhai::Dynamic,
         default: Option<&Self>,
-    ) -> Result<Self, Box<EvalAltResult>>;
+    ) -> Result<Self, Box<rhai::EvalAltResult>>;
 }
 
 impl FromDynamic for f64 {
@@ -262,13 +275,13 @@ impl FromDynamic for f64 {
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
         _default: Option<&f64>,
-    ) -> Result<Self, Box<EvalAltResult>> {
+    ) -> Result<Self, Box<rhai::EvalAltResult>> {
         let ty = d.type_name();
         d.clone()
             .try_cast::<f64>()
             .or_else(|| d.try_cast::<i64>().map(|f| f as f64))
             .ok_or_else(|| {
-                EvalAltResult::ErrorMismatchDataType(
+                rhai::EvalAltResult::ErrorMismatchDataType(
                     "float".to_string(),
                     ty.to_string(),
                     ctx.position(),
@@ -283,21 +296,11 @@ impl FromDynamic for f64 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        Context,
-        context::{BinaryOpcode, Op},
-    };
-
-    #[test]
-    fn test_bind() {
-        let mut engine = Engine::new();
-        let out = engine.run("draw(x + y)").unwrap();
-        assert_eq!(out.shapes.len(), 1);
-    }
+    use crate::Context;
 
     #[test]
     fn test_eval() {
-        let mut engine = Engine::new();
+        let engine = engine();
         let t = engine.eval("x + y").unwrap();
         let mut ctx = Context::new();
         let sum = ctx.import(&t);
@@ -306,7 +309,7 @@ mod test {
 
     #[test]
     fn test_eval_multiline() {
-        let mut engine = Engine::new();
+        let engine = engine();
         let t = engine.eval("let foo = x; foo + y").unwrap();
         let mut ctx = Context::new();
         let sum = ctx.import(&t);
@@ -314,40 +317,16 @@ mod test {
     }
 
     #[test]
-    fn test_simple_script() {
-        let mut engine = Engine::new();
-        let out = engine
-            .run(
-                "
-                let s = circle(#{ center: [0, 0], radius: 2 });
-                draw(s.move([1, 3]));
-                ",
-            )
-            .unwrap();
-        assert_eq!(out.shapes.len(), 1);
-        let mut ctx = Context::new();
-        let sum = ctx.import(&out.shapes[0].tree);
-        assert_eq!(ctx.eval_xyz(sum, 1.0, 3.0, 0.0).unwrap(), -2.0);
-    }
-
-    #[test]
     fn test_no_comparison() {
-        let mut engine = Engine::new();
+        let engine = engine();
         let out = engine.run("x < 0");
         assert!(out.is_err());
     }
 
     #[test]
-    fn test_gyroid_sphere() {
-        let mut engine = Engine::new();
-        let s = include_str!("../../../models/gyroid-sphere.rhai");
-        let out = engine.run(s).unwrap();
-        assert_eq!(out.shapes.len(), 1);
-        let mut ctx = Context::new();
-        let sphere = ctx.import(&out.shapes[0].tree);
-        assert!(matches!(
-            ctx.get_op(sphere).unwrap(),
-            Op::Binary(BinaryOpcode::Max, _, _)
-        ));
+    fn resolver_fallback() {
+        let engine = engine();
+        let out: bool = engine.eval("let x = 1; x < 0").unwrap();
+        assert!(!out);
     }
 }

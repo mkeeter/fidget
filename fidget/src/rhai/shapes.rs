@@ -8,7 +8,7 @@ use facet::{ConstTypeId, Facet};
 use rhai::{EvalAltResult, NativeCallContext};
 use strum::IntoDiscriminant;
 
-/// Register all shapes with the Rhai engine
+/// Registers [all shapes](crate::shapes) with the engine
 pub fn register(engine: &mut rhai::Engine) {
     struct EngineVisitor<'a>(&'a mut rhai::Engine);
     impl ShapeVisitor for EngineVisitor<'_> {
@@ -680,14 +680,14 @@ mod test {
     #[test]
     fn scale_and_move_defaults() {
         // Move should default to 0 on the Z axis
-        let mut e = crate::rhai::Engine::new();
+        let e = crate::rhai::engine();
         let v = e.eval("z.move([1, 1])").unwrap();
         let mut ctx = Context::new();
         let root = ctx.import(&v);
         assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::Z));
 
         // Scale should default to 1 on the Z axis
-        let mut e = crate::rhai::Engine::new();
+        let e = crate::rhai::engine();
         let v = e.eval("z.scale([1, 1])").unwrap();
         let mut ctx = Context::new();
         let root = ctx.import(&v);

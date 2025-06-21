@@ -47,6 +47,16 @@
     - `Axis` is a unit `Vec3`
     - `Plane` is an `Axis` and offset
 - Add `Reflect` shape, as well as `ReflectX/Y/Z`
+- **Removed** `fidget::rhai::Engine` and `fidget::rhai::Axes`
+    - Previously, `fidget::rhai::Engine` wrapped a Rhai engine and
+      Fidget-specific functionality
+    - The internals of `Engine` were tightly coupled to `fidget-viewer`, in ways
+      that weren't useful for other GUIs.
+    - Now, `fidget::rhai::engine()` returns a `rhai::Engine` object with Fidget
+      types pre-installed, but without the wrapper type.
+    - The Rhai `draw(..)` and `draw_rgb(..)` functions are moved into
+      `fidget-viewer`, because they're specific to that one GUI (`fidget-cli` is
+      also aware of `draw`, but now has its own simpler implementation).
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local

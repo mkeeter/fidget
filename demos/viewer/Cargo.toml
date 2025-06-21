@@ -25,5 +25,4 @@ jit = ["fidget/jit"]
 
 [[bin]]
 name = "fidget-viewer"
-test = false
 doctest = false

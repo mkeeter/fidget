@@ -59,7 +59,7 @@
 //!
 //! ```
 //! # use fidget::context::Context;
-//! let t = fidget::rhai::eval("x + y")?;
+//! let t = fidget::rhai::engine().eval("x + y")?;
 //! let mut ctx = Context::new();
 //! let sum = ctx.import(&t);
 //! # Ok::<(), fidget::Error>(())

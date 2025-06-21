@@ -54,7 +54,7 @@ struct RenderResult {
 
 fn render_thread<F>(
     cfg: Receiver<RenderSettings>,
-    rx: Receiver<Result<fidget::rhai::ScriptContext, String>>,
+    rx: Receiver<Result<script::ScriptContext, String>>,
     tx: Sender<Result<RenderResult, String>>,
     wake: Sender<()>,
 ) -> Result<()>
