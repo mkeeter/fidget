@@ -1,11 +1,30 @@
-//! GLSL-style vector types
+//! Types used in shape construction
+//!
+//! This module includes both GLSL-style `Vec` types and higher-level
+//! representations of modeling concepts (e.g. [`Axis`]).
 //!
 //! We use dedicated types (instead of `nalgebra` types) because we must derive
 //! `Facet` on them, so are limited by the orphan rule.
 use facet::Facet;
 
+/// Error type for shape type construction
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    /// Vector is too short to convert to an axis
+    #[error("vector is too short to convert to an axis (length: {0})")]
+    TooShort(f64),
+
+    /// Vector is too long to convert to an axis
+    #[error("vector is too long to convert to an axis (length: {0})")]
+    TooLong(f64),
+
+    /// Could not normalize vector due to an invalid length
+    #[error("could not normalize vector due to an invalid length")]
+    BadLength,
+}
+
 /// 2D position
-#[derive(Copy, Clone, Facet)]
+#[derive(Copy, Clone, Debug, PartialEq, Facet)]
 #[allow(missing_docs)]
 pub struct Vec2 {
     pub x: f64,
@@ -38,6 +57,10 @@ impl Vec2 {
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
+    /// Returns the L2-norm
+    pub fn norm(&self) -> f64 {
+        (self.x.powi(2) + self.y.powi(2)).sqrt()
+    }
     fn combine<F: Fn(f64, f64) -> f64>(self, rhs: Self, f: F) -> Self {
         Self {
             x: f(self.x, rhs.x),
@@ -55,7 +78,7 @@ impl Vec2 {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// 3D position
-#[derive(Copy, Clone, Facet)]
+#[derive(Copy, Clone, Debug, PartialEq, Facet)]
 #[allow(missing_docs)]
 pub struct Vec3 {
     pub x: f64,
@@ -94,6 +117,10 @@ impl Vec3 {
     pub fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
+    /// Returns the L2-norm
+    pub fn norm(&self) -> f64 {
+        (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
+    }
     fn combine<F: Fn(f64, f64) -> f64>(self, rhs: Self, f: F) -> Self {
         Self {
             x: f(self.x, rhs.x),
@@ -113,7 +140,7 @@ impl Vec3 {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// 4D position (`xyzw`)
-#[derive(Copy, Clone, Facet)]
+#[derive(Copy, Clone, Debug, PartialEq, Facet)]
 #[allow(missing_docs)]
 pub struct Vec4 {
     pub x: f64,
@@ -237,3 +264,77 @@ macro_rules! impl_all {
 impl_all!(Vec2);
 impl_all!(Vec3);
 impl_all!(Vec4);
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Normalized 3D axis (of length 1)
+#[derive(Copy, Clone, Debug, PartialEq, Facet)]
+pub struct Axis(Vec3);
+
+impl TryFrom<Vec3> for Axis {
+    type Error = Error;
+    fn try_from(value: Vec3) -> Result<Self, Self::Error> {
+        let norm = value.norm();
+        if norm.is_nan() {
+            Err(Error::BadLength)
+        } else if norm < 1e-8 {
+            Err(Error::TooShort(norm))
+        } else if norm > 1e8 {
+            Err(Error::TooLong(norm))
+        } else {
+            Ok(Self(value / norm))
+        }
+    }
+}
+
+impl Axis {
+    /// Returns the axis vector
+    pub fn vec(&self) -> &Vec3 {
+        &self.0
+    }
+    /// The X axis
+    pub const X: Self = Axis(Vec3 {
+        x: 1.0,
+        y: 0.0,
+        z: 0.0,
+    });
+    /// The Y axis
+    pub const Y: Self = Axis(Vec3 {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    });
+    /// The Z axis
+    pub const Z: Self = Axis(Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 1.0,
+    });
+}
+
+/// Unoriented plane in 3D space, specified as an axis + offset
+#[derive(Copy, Clone, Debug, PartialEq, Facet)]
+pub struct Plane {
+    /// Axis orthogonal to the plane
+    pub axis: Axis,
+    /// Offset relative to the origin
+    pub offset: f64,
+}
+
+impl Plane {
+    /// The XY plane
+    pub const XY: Self = Plane {
+        axis: Axis::Y,
+        offset: 0.0,
+    };
+    /// The YZ plane
+    pub const YZ: Self = Plane {
+        axis: Axis::X,
+        offset: 0.0,
+    };
+    /// The ZX plane
+    pub const ZX: Self = Plane {
+        axis: Axis::Y,
+        offset: 0.0,
+    };
+}

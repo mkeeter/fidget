@@ -16,8 +16,8 @@
 use crate::context::Tree;
 use facet::Facet;
 
-mod vec;
-pub use vec::{Vec2, Vec3, Vec4};
+mod types;
+pub use types::{Axis, Error, Plane, Vec2, Vec3, Vec4};
 
 ////////////////////////////////////////////////////////////////////////////////
 // 2D shapes
@@ -195,6 +195,106 @@ impl From<Scale> for Tree {
     }
 }
 
+/// Reflection
+#[derive(Clone, Facet)]
+pub struct Reflect {
+    /// Shape to reflect
+    pub shape: Tree,
+
+    /// Plane about which to reflect the shape
+    #[facet(default = Plane::YZ)]
+    pub plane: Plane,
+}
+
+impl From<Reflect> for Tree {
+    fn from(v: Reflect) -> Self {
+        let a = v.plane.axis.vec();
+        let (x, y, z) = Tree::axes();
+        let d = a.x * x.clone() + a.y * y.clone() + a.z * z.clone()
+            - v.plane.offset;
+        let scale: Tree = 2.0 * d;
+        // TODO could we use nalgebra::Reflection3 here to make the transform
+        // affine?  For some reason, it doesn't implement the right SubSet
+        v.shape.remap_xyz(
+            x - scale.clone() * a.x,
+            y - scale.clone() * a.y,
+            z - scale * a.z,
+        )
+    }
+}
+
+/// Reflection about the X axis
+#[derive(Clone, Facet)]
+pub struct ReflectX {
+    /// Shape to reflect
+    pub shape: Tree,
+
+    /// Plane about which to reflect the shape
+    #[facet(default = 0.0)]
+    pub offset: f64,
+}
+
+impl From<ReflectX> for Tree {
+    fn from(v: ReflectX) -> Self {
+        Reflect {
+            shape: v.shape,
+            plane: Plane {
+                axis: Axis::X,
+                offset: v.offset,
+            },
+        }
+        .into()
+    }
+}
+
+/// Reflection about the Y axis
+#[derive(Clone, Facet)]
+pub struct ReflectY {
+    /// Shape to reflect
+    pub shape: Tree,
+
+    /// Plane about which to reflect the shape
+    #[facet(default = 0.0)]
+    pub offset: f64,
+}
+
+impl From<ReflectY> for Tree {
+    fn from(v: ReflectY) -> Self {
+        Reflect {
+            shape: v.shape,
+            plane: Plane {
+                axis: Axis::Y,
+                offset: v.offset,
+            },
+        }
+        .into()
+    }
+}
+
+/// Reflection about the Z axis
+#[derive(Clone, Facet)]
+pub struct ReflectZ {
+    /// Shape to reflect
+    pub shape: Tree,
+
+    /// Plane about which to reflect the shape
+    #[facet(default = 0.0)]
+    pub offset: f64,
+}
+
+impl From<ReflectZ> for Tree {
+    fn from(v: ReflectZ) -> Self {
+        Reflect {
+            shape: v.shape,
+            plane: Plane {
+                axis: Axis::Z,
+                offset: v.offset,
+            },
+        }
+        .into()
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Trait for a type which can visit each of the shapes in our library
@@ -212,6 +312,10 @@ pub fn visit_shapes<V: ShapeVisitor>(visitor: &mut V) {
 
     visitor.visit::<Move>();
     visitor.visit::<Scale>();
+    visitor.visit::<Reflect>();
+    visitor.visit::<ReflectX>();
+    visitor.visit::<ReflectY>();
+    visitor.visit::<ReflectZ>();
 
     visitor.visit::<Union>();
     visitor.visit::<Intersection>();

@@ -60,7 +60,7 @@ use rhai::{CustomType, EvalAltResult, NativeCallContext, TypeBuilder};
 pub mod docs;
 pub mod shapes;
 pub mod tree;
-pub mod vec;
+pub mod types;
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -84,7 +84,7 @@ impl Engine {
         let mut engine = rhai::Engine::new();
 
         tree::register(&mut engine);
-        vec::register(&mut engine);
+        types::register(&mut engine);
         shapes::register(&mut engine);
 
         engine.build_type::<Axes>();
