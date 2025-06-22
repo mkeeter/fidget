@@ -1,5 +1,9 @@
 //! Rhai bindings for the Fidget [`Tree`] type
-use crate::{context::Tree, rhai::FromDynamic};
+use crate::{
+    context::{Tree, TreeOp},
+    rhai::FromDynamic,
+    var::Var,
+};
 use rhai::{EvalAltResult, NativeCallContext};
 
 impl FromDynamic for Tree {
@@ -44,13 +48,29 @@ impl FromDynamic for Vec<Tree> {
     }
 }
 
+impl rhai::CustomType for Tree {
+    fn build(mut builder: rhai::TypeBuilder<Self>) {
+        builder
+            .with_name("Tree")
+            .on_print(|t| {
+                match &**t {
+                    TreeOp::Input(Var::X) => "x",
+                    TreeOp::Input(Var::Y) => "y",
+                    TreeOp::Input(Var::Z) => "z",
+                    _ => "Tree(..)",
+                }
+                .to_owned()
+            })
+            .with_fn("remap", remap_xyz)
+            .with_fn("remap", remap_xy);
+    }
+}
+
 /// Installs the [`Tree`] type into a Rhai engine, with various overloads
 ///
 /// Also installs `axes() -> {x, y, z}`
 pub fn register(engine: &mut rhai::Engine) {
-    engine
-        .register_type::<Tree>()
-        .register_fn("remap_xyz", remap_xyz);
+    engine.build_type::<Tree>();
     engine.register_fn("axes", || {
         let mut out = rhai::Map::new();
         out.insert("x".into(), rhai::Dynamic::from(crate::context::Tree::x()));
@@ -115,6 +135,16 @@ fn remap_xyz(
 ) -> Result<Tree, Box<EvalAltResult>> {
     let shape = Tree::from_dynamic(&ctx, shape, None)?;
     Ok(shape.remap_xyz(x, y, z))
+}
+
+fn remap_xy(
+    ctx: NativeCallContext,
+    shape: rhai::Dynamic,
+    x: Tree,
+    y: Tree,
+) -> Result<Tree, Box<EvalAltResult>> {
+    let shape = Tree::from_dynamic(&ctx, shape, None)?;
+    Ok(shape.remap_xyz(x, y, Tree::z()))
 }
 
 macro_rules! define_binary_fns {
@@ -205,3 +235,19 @@ define_unary_fns!(abs);
 define_unary_fns!(floor);
 define_unary_fns!(ceil);
 define_unary_fns!(round);
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn tree_build_print() {
+        let mut e = rhai::Engine::new();
+        register(&mut e);
+        assert_eq!(e.eval::<String>("to_string(axes().x)").unwrap(), "x");
+        assert_eq!(
+            e.eval::<String>("to_string(axes().x + 1)").unwrap(),
+            "Tree(..)"
+        );
+    }
+}

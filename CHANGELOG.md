@@ -62,6 +62,8 @@
 - Make `fidget::shapes::types::{Value, Type}` public; these represent types
   which can be used in shapes (with ergonomic Rhai bindings).
 - Fix missing local optimizations in `Context::import` (e.g. `x * 0 => 0`)
+- Rename `remap_xyz(..)` to just `remap(..)` in Rhai bindings; add a
+  two-argument version which leaves `z` unchanged
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local
