@@ -206,14 +206,16 @@ pub mod types;
 
 use crate::context::Tree;
 
-/// Build a new engine with Fidget-specific bindings
-///
-/// The bindings are as follows:
+/// Build a new engine with Fidget-specific bindings and settings
 ///
 /// - `Tree`-specific type, overloads, and `axes()` ([`tree::register`])
 /// - Custom types (e.g. GLSL-style vectors), provided by [`types::register`]
 /// - Shapes and transforms ([`shapes::register`])
 /// - An `on_progress` limit of 50,000 steps (chosen arbitrarily)
+/// - Max expression and function expression depths of 64 and 32 (also chosen
+///   arbitrarily)
+/// - [`set_fail_on_invalid_map_property`](rhai::Engine::set_fail_on_invalid_map_property)
+///   set to `true`, so that missing map items raise an error
 /// - A custom resolver ([`resolver`]) which provides fallbacks for `x`, `y`,
 ///   and `z` (if not defined)
 pub fn engine() -> rhai::Engine {
@@ -223,6 +225,8 @@ pub fn engine() -> rhai::Engine {
     types::register(&mut engine);
     shapes::register(&mut engine);
 
+    engine.set_fail_on_invalid_map_property(true);
+    engine.set_max_expr_depths(64, 32);
     engine.on_progress(move |count| {
         if count > 50_000 {
             Some("script runtime exceeded".into())
@@ -243,8 +247,8 @@ pub fn resolver(
     _index: usize,
     ctx: rhai::EvalContext,
 ) -> Result<Option<rhai::Dynamic>, Box<rhai::EvalAltResult>> {
-    if let Some(out) = ctx.scope().get_value(name) {
-        Ok(Some(out))
+    if ctx.scope().contains(name) {
+        Ok(None)
     } else {
         match name {
             "x" => Ok(Some(rhai::Dynamic::from(Tree::x()))),
@@ -328,5 +332,13 @@ mod test {
         let engine = engine();
         let out: bool = engine.eval("let x = 1; x < 0").unwrap();
         assert!(!out);
+    }
+
+    #[test]
+    fn push() {
+        let engine = engine();
+        let out: i64 =
+            engine.eval("let foo = []; foo.push(1); foo.len()").unwrap();
+        assert_eq!(out, 1);
     }
 }

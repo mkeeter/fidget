@@ -1,7 +1,7 @@
 //! Rhai bindings for Fidget's 2D and 3D vector types
 use crate::{
     rhai::FromDynamic,
-    shapes::{Axis, Plane, Vec2, Vec3, Vec4},
+    shapes::types::{Axis, Plane, Vec2, Vec3, Vec4},
 };
 use rhai::{CustomType, EvalAltResult, TypeBuilder};
 

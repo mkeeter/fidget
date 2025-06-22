@@ -57,6 +57,10 @@
     - The Rhai `draw(..)` and `draw_rgb(..)` functions are moved into
       `fidget-viewer`, because they're specific to that one GUI (`fidget-cli` is
       also aware of `draw`, but now has its own simpler implementation).
+- Move `Vec2/3/4`, `Axis`, `Plane` into `fidget::shapes::types` instead of
+  re-exporting them in `fidget::shapes`.
+- Make `fidget::shapes::types::{Value, Type}` public; these represent types
+  which can be used in shapes (with ergonomic Rhai bindings).
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local
