@@ -2,8 +2,8 @@
 // Perspective render: --scale 0.05 --pitch 80 --roll 130 --center=0,0,-14 --perspective=0.2 --zflatten 2
 let logs = x.abs() - 10 -  max(0.05, 1.0 - (y % 2 - 1).square()).sqrt();
 let cabin = max(
-    logs.remap_xyz(x, z, y),
-    logs.remap_xyz(y, z, x)
+    logs.remap(x, z, y),
+    logs.remap(y, z, x)
 );
 
 let roof = z/2 + y.abs()/2 - 15;
@@ -23,7 +23,7 @@ let door_width = max(10 - x, x - 11);
 let door_frame = max(max(door_frame, door_frame_inner),
     door_width);
 let doorknob = (x.square() + y.square() + z.square()).sqrt() - 0.6;
-let door = min(door_frame, doorknob.remap_xyz(x - 10.5, y - 2, z - 6));
+let door = min(door_frame, doorknob.remap(x - 10.5, y - 2, z - 6));
 let cabin = max(cabin, -max(-door_frame_inner, door_width));
 let cabin = min(cabin, door);
 
