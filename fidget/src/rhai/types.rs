@@ -56,7 +56,7 @@ macro_rules! register_unary {
     };
 }
 
-/// Installs our common types into the engine
+/// Installs common types (from [`fidget::shapes`](crate::shapes)) into the engine
 pub fn register(engine: &mut rhai::Engine) {
     engine.build_type::<Vec2>();
     engine.build_type::<Vec3>();

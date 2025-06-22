@@ -19,11 +19,13 @@
 //!
 //! ```
 //! use fidget::{
+//!     context::Tree,
 //!     mesh::{Octree, Settings},
 //!     vm::VmShape
 //! };
 //!
-//! let tree = fidget::rhai::eval("sphere(#{ center: [0, 0, 0], radius: 0.6 })")?;
+//! let tree: Tree = fidget::rhai::engine()
+//!     .eval("sphere(#{ center: [0, 0, 0], radius: 0.6 })")?;
 //! let shape = VmShape::from(tree);
 //! let settings = Settings {
 //!     depth: 4,

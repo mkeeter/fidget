@@ -1481,6 +1481,7 @@ dependencies = [
  "log",
  "nalgebra",
  "rayon",
+ "rhai",
  "strum 0.27.1",
  "workspace-hack",
 ]

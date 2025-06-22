@@ -1,14 +1,20 @@
-use std::io::Read;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
+use std::{
+    io::Read,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{Context as _, Result, bail};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::context::{Context, Node};
+use fidget::{
+    context::{Context, Node},
+    rhai::FromDynamic,
+};
 
 /// Simple test program
 #[derive(Parser)]
@@ -533,17 +539,34 @@ fn load_script(settings: &ScriptSettings) -> Result<(Context, Node)> {
     let (ctx, root) = match ty {
         ScriptType::Vm => Context::from_text(&mut file)?,
         ScriptType::Rhai => {
-            let mut engine = fidget::rhai::Engine::new();
+            let mut engine = fidget::rhai::engine();
             let mut script = String::new();
             file.read_to_string(&mut script)
                 .context("failed to read script to string")?;
-            let out = engine.run(&script)?;
-            if out.shapes.len() > 1 {
-                bail!("can only render 1 shape");
+            let out = Arc::new(Mutex::new(None));
+            let out_ = out.clone();
+            engine.register_fn(
+                "draw",
+                move |ctx: rhai::NativeCallContext,
+                      d: rhai::Dynamic|
+                      -> Result<(), Box<rhai::EvalAltResult>> {
+                    let t = fidget::context::Tree::from_dynamic(&ctx, d, None)?;
+                    let mut out = out_.lock().unwrap();
+                    if out.is_some() {
+                        return Err("can only draw one shape".into());
+                    }
+                    *out = Some(t);
+                    Ok(())
+                },
+            );
+            engine.run(&script)?;
+            if let Some(tree) = out.lock().unwrap().take() {
+                let mut ctx = Context::new();
+                let node = ctx.import(&tree);
+                (ctx, node)
+            } else {
+                bail!("script must include a draw(tree) call");
             }
-            let mut ctx = Context::new();
-            let node = ctx.import(&out.shapes[0].tree);
-            (ctx, node)
         }
         ScriptType::Auto => unreachable!(),
     };

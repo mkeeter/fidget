@@ -45,10 +45,19 @@ impl FromDynamic for Vec<Tree> {
 }
 
 /// Installs the [`Tree`] type into a Rhai engine, with various overloads
+///
+/// Also installs `axes() -> {x, y, z}`
 pub fn register(engine: &mut rhai::Engine) {
     engine
         .register_type::<Tree>()
         .register_fn("remap_xyz", remap_xyz);
+    engine.register_fn("axes", || {
+        let mut out = rhai::Map::new();
+        out.insert("x".into(), rhai::Dynamic::from(crate::context::Tree::x()));
+        out.insert("y".into(), rhai::Dynamic::from(crate::context::Tree::y()));
+        out.insert("z".into(), rhai::Dynamic::from(crate::context::Tree::z()));
+        out
+    });
 
     macro_rules! register_binary_fns {
         ($op:literal, $name:ident, $engine:ident) => {
