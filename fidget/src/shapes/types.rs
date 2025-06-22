@@ -5,7 +5,10 @@
 //!
 //! We use dedicated types (instead of `nalgebra` types) because we must derive
 //! `Facet` on them, so are limited by the orphan rule.
-use facet::Facet;
+use facet::{ConstTypeId, Facet};
+use strum::IntoDiscriminant;
+
+use crate::context::Tree;
 
 /// Error type for shape type construction
 #[derive(thiserror::Error, Debug)]
@@ -21,6 +24,15 @@ pub enum Error {
     /// Could not normalize vector due to an invalid length
     #[error("could not normalize vector due to an invalid length")]
     BadLength,
+
+    /// Wrong type
+    #[error("wrong type; expected {expected}, got {actual}")]
+    WrongType {
+        /// Expected type
+        expected: Type,
+        /// Actual type
+        actual: Type,
+    },
 }
 
 /// 2D position
@@ -337,4 +349,132 @@ impl Plane {
         axis: Axis::Y,
         offset: 0.0,
     };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Enumeration representing all types that can be used in shapes
+#[derive(strum::EnumDiscriminants)]
+#[strum_discriminants(name(Type), derive(enum_map::Enum), allow(missing_docs))]
+#[allow(missing_docs)]
+pub enum Value {
+    Float(f64),
+    Vec2(Vec2),
+    Vec3(Vec3),
+    Vec4(Vec4),
+    Axis(Axis),
+    Plane(Plane),
+    Tree(Tree),
+    VecTree(Vec<Tree>),
+}
+
+macro_rules! try_from_type {
+    ($ty:ty, $name:ident) => {
+        impl<'a> TryFrom<&'a Value> for &'a $ty {
+            type Error = $crate::shapes::Error;
+            fn try_from(v: &'a Value) -> Result<&'a $ty, Self::Error> {
+                if let Value::$name(f) = v {
+                    Ok(f)
+                } else {
+                    Err($crate::shapes::Error::WrongType {
+                        expected: Type::$name,
+                        actual: v.discriminant(),
+                    })
+                }
+            }
+        }
+    };
+    ($ty:ident) => {
+        try_from_type!($ty, $ty);
+    };
+}
+
+try_from_type!(f64, Float);
+try_from_type!(Vec2);
+try_from_type!(Vec3);
+try_from_type!(Vec4);
+try_from_type!(Tree);
+try_from_type!(Plane);
+try_from_type!(Axis);
+try_from_type!(Vec<Tree>, VecTree);
+
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Type::Float => "f64",
+            Type::Vec2 => "Vec2",
+            Type::Vec3 => "Vec3",
+            Type::Vec4 => "Vec4",
+            Type::Axis => "Axis",
+            Type::Plane => "Plane",
+            Type::Tree => "Tree",
+            Type::VecTree => "Vec<Tree>",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+/// Convert from a Facet type to a tag
+impl TryFrom<facet::ConstTypeId> for Type {
+    type Error = facet::ConstTypeId;
+    fn try_from(t: facet::ConstTypeId) -> Result<Self, Self::Error> {
+        if t == ConstTypeId::of::<f64>() {
+            Ok(Self::Float)
+        } else if t == ConstTypeId::of::<Vec2>() {
+            Ok(Self::Vec2)
+        } else if t == ConstTypeId::of::<Vec3>() {
+            Ok(Self::Vec3)
+        } else if t == ConstTypeId::of::<Vec4>() {
+            Ok(Self::Vec4)
+        } else if t == ConstTypeId::of::<Axis>() {
+            Ok(Self::Axis)
+        } else if t == ConstTypeId::of::<Plane>() {
+            Ok(Self::Plane)
+        } else if t == ConstTypeId::of::<Tree>() {
+            Ok(Self::Tree)
+        } else if t == ConstTypeId::of::<Vec<Tree>>() {
+            Ok(Self::VecTree)
+        } else {
+            Err(t)
+        }
+    }
+}
+
+impl Type {
+    /// Executes a default builder function for the given type
+    ///
+    /// # Safety
+    /// `f` must be a builder for the inner type associated with this tag
+    pub(crate) unsafe fn build_from_default_fn(
+        &self,
+        f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
+    ) -> Value {
+        unsafe {
+            match self {
+                Type::Float => Value::Float(Self::eval_default_fn(f)),
+                Type::Vec2 => Value::Vec2(Self::eval_default_fn(f)),
+                Type::Vec3 => Value::Vec3(Self::eval_default_fn(f)),
+                Type::Vec4 => Value::Vec4(Self::eval_default_fn(f)),
+                Type::Axis => Value::Axis(Self::eval_default_fn(f)),
+                Type::Plane => Value::Plane(Self::eval_default_fn(f)),
+                Type::Tree => Value::Tree(Self::eval_default_fn(f)),
+                Type::VecTree => Value::VecTree(Self::eval_default_fn(f)),
+            }
+        }
+    }
+
+    /// Evaluates a default builder function, returning a value
+    ///
+    /// # Safety
+    /// `f` must be a builder for type `T`
+    unsafe fn eval_default_fn<T>(
+        f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
+    ) -> T {
+        let mut v = std::mem::MaybeUninit::<T>::uninit();
+        let ptr = facet::PtrUninit::new(&mut v);
+        // SAFETY: `f` must be a builder for type `T`
+        unsafe { f(ptr) };
+        // SAFETY: `v` is initialized by `f`
+        unsafe { v.assume_init() }
+    }
 }

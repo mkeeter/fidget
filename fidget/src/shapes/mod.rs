@@ -17,7 +17,7 @@ use crate::context::Tree;
 use facet::Facet;
 
 mod types;
-pub use types::{Axis, Error, Plane, Vec2, Vec3, Vec4};
+pub use types::{Axis, Error, Plane, Type, Value, Vec2, Vec3, Vec4};
 
 ////////////////////////////////////////////////////////////////////////////////
 // 2D shapes
@@ -323,6 +323,18 @@ pub fn visit_shapes<V: ShapeVisitor>(visitor: &mut V) {
     visitor.visit::<Inverse>();
 }
 
+/// Checks whether `T`'s fields are all [`Type`]-compatible.
+pub(crate) fn validate_type<T: Facet<'static>>() -> facet::StructType<'static> {
+    let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty else {
+        panic!("must be a struct-shaped type");
+    };
+    for f in s.fields {
+        if Type::try_from(f.shape().id).is_err() {
+            panic!("unknown type: {}", f.shape());
+        }
+    }
+    s
+}
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
