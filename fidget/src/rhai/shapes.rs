@@ -262,7 +262,6 @@ fn register_shape<
     engine.register_fn(&name_lower, build_from_map::<T>);
 
     // Special handling for transform-shaped functions
-    let mut skip_build_unique = false;
     let tree_count = s
         .fields
         .iter()
@@ -275,10 +274,6 @@ fn register_shape<
             .all(|f| f.shape().id != ConstTypeId::of::<Vec<Tree>>())
     {
         engine.register_fn(&name_lower, build_transform::<T>);
-        if s.fields.len() == 2 {
-            engine.register_fn(&name_lower, build_transform_one::<T>);
-            skip_build_unique = true;
-        }
     }
     if tree_count == 2 && s.fields.len() == 2 {
         engine.register_fn(&name_lower, build_binary::<T>);
@@ -307,7 +302,7 @@ fn register_shape<
             default_count += 1;
         }
     }
-    if !skip_build_unique && count.iter().all(|(_k, v)| *v <= 1) {
+    if count.iter().all(|(_k, v)| *v <= 1) {
         // Generate typed unique builders for all possible argument counts
         let field_count = s.fields.len();
         let min_field_count = field_count - default_count;
@@ -393,45 +388,6 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
             .into());
         }
     }
-    let t: T = builder.build().unwrap().materialize().unwrap();
-    Ok(t.into())
-}
-
-/// Builds a transform-shaped `T` from a Rhai value
-///
-/// # Panics
-/// `T` must be a `struct` with two fields; one must be a `Tree`, and the other
-/// must be [`Type`]-compatible.
-fn build_transform_one<T: Facet<'static> + Into<Tree>>(
-    ctx: NativeCallContext,
-    t: rhai::Dynamic,
-    arg: rhai::Dynamic,
-) -> Result<Tree, Box<EvalAltResult>> {
-    let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
-        panic!("must build a struct");
-    };
-    assert_eq!(shape.fields.len(), 2);
-
-    let mut t = Some(Tree::from_dynamic(&ctx, t, None)?);
-    let mut arg = Some(arg);
-
-    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
-
-    for (i, f) in shape.fields.iter().enumerate() {
-        let tag = TypeTag::try_from(f.shape().id).unwrap();
-        if matches!(tag, TypeTag::Tree) {
-            let t = t.take().unwrap();
-            builder.set_nth_field(i, t).unwrap();
-        } else {
-            let d = f
-                .vtable
-                .default_fn
-                .map(|df| unsafe { tag.build_from_default_fn(df) });
-            let v = tag.into_type(&ctx, arg.take().unwrap(), d)?;
-            v.put(&mut builder, i);
-        }
-    }
-
     let t: T = builder.build().unwrap().materialize().unwrap();
     Ok(t.into())
 }
@@ -566,55 +522,76 @@ macro_rules! unique {
             ctx: NativeCallContext,
             $($v: rhai::Dynamic),*
         ) -> Result<Tree, Box<EvalAltResult>> {
-            let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty
-            else {
-                panic!("must build a struct");
-            };
-
             // Build a map of our known values
+            #[allow(unused_mut, reason = "0-item constructor")]
             let mut vs = enum_map::EnumMap::<TypeTag, Option<rhai::Dynamic>>::default();
             $(
                 let tag = Type::from_dynamic(&ctx, $v.clone(), None)?.discriminant();
                 vs[tag] = Some($v);
             )*
 
-            let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
-            for (i, f) in shape.fields.iter().enumerate() {
-                let tag = TypeTag::try_from(f.shape().id).unwrap();
-
-                let d = f
-                    .vtable
-                    .default_fn
-                    .map(|df| unsafe { tag.build_from_default_fn(df) });
-                let v = if let Some(v) = vs[tag].take() {
-                    tag.into_type(&ctx, v, d).unwrap()
-                } else if let Some(v) = d {
-                    v
-                } else {
-                    return Err(EvalAltResult::ErrorRuntime(
-                        format!("missing argument of type {}", f.shape())
-                            .into(),
-                        ctx.position(),
-                    )
-                    .into());
-                };
-                 v.put(&mut builder, i);
-            }
-
-            if let Some((k, _v)) = vs.iter().find(|(_k, v)| v.is_some()) {
-                return Err(EvalAltResult::ErrorRuntime(
-                    format!("shape does not have an argument of type {:?}", k)
-                        .into(),
-                    ctx.position(),
-                )
-                .into());
-            }
-
-
-            let t: T = builder.build().unwrap().materialize().unwrap();
-            Ok(t.into())
+            from_enum_map::<T>(ctx, vs)
         }
     }
+}
+
+fn from_enum_map<T: Facet<'static> + Into<Tree>>(
+    ctx: NativeCallContext,
+    mut vs: enum_map::EnumMap<TypeTag, Option<rhai::Dynamic>>,
+) -> Result<Tree, Box<EvalAltResult>> {
+    let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
+        panic!("must build a struct");
+    };
+
+    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
+
+    // If the shape has no Vec2 fields, then we'll upgrade a Vec2 -> Vec3
+    // if necessary!
+    let has_vec2 = shape.fields.iter().any(|f| {
+        matches!(TypeTag::try_from(f.shape().id).unwrap(), TypeTag::Vec2)
+    });
+
+    for (i, f) in shape.fields.iter().enumerate() {
+        let tag = TypeTag::try_from(f.shape().id).unwrap();
+
+        let d = f
+            .vtable
+            .default_fn
+            .map(|df| unsafe { tag.build_from_default_fn(df) });
+        let v = if let Some(v) = vs[tag].take() {
+            tag.into_type(&ctx, v, d).unwrap()
+        } else if tag == TypeTag::Vec3
+            && vs[TypeTag::Vec2].is_some()
+            && !has_vec2
+            && d.is_some()
+        {
+            let v = vs[TypeTag::Vec2].take().unwrap();
+            let Some(Type::Vec3(d)) = d else {
+                unreachable!()
+            };
+            Type::Vec3(Vec3::from_dynamic(&ctx, v, Some(&d)).unwrap())
+        } else if let Some(v) = d {
+            v
+        } else {
+            return Err(EvalAltResult::ErrorRuntime(
+                format!("missing argument of type {}", f.shape()).into(),
+                ctx.position(),
+            )
+            .into());
+        };
+        v.put(&mut builder, i);
+    }
+
+    if let Some((k, _v)) = vs.iter().find(|(_k, v)| v.is_some()) {
+        return Err(EvalAltResult::ErrorRuntime(
+            format!("shape does not have an argument of type {:?}", k).into(),
+            ctx.position(),
+        )
+        .into());
+    }
+
+    let t: T = builder.build().unwrap().materialize().unwrap();
+    Ok(t.into())
 }
 
 unique!(build_unique0);
