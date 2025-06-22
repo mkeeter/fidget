@@ -1190,7 +1190,21 @@ impl Context {
                         TreeOp::Binary(op, ..) => {
                             let lhs = stack.pop().unwrap();
                             let rhs = stack.pop().unwrap();
-                            let out = self.op_binary(lhs, rhs, *op).unwrap();
+                            // Call individual builders to apply optimizations
+                            let out = match op {
+                                BinaryOpcode::Add => self.add(lhs, rhs),
+                                BinaryOpcode::Sub => self.sub(lhs, rhs),
+                                BinaryOpcode::Mul => self.mul(lhs, rhs),
+                                BinaryOpcode::Div => self.div(lhs, rhs),
+                                BinaryOpcode::Atan => self.atan2(lhs, rhs),
+                                BinaryOpcode::Min => self.min(lhs, rhs),
+                                BinaryOpcode::Max => self.max(lhs, rhs),
+                                BinaryOpcode::Compare => self.compare(lhs, rhs),
+                                BinaryOpcode::Mod => self.modulo(lhs, rhs),
+                                BinaryOpcode::And => self.and(lhs, rhs),
+                                BinaryOpcode::Or => self.or(lhs, rhs),
+                            }
+                            .unwrap();
                             if Arc::strong_count(t) > 1 {
                                 seen.insert(
                                     (*axes.last().unwrap(), Arc::as_ptr(t)),

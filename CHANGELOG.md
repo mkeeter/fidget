@@ -61,6 +61,7 @@
   re-exporting them in `fidget::shapes`.
 - Make `fidget::shapes::types::{Value, Type}` public; these represent types
   which can be used in shapes (with ergonomic Rhai bindings).
+- Fix missing local optimizations in `Context::import` (e.g. `x * 0 => 0`)
 
 # 0.3.7
 - Small release to fix an issue with 0.3.6 being published with invalid local
