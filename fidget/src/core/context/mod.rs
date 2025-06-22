@@ -1642,4 +1642,12 @@ mod test {
             panic!("unexpected opcode {t:?}");
         }
     }
+
+    #[test]
+    fn import_optimization() {
+        let t = Tree::x() + 0;
+        let mut ctx = Context::new();
+        let root = ctx.import(&t);
+        assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::X));
+    }
 }
