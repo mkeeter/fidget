@@ -354,7 +354,7 @@ impl Plane {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Enumeration representing all types that can be used in shapes
-#[derive(strum::EnumDiscriminants)]
+#[derive(Debug, strum::EnumDiscriminants)]
 #[strum_discriminants(name(Type), derive(enum_map::Enum), allow(missing_docs))]
 #[allow(missing_docs)]
 pub enum Value {
