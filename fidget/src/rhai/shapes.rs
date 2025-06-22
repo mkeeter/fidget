@@ -4,7 +4,7 @@ use crate::{
     rhai::FromDynamic,
     shapes::{
         ShapeVisitor,
-        types::{Type, Value, Vec3, validate},
+        types::{Plane, Type, Value, Vec3, validate},
         visit_shapes,
     },
 };
@@ -401,12 +401,11 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
 
     let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
 
-    // If the shape has no Vec2 fields, then we'll upgrade a Vec2 -> Vec3
-    // if necessary!
-    let has_vec2 = shape
-        .fields
-        .iter()
-        .any(|f| matches!(Type::try_from(f.shape().id).unwrap(), Type::Vec2));
+    // Track which fields the shape actually uses, for upgrades
+    let mut has_ty = enum_map::EnumMap::<Type, bool>::default();
+    for f in shape.fields.iter() {
+        has_ty[Type::try_from(f.shape().id).unwrap()] = true;
+    }
 
     for (i, f) in shape.fields.iter().enumerate() {
         let tag = Type::try_from(f.shape().id).unwrap();
@@ -417,9 +416,9 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
             .map(|df| unsafe { tag.build_from_default_fn(df) });
         let v = if let Some(v) = vs[tag].take() {
             v
-        } else if tag == Type::Vec3
+        } else if tag == Type::Vec3 // Vec2 -> Vec3 upgrade
             && vs[Type::Vec2].is_some()
-            && !has_vec2
+            && !has_ty[Type::Vec2]
             && d.is_some()
         {
             let Some(Value::Vec2(v)) = vs[Type::Vec2].take() else {
@@ -433,6 +432,14 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
                 y: v.y,
                 z: d.z,
             })
+        } else if tag == Type::Plane // Plane -> Axis upgrade
+            && vs[Type::Axis].is_some()
+            && !has_ty[Type::Axis]
+        {
+            let Some(Value::Axis(axis)) = vs[Type::Axis].take() else {
+                unreachable!()
+            };
+            Value::Plane(Plane { axis, offset: 0.0 })
         } else if let Some(v) = d {
             v
         } else {
@@ -521,16 +528,30 @@ mod test {
     fn scale_and_move_defaults() {
         // Move should default to 0 on the Z axis
         let e = crate::rhai::engine();
-        let v = e.eval("z.move([1, 1])").unwrap();
         let mut ctx = Context::new();
+        let v = e.eval("z.move([1, 1])").unwrap();
         let root = ctx.import(&v);
         assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::Z));
 
         // Scale should default to 1 on the Z axis
-        let e = crate::rhai::engine();
         let v = e.eval("z.scale([1, 1])").unwrap();
-        let mut ctx = Context::new();
         let root = ctx.import(&v);
         assert_eq!(ctx.get_op(root).unwrap(), &Op::Input(Var::Z));
+    }
+
+    #[test]
+    fn string_to_plane() {
+        let e = crate::rhai::engine();
+        let v = e.eval("x.reflect(\"yz\")").unwrap(); // plane
+        let mut ctx = Context::new();
+        let root = ctx.import(&v);
+        // XXX this could be reduced to -X, but that requires automatic affine
+        // detection, which isn't yet implemented.
+        let expected = ctx.import(&(Tree::x() - Tree::x() * 2));
+        assert_eq!(root, expected);
+
+        let v = e.eval("x.reflect(\"x\")").unwrap(); // axis -> plane
+        let root = ctx.import(&v);
+        assert_eq!(root, expected);
     }
 }
