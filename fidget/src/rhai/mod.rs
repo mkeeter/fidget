@@ -247,8 +247,8 @@ pub fn resolver(
     _index: usize,
     ctx: rhai::EvalContext,
 ) -> Result<Option<rhai::Dynamic>, Box<rhai::EvalAltResult>> {
-    if let Some(out) = ctx.scope().get_value(name) {
-        Ok(Some(out))
+    if ctx.scope().contains(name) {
+        Ok(None)
     } else {
         match name {
             "x" => Ok(Some(rhai::Dynamic::from(Tree::x()))),
@@ -332,5 +332,13 @@ mod test {
         let engine = engine();
         let out: bool = engine.eval("let x = 1; x < 0").unwrap();
         assert!(!out);
+    }
+
+    #[test]
+    fn push() {
+        let engine = engine();
+        let out: i64 =
+            engine.eval("let foo = []; foo.push(1); foo.len()").unwrap();
+        assert_eq!(out, 1);
     }
 }

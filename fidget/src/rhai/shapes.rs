@@ -2,7 +2,11 @@
 use crate::{
     context::Tree,
     rhai::FromDynamic,
-    shapes::{ShapeVisitor, Type, Value, Vec3, validate_type, visit_shapes},
+    shapes::{
+        ShapeVisitor,
+        types::{Type, Value, Vec3, validate},
+        visit_shapes,
+    },
 };
 use facet::{ConstTypeId, Facet};
 use rhai::{EvalAltResult, NativeCallContext};
@@ -37,18 +41,18 @@ impl Type {
         let default = default.as_ref();
         let out = match self {
             Type::Float => {
-                Value::Float(from_dynamic_with_hint(ctx, v, default)?)
+                from_dynamic_with_hint(ctx, v, default, Value::Float)?
             }
-            Type::Vec2 => Value::Vec2(from_dynamic_with_hint(ctx, v, default)?),
-            Type::Vec3 => Value::Vec3(from_dynamic_with_hint(ctx, v, default)?),
-            Type::Vec4 => Value::Vec4(from_dynamic_with_hint(ctx, v, default)?),
-            Type::Tree => Value::Tree(from_dynamic_with_hint(ctx, v, default)?),
-            Type::Axis => Value::Axis(from_dynamic_with_hint(ctx, v, default)?),
+            Type::Vec2 => from_dynamic_with_hint(ctx, v, default, Value::Vec2)?,
+            Type::Vec3 => from_dynamic_with_hint(ctx, v, default, Value::Vec3)?,
+            Type::Vec4 => from_dynamic_with_hint(ctx, v, default, Value::Vec4)?,
+            Type::Tree => from_dynamic_with_hint(ctx, v, default, Value::Tree)?,
+            Type::Axis => from_dynamic_with_hint(ctx, v, default, Value::Axis)?,
             Type::Plane => {
-                Value::Plane(from_dynamic_with_hint(ctx, v, default)?)
+                from_dynamic_with_hint(ctx, v, default, Value::Plane)?
             }
             Type::VecTree => {
-                Value::VecTree(from_dynamic_with_hint(ctx, v, default)?)
+                from_dynamic_with_hint(ctx, v, default, Value::VecTree)?
             }
         };
         Ok(out)
@@ -59,18 +63,16 @@ fn from_dynamic_with_hint<T: FromDynamic>(
     ctx: &NativeCallContext,
     v: rhai::Dynamic,
     default: Option<&Value>,
-) -> Result<T, Box<EvalAltResult>>
+    b: fn(T) -> Value,
+) -> Result<Value, Box<EvalAltResult>>
 where
     for<'a> &'a Value: TryInto<&'a T>,
 {
-    <_>::from_dynamic(
-        ctx,
-        v,
-        default.as_ref().and_then(|d| (*d).try_into().ok()),
-    )
+    <_>::from_dynamic(ctx, v, default.and_then(|d| d.try_into().ok())).map(b)
 }
 
 impl Value {
+    /// Converts an arbitrary [`rhai::Dynamic`] value into a [`Value`]
     fn from_dynamic(
         ctx: &NativeCallContext,
         v: rhai::Dynamic,
@@ -80,55 +82,35 @@ impl Value {
         // `Vec<Tree>` before `Tree` becaues Tree::from_dynamic` will
         // automatically collapse a `[Tree]` list.
         let default = default.as_ref();
-        from_dynamic_with_hint(ctx, v.clone(), default)
-            .map(Value::Float)
+        from_dynamic_with_hint(ctx, v.clone(), default, Value::Float)
             .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default).map(Value::Vec2)
+                from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec2)
             })
             .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default).map(Value::Vec3)
+                from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec3)
             })
             .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default).map(Value::Vec4)
+                from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec4)
             })
             .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default)
-                    .map(Value::VecTree)
+                from_dynamic_with_hint(ctx, v.clone(), default, Value::VecTree)
             })
             .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default).map(Value::Tree)
+                from_dynamic_with_hint(ctx, v.clone(), default, Value::Tree)
+            })
+            .or_else(|_| {
+                from_dynamic_with_hint(ctx, v.clone(), default, Value::Axis)
+            })
+            .or_else(|_| {
+                from_dynamic_with_hint(ctx, v.clone(), default, Value::Plane)
             })
             .map_err(|_| {
                 Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
-                    "any Rust-compatible Type".to_string(),
+                    "any Type-compatible value".to_string(),
                     v.type_name().to_string(),
                     ctx.position(),
                 ))
             })
-    }
-
-    /// Puts the type into an in-progress builder
-    ///
-    /// The builder must have a selected field, which is then popped
-    ///
-    /// # Panics
-    /// If the currently-selected builder field does not match our type
-    fn put<'facet, 'shape>(
-        self,
-        builder: &mut facet::Partial<'facet, 'shape>,
-        i: usize,
-    ) {
-        match self {
-            Value::Float(v) => builder.set_nth_field(i, v),
-            Value::Vec2(v) => builder.set_nth_field(i, v),
-            Value::Vec3(v) => builder.set_nth_field(i, v),
-            Value::Vec4(v) => builder.set_nth_field(i, v),
-            Value::Axis(v) => builder.set_nth_field(i, v),
-            Value::Plane(v) => builder.set_nth_field(i, v),
-            Value::Tree(v) => builder.set_nth_field(i, v),
-            Value::VecTree(v) => builder.set_nth_field(i, v),
-        }
-        .unwrap();
     }
 }
 
@@ -138,7 +120,7 @@ fn register_shape<
 >(
     engine: &mut rhai::Engine,
 ) {
-    let s = validate_type::<T>(); // panic if the type is invalid
+    let s = validate::<T>(); // panic if the type is invalid
 
     use heck::ToSnakeCase;
 
@@ -490,7 +472,7 @@ unique!(build_unique8, a, b, c, d, e, f, g, h);
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::shapes::*;
+    use crate::shapes::{types::Vec2, *};
     use crate::{Context, context::Op, var::Var};
 
     #[test]
