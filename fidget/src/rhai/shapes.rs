@@ -524,10 +524,11 @@ macro_rules! unique {
         ) -> Result<Tree, Box<EvalAltResult>> {
             // Build a map of our known values
             #[allow(unused_mut, reason = "0-item constructor")]
-            let mut vs = enum_map::EnumMap::<TypeTag, Option<rhai::Dynamic>>::default();
+            let mut vs = enum_map::EnumMap::<TypeTag, Option<Type>>::default();
             $(
-                let tag = Type::from_dynamic(&ctx, $v.clone(), None)?.discriminant();
-                vs[tag] = Some($v);
+                let v = Type::from_dynamic(&ctx, $v.clone(), None)?;
+                let tag = v.discriminant();
+                vs[tag] = Some(v);
             )*
 
             from_enum_map::<T>(ctx, vs)
@@ -537,7 +538,7 @@ macro_rules! unique {
 
 fn from_enum_map<T: Facet<'static> + Into<Tree>>(
     ctx: NativeCallContext,
-    mut vs: enum_map::EnumMap<TypeTag, Option<rhai::Dynamic>>,
+    mut vs: enum_map::EnumMap<TypeTag, Option<Type>>,
 ) -> Result<Tree, Box<EvalAltResult>> {
     let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
@@ -559,17 +560,23 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
             .default_fn
             .map(|df| unsafe { tag.build_from_default_fn(df) });
         let v = if let Some(v) = vs[tag].take() {
-            tag.into_type(&ctx, v, d).unwrap()
+            v
         } else if tag == TypeTag::Vec3
             && vs[TypeTag::Vec2].is_some()
             && !has_vec2
             && d.is_some()
         {
-            let v = vs[TypeTag::Vec2].take().unwrap();
+            let Some(Type::Vec2(v)) = vs[TypeTag::Vec2].take() else {
+                unreachable!()
+            };
             let Some(Type::Vec3(d)) = d else {
                 unreachable!()
             };
-            Type::Vec3(Vec3::from_dynamic(&ctx, v, Some(&d)).unwrap())
+            Type::Vec3(Vec3 {
+                x: v.x,
+                y: v.y,
+                z: d.z,
+            })
         } else if let Some(v) = d {
             v
         } else {

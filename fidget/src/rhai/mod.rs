@@ -120,13 +120,13 @@
 //! # ").unwrap();
 //! ```
 //!
-//! Note that some kinds of type coercion will not work in this regime, e.g.
-//! `vec2 -> vec3`:
+//! `vec2 -> vec3` coercion also works in this regime, if the `vec3` has a
+//! default value:
 //!
-//! ```should_panic
+//! ```
 //! # fidget::rhai::engine().run("
-//! // array -> vec2
-//! let c1 = sphere([1, 1], 4); // no vec2 -> vec3 conversion!
+//! // array -> vec2 -> vec3
+//! let c1 = sphere([1, 1], 4); // z = 0
 //! # ").unwrap();
 //! ```
 //!
