@@ -1,4 +1,4 @@
-# 0.3.8 (unreleased)
+# 0.3.8
 - Bug fix: `Image::height()` was returning width instead!
 - Add `#[derive(PartialEq)]` to `View2` and `View3`
 - Improve rendering at small images sizes
