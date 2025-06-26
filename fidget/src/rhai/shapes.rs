@@ -454,7 +454,7 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
 
     if let Some((k, _v)) = vs.iter().find(|(_k, v)| v.is_some()) {
         return Err(EvalAltResult::ErrorRuntime(
-            format!("shape does not have an argument of type {:?}", k).into(),
+            format!("shape does not have an argument of type {k:?}").into(),
             ctx.position(),
         )
         .into());

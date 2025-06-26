@@ -434,7 +434,7 @@ impl std::fmt::Display for Type {
             Type::Tree => "Tree",
             Type::VecTree => "Vec<Tree>",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
