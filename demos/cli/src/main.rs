@@ -33,6 +33,13 @@ enum Command {
         /// Render mode
         #[clap(long, value_enum, default_value_t)]
         mode: RenderMode2D,
+
+        /// Center point of the render
+        #[clap(
+            long, default_value = "0,0", allow_hyphen_values = true,
+            value_parser = parse_vec2
+        )]
+        center: [f32; 2],
     },
 
     Render3d {
@@ -237,6 +244,24 @@ fn parse_vec3(s: &str) -> Result<[f32; 3]> {
     } else {
         bail!(
             "expected 3 comma-separated floating point numbers, got {}",
+            parts.len()
+        )
+    }
+}
+
+fn parse_vec2(s: &str) -> Result<[f32; 2]> {
+    let parts: Vec<f32> = s
+        .split(',')
+        .map(str::trim)
+        .map(|num| num.parse::<f32>())
+        .collect::<Result<Vec<f32>, _>>()
+        .with_context(|| format!("failed to parse vec2 from '{s}'"))?;
+
+    if parts.len() == 2 {
+        Ok([parts[0], parts[1]])
+    } else {
+        bail!(
+            "expected 2 comma-separated floating point numbers, got {}",
             parts.len()
         )
     }
@@ -581,23 +606,30 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.cmd {
-        Command::Render2d { settings, mode } => {
+        Command::Render2d {
+            settings,
+            mode,
+            center,
+        } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let s = 1.0 / settings.scale;
             let scale = nalgebra::Scale3::new(s, s, s);
+            let center =
+                nalgebra::Translation3::new(-center[0], -center[1], 0.0);
+            let t = center.to_homogeneous() * scale.to_homogeneous();
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?
-                        .apply_transform(scale.into());
+                        .apply_transform(t);
 
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, mode)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?
-                        .apply_transform(scale.into());
+                        .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, mode)
                 }

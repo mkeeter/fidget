@@ -1019,7 +1019,7 @@ impl Context {
         let mut out = format!(r#"n{} [label = ""#, i.get());
         let op = self.get_op(i).unwrap();
         match op {
-            Op::Const(c) => write!(out, "{}", c).unwrap(),
+            Op::Const(c) => write!(out, "{c}").unwrap(),
             Op::Input(v) => {
                 out += &v.to_string();
             }

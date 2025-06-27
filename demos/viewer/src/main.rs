@@ -281,7 +281,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     file_watcher_tx.send(()).unwrap()
                 }
             }
-            Err(e) => panic!("watch error: {:?}", e),
+            Err(e) => panic!("watch error: {e:?}"),
         },
     )
     .unwrap();
