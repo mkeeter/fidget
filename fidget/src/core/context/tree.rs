@@ -42,14 +42,14 @@ pub enum TreeOp {
 impl Drop for TreeOp {
     fn drop(&mut self) {
         // Early exit for TreeOps which have limited recursion
-        if self.fast_drop() {
+        if self.eligible_for_fast_drop() {
             return;
         }
 
         let mut todo = vec![std::mem::replace(self, TreeOp::Const(0.0))];
         let empty = Arc::new(TreeOp::Const(0.0));
         while let Some(mut t) = todo.pop() {
-            for t in t.iter_children() {
+            for t in t.iter_children_mut() {
                 let arg = std::mem::replace(t, empty.clone());
                 todo.extend(Arc::into_inner(arg));
             }
@@ -63,28 +63,33 @@ impl TreeOp {
     ///
     /// Fast dropping uses the normal `Drop` implementation, which recurses on
     /// the stack and can overflow for deep trees.  A recursive tree is only
-    /// eligible for fast dropping if all of its children are `TreeOp::Const`.
-    fn fast_drop(&self) -> bool {
-        match self {
-            TreeOp::Const(..) | TreeOp::Input(..) => true,
-            TreeOp::Unary(_op, arg) => matches!(**arg, TreeOp::Const(..)),
-            TreeOp::Binary(_op, lhs, rhs) => {
-                matches!(**lhs, TreeOp::Const(..))
-                    && matches!(**rhs, TreeOp::Const(..))
-            }
-            TreeOp::RemapAxes { target, x, y, z } => {
-                matches!(**target, TreeOp::Const(..))
-                    && matches!(**x, TreeOp::Const(..))
-                    && matches!(**y, TreeOp::Const(..))
-                    && matches!(**z, TreeOp::Const(..))
-            }
-            TreeOp::RemapAffine { target, .. } => {
-                matches!(**target, TreeOp::Const(..))
-            }
-        }
+    /// eligible for fast dropping if all of its children are non-recursive.
+    fn eligible_for_fast_drop(&self) -> bool {
+        self.iter_children().all(|c| c.does_not_recurse())
     }
 
-    fn iter_children(&mut self) -> impl Iterator<Item = &mut Arc<TreeOp>> {
+    /// Returns `true` if the given child does not recurse
+    fn does_not_recurse(&self) -> bool {
+        matches!(self, TreeOp::Const(..) | TreeOp::Input(..))
+    }
+
+    fn iter_children(&self) -> impl Iterator<Item = &Arc<TreeOp>> {
+        match self {
+            TreeOp::Const(..) | TreeOp::Input(..) => [None, None, None, None],
+            TreeOp::Unary(_op, arg) => [Some(arg), None, None, None],
+            TreeOp::Binary(_op, lhs, rhs) => [Some(lhs), Some(rhs), None, None],
+            TreeOp::RemapAxes { target, x, y, z } => {
+                [Some(target), Some(x), Some(y), Some(z)]
+            }
+            TreeOp::RemapAffine { target, .. } => {
+                [Some(target), None, None, None]
+            }
+        }
+        .into_iter()
+        .flatten()
+    }
+
+    fn iter_children_mut(&mut self) -> impl Iterator<Item = &mut Arc<TreeOp>> {
         match self {
             TreeOp::Const(..) | TreeOp::Input(..) => [None, None, None, None],
             TreeOp::Unary(_op, arg) => [Some(arg), None, None, None],
@@ -485,7 +490,7 @@ mod test {
         let x1 = Tree::x();
         let x2 = Tree::x();
         assert!(!x1.ptr_eq(&x2)); // shallow equality
-        assert_eq!(x1, x2); // deep quality
+        assert_eq!(x1, x2); // deep equality
 
         let mut ctx = Context::new();
         let x1 = ctx.import(&x1);
@@ -639,6 +644,19 @@ mod test {
         }
         drop(x);
         // we should not panic here!
+    }
+
+    #[test]
+    fn deep_recursion_eq() {
+        let mut x1 = Tree::x();
+        for _ in 0..1_000_000 {
+            x1 += 1.0;
+        }
+        let mut x2 = Tree::x();
+        for _ in 0..1_000_000 {
+            x2 += 1.0;
+        }
+        assert_eq!(x1, x2);
     }
 
     #[test]
