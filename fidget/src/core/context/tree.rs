@@ -143,12 +143,83 @@ impl std::ops::Deref for Tree {
 }
 
 impl PartialEq for Tree {
-    /// Shallow (pointer) comparison
-    ///
-    /// This is implemented because `PartialEq` is required for
-    /// [`nalgebra::Scalar`]; it's unlikely to be meaningful in user code.
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.as_ptr(), other.as_ptr())
+        if self.ptr_eq(other) {
+            return true;
+        }
+        // Heap recursion using a `Vec`, to avoid blowing up the stack
+        let mut todo = vec![(&self.0, &other.0)];
+        while let Some((a, b)) = todo.pop() {
+            // Pointer equality lets us short-circuit deep checks
+            if Arc::as_ptr(a) == Arc::as_ptr(b) {
+                continue;
+            }
+            // Otherwise, we check opcodes then recurse
+            match (a.as_ref(), b.as_ref()) {
+                (TreeOp::Input(a), TreeOp::Input(b)) => {
+                    if *a != *b {
+                        return false;
+                    }
+                }
+                (TreeOp::Const(a), TreeOp::Const(b)) => {
+                    if *a != *b {
+                        return false;
+                    }
+                }
+                (TreeOp::Unary(op_a, arg_a), TreeOp::Unary(op_b, arg_b)) => {
+                    if *op_a != *op_b {
+                        return false;
+                    }
+                    todo.push((arg_a, arg_b));
+                }
+                (
+                    TreeOp::Binary(op_a, lhs_a, rhs_a),
+                    TreeOp::Binary(op_b, lhs_b, rhs_b),
+                ) => {
+                    if *op_a != *op_b {
+                        return false;
+                    }
+                    todo.push((lhs_a, lhs_b));
+                    todo.push((rhs_a, rhs_b));
+                }
+                (
+                    TreeOp::RemapAxes {
+                        target: t_a,
+                        x: x_a,
+                        y: y_a,
+                        z: z_a,
+                    },
+                    TreeOp::RemapAxes {
+                        target: t_b,
+                        x: x_b,
+                        y: y_b,
+                        z: z_b,
+                    },
+                ) => {
+                    todo.push((t_a, t_b));
+                    todo.push((x_a, x_b));
+                    todo.push((y_a, y_b));
+                    todo.push((z_a, z_b));
+                }
+                (
+                    TreeOp::RemapAffine {
+                        target: t_a,
+                        mat: mat_a,
+                    },
+                    TreeOp::RemapAffine {
+                        target: t_b,
+                        mat: mat_b,
+                    },
+                ) => {
+                    if *mat_a != *mat_b {
+                        return false;
+                    }
+                    todo.push((t_a, t_b));
+                }
+                _ => return false,
+            }
+        }
+        true
     }
 }
 impl Eq for Tree {}
@@ -164,6 +235,11 @@ impl Tree {
     /// This can be used as a strong (but not unique) identity.
     pub fn as_ptr(&self) -> *const TreeOp {
         Arc::as_ptr(&self.0)
+    }
+
+    /// Shallow (pointer) equality check
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.as_ptr(), other.as_ptr())
     }
 
     /// Borrow the inner `Arc<TreeOp>`
@@ -408,7 +484,8 @@ mod test {
     fn tree_x() {
         let x1 = Tree::x();
         let x2 = Tree::x();
-        assert_ne!(x1, x2);
+        assert!(!x1.ptr_eq(&x2)); // shallow equality
+        assert_eq!(x1, x2); // deep quality
 
         let mut ctx = Context::new();
         let x1 = ctx.import(&x1);

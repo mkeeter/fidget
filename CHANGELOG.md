@@ -1,5 +1,8 @@
 # 0.3.9 (unreleased)
-Nothing yet!
+- Make `PartialEq` for `Tree` objects do deep comparisons, instead of shallow
+  (pointer) equality
+    - This is more expensive, but matches typical data structures in Rust
+    - `Tree::ptr_eq` can be used to perform shallow equality checks
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!
