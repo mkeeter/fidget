@@ -42,14 +42,14 @@ pub enum TreeOp {
 impl Drop for TreeOp {
     fn drop(&mut self) {
         // Early exit for TreeOps which have limited recursion
-        if self.fast_drop() {
+        if self.eligible_for_fast_drop() {
             return;
         }
 
         let mut todo = vec![std::mem::replace(self, TreeOp::Const(0.0))];
         let empty = Arc::new(TreeOp::Const(0.0));
         while let Some(mut t) = todo.pop() {
-            for t in t.iter_children() {
+            for t in t.iter_children_mut() {
                 let arg = std::mem::replace(t, empty.clone());
                 todo.extend(Arc::into_inner(arg));
             }
@@ -63,28 +63,33 @@ impl TreeOp {
     ///
     /// Fast dropping uses the normal `Drop` implementation, which recurses on
     /// the stack and can overflow for deep trees.  A recursive tree is only
-    /// eligible for fast dropping if all of its children are `TreeOp::Const`.
-    fn fast_drop(&self) -> bool {
-        match self {
-            TreeOp::Const(..) | TreeOp::Input(..) => true,
-            TreeOp::Unary(_op, arg) => matches!(**arg, TreeOp::Const(..)),
-            TreeOp::Binary(_op, lhs, rhs) => {
-                matches!(**lhs, TreeOp::Const(..))
-                    && matches!(**rhs, TreeOp::Const(..))
-            }
-            TreeOp::RemapAxes { target, x, y, z } => {
-                matches!(**target, TreeOp::Const(..))
-                    && matches!(**x, TreeOp::Const(..))
-                    && matches!(**y, TreeOp::Const(..))
-                    && matches!(**z, TreeOp::Const(..))
-            }
-            TreeOp::RemapAffine { target, .. } => {
-                matches!(**target, TreeOp::Const(..))
-            }
-        }
+    /// eligible for fast dropping if all of its children are non-recursive.
+    fn eligible_for_fast_drop(&self) -> bool {
+        self.iter_children().all(|c| c.does_not_recurse())
     }
 
-    fn iter_children(&mut self) -> impl Iterator<Item = &mut Arc<TreeOp>> {
+    /// Returns `true` if the given child does not recurse
+    fn does_not_recurse(&self) -> bool {
+        matches!(self, TreeOp::Const(..) | TreeOp::Input(..))
+    }
+
+    fn iter_children(&self) -> impl Iterator<Item = &Arc<TreeOp>> {
+        match self {
+            TreeOp::Const(..) | TreeOp::Input(..) => [None, None, None, None],
+            TreeOp::Unary(_op, arg) => [Some(arg), None, None, None],
+            TreeOp::Binary(_op, lhs, rhs) => [Some(lhs), Some(rhs), None, None],
+            TreeOp::RemapAxes { target, x, y, z } => {
+                [Some(target), Some(x), Some(y), Some(z)]
+            }
+            TreeOp::RemapAffine { target, .. } => {
+                [Some(target), None, None, None]
+            }
+        }
+        .into_iter()
+        .flatten()
+    }
+
+    fn iter_children_mut(&mut self) -> impl Iterator<Item = &mut Arc<TreeOp>> {
         match self {
             TreeOp::Const(..) | TreeOp::Input(..) => [None, None, None, None],
             TreeOp::Unary(_op, arg) => [Some(arg), None, None, None],
@@ -143,12 +148,83 @@ impl std::ops::Deref for Tree {
 }
 
 impl PartialEq for Tree {
-    /// Shallow (pointer) comparison
-    ///
-    /// This is implemented because `PartialEq` is required for
-    /// [`nalgebra::Scalar`]; it's unlikely to be meaningful in user code.
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.as_ptr(), other.as_ptr())
+        if self.ptr_eq(other) {
+            return true;
+        }
+        // Heap recursion using a `Vec`, to avoid blowing up the stack
+        let mut todo = vec![(&self.0, &other.0)];
+        while let Some((a, b)) = todo.pop() {
+            // Pointer equality lets us short-circuit deep checks
+            if Arc::as_ptr(a) == Arc::as_ptr(b) {
+                continue;
+            }
+            // Otherwise, we check opcodes then recurse
+            match (a.as_ref(), b.as_ref()) {
+                (TreeOp::Input(a), TreeOp::Input(b)) => {
+                    if *a != *b {
+                        return false;
+                    }
+                }
+                (TreeOp::Const(a), TreeOp::Const(b)) => {
+                    if *a != *b {
+                        return false;
+                    }
+                }
+                (TreeOp::Unary(op_a, arg_a), TreeOp::Unary(op_b, arg_b)) => {
+                    if *op_a != *op_b {
+                        return false;
+                    }
+                    todo.push((arg_a, arg_b));
+                }
+                (
+                    TreeOp::Binary(op_a, lhs_a, rhs_a),
+                    TreeOp::Binary(op_b, lhs_b, rhs_b),
+                ) => {
+                    if *op_a != *op_b {
+                        return false;
+                    }
+                    todo.push((lhs_a, lhs_b));
+                    todo.push((rhs_a, rhs_b));
+                }
+                (
+                    TreeOp::RemapAxes {
+                        target: t_a,
+                        x: x_a,
+                        y: y_a,
+                        z: z_a,
+                    },
+                    TreeOp::RemapAxes {
+                        target: t_b,
+                        x: x_b,
+                        y: y_b,
+                        z: z_b,
+                    },
+                ) => {
+                    todo.push((t_a, t_b));
+                    todo.push((x_a, x_b));
+                    todo.push((y_a, y_b));
+                    todo.push((z_a, z_b));
+                }
+                (
+                    TreeOp::RemapAffine {
+                        target: t_a,
+                        mat: mat_a,
+                    },
+                    TreeOp::RemapAffine {
+                        target: t_b,
+                        mat: mat_b,
+                    },
+                ) => {
+                    if *mat_a != *mat_b {
+                        return false;
+                    }
+                    todo.push((t_a, t_b));
+                }
+                _ => return false,
+            }
+        }
+        true
     }
 }
 impl Eq for Tree {}
@@ -164,6 +240,11 @@ impl Tree {
     /// This can be used as a strong (but not unique) identity.
     pub fn as_ptr(&self) -> *const TreeOp {
         Arc::as_ptr(&self.0)
+    }
+
+    /// Shallow (pointer) equality check
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.as_ptr(), other.as_ptr())
     }
 
     /// Borrow the inner `Arc<TreeOp>`
@@ -408,7 +489,8 @@ mod test {
     fn tree_x() {
         let x1 = Tree::x();
         let x2 = Tree::x();
-        assert_ne!(x1, x2);
+        assert!(!x1.ptr_eq(&x2)); // shallow equality
+        assert_eq!(x1, x2); // deep equality
 
         let mut ctx = Context::new();
         let x1 = ctx.import(&x1);
@@ -562,6 +644,19 @@ mod test {
         }
         drop(x);
         // we should not panic here!
+    }
+
+    #[test]
+    fn deep_recursion_eq() {
+        let mut x1 = Tree::x();
+        for _ in 0..1_000_000 {
+            x1 += 1.0;
+        }
+        let mut x2 = Tree::x();
+        for _ in 0..1_000_000 {
+            x2 += 1.0;
+        }
+        assert_eq!(x1, x2);
     }
 
     #[test]
