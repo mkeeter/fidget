@@ -1,4 +1,7 @@
 # 0.3.9 (unreleased)
+- Fix invalid access when doing bulk evaluation on a `Function` with more than
+  one output.  This caused a panic using the VM evaluator, and a segfault
+  (typically) using the JIT evaluator.
 - Make `PartialEq` for `Tree` objects do deep comparisons, instead of shallow
   (pointer) equality
     - This is more expensive, but matches typical data structures in Rust

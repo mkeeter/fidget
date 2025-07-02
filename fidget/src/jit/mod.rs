@@ -1226,8 +1226,7 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     ) -> BulkOutput<T> {
         let n = vars.first().map(|v| v.deref().len()).unwrap_or(0);
 
-        const OUTPUT_COUNT: usize = 1;
-        self.out.resize_with(OUTPUT_COUNT, Vec::new);
+        self.out.resize_with(tape.output_count(), Vec::new);
         for o in &mut self.out {
             o.resize(n.max(T::SIMD_SIZE), f32::NAN.into());
             o.fill(f32::NAN.into());

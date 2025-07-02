@@ -841,9 +841,8 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
             s.resize(size, f32::NAN.into());
         }
 
-        const OUTPUT_COUNT: usize = 1;
         self.out
-            .resize_with(OUTPUT_COUNT, || vec![f32::NAN.into(); size]);
+            .resize_with(tape.output_count(), || vec![f32::NAN.into(); size]);
         for o in self.out.iter_mut() {
             o.resize(size, f32::NAN.into());
         }
