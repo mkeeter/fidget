@@ -948,6 +948,10 @@ impl Function for JitFunction {
     fn vars(&self) -> &VarMap {
         self.0.vars()
     }
+
+    fn can_simplify(&self) -> bool {
+        self.0.choice_count() > 0
+    }
 }
 
 impl RenderHints for JitFunction {
