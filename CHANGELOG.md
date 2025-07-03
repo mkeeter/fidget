@@ -1,4 +1,6 @@
 # 0.3.9 (unreleased)
+- Add `Function::can_simplify` to check whether a `Function` can _ever_ be
+  simplified (if not, then interval evaluation isn't as useful).
 - Fix invalid access when doing bulk evaluation on a `Function` with more than
   one output.  This caused a panic using the VM evaluator, and a segfault
   (typically) using the JIT evaluator.

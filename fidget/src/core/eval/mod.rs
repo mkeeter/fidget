@@ -191,6 +191,9 @@ pub trait Function: Send + Sync + Clone {
 
     /// Returns the map from [`Var`](crate::var::Var) to input index
     fn vars(&self) -> &VarMap;
+
+    /// Checks to see whether this function can ever be simplified
+    fn can_simplify(&self) -> bool;
 }
 
 /// A [`Function`] which can be built from a math expression
