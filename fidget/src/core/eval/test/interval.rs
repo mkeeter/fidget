@@ -922,6 +922,39 @@ where
         out
     }
 
+    pub fn test_i_multiple_outputs() {
+        let mut ctx = Context::new();
+        let rgb = [ctx.x(), ctx.y(), ctx.z()];
+
+        let f = F::new(&ctx, &rgb).unwrap();
+        let vars = f.vars();
+        let tape = f.interval_tape(Default::default());
+
+        let mut eval = F::new_interval_eval();
+        let xs = [0f32, 1f32].into();
+        let ys = [2f32, 3f32].into();
+        let zs = [4f32, 5f32].into();
+
+        // Dummy values, which we have to shuffle around
+        let mut vs = [xs, ys, zs];
+        if let Some(ix) = vars.get(&Var::X) {
+            vs[ix] = xs;
+        }
+        if let Some(iy) = vars.get(&Var::Y) {
+            vs[iy] = ys;
+        }
+        if let Some(iz) = vars.get(&Var::Z) {
+            vs[iz] = zs;
+        }
+        let (out, _trace) = eval.eval(&tape, &vs).unwrap();
+        let r = out[0];
+        let g = out[1];
+        let b = out[2];
+        assert_eq!(r, Interval::new(0.0, 1.0));
+        assert_eq!(g, Interval::new(2.0, 3.0));
+        assert_eq!(b, Interval::new(4.0, 5.0));
+    }
+
     pub fn test_unary<C: CanonicalUnaryOp>() {
         let args = Self::interval_test_args();
 
@@ -1196,6 +1229,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_simplify_conditional, $t);
         $crate::interval_test!(test_i_stress, $t);
+        $crate::interval_test!(test_i_multiple_outputs, $t);
 
         mod i_unary {
             use super::*;
