@@ -243,6 +243,40 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         assert!(b.iter().all(|b| *b == 2.0));
     }
 
+    pub fn test_f_multiple_const_outputs() {
+        let mut ctx = Context::new();
+        let rgb = [ctx.x(), ctx.constant(4.0), ctx.constant(5.0)];
+
+        let f = F::new(&ctx, &rgb).unwrap();
+        let vars = f.vars();
+        let tape = f.float_slice_tape(Default::default());
+
+        let mut eval = F::new_float_slice_eval();
+        let xs = vec![0f32; 8];
+        let ys = vec![1f32; 8];
+        let zs = vec![2f32; 8];
+
+        // Dummy values, which we have to shuffle around
+        let mut vs = [xs.as_slice(), ys.as_slice(), zs.as_slice()];
+        if let Some(ix) = vars.get(&Var::X) {
+            vs[ix] = &xs;
+        }
+        if let Some(iy) = vars.get(&Var::Y) {
+            vs[iy] = &ys;
+        }
+        if let Some(iz) = vars.get(&Var::Z) {
+            vs[iz] = &zs;
+        }
+
+        let out = eval.eval(&tape, &vs).unwrap();
+        let r = &out[0];
+        let g = &out[1];
+        let b = &out[2];
+        assert!(r.iter().all(|r| *r == 0.0));
+        assert!(g.iter().all(|g| *g == 4.0));
+        assert!(b.iter().all(|b| *b == 5.0));
+    }
+
     pub fn test_f_stress() {
         for n in [4, 8, 12, 16, 32, 256, 512] {
             Self::test_f_stress_n(n);
@@ -419,6 +453,7 @@ macro_rules! float_slice_tests {
         $crate::float_slice_test!(test_f_shape_var, $t);
         $crate::float_slice_test!(test_f_stress, $t);
         $crate::float_slice_test!(test_f_multiple_outputs, $t);
+        $crate::float_slice_test!(test_f_multiple_const_outputs, $t);
 
         mod f_unary {
             use super::*;

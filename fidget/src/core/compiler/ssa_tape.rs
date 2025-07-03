@@ -88,8 +88,10 @@ impl SsaTape {
             match mapping[r] {
                 Slot::Reg(out_reg) => tape.push(SsaOp::Output(out_reg, i)),
                 Slot::Immediate(imm) => {
-                    tape.push(SsaOp::Output(0, i));
-                    tape.push(SsaOp::CopyImm(0, imm));
+                    let o = slot_count;
+                    slot_count += 1;
+                    tape.push(SsaOp::Output(o, i));
+                    tape.push(SsaOp::CopyImm(o, imm));
                 }
             }
         }
