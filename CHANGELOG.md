@@ -1,4 +1,6 @@
 # 0.3.9 (unreleased)
+- Fix panic in tape construction if a multi-output expression has a constant as
+  an output.
 - Add `Function::can_simplify` to check whether a `Function` can _ever_ be
   simplified (if not, then interval evaluation isn't as useful).
 - Fix invalid access when doing bulk evaluation on a `Function` with more than
