@@ -61,7 +61,7 @@ impl PeepholeOptimizer {
         for i in 0..self.tape.len() {
             if self.use_count[i] == 0 {
                 continue;
-            } else if let SsaOp::SubRegImm(out, r, imm) = self.tape[i]
+            } else if let SsaOp::AddRegImm(out, r, imm) = self.tape[i]
                 && let SsaOp::SqrtReg(_, r2) = self.tape[r as usize]
                 && let SsaOp::AddRegReg(_, x2, y2) = self.tape[r2 as usize]
                 && let SsaOp::SquareReg(_, x) = self.tape[x2 as usize]
@@ -75,7 +75,7 @@ impl PeepholeOptimizer {
                         self.use_count[y2 as usize] -= 1;
                     }
                 }
-                self.tape[i] = SsaOp::RadiusRegRegImm(out, x, y, imm);
+                self.tape[i] = SsaOp::RadiusRegRegImm(out, x, y, -imm);
                 changed = true;
             } else if let SsaOp::SqrtReg(out, r2) = self.tape[i]
                 && let SsaOp::AddRegReg(_, x2, y2) = self.tape[r2 as usize]

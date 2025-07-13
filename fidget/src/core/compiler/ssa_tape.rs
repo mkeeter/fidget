@@ -134,7 +134,7 @@ impl SsaTape {
                         ),
                         BinaryOpcode::Sub => (
                             SsaOp::SubRegReg,
-                            SsaOp::SubRegImm,
+                            |out, lhs, imm| SsaOp::AddRegImm(out, lhs, -imm),
                             SsaOp::SubImmReg,
                         ),
                         BinaryOpcode::Mul => (
@@ -366,7 +366,6 @@ impl SsaTape {
                 | SsaOp::DivRegImm(out, arg, imm)
                 | SsaOp::DivImmReg(out, arg, imm)
                 | SsaOp::SubImmReg(out, arg, imm)
-                | SsaOp::SubRegImm(out, arg, imm)
                 | SsaOp::AtanRegImm(out, arg, imm)
                 | SsaOp::AtanImmReg(out, arg, imm)
                 | SsaOp::MinRegImm(out, arg, imm)
@@ -381,7 +380,6 @@ impl SsaTape {
                         SsaOp::DivImmReg(..) => ("DIV", true),
                         SsaOp::DivRegImm(..) => ("DIV", false),
                         SsaOp::SubImmReg(..) => ("SUB", true),
-                        SsaOp::SubRegImm(..) => ("SUB", false),
                         SsaOp::AtanImmReg(..) => ("ATAN", true),
                         SsaOp::AtanRegImm(..) => ("ATAN", false),
                         SsaOp::MinRegImm(..) => ("MIN", false),

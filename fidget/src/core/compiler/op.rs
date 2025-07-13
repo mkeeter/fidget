@@ -80,8 +80,6 @@ macro_rules! opcodes {
             DivImmReg($t, $t, f32),
             #[doc = "Subtract a register from an immediate"]
             SubImmReg($t, $t, f32),
-            #[doc = "Subtract an immediate from a register"]
-            SubRegImm($t, $t, f32),
             #[doc = "Take the module (least nonnegative remainder) of two registers"]
             ModRegReg($t, $t, $t),
             #[doc = "Take the module (least nonnegative remainder) of a register and an immediate"]
@@ -191,7 +189,6 @@ impl SsaOp {
             | SsaOp::DivRegImm(out, ..)
             | SsaOp::DivImmReg(out, ..)
             | SsaOp::SubImmReg(out, ..)
-            | SsaOp::SubRegImm(out, ..)
             | SsaOp::AddRegReg(out, ..)
             | SsaOp::MulRegReg(out, ..)
             | SsaOp::DivRegReg(out, ..)
@@ -246,7 +243,6 @@ impl SsaOp {
             | SsaOp::DivRegImm(out, ..)
             | SsaOp::DivImmReg(out, ..)
             | SsaOp::SubImmReg(out, ..)
-            | SsaOp::SubRegImm(out, ..)
             | SsaOp::AddRegReg(out, ..)
             | SsaOp::MulRegReg(out, ..)
             | SsaOp::DivRegReg(out, ..)
@@ -300,7 +296,6 @@ impl SsaOp {
             | SsaOp::NotReg(..)
             | SsaOp::AddRegImm(..)
             | SsaOp::MulRegImm(..)
-            | SsaOp::SubRegImm(..)
             | SsaOp::SubImmReg(..)
             | SsaOp::AddRegReg(..)
             | SsaOp::MulRegReg(..)
@@ -358,7 +353,6 @@ impl SsaOp {
             | SsaOp::AddRegImm(_, arg, _)
             | SsaOp::DivImmReg(_, arg, _)
             | SsaOp::SubImmReg(_, arg, _)
-            | SsaOp::SubRegImm(_, arg, _)
             | SsaOp::AtanRegImm(_, arg, _)
             | SsaOp::AtanImmReg(_, arg, _)
             | SsaOp::MinRegImm(_, arg, _)
@@ -417,7 +411,6 @@ impl SsaOp {
             | SsaOp::AddRegImm(_, arg, _)
             | SsaOp::DivImmReg(_, arg, _)
             | SsaOp::SubImmReg(_, arg, _)
-            | SsaOp::SubRegImm(_, arg, _)
             | SsaOp::AtanRegImm(_, arg, _)
             | SsaOp::AtanImmReg(_, arg, _)
             | SsaOp::MinRegImm(_, arg, _)

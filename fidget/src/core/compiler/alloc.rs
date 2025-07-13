@@ -291,7 +291,6 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::NotReg(..) => self.op_reg(op),
 
             SsaOp::AddRegImm(..)
-            | SsaOp::SubRegImm(..)
             | SsaOp::SubImmReg(..)
             | SsaOp::MulRegImm(..)
             | SsaOp::DivRegImm(..)
@@ -704,9 +703,6 @@ impl<const N: usize> RegisterAllocator<N> {
         {
             SsaOp::AddRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::AddRegImm)
-            }
-            SsaOp::SubRegImm(out, arg, imm) => {
-                (out, arg, imm, RegOp::SubRegImm)
             }
             SsaOp::SubImmReg(out, arg, imm) => {
                 (out, arg, imm, RegOp::SubImmReg)

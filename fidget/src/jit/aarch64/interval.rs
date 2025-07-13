@@ -381,12 +381,6 @@ impl Assembler for IntervalAssembler {
             ; fsub V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, v4.s2
         )
     }
-    fn build_sub_reg_imm(&mut self, out_reg: u8, arg: u8, imm: f32) {
-        let imm = self.load_imm(imm);
-        dynasm!(self.0.ops
-            ; fsub V(reg(out_reg)).s2, V(reg(arg)).s2, V(reg(imm)).s2
-        )
-    }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Set up v4 to contain

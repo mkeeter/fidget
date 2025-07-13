@@ -284,7 +284,6 @@ impl<const N: usize> VmData<N> {
                 }
                 SsaOp::AddRegImm(index, arg, _imm)
                 | SsaOp::MulRegImm(index, arg, _imm)
-                | SsaOp::SubRegImm(index, arg, _imm)
                 | SsaOp::SubImmReg(index, arg, _imm)
                 | SsaOp::DivRegImm(index, arg, _imm)
                 | SsaOp::DivImmReg(index, arg, _imm)

@@ -407,9 +407,6 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::SubImmReg(out, arg, imm) => {
                     v[out] = Interval::from(imm) - v[arg];
                 }
-                RegOp::SubRegImm(out, arg, imm) => {
-                    v[out] = v[arg] - imm.into();
-                }
                 RegOp::MinRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].min_choice(imm.into());
                     v[out] = value;
@@ -641,9 +638,6 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 }
                 RegOp::SubImmReg(out, arg, imm) => {
                     v[out] = imm - v[arg];
-                }
-                RegOp::SubRegImm(out, arg, imm) => {
-                    v[out] = v[arg] - imm;
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
                     let a = v[arg];
@@ -1029,11 +1023,6 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
-                RegOp::SubRegImm(out, arg, imm) => {
-                    for i in 0..size {
-                        v[out][i] = v[arg][i] - imm;
-                    }
-                }
                 RegOp::CompareImmReg(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = imm
@@ -1357,12 +1346,6 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm - v[arg][i];
-                    }
-                }
-                RegOp::SubRegImm(out, arg, imm) => {
-                    let imm: Grad = imm.into();
-                    for i in 0..size {
-                        v[out][i] = v[arg][i] - imm;
                     }
                 }
                 RegOp::CompareImmReg(out, arg, imm) => {

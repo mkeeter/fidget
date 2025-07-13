@@ -266,13 +266,6 @@ trait Assembler {
         let imm = self.load_imm(imm);
         self.build_sub(out_reg, imm, arg);
     }
-    /// Builds a subtraction (register − immediate)
-    ///
-    /// This has a default implementation, but can be overloaded for efficiency
-    fn build_sub_reg_imm(&mut self, out_reg: u8, arg: u8, imm: f32) {
-        let imm = self.load_imm(imm);
-        self.build_sub(out_reg, arg, imm);
-    }
     /// Builds a multiplication (register × immediate)
     ///
     /// This has a default implementation, but can be overloaded for efficiency
@@ -806,9 +799,6 @@ fn build_asm_fn_with_storage<A: Assembler>(
             }
             RegOp::SubImmReg(out, arg, imm) => {
                 asm.build_sub_imm_reg(out, arg, imm);
-            }
-            RegOp::SubRegImm(out, arg, imm) => {
-                asm.build_sub_reg_imm(out, arg, imm);
             }
             RegOp::MinRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
