@@ -336,7 +336,8 @@ impl SsaTape {
                 | SsaOp::ModRegReg(out, lhs, rhs)
                 | SsaOp::AndRegReg(out, lhs, rhs)
                 | SsaOp::AtanRegReg(out, lhs, rhs)
-                | SsaOp::OrRegReg(out, lhs, rhs) => {
+                | SsaOp::OrRegReg(out, lhs, rhs)
+                | SsaOp::RadiusRegReg(out, lhs, rhs) => {
                     let op = match op {
                         SsaOp::AddRegReg(..) => "ADD",
                         SsaOp::MulRegReg(..) => "MUL",
@@ -348,9 +349,13 @@ impl SsaTape {
                         SsaOp::ModRegReg(..) => "MAX",
                         SsaOp::AndRegReg(..) => "AND",
                         SsaOp::OrRegReg(..) => "OR",
+                        SsaOp::RadiusRegReg(..) => "RADIUS",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
+                }
+                SsaOp::RadiusRegRegImm(out, lhs, rhs, imm) => {
+                    println!("${out} = CIRCLE ${lhs} ${rhs} {imm}");
                 }
 
                 SsaOp::AddRegImm(out, arg, imm)

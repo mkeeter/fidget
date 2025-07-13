@@ -317,7 +317,10 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::CompareRegReg(..)
             | SsaOp::ModRegReg(..)
             | SsaOp::AndRegReg(..)
-            | SsaOp::OrRegReg(..) => self.op_reg_reg(op),
+            | SsaOp::OrRegReg(..)
+            | SsaOp::RadiusRegReg(..) => self.op_reg_reg(op),
+
+            SsaOp::RadiusRegRegImm(..) => self.op_reg_reg_imm(op),
         }
     }
 
@@ -513,6 +516,9 @@ impl<const N: usize> RegisterAllocator<N> {
                 (out, lhs, rhs, RegOp::AndRegReg)
             }
             SsaOp::OrRegReg(out, lhs, rhs) => (out, lhs, rhs, RegOp::OrRegReg),
+            SsaOp::RadiusRegReg(out, lhs, rhs) => {
+                (out, lhs, rhs, RegOp::RadiusRegReg)
+            }
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
@@ -589,6 +595,101 @@ impl<const N: usize> RegisterAllocator<N> {
 
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a, r_x));
+                self.bind_register(lhs, r_a);
+                self.rebind_register(rhs, r_x);
+            }
+        }
+    }
+
+    /// Same as `op_reg_reg`, but with a bonus immediate
+    #[inline(always)]
+    fn op_reg_reg_imm(&mut self, op: SsaOp) {
+        let (out, lhs, rhs, imm, op): (
+            _,
+            _,
+            _,
+            _,
+            fn(u8, u8, u8, f32) -> RegOp,
+        ) = match op {
+            SsaOp::RadiusRegRegImm(out, lhs, rhs, imm) => {
+                (out, lhs, rhs, imm, RegOp::RadiusRegRegImm)
+            }
+            _ => panic!("Bad opcode: {op:?}"),
+        };
+        let r_x = self.get_out_reg(out);
+        match (self.get_allocation(lhs), self.get_allocation(rhs)) {
+            (Allocation::Register(r_y), Allocation::Register(r_z)) => {
+                self.out.push(op(r_x, r_y, r_z, imm));
+                self.release_reg(r_x);
+            }
+            (Allocation::Memory(m_y), Allocation::Register(r_z)) => {
+                let r_a = self.get_register();
+                self.push_store(r_a, m_y);
+                self.out.push(op(r_x, r_a, r_z, imm));
+                self.release_reg(r_x);
+                self.bind_register(lhs, r_a);
+            }
+            (Allocation::Register(r_y), Allocation::Memory(m_z)) => {
+                let r_a = self.get_register();
+                self.push_store(r_a, m_z);
+                self.out.push(op(r_x, r_y, r_a, imm));
+                self.release_reg(r_x);
+                self.bind_register(rhs, r_a);
+            }
+            (Allocation::Memory(m_y), Allocation::Memory(..)) if lhs == rhs => {
+                let r_a = self.get_register();
+                self.push_store(r_a, m_y);
+                self.out.push(op(r_x, r_a, r_a, imm));
+                self.release_reg(r_x);
+                self.bind_register(lhs, r_a);
+            }
+            (Allocation::Memory(m_y), Allocation::Memory(m_z)) => {
+                let r_a = self.get_register();
+                let r_b = self.get_register();
+
+                self.push_store(r_a, m_y);
+                self.push_store(r_b, m_z);
+                self.out.push(op(r_x, r_a, r_b, imm));
+                self.release_reg(r_x);
+                self.bind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
+            }
+            (Allocation::Unassigned, Allocation::Register(r_z)) => {
+                self.out.push(op(r_x, r_x, r_z, imm));
+                self.rebind_register(lhs, r_x);
+            }
+            (Allocation::Register(r_y), Allocation::Unassigned) => {
+                self.out.push(op(r_x, r_y, r_x, imm));
+                self.rebind_register(rhs, r_x);
+            }
+            (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
+                self.out.push(op(r_x, r_x, r_x, imm));
+                self.rebind_register(lhs, r_x);
+            }
+            (Allocation::Unassigned, Allocation::Unassigned) => {
+                let r_a = self.get_register();
+
+                self.out.push(op(r_x, r_x, r_a, imm));
+                self.rebind_register(lhs, r_x);
+                self.bind_register(rhs, r_a);
+            }
+            (Allocation::Unassigned, Allocation::Memory(m_z)) => {
+                let r_a = self.get_register();
+                assert!(r_a != r_x);
+                assert!(lhs != rhs);
+
+                self.push_store(r_a, m_z);
+                self.out.push(op(r_x, r_x, r_a, imm));
+                self.rebind_register(lhs, r_x);
+                self.bind_register(rhs, r_a);
+            }
+            (Allocation::Memory(m_y), Allocation::Unassigned) => {
+                let r_a = self.get_register();
+                assert!(r_a != r_x);
+                assert!(lhs != rhs);
+
+                self.push_store(r_a, m_y);
+                self.out.push(op(r_x, r_a, r_x, imm));
                 self.bind_register(lhs, r_a);
                 self.rebind_register(rhs, r_x);
             }

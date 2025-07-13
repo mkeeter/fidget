@@ -504,6 +504,16 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
+                RegOp::RadiusRegReg(out, lhs, rhs) => {
+                    let r = v[lhs].square() + v[rhs].square();
+                    // Optimization: we know that the lower value can't be < 0
+                    v[out] = Interval::new(r.lower().sqrt(), r.upper().sqrt());
+                }
+                RegOp::RadiusRegRegImm(out, lhs, rhs, imm) => {
+                    let r = v[lhs].square() + v[rhs].square();
+                    v[out] = Interval::new(r.lower().sqrt(), r.upper().sqrt())
+                        - imm.into();
+                }
                 RegOp::CopyImm(out, imm) => {
                     v[out] = imm.into();
                 }
@@ -801,6 +811,12 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
+                }
+                RegOp::RadiusRegReg(out, lhs, rhs) => {
+                    v[out] = (v[lhs].powi(2) + v[rhs].powi(2)).sqrt();
+                }
+                RegOp::RadiusRegRegImm(out, lhs, rhs, imm) => {
+                    v[out] = (v[lhs].powi(2) + v[rhs].powi(2)).sqrt() - imm;
                 }
                 RegOp::CopyImm(out, imm) => {
                     v[out] = imm;
@@ -1143,6 +1159,19 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         } else {
                             v[rhs][i]
                         };
+                    }
+                }
+                RegOp::RadiusRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] =
+                            (v[lhs][i].powi(2) + v[rhs][i].powi(2)).sqrt();
+                    }
+                }
+                RegOp::RadiusRegRegImm(out, lhs, rhs, imm) => {
+                    for i in 0..size {
+                        v[out][i] = (v[lhs][i].powi(2) + v[rhs][i].powi(2))
+                            .sqrt()
+                            - imm;
                     }
                 }
                 RegOp::CopyImm(out, imm) => {
@@ -1490,6 +1519,22 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::Store(out, mem) => {
                     for i in 0..size {
                         v[mem][i] = v[out][i];
+                    }
+                }
+                RegOp::RadiusRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = (v[lhs][i] * v[lhs][i]
+                            + v[rhs][i] * v[rhs][i])
+                            .sqrt();
+                    }
+                }
+                RegOp::RadiusRegRegImm(out, lhs, rhs, imm) => {
+                    let imm: Grad = imm.into();
+                    for i in 0..size {
+                        v[out][i] = (v[lhs][i] * v[lhs][i]
+                            + v[rhs][i] * v[rhs][i])
+                            .sqrt()
+                            - imm;
                     }
                 }
             }

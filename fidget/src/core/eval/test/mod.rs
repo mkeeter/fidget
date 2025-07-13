@@ -120,11 +120,20 @@ pub trait CanonicalBinaryOp {
         rhs: B,
     ) -> Node;
     fn eval_reg_reg_f32(lhs: f32, rhs: f32) -> f32;
-    fn eval_reg_imm_f32(lhs: f32, rhs: f32) -> f32;
-    fn eval_imm_reg_f32(lhs: f32, rhs: f32) -> f32;
+    fn eval_reg_imm_f32(lhs: f32, rhs: f32) -> f32 {
+        Self::eval_reg_reg_f32(lhs, rhs)
+    }
+    fn eval_imm_reg_f32(lhs: f32, rhs: f32) -> f32 {
+        Self::eval_reg_reg_f32(lhs, rhs)
+    }
+
     fn eval_reg_reg_f64(lhs: f64, rhs: f64) -> f64;
-    fn eval_reg_imm_f64(lhs: f64, rhs: f64) -> f64;
-    fn eval_imm_reg_f64(lhs: f64, rhs: f64) -> f64;
+    fn eval_reg_imm_f64(lhs: f64, rhs: f64) -> f64 {
+        Self::eval_reg_reg_f64(lhs, rhs)
+    }
+    fn eval_imm_reg_f64(lhs: f64, rhs: f64) -> f64 {
+        Self::eval_reg_reg_f64(lhs, rhs)
+    }
 
     /// Returns true if there is a bidirectional discontinuity at a position
     ///
@@ -320,6 +329,48 @@ pub mod canonical {
         |a, _b| a == 0.0 // discontinuity, because either side snaps to a
     );
     declare_canonical_binary!(Context::atan2, |y, x| y.atan2(x));
+
+    pub struct radius;
+    impl CanonicalBinaryOp for radius {
+        const NAME: &'static str = "Radius";
+        fn build<A: IntoNode, B: IntoNode>(
+            ctx: &mut Context,
+            lhs: A,
+            rhs: B,
+        ) -> Node {
+            let lhs = lhs.into_node(ctx).unwrap();
+            let rhs = rhs.into_node(ctx).unwrap();
+            let lhs = ctx.square(lhs).unwrap();
+            let rhs = ctx.square(rhs).unwrap();
+            let r = ctx.add(lhs, rhs).unwrap();
+            ctx.sqrt(r).unwrap()
+        }
+        fn eval_reg_reg_f32(a: f32, b: f32) -> f32 {
+            (a.powi(2) + b.powi(2)).sqrt()
+        }
+        fn eval_reg_reg_f64(a: f64, b: f64) -> f64 {
+            (a.powi(2) + b.powi(2)).sqrt()
+        }
+    }
+
+    pub struct circle;
+    impl CanonicalBinaryOp for circle {
+        const NAME: &'static str = "Circle";
+        fn build<A: IntoNode, B: IntoNode>(
+            ctx: &mut Context,
+            lhs: A,
+            rhs: B,
+        ) -> Node {
+            let r = radius::build(ctx, lhs, rhs);
+            ctx.sub(r, 1.0).unwrap() // pick an arbitrary radius
+        }
+        fn eval_reg_reg_f32(a: f32, b: f32) -> f32 {
+            radius::eval_reg_reg_f32(a, b) - 1.0
+        }
+        fn eval_reg_reg_f64(a: f64, b: f64) -> f64 {
+            radius::eval_reg_reg_f64(a, b) - 1.0
+        }
+    }
 }
 
 #[macro_export]
@@ -379,5 +430,7 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, modulo);
         $crate::one_binary_test!($tester, and);
         $crate::one_binary_test!($tester, or);
+        $crate::one_binary_test!($tester, radius);
+        $crate::one_binary_test!($tester, circle);
     };
 }

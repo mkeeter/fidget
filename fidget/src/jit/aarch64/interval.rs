@@ -27,17 +27,16 @@ use dynasmrt::{DynasmApi, dynasm};
 ///
 /// Here is the full table of registers used during evaluation:
 ///
-/// | Register | Description                                          |
-/// |----------|------------------------------------------------------|
-/// | `v3.s2`  | Immediate value (`IMM_REG`)                          |
-/// | `v4.s2`  | Scratch register                                     |
-/// | `v5.s2`  | Scratch register                                     |
-/// | `v8-15`  | Tape values (callee-saved)                           |
-/// | `v16-31` | Tape values (caller-saved)                           |
-/// | `x0`     | Function pointer for calls                           |
-/// | `w9`     | Staging for loading immediate                        |
-/// | `w14`    | Scratch space used for choice value                  |
-/// | `x15`    | Miscellaneous scratch space                          |
+/// | Register  | Description                                          |
+/// |-----------|------------------------------------------------------|
+/// | `v3.s2`   | Immediate value (`IMM_REG`)                          |
+/// | `v4-7.s2` | Scratch registers                                    |
+/// | `v8-15`   | Tape values (callee-saved)                           |
+/// | `v16-31`  | Tape values (caller-saved)                           |
+/// | `x0`      | Function pointer for calls                           |
+/// | `w9`      | Staging for loading immediate                        |
+/// | `w14`     | Scratch space used for choice value                  |
+/// | `x15`     | Miscellaneous scratch space                          |
 ///
 /// The stack is configured as follows (representing intervals as `dX`, since
 /// that's the right width to load / store):
@@ -299,6 +298,32 @@ impl Assembler for IntervalAssembler {
 
             // <- end
         )
+    }
+
+    fn build_radius(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        self.build_square(7u8.wrapping_sub(OFFSET), lhs_reg);
+        self.build_square(6u8.wrapping_sub(OFFSET), rhs_reg);
+        self.build_add(
+            out_reg,
+            7u8.wrapping_sub(OFFSET),
+            6u8.wrapping_sub(OFFSET),
+        );
+        // We know this is >= 0, so we can skip conditionals
+        dynasm!(self.0.ops
+            ; fsqrt V(reg(out_reg)).s2, V(reg(out_reg)).s2
+        );
+    }
+
+    fn build_circle(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        imm: f32,
+    ) {
+        self.build_radius(out_reg, lhs_reg, rhs_reg);
+        let r = self.load_imm(imm);
+        self.build_sub(out_reg, out_reg, r);
     }
 
     // TODO hand-write these functions

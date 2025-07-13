@@ -28,6 +28,6 @@ mod test {
     #[test]
     fn test_vm_op_size() {
         assert_eq!(std::mem::size_of::<RegOp>(), 8);
-        assert_eq!(std::mem::size_of::<SsaOp>(), 16);
+        assert_eq!(std::mem::size_of::<SsaOp>(), 20);
     }
 }

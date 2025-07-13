@@ -275,7 +275,9 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::DivRegReg(index, lhs, rhs)
                 | SsaOp::AtanRegReg(index, lhs, rhs)
                 | SsaOp::CompareRegReg(index, lhs, rhs)
-                | SsaOp::ModRegReg(index, lhs, rhs) => {
+                | SsaOp::ModRegReg(index, lhs, rhs)
+                | SsaOp::RadiusRegReg(index, lhs, rhs)
+                | SsaOp::RadiusRegRegImm(index, lhs, rhs, _) => {
                     *index = new_index;
                     *lhs = workspace.get_or_insert_active(*lhs);
                     *rhs = workspace.get_or_insert_active(*rhs);

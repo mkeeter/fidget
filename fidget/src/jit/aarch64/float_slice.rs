@@ -249,6 +249,32 @@ impl Assembler for FloatSliceAssembler {
         )
     }
 
+    fn build_radius(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmul v7.s4, V(reg(lhs_reg)).s4, V(reg(lhs_reg)).s4
+            ; fmul v6.s4, V(reg(rhs_reg)).s4, V(reg(rhs_reg)).s4
+            ; fadd V(reg(out_reg)).s4, v6.s4, v7.s4
+            ; fsqrt V(reg(out_reg)).s4, V(reg(out_reg)).s4
+        )
+    }
+
+    fn build_circle(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        imm: f32,
+    ) {
+        let r = self.load_imm(imm);
+        dynasm!(self.0.ops
+            ; fmul v7.s4, V(reg(lhs_reg)).s4, V(reg(lhs_reg)).s4
+            ; fmul v6.s4, V(reg(rhs_reg)).s4, V(reg(rhs_reg)).s4
+            ; fadd V(reg(out_reg)).s4, v6.s4, v7.s4
+            ; fsqrt V(reg(out_reg)).s4, V(reg(out_reg)).s4
+            ; fsub V(reg(out_reg)).s4, V(reg(out_reg)).s4, V(reg(r)).s4
+        )
+    }
+
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a NAN mask

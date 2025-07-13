@@ -284,6 +284,29 @@ impl Assembler for GradSliceAssembler {
         )
     }
 
+    fn build_radius(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        self.build_square(4u8.wrapping_sub(OFFSET), lhs_reg);
+        self.build_square(5u8.wrapping_sub(OFFSET), rhs_reg);
+        self.build_add(
+            out_reg,
+            4u8.wrapping_sub(OFFSET),
+            5u8.wrapping_sub(OFFSET),
+        );
+        self.build_sqrt(out_reg, out_reg);
+    }
+
+    fn build_circle(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        imm: f32,
+    ) {
+        self.build_radius(out_reg, lhs_reg, rhs_reg);
+        let r = self.load_imm(imm);
+        self.build_sub(out_reg, out_reg, r);
+    }
+
     // TODO hand-write these functions
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn grad_floor(v: Grad) -> Grad {

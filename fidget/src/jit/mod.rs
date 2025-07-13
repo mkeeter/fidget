@@ -185,6 +185,12 @@ trait Assembler {
     /// Less than
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
+    /// Radius
+    fn build_radius(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Circle
+    fn build_circle(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8, imm: f32);
+
     /// Square
     ///
     /// This has a default implementation, but can be overloaded for efficiency;
@@ -851,6 +857,12 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::CompareImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_compare(out, reg, arg);
+            }
+            RegOp::RadiusRegReg(out, lhs, rhs) => {
+                asm.build_radius(out, lhs, rhs);
+            }
+            RegOp::RadiusRegRegImm(out, lhs, rhs, imm) => {
+                asm.build_circle(out, lhs, rhs, imm);
             }
         }
     }

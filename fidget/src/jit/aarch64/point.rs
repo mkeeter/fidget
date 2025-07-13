@@ -203,6 +203,32 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(lhs_reg)))
     }
 
+    fn build_radius(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmul s7, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; fmul s6, S(reg(rhs_reg)), S(reg(rhs_reg))
+            ; fadd S(reg(out_reg)), s6, s7
+            ; fsqrt S(reg(out_reg)), S(reg(out_reg))
+        )
+    }
+
+    fn build_circle(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        imm: f32,
+    ) {
+        let r = self.load_imm(imm);
+        dynasm!(self.0.ops
+            ; fmul s7, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; fmul s6, S(reg(rhs_reg)), S(reg(rhs_reg))
+            ; fadd S(reg(out_reg)), s6, s7
+            ; fsqrt S(reg(out_reg)), S(reg(out_reg))
+            ; fsub S(reg(out_reg)), S(reg(out_reg)), S(reg(r))
+        )
+    }
+
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a NAN mask
