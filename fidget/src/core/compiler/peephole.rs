@@ -62,6 +62,7 @@ impl PeepholeOptimizer {
             if self.use_count[i] == 0 {
                 continue;
             } else if let SsaOp::AddRegImm(out, r, imm) = self.tape[i]
+                && self.use_count[r as usize] == 1 // sqrt is expensive
                 && let SsaOp::SqrtReg(_, r2) = self.tape[r as usize]
                 && let SsaOp::AddRegReg(_, x2, y2) = self.tape[r2 as usize]
                 && let SsaOp::SquareReg(_, x) = self.tape[x2 as usize]
