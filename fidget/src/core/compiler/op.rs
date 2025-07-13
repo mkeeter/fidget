@@ -218,6 +218,62 @@ impl SsaOp {
             SsaOp::Output(..) => None,
         }
     }
+    /// Returns a mutable reference to the output pseudo-register
+    pub fn output_mut(&mut self) -> Option<&mut u32> {
+        match self {
+            SsaOp::Input(out, ..)
+            | SsaOp::CopyImm(out, ..)
+            | SsaOp::NegReg(out, ..)
+            | SsaOp::AbsReg(out, ..)
+            | SsaOp::RecipReg(out, ..)
+            | SsaOp::SqrtReg(out, ..)
+            | SsaOp::SquareReg(out, ..)
+            | SsaOp::FloorReg(out, ..)
+            | SsaOp::CeilReg(out, ..)
+            | SsaOp::RoundReg(out, ..)
+            | SsaOp::CopyReg(out, ..)
+            | SsaOp::SinReg(out, ..)
+            | SsaOp::CosReg(out, ..)
+            | SsaOp::TanReg(out, ..)
+            | SsaOp::AsinReg(out, ..)
+            | SsaOp::AcosReg(out, ..)
+            | SsaOp::AtanReg(out, ..)
+            | SsaOp::ExpReg(out, ..)
+            | SsaOp::LnReg(out, ..)
+            | SsaOp::NotReg(out, ..)
+            | SsaOp::AddRegImm(out, ..)
+            | SsaOp::MulRegImm(out, ..)
+            | SsaOp::DivRegImm(out, ..)
+            | SsaOp::DivImmReg(out, ..)
+            | SsaOp::SubImmReg(out, ..)
+            | SsaOp::SubRegImm(out, ..)
+            | SsaOp::AddRegReg(out, ..)
+            | SsaOp::MulRegReg(out, ..)
+            | SsaOp::DivRegReg(out, ..)
+            | SsaOp::SubRegReg(out, ..)
+            | SsaOp::AtanRegReg(out, ..)
+            | SsaOp::AtanRegImm(out, ..)
+            | SsaOp::AtanImmReg(out, ..)
+            | SsaOp::MinRegImm(out, ..)
+            | SsaOp::MaxRegImm(out, ..)
+            | SsaOp::MinRegReg(out, ..)
+            | SsaOp::MaxRegReg(out, ..)
+            | SsaOp::CompareRegReg(out, ..)
+            | SsaOp::CompareRegImm(out, ..)
+            | SsaOp::CompareImmReg(out, ..)
+            | SsaOp::ModRegReg(out, ..)
+            | SsaOp::ModRegImm(out, ..)
+            | SsaOp::ModImmReg(out, ..)
+            | SsaOp::AndRegImm(out, ..)
+            | SsaOp::AndRegReg(out, ..)
+            | SsaOp::OrRegImm(out, ..)
+            | SsaOp::OrRegReg(out, ..)
+            | SsaOp::RadiusRegReg(out, ..)
+            | SsaOp::RadiusRegRegImm(out, ..) => Some(out),
+            SsaOp::Output(..) => None,
+        }
+    }
+
     /// Returns true if the given opcode is associated with a choice
     pub fn has_choice(&self) -> bool {
         match self {
@@ -272,6 +328,122 @@ impl SsaOp {
             | SsaOp::OrRegImm(..)
             | SsaOp::OrRegReg(..) => true,
         }
+    }
+
+    /// Iterates over arguments
+    pub fn iter_children(&self) -> impl Iterator<Item = u32> {
+        match self {
+            SsaOp::Input(_, _) | SsaOp::CopyImm(_, _) => [None, None],
+            SsaOp::NegReg(_, arg)
+            | SsaOp::AbsReg(_, arg)
+            | SsaOp::RecipReg(_, arg)
+            | SsaOp::SqrtReg(_, arg)
+            | SsaOp::SquareReg(_, arg)
+            | SsaOp::FloorReg(_, arg)
+            | SsaOp::CeilReg(_, arg)
+            | SsaOp::RoundReg(_, arg)
+            | SsaOp::CopyReg(_, arg)
+            | SsaOp::SinReg(_, arg)
+            | SsaOp::CosReg(_, arg)
+            | SsaOp::TanReg(_, arg)
+            | SsaOp::AsinReg(_, arg)
+            | SsaOp::AcosReg(_, arg)
+            | SsaOp::AtanReg(_, arg)
+            | SsaOp::ExpReg(_, arg)
+            | SsaOp::LnReg(_, arg)
+            | SsaOp::NotReg(_, arg)
+            | SsaOp::Output(arg, _)
+            | SsaOp::MulRegImm(_, arg, _)
+            | SsaOp::DivRegImm(_, arg, _)
+            | SsaOp::AddRegImm(_, arg, _)
+            | SsaOp::DivImmReg(_, arg, _)
+            | SsaOp::SubImmReg(_, arg, _)
+            | SsaOp::SubRegImm(_, arg, _)
+            | SsaOp::AtanRegImm(_, arg, _)
+            | SsaOp::AtanImmReg(_, arg, _)
+            | SsaOp::MinRegImm(_, arg, _)
+            | SsaOp::MaxRegImm(_, arg, _)
+            | SsaOp::CompareRegImm(_, arg, _)
+            | SsaOp::CompareImmReg(_, arg, _)
+            | SsaOp::ModRegImm(_, arg, _)
+            | SsaOp::ModImmReg(_, arg, _)
+            | SsaOp::AndRegImm(_, arg, _)
+            | SsaOp::OrRegImm(_, arg, _) => [Some(*arg), None],
+            SsaOp::AddRegReg(_, lhs, rhs)
+            | SsaOp::MulRegReg(_, lhs, rhs)
+            | SsaOp::DivRegReg(_, lhs, rhs)
+            | SsaOp::SubRegReg(_, lhs, rhs)
+            | SsaOp::AtanRegReg(_, lhs, rhs)
+            | SsaOp::MinRegReg(_, lhs, rhs)
+            | SsaOp::MaxRegReg(_, lhs, rhs)
+            | SsaOp::CompareRegReg(_, lhs, rhs)
+            | SsaOp::ModRegReg(_, lhs, rhs)
+            | SsaOp::AndRegReg(_, lhs, rhs)
+            | SsaOp::OrRegReg(_, lhs, rhs)
+            | SsaOp::RadiusRegReg(_, lhs, rhs)
+            | SsaOp::RadiusRegRegImm(_, lhs, rhs, _) => {
+                [Some(*lhs), Some(*rhs)]
+            }
+        }
+        .into_iter()
+        .flatten()
+    }
+
+    /// Mutable iterator over arguments
+    pub fn iter_children_mut(&mut self) -> impl Iterator<Item = &mut u32> {
+        match self {
+            SsaOp::Input(_, _) | SsaOp::CopyImm(_, _) => [None, None],
+            SsaOp::NegReg(_, arg)
+            | SsaOp::AbsReg(_, arg)
+            | SsaOp::RecipReg(_, arg)
+            | SsaOp::SqrtReg(_, arg)
+            | SsaOp::SquareReg(_, arg)
+            | SsaOp::FloorReg(_, arg)
+            | SsaOp::CeilReg(_, arg)
+            | SsaOp::RoundReg(_, arg)
+            | SsaOp::CopyReg(_, arg)
+            | SsaOp::SinReg(_, arg)
+            | SsaOp::CosReg(_, arg)
+            | SsaOp::TanReg(_, arg)
+            | SsaOp::AsinReg(_, arg)
+            | SsaOp::AcosReg(_, arg)
+            | SsaOp::AtanReg(_, arg)
+            | SsaOp::ExpReg(_, arg)
+            | SsaOp::LnReg(_, arg)
+            | SsaOp::NotReg(_, arg)
+            | SsaOp::Output(arg, _)
+            | SsaOp::MulRegImm(_, arg, _)
+            | SsaOp::DivRegImm(_, arg, _)
+            | SsaOp::AddRegImm(_, arg, _)
+            | SsaOp::DivImmReg(_, arg, _)
+            | SsaOp::SubImmReg(_, arg, _)
+            | SsaOp::SubRegImm(_, arg, _)
+            | SsaOp::AtanRegImm(_, arg, _)
+            | SsaOp::AtanImmReg(_, arg, _)
+            | SsaOp::MinRegImm(_, arg, _)
+            | SsaOp::MaxRegImm(_, arg, _)
+            | SsaOp::CompareRegImm(_, arg, _)
+            | SsaOp::CompareImmReg(_, arg, _)
+            | SsaOp::ModRegImm(_, arg, _)
+            | SsaOp::ModImmReg(_, arg, _)
+            | SsaOp::AndRegImm(_, arg, _)
+            | SsaOp::OrRegImm(_, arg, _) => [Some(arg), None],
+            SsaOp::AddRegReg(_, lhs, rhs)
+            | SsaOp::MulRegReg(_, lhs, rhs)
+            | SsaOp::DivRegReg(_, lhs, rhs)
+            | SsaOp::SubRegReg(_, lhs, rhs)
+            | SsaOp::AtanRegReg(_, lhs, rhs)
+            | SsaOp::MinRegReg(_, lhs, rhs)
+            | SsaOp::MaxRegReg(_, lhs, rhs)
+            | SsaOp::CompareRegReg(_, lhs, rhs)
+            | SsaOp::ModRegReg(_, lhs, rhs)
+            | SsaOp::AndRegReg(_, lhs, rhs)
+            | SsaOp::OrRegReg(_, lhs, rhs)
+            | SsaOp::RadiusRegReg(_, lhs, rhs)
+            | SsaOp::RadiusRegRegImm(_, lhs, rhs, _) => [Some(lhs), Some(rhs)],
+        }
+        .into_iter()
+        .flatten()
     }
 }
 

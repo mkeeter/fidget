@@ -1,7 +1,7 @@
 //use crate::vm::{RegisterAllocator, Tape as VmTape};
 use crate::{
     Context, Error,
-    compiler::SsaOp,
+    compiler::{SsaOp, peephole::PeepholeOptimizer},
     context::{BinaryOpcode, Node, Op, UnaryOpcode},
     var::VarMap,
 };
@@ -242,6 +242,9 @@ impl SsaTape {
             };
             tape.push(op);
         }
+
+        let opt = PeepholeOptimizer::new(tape);
+        let tape = opt.optimize();
 
         Ok((
             SsaTape {

@@ -11,6 +11,7 @@ mod alloc;
 pub use alloc::RegisterAllocator;
 
 mod op;
+mod peephole;
 
 mod lru;
 pub(crate) use lru::Lru;
