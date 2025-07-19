@@ -3,7 +3,8 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::{
-        GeometryBuffer, RenderConfig, RenderWorker, TileSizesRef, VoxelSize,
+        GeometryBuffer, GeometryPixel, RenderConfig, RenderWorker,
+        TileSizesRef, VoxelSize,
         config::{Tile, VoxelRenderConfig},
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
@@ -339,9 +340,8 @@ impl<F: Function> Worker<'_, F> {
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
 ///
-/// Returns two `Vec` of pixel data (color, normals) if rendering succeeds, or
-/// `None` if rendering was cancelled (using the [`VoxelRenderConfig::cancel`]
-/// token)
+/// Returns a [`GeometryBuffer`] of pixels, or `None` if rendering was cancelled
+/// (using the [`VoxelRenderConfig::cancel`] token)
 pub fn render<F: Function>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
@@ -364,7 +364,15 @@ pub fn render<F: Function>(
                 if x < width && y < height {
                     let o = y * width + x;
                     if out[index].depth >= image[o].depth {
-                        image[o] = out[index];
+                        // Clamp voxels to the image depth
+                        if out[index].depth >= config.image_size.depth() - 1 {
+                            image[o] = GeometryPixel {
+                                depth: config.image_size.depth(),
+                                normal: [0.0, 0.0, 1.0],
+                            };
+                        } else {
+                            image[o] = out[index];
+                        }
                     }
                 }
                 index += 1;
@@ -429,6 +437,10 @@ mod test {
                 let epsilon = 2.0 / size as f32 / scale * 2.0;
                 for (i, p) in image.iter().enumerate() {
                     let p = p.depth;
+                    if p == size {
+                        // Skip saturated voxels
+                        continue;
+                    }
                     let size = size as i32;
                     let i = i as i32;
                     let x = (i % size) as f32;

@@ -235,8 +235,12 @@ impl RenderConfig for VoxelRenderConfig<'_> {
 impl VoxelRenderConfig<'_> {
     /// Render a shape in 3D using this configuration
     ///
-    /// Returns a tuple of `(heightmap, RGB image)` or `None` if rendering was
+    /// Returns a [`GeometryBuffer`] of pixel data, or `None` if rendering was
     /// cancelled.
+    ///
+    /// In the resulting image, saturated pixels (i.e. pixels in the image which
+    /// are fully occupied up to the camera) are represented with `depth =
+    /// self.image_size.depth()` and a normal of `[0, 0, 1]`.
     pub fn run<F: Function>(&self, shape: Shape<F>) -> Option<GeometryBuffer> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
