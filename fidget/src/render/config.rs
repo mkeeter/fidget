@@ -93,7 +93,7 @@ pub struct ImageRenderConfig<'a> {
     pub image_size: ImageSize,
 
     /// World-to-model transform
-    pub view: View2,
+    pub world_to_model: nalgebra::Matrix3<f32>,
 
     /// Render the distance values of individual pixels
     pub pixel_perfect: bool,
@@ -120,7 +120,7 @@ impl Default for ImageRenderConfig<'_> {
         Self {
             image_size: ImageSize::from(512),
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
-            view: View2::default(),
+            world_to_model: View2::default().world_to_model(),
             pixel_perfect: false,
             threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
@@ -167,7 +167,7 @@ impl ImageRenderConfig<'_> {
 
     /// Returns the combined screen-to-model transform matrix
     pub fn mat(&self) -> Matrix3<f32> {
-        self.view.world_to_model() * self.image_size.screen_to_world()
+        self.world_to_model * self.image_size.screen_to_world()
     }
 }
 
@@ -181,7 +181,7 @@ pub struct VoxelRenderConfig<'a> {
     pub image_size: VoxelSize,
 
     /// World-to-model transform
-    pub view: View3,
+    pub world_to_model: nalgebra::Matrix4<f32>,
 
     /// Tile sizes to use during evaluation.
     ///
@@ -205,7 +205,7 @@ impl Default for VoxelRenderConfig<'_> {
         Self {
             image_size: VoxelSize::from(512),
             tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
-            view: View3::default(),
+            world_to_model: View3::default().world_to_model(),
 
             threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
@@ -256,7 +256,7 @@ impl VoxelRenderConfig<'_> {
 
     /// Returns the combined screen-to-model transform matrix
     pub fn mat(&self) -> Matrix4<f32> {
-        self.view.world_to_model() * self.image_size.screen_to_world()
+        self.world_to_model * self.image_size.screen_to_world()
     }
 }
 
@@ -341,10 +341,11 @@ mod test {
     fn test_camera_render_config() {
         let config = ImageRenderConfig {
             image_size: ImageSize::from(512),
-            view: View2::from_center_and_scale(
+            world_to_model: View2::from_center_and_scale(
                 nalgebra::Vector2::new(0.5, 0.5),
                 0.5,
-            ),
+            )
+            .world_to_model(),
             ..Default::default()
         };
         let mat = config.mat();
@@ -363,10 +364,11 @@ mod test {
 
         let config = ImageRenderConfig {
             image_size: ImageSize::from(512),
-            view: View2::from_center_and_scale(
+            world_to_model: View2::from_center_and_scale(
                 nalgebra::Vector2::new(0.5, 0.5),
                 0.25,
-            ),
+            )
+            .world_to_model(),
             ..Default::default()
         };
         let mat = config.mat();

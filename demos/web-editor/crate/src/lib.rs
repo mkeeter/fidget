@@ -66,7 +66,7 @@ pub fn render_2d(
             threads: Some(&ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
             pixel_perfect: false,
-            view,
+            world_to_model: view.world_to_model(),
             cancel,
         };
 
@@ -131,7 +131,7 @@ fn render_3d_inner(
         image_size: VoxelSize::from(image_size as u32),
         threads: Some(&ThreadPool::Global),
         tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
-        view,
+        world_to_model: view.world_to_model(),
         cancel,
     };
     cfg.run(shape.clone())

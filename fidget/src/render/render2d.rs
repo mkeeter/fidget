@@ -360,7 +360,7 @@ mod test {
             let width = if self.wide { 64 } else { 32 };
             let cfg = ImageRenderConfig {
                 image_size: ImageSize::new(width, 32),
-                view: self.view,
+                world_to_model: self.view.world_to_model(),
                 ..Default::default()
             };
             let out = cfg
