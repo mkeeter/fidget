@@ -10,6 +10,8 @@
   (pointer) equality
     - This is more expensive, but matches typical data structures in Rust
     - `Tree::ptr_eq` can be used to perform shallow equality checks
+- Changed 3D image rendering to saturate when voxels are touching the camera.
+  Saturated voxels snap to the image's depth and have a normal of `[0, 0, 1]`.
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!
