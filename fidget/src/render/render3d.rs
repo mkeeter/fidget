@@ -420,7 +420,11 @@ mod test {
         for scale in [1.0, 0.5] {
             let cfg = VoxelRenderConfig {
                 image_size: VoxelSize::from(size),
-                view: View3::from_center_and_scale(Vector3::zeros(), scale),
+                world_to_model: View3::from_center_and_scale(
+                    Vector3::zeros(),
+                    scale,
+                )
+                .world_to_model(),
                 ..Default::default()
             };
             let m = cfg.image_size.screen_to_world();
