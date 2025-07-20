@@ -77,6 +77,12 @@ fn read_imm_4f(i: ptr<function, u32>) -> vec4f {
     return vec4f(imm);
 }
 
+fn mod_4f(lhs: vec4f, rhs: vec4f) -> vec4f {
+    var out = lhs % rhs;
+    out -= rhs * min(vec4f(0.0), floor(out / rhs));
+    return out;
+}
+
 fn run_tape(start: u32, inputs: mat4x4f) -> vec4f {
     var i: u32 = start;
     var reg: array<vec4f, 256>;
@@ -121,13 +127,13 @@ fn run_tape(start: u32, inputs: mat4x4f) -> vec4f {
             case OP_MUL_REG_IMM:  { reg[op[1]] = reg[op[2]] * read_imm_4f(&i); }
             case OP_DIV_REG_IMM:  { reg[op[1]] = reg[op[2]] / read_imm_4f(&i); }
             case OP_SUB_REG_IMM:  { reg[op[1]] = reg[op[2]] - read_imm_4f(&i); }
-            case OP_MOD_REG_IMM:  { reg[op[1]] = reg[op[2]] % read_imm_4f(&i); }
+            case OP_MOD_REG_IMM:  { reg[op[1]] = mod_4f(reg[op[2]], read_imm_4f(&i)); }
             case OP_ATAN_REG_IMM: { reg[op[1]] = atan2(reg[op[2]], read_imm_4f(&i)); }
             case OP_COMPARE_REG_IMM:  { reg[op[1]] = compare_4f(reg[op[2]], read_imm_4f(&i)); }
 
             case OP_DIV_IMM_REG:      { reg[op[1]] = read_imm_4f(&i) / reg[op[2]]; }
             case OP_SUB_IMM_REG:      { reg[op[1]] = read_imm_4f(&i) - reg[op[2]]; }
-            case OP_MOD_IMM_REG:      { reg[op[1]] = read_imm_4f(&i) % reg[op[2]]; }
+            case OP_MOD_IMM_REG:      { reg[op[1]] = mod_4f(read_imm_4f(&i), reg[op[2]]); }
             case OP_ATAN_IMM_REG:     { reg[op[1]] = atan2(read_imm_4f(&i), reg[op[2]]); }
             case OP_COMPARE_IMM_REG:  { reg[op[1]] = compare_4f(read_imm_4f(&i), reg[op[2]]); }
 
@@ -142,7 +148,7 @@ fn run_tape(start: u32, inputs: mat4x4f) -> vec4f {
             case OP_SUB_REG_REG:      { reg[op[1]] = reg[op[2]] - reg[op[3]]; }
             case OP_COMPARE_REG_REG:  { reg[op[1]] = reg[op[2]] - reg[op[3]]; }
             case OP_ATAN_REG_REG:      { reg[op[1]] = atan2(reg[op[2]], reg[op[3]]); }
-            case OP_MOD_REG_REG:      { reg[op[1]] = reg[op[2]] % reg[op[3]]; }
+            case OP_MOD_REG_REG:      { reg[op[1]] = mod_4f(reg[op[2]], reg[op[3]]); }
 
             case OP_MIN_REG_REG:      { reg[op[1]] = min(reg[op[2]], reg[op[3]]); }
             case OP_MAX_REG_REG:      { reg[op[1]] = max(reg[op[2]], reg[op[3]]); }
