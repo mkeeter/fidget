@@ -319,6 +319,11 @@ impl<const N: usize> VmData<N> {
         self.asm.iter().cloned().rev()
     }
 
+    /// Produces an iterator that visits [`SsaOp`] values in evaluation order
+    pub fn iter_ssa(&self) -> impl Iterator<Item = SsaOp> + '_ {
+        self.ssa.iter().cloned().rev()
+    }
+
     /// Pretty-prints the inner SSA tape
     pub fn pretty_print(&self) {
         self.ssa.pretty_print();

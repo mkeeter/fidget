@@ -557,6 +557,23 @@ impl<P, S: ImageSizeLike> Image<P, S> {
         );
         row * self.width() + col
     }
+
+    /// Builds an image from its components
+    ///
+    /// Returns an error if `data` does not match the number of pixels in `size`
+    pub fn build(data: Vec<P>, size: S) -> Result<Self, Error> {
+        let expected = size.width() as usize * size.height() as usize;
+        let actual = data.len();
+        if expected != actual {
+            return Err(Error::BadPixelCount {
+                expected,
+                actual,
+                width: size.width(),
+                height: size.height(),
+            });
+        }
+        Ok(Self { data, size })
+    }
 }
 
 impl<P, S> Image<P, S> {

@@ -81,6 +81,22 @@ pub enum Error {
     #[error("tile size list must not be empty")]
     EmptyTileSizes,
 
+    /// Bad pixel count when building image from data
+    #[error(
+        "bad pixel count: expected {expected} ({width} x {height}), \
+         got {actual}"
+    )]
+    BadPixelCount {
+        /// Expected pixel count from size
+        expected: usize,
+        /// Actual pixel count in data
+        actual: usize,
+        /// Expected width
+        width: u32,
+        /// Expected height
+        height: u32,
+    },
+
     /// Rhai error; see inner code for details
     #[cfg(feature = "rhai")]
     #[error("Rhai parse error")]
@@ -95,6 +111,16 @@ pub enum Error {
     /// Dynasm error; see inner code for details
     #[error("dynasm error")]
     DynasmError(#[from] dynasmrt::DynasmError),
+
+    #[cfg(feature = "wgpu")]
+    /// Could not get WGPU adapter
+    #[error("could not get adapter")]
+    NoAdapter,
+
+    #[cfg(feature = "wgpu")]
+    /// Could not get WGPU device
+    #[error("could not get WGPU device")]
+    NoDevice(#[from] wgpu::RequestDeviceError),
 }
 
 #[cfg(feature = "rhai")]

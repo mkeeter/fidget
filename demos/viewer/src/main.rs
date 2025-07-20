@@ -17,7 +17,11 @@ use fidget::{
     },
 };
 
-use std::{error::Error, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    path::Path,
+};
 
 mod draw2d;
 mod draw3d;
@@ -69,6 +73,10 @@ where
     let mut config = None;
     let mut script_ctx = None;
     let mut timeout_time: Option<std::time::Instant> = None;
+
+    let mut wgpu_ctx = fidget::wgpu::render3d::Context::new().unwrap();
+    let mut wgpu_pipelines = HashMap::new();
+
     loop {
         let timeout = if let Some(t) = timeout_time {
             t.checked_duration_since(std::time::Instant::now())
@@ -131,7 +139,7 @@ where
                         .collect();
                     ImageData::Rgba(data)
                 }
-                RenderMode::ThreeD { canvas, mode } => {
+                RenderMode::ThreeD { canvas, mode, wgpu } => {
                     // XXX allow selection of depth?
                     let image_size = render_config.image_size;
                     let voxel_size = fidget::render::VoxelSize::new(
@@ -139,15 +147,44 @@ where
                         image_size.height(),
                         image_size.width().max(image_size.height()),
                     );
-                    let data = out
-                        .shapes
-                        .iter()
-                        .map(|s| {
-                            let tape =
-                                fidget::shape::Shape::<F>::from(s.tree.clone());
-                            render_3d(canvas.view(), tape, voxel_size)
-                        })
-                        .collect();
+                    let data = if *wgpu {
+                        let cfg = fidget::wgpu::render3d::RenderConfig {
+                            image_size: voxel_size,
+                            world_to_model: canvas.view().world_to_model(),
+                        };
+                        let seen = out
+                            .shapes
+                            .iter()
+                            .map(|s| s.tree.as_ptr())
+                            .collect::<HashSet<_>>();
+                        let data = out
+                            .shapes
+                            .iter()
+                            .map(|s| {
+                                let p = wgpu_pipelines
+                                    .entry(s.tree.as_ptr())
+                                    .or_insert_with(|| {
+                                        let shape = fidget::vm::VmShape::from(
+                                            s.tree.clone(),
+                                        );
+                                        wgpu_ctx.pipelines(shape)
+                                    });
+                                wgpu_ctx.run(p, cfg).take().0
+                            })
+                            .collect();
+                        wgpu_pipelines.retain(|k, _| seen.contains(k));
+                        data
+                    } else {
+                        out.shapes
+                            .iter()
+                            .map(|s| {
+                                let tape = fidget::shape::Shape::<F>::from(
+                                    s.tree.clone(),
+                                );
+                                render_3d(canvas.view(), tape, voxel_size)
+                            })
+                            .collect()
+                    };
                     ImageData::Geometry {
                         images: data,
                         mode: *mode,
@@ -357,8 +394,15 @@ impl Mode3D {
 
 #[derive(Copy, Clone)]
 enum RenderMode {
-    TwoD { canvas: Canvas2, mode: Mode2D },
-    ThreeD { canvas: Canvas3, mode: Mode3D },
+    TwoD {
+        canvas: Canvas2,
+        mode: Mode2D,
+    },
+    ThreeD {
+        canvas: Canvas3,
+        mode: Mode3D,
+        wgpu: bool,
+    },
 }
 
 impl RenderMode {
@@ -379,6 +423,7 @@ impl RenderMode {
             }
         }
     }
+
     fn set_3d_mode(&mut self, new_mode: Mode3D) -> bool {
         match self {
             RenderMode::TwoD { .. } => {
@@ -388,6 +433,7 @@ impl RenderMode {
                         0, 0, 0,
                     )),
                     mode: new_mode,
+                    wgpu: true,
                 };
                 true
             }

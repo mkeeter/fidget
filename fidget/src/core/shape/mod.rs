@@ -245,6 +245,11 @@ impl<F: Clone> Shape<F, ()> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    /// Returns the currently-applied transform matrix
+    pub fn transform(&self) -> Option<Matrix4<f32>> {
+        self.transform
+    }
 }
 
 /// Variables bound to values for shape evaluation
