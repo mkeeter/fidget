@@ -280,6 +280,7 @@
 mod core;
 pub use crate::core::*;
 
+pub mod bytecode;
 mod error;
 pub use error::Error;
 pub mod gui;
@@ -293,3 +294,6 @@ pub mod rhai;
 
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub mod jit;
+
+#[cfg(feature = "wgpu")]
+pub mod wgpu;

@@ -19,7 +19,7 @@ mod render2d;
 mod render3d;
 mod view;
 
-use config::Tile;
+pub(crate) use config::Tile;
 pub use config::{
     CancelToken, ImageRenderConfig, ThreadPool, VoxelRenderConfig,
 };
@@ -188,6 +188,11 @@ impl<F: Function> RenderHandle<F> {
         // Do this step last because the evaluators may borrow the shape
         shape_storage.extend(self.shape.recycle());
     }
+
+    /// Returns a reference to the inner shape
+    pub fn inner(&self) -> &Shape<F> {
+        &self.shape
+    }
 }
 
 /// Container representing an ordered, checked list of tile sizes
@@ -252,7 +257,7 @@ impl<'a> std::ops::Index<usize> for TileSizesRef<'a> {
 
 impl TileSizesRef<'_> {
     /// Builds a new `TileSizesRef` based on the maximum tile size
-    fn new(tiles: &TileSizes, max_size: usize) -> TileSizesRef {
+    pub fn new(tiles: &TileSizes, max_size: usize) -> TileSizesRef {
         let i = tiles
             .0
             .iter()

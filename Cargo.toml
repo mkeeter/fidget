@@ -41,9 +41,11 @@ heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 log = "0.4"
+naga = { version = "26.0.0", features = ["wgsl-in"] }
 nalgebra = { version = "0.33", features = ["serde-serialize"] }
 notify = "8.0"
 ordered-float = "5"
+pollster = "0.4.0"
 rand = "0.9"
 rayon = "1.10"
 rhai = { version = "=1.21.0", features = ["sync"] } # pinned due to rhai#1001
@@ -53,5 +55,6 @@ strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+wgpu = "23.0.0"
 windows = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Memory"] }
 zerocopy = { version = "0.8", features = ["derive"] }

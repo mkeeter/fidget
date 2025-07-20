@@ -211,6 +211,11 @@ impl<F> Shape<F> {
         }
         self
     }
+
+    /// Returns the currently-applied transform matrix
+    pub fn transform(&self) -> Option<Matrix4<f32>> {
+        self.transform
+    }
 }
 
 /// Variables bound to values for shape evaluation
@@ -381,6 +386,11 @@ impl<T: Tape> ShapeTape<T> {
     /// Returns a mapping from [`Var`] to evaluation index
     pub fn vars(&self) -> &VarMap {
         self.tape.vars()
+    }
+
+    /// Returns a reference to the inner [`Tape`] object
+    pub fn inner(&self) -> &T {
+        &self.tape
     }
 }
 

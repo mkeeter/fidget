@@ -95,6 +95,16 @@ pub enum Error {
     /// Dynasm error; see inner code for details
     #[error("dynasm error")]
     DynasmError(#[from] dynasmrt::DynasmError),
+
+    #[cfg(feature = "wgpu")]
+    /// Could not get WGPU adapter
+    #[error("could not get adapter")]
+    NoAdapter,
+
+    #[cfg(feature = "wgpu")]
+    /// Could not get WGPU device
+    #[error("could not get WGPU device")]
+    NoDevice(#[from] wgpu::RequestDeviceError),
 }
 
 #[cfg(feature = "rhai")]
