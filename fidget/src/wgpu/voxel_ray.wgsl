@@ -48,7 +48,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     var z = i32(config.image_size.z) - 1;
 
     var out = 0u;
-    while (z >= 0) {
+    while (z >= 0 && out == 0) {
         let tz = u32(z) / config.tile_size;
 
         // Get the current tile that we're hanging out in
@@ -62,17 +62,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         } else if ((v & 0x80000000) != 0) {
             // Full tile, we can break
             out = u32(z);
-            break;
         } else {
-            out = raycast(v, vec3u(id.xy, u32(z)));
-            if (out != 0) {
-                break;
+            for (var n = 0u; n < config.tile_size / 4u; n++) {
+                out = raycast(v, vec3u(id.xy, u32(z)));
+                if (out != 0) {
+                    break;
+                }
+                z -= 4;
             }
-            z -= 4;
         }
     }
     let j = id.x + id.y * config.image_size.x;
-    atomicMax(&result[j], out);
+    atomicStore(&result[j], out);
 }
 
 fn raycast(tape_start: u32, pos: vec3u) -> u32 {

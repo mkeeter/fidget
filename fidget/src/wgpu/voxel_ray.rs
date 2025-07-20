@@ -288,6 +288,11 @@ impl VoxelContext {
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
         // Each workgroup is 8x8
+        println!(
+            "spawning {} x {} x 1",
+            settings.image_size.width() / 8,
+            settings.image_size.height() / 8
+        );
         compute_pass.dispatch_workgroups(
             settings.image_size.width() / 8,
             settings.image_size.height() / 8,
@@ -494,7 +499,10 @@ impl<F: Function> Worker3D<'_, F> {
             return true; // ambiguous, keep going
         }
 
-        let sub_tape = if let Some(trace) = simplify.as_ref() {
+        // Only simplify at root tiles, to keep buffer sizes down
+        let sub_tape = if depth == 0
+            && let Some(trace) = simplify.as_ref()
+        {
             shape.simplify(
                 trace,
                 &mut self.workspace,
