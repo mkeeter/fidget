@@ -108,6 +108,7 @@ enum Command {
 enum ShaderName {
     PixelTiles,
     VoxelTiles,
+    VoxelRay,
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -576,7 +577,7 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
     settings: &ImageSettings,
 ) -> Vec<u8> {
     let start = Instant::now();
-    let mut ctx = fidget::wgpu::VoxelContext::new().unwrap();
+    let mut ctx = fidget::wgpu::VoxelRayContext::new().unwrap();
 
     // Send over our image pixels
     let mut image = vec![];
@@ -588,7 +589,7 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
                 shape.clone(),
                 fidget::render::VoxelRenderConfig {
                     image_size: fidget::render::VoxelSize::from(settings.size),
-                    tile_sizes: fidget::render::TileSizes::new(&[8]).unwrap(),
+                    tile_sizes: fidget::render::TileSizes::new(&[64]).unwrap(),
                     threads: threads.as_ref(),
                     ..Default::default()
                 },
@@ -955,6 +956,9 @@ fn main() -> Result<()> {
             }
             ShaderName::VoxelTiles => {
                 println!("{}", fidget::wgpu::voxel_tiles_shader())
+            }
+            ShaderName::VoxelRay => {
+                println!("{}", fidget::wgpu::voxel_ray_shader())
             }
         },
     }
