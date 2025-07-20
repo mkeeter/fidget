@@ -8,6 +8,8 @@ mod pixel;
 pub use pixel::PixelContext;
 mod voxel;
 pub use voxel::VoxelContext;
+mod voxel_ray;
+pub use voxel_ray::VoxelContext as VoxelRayContext;
 
 // Square tiles
 #[derive(Debug, IntoBytes, Immutable)]
@@ -133,12 +135,21 @@ impl TileContext {
     }
 
     /// Loads a config into `config_buf`
-    fn load_config(&self, config: &Config) {
+    fn load_config<C: IntoBytes + Immutable>(&self, config: &C) {
         self.write_buffer_with(&self.config_buf, config.as_bytes());
     }
 
     /// Loads a list of tiles into `tile_buf`, resizing as needed
     fn load_tiles(&mut self, tiles: &[Tile]) {
+        let required_size = std::mem::size_of_val(tiles);
+        if required_size > self.tile_buf.size() as usize {
+            self.tile_buf = Self::new_tile_buffer(&self.device, required_size);
+        }
+        self.write_buffer_with(&self.tile_buf, tiles.as_bytes());
+    }
+
+    /// Loads a raw buffer of types
+    fn load_raw_tiles(&mut self, tiles: &[u32]) {
         let required_size = std::mem::size_of_val(tiles);
         if required_size > self.tile_buf.size() as usize {
             self.tile_buf = Self::new_tile_buffer(&self.device, required_size);
@@ -204,14 +215,25 @@ pub fn voxel_tiles_shader() -> String {
     shader_code
 }
 
+/// Returns a shader string to evaluate voxel tiles (3D)
+pub fn voxel_ray_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += INTERPRETER_4F;
+    shader_code += VOXEL_RAY_SHADER;
+    shader_code
+}
+
 /// Shader fragment to run a f32x4 interpreter
 const INTERPRETER_4F: &str = include_str!("interpreter_4f.wgsl");
 
 /// `main` shader function for pixel tile evaluation
 const PIXEL_TILES_SHADER: &str = include_str!("pixel_tiles.wgsl");
 
-/// `main` shader function for pixel tile evaluation
+/// `main` shader function for voxel tile evaluation
 const VOXEL_TILES_SHADER: &str = include_str!("voxel_tiles.wgsl");
+
+/// `main` shader function for voxel tile evaluation with raymarching
+const VOXEL_RAY_SHADER: &str = include_str!("voxel_ray.wgsl");
 
 /// Common data types for shaders
 const COMMON_SHADER: &str = include_str!("common.wgsl");
@@ -242,13 +264,17 @@ mod test {
         for (src, desc) in [
             (pixel_tiles_shader(), "pixel tiles"),
             (voxel_tiles_shader(), "voxel tiles"),
+            (voxel_ray_shader(), "voxel raymarching"),
         ] {
             // This isn't the best formatting, but it will at least include the
             // relevant text.
             let m = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| {
-                let i = e.location(&src).unwrap();
-                let pos = i.offset as usize..(i.offset + i.length) as usize;
-                panic!("{}", e.emit_to_string_with_path(&src[pos], desc));
+                if let Some(i) = e.location(&src) {
+                    let pos = i.offset as usize..(i.offset + i.length) as usize;
+                    panic!("{}", e.emit_to_string_with_path(&src[pos], desc));
+                } else {
+                    panic!("{}", e.emit_to_string(desc));
+                }
             });
             if let Err(e) = v.validate(&m) {
                 let (pos, desc) = e.spans().next().unwrap();
