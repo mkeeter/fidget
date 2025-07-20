@@ -293,3 +293,6 @@ pub mod rhai;
 
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub mod jit;
+
+#[cfg(feature = "wgpu")]
+pub mod wgpu;

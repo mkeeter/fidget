@@ -252,6 +252,7 @@ pub fn engine() -> rhai::Engine {
 
     engine.set_fail_on_invalid_map_property(true);
     engine.set_max_expr_depths(64, 32);
+    engine.set_max_call_levels(16);
     engine.on_progress(move |count| {
         if count > 50_000 {
             Some("script runtime exceeded".into())
