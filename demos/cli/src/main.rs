@@ -97,6 +97,17 @@ enum Command {
         #[clap(flatten)]
         settings: MeshSettings,
     },
+    /// Print generated shader code
+    Shader {
+        #[clap(long, value_enum)]
+        name: ShaderName,
+    },
+}
+
+#[derive(ValueEnum, Clone)]
+enum ShaderName {
+    PixelTiles,
+    VoxelTiles,
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -108,7 +119,7 @@ enum EvalMode {
     Jit,
 }
 
-#[derive(strum::EnumDiscriminants, Clone)]
+#[derive(strum::EnumDiscriminants, Clone, Debug)]
 #[strum_discriminants(name(RenderMode3DArg), derive(ValueEnum))]
 enum RenderMode3D {
     /// Pixels are colored based on height
@@ -155,6 +166,12 @@ struct ImageSettings {
     #[clap(short, long, value_enum, default_value_t)]
     eval: EvalMode,
 
+    /// Perform per-pixel evaluation using WGPU
+    ///
+    /// (interval evaluation still uses the mode specified by `--eval`)
+    #[clap(long)]
+    wgpu: bool,
+
     /// Number of threads to use
     #[clap(short, long)]
     threads: Option<NonZeroUsize>,
@@ -170,6 +187,21 @@ struct ImageSettings {
     /// Scale applied to the model before rendering
     #[clap(long, default_value_t = 1.0)]
     scale: f32,
+}
+
+impl ImageSettings {
+    fn threads(&self) -> Option<fidget::render::ThreadPool> {
+        match self.threads {
+            Some(n) if n.get() == 1 => None,
+            Some(n) => Some(fidget::render::ThreadPool::Custom(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(n.get())
+                    .build()
+                    .unwrap(),
+            )),
+            None => Some(fidget::render::ThreadPool::Global),
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -273,16 +305,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &ImageSettings,
     mode: RenderMode3D,
 ) -> Vec<u8> {
-    let threads = match settings.threads {
-        Some(n) if n.get() == 1 => None,
-        Some(n) => Some(fidget::render::ThreadPool::Custom(
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(n.get())
-                .build()
-                .unwrap(),
-        )),
-        None => Some(fidget::render::ThreadPool::Global),
-    };
+    let threads = settings.threads();
     let threads = threads.as_ref();
     let cfg = fidget::render::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
@@ -434,16 +457,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             .flat_map(|i| i.into_iter())
             .collect()
     } else {
-        let threads = match settings.threads {
-            Some(n) if n.get() == 1 => None,
-            Some(n) => Some(fidget::render::ThreadPool::Custom(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(n.get())
-                    .build()
-                    .unwrap(),
-            )),
-            None => Some(fidget::render::ThreadPool::Global),
-        };
+        let threads = settings.threads();
         let cfg = fidget::render::ImageRenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
@@ -485,6 +499,110 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
         image.into_iter().flatten().collect()
     }
+}
+
+fn run_wgpu_2d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
+    shape: fidget::shape::Shape<F>,
+    settings: &ImageSettings,
+    mode: RenderMode2D,
+) -> Vec<u8> {
+    let start = Instant::now();
+    let out = if matches!(mode, RenderMode2D::Brute) {
+        run_wgpu_2d_brute(shape, settings)
+    } else {
+        run_wgpu_2d_smart(shape, settings)
+    };
+    info!(
+        "Rendered {}x at {:?} ms/frame",
+        settings.n,
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
+    );
+    out
+}
+
+fn run_wgpu_2d_brute<
+    F: fidget::eval::MathFunction + fidget::render::RenderHints,
+>(
+    shape: fidget::shape::Shape<F>,
+    settings: &ImageSettings,
+) -> Vec<u8> {
+    let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
+    let mut image = vec![];
+    for _i in 0..settings.n {
+        // Note that this copies the bytecode each time
+        image = ctx
+            .run_2d_brute(
+                shape.clone(),
+                fidget::render::ImageSize::from(settings.size),
+                Default::default(),
+            )
+            .unwrap();
+    }
+
+    image.into_iter().flat_map(|b| b.to_le_bytes()).collect()
+}
+
+fn run_wgpu_2d_smart<
+    F: fidget::eval::MathFunction + fidget::render::RenderHints,
+>(
+    shape: fidget::shape::Shape<F>,
+    settings: &ImageSettings,
+) -> Vec<u8> {
+    let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
+    let mut image = vec![];
+    for _i in 0..settings.n {
+        let threads = settings.threads();
+        // Note that this copies the bytecode each time
+        image = ctx
+            .run_2d(
+                shape.clone(),
+                fidget::render::ImageRenderConfig {
+                    image_size: fidget::render::ImageSize::from(settings.size),
+                    tile_sizes: fidget::render::TileSizes::new(&[64, 8])
+                        .unwrap(),
+                    threads: threads.as_ref(),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap();
+    }
+
+    image.into_iter().flat_map(|b| b.to_le_bytes()).collect()
+}
+
+fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
+    shape: fidget::shape::Shape<F>,
+    settings: &ImageSettings,
+) -> Vec<u8> {
+    let start = Instant::now();
+    let mut ctx = fidget::wgpu::VoxelContext::new().unwrap();
+
+    // Send over our image pixels
+    let mut image = vec![];
+    for _i in 0..settings.n {
+        let threads = settings.threads();
+        // Note that this copies the bytecode each time
+        image = ctx
+            .run_3d(
+                shape.clone(),
+                fidget::render::VoxelRenderConfig {
+                    image_size: fidget::render::VoxelSize::from(settings.size),
+                    tile_sizes: fidget::render::TileSizes::new(&[8]).unwrap(),
+                    threads: threads.as_ref(),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap();
+    }
+    info!(
+        "Rendered {}x at {:?} ms/frame",
+        settings.n,
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
+    );
+
+    image.into_iter().flat_map(|b| b.to_le_bytes()).collect()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -618,20 +736,36 @@ fn main() -> Result<()> {
             let center =
                 nalgebra::Translation3::new(-center[0], -center[1], 0.0);
             let t = center.to_homogeneous() * scale.to_homogeneous();
-            let buffer = match settings.eval {
-                #[cfg(feature = "jit")]
-                EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?
-                        .apply_transform(t);
-
-                    info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, &settings, mode)
+            let buffer = if settings.wgpu {
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run_wgpu_2d(shape, &settings, mode)
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run_wgpu_2d(shape, &settings, mode)
+                    }
                 }
-                EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?
-                        .apply_transform(t);
-                    info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, &settings, mode)
+            } else {
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?
+                            .apply_transform(t);
+
+                        info!("Built shape in {:?}", start.elapsed());
+                        run2d(shape, &settings, mode)
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?
+                            .apply_transform(t);
+                        info!("Built shape in {:?}", start.elapsed());
+                        run2d(shape, &settings, mode)
+                    }
                 }
             };
 
@@ -731,19 +865,40 @@ fn main() -> Result<()> {
                 * camera.to_homogeneous()
                 * zflatten.to_homogeneous();
 
-            let buffer = match settings.eval {
-                #[cfg(feature = "jit")]
-                EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?
-                        .apply_transform(t);
-                    info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, mode)
+            let buffer = if settings.wgpu {
+                if !matches!(mode, RenderMode3D::Heightmap) {
+                    bail!("cannot use WGPU rendering in mode {mode:?}");
                 }
-                EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?
-                        .apply_transform(t);
-                    info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, mode)
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?
+                            .apply_transform(t);
+                        info!("Built shape in {:?}", start.elapsed());
+                        run_wgpu_3d(shape, &settings)
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?
+                            .apply_transform(t);
+                        info!("Built shape in {:?}", start.elapsed());
+                        run_wgpu_3d(shape, &settings)
+                    }
+                }
+            } else {
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?
+                            .apply_transform(t);
+                        info!("Built shape in {:?}", start.elapsed());
+                        run3d(shape, &settings, mode)
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?
+                            .apply_transform(t);
+                        info!("Built shape in {:?}", start.elapsed());
+                        run3d(shape, &settings, mode)
+                    }
                 }
             };
 
@@ -794,6 +949,14 @@ fn main() -> Result<()> {
                 mesh.write_stl(&mut std::fs::File::create(out)?)?;
             }
         }
+        Command::Shader { name } => match name {
+            ShaderName::PixelTiles => {
+                println!("{}", fidget::wgpu::pixel_tiles_shader())
+            }
+            ShaderName::VoxelTiles => {
+                println!("{}", fidget::wgpu::voxel_tiles_shader())
+            }
+        },
     }
 
     Ok(())

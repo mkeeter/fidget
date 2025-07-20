@@ -14,7 +14,7 @@ mod op;
 
 mod lru;
 pub(crate) use lru::Lru;
-pub use op::{RegOp, SsaOp};
+pub use op::{RegOp, RegOpDiscriminants, RegOpDiscriminantsIter, SsaOp};
 
 mod reg_tape;
 mod ssa_tape;

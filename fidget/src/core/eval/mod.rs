@@ -1,6 +1,7 @@
 //! Traits and data structures for function evaluation
 use crate::{
     Error,
+    bytecode::Bytecode,
     context::{Context, Node},
     types::{Grad, Interval},
     var::VarMap,
@@ -192,6 +193,11 @@ pub trait Function: Send + Sync + Clone {
     /// Returns the map from [`Var`](crate::var::Var) to input index
     fn vars(&self) -> &VarMap;
 
+    /// Returns a stable ID for this `Function` object
+    ///
+    /// Typically, this is the address of the inner `Arc`
+    fn id(&self) -> usize;
+
     /// Checks to see whether this function can ever be simplified
     fn can_simplify(&self) -> bool;
 }
@@ -202,4 +208,9 @@ pub trait MathFunction: Function {
     fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error>
     where
         Self: Sized;
+
+    /// Converts the math expression to bytecode
+    ///
+    /// See [bytecode](crate::bytecode) for details on the format
+    fn to_bytecode(&self) -> Bytecode;
 }

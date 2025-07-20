@@ -25,6 +25,7 @@
 
 use crate::{
     Error,
+    bytecode::Bytecode,
     compiler::RegOp,
     context::{Context, Node},
     eval::{
@@ -949,6 +950,10 @@ impl Function for JitFunction {
         self.0.vars()
     }
 
+    fn id(&self) -> usize {
+        self.0.id()
+    }
+
     fn can_simplify(&self) -> bool {
         self.0.choice_count() > 0
     }
@@ -972,6 +977,10 @@ impl RenderHints for JitFunction {
 impl MathFunction for JitFunction {
     fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
         GenericVmFunction::new(ctx, nodes).map(JitFunction)
+    }
+
+    fn to_bytecode(&self) -> Bytecode {
+        self.0.to_bytecode()
     }
 }
 
