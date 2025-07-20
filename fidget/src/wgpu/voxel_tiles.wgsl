@@ -40,6 +40,20 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             }
         }
 
+        var blocked = 0u;
+        for (var i = 0u; i < 4; i += 1u) {
+            let pos_pixels = tile.corner + vec3(pos_x + i, pos_y, pos_z);
+            let j = pos_pixels.x + pos_pixels.y * config.window_size.x;
+            let d = atomicLoad(&result[j]);
+            if d >= pos_pixels.z {
+                blocked += 1u;
+            }
+        }
+
+        if (blocked == 4u) {
+            return;
+        }
+
         // Do the actual interpreter work
         let out = run_tape(tile.start, m);
 
