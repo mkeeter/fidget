@@ -248,6 +248,7 @@ impl VoxelContext {
             }
         }
         println!("bytecode len: {} KiB", data.len() * 4 / 1024);
+        println!("max reg: {max_reg}");
         assert_eq!(max_mem, 0, "external memory is not yet supported");
 
         let vars = shape.inner().vars();
