@@ -30,13 +30,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             let pos_model = config.mat * pos_pixels;
 
             if (config.axes.x < 4) {
-                m[config.axes.x][i] = pos_model.x;
+                m[config.axes.x][i] = pos_model.x / pos_model.w;
             }
             if (config.axes.y < 4) {
-                m[config.axes.y][i] = pos_model.y;
+                m[config.axes.y][i] = pos_model.y / pos_model.w;
             }
             if (config.axes.z < 4) {
-                m[config.axes.z][i] = pos_model.z;
+                m[config.axes.z][i] = pos_model.z / pos_model.w;
             }
         }
 

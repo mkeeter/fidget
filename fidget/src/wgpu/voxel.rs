@@ -153,8 +153,8 @@ impl VoxelContext {
         settings: VoxelRenderConfig,
     ) -> Option<Result<Vec<u32>, Error>> {
         // Convert to a 4x4 matrix and apply to the shape
-        let mat = settings.mat();
-        let shape = shape.apply_transform(mat);
+        let shape = shape.apply_transform(settings.mat());
+        let mat = shape.transform().unwrap();
 
         let max_size = settings
             .image_size
