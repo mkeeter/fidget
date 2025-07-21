@@ -7,6 +7,7 @@
 // Each shader invocation evalutes 4 voxels, which only differ in X position
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
+    // Unpack the tile ID, which is combined into the YZ components of `id`
     let tile_idx = id.y + id.z * 65536;
 
     // Position within the tile
@@ -40,6 +41,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             }
         }
 
+        // Check and see if all 4x pixels are blocked; if so, we can skip any
+        // further evaluation.
         var blocked = 0u;
         for (var i = 0u; i < 4; i += 1u) {
             let pos_pixels = tile.corner + vec3(pos_x + i, pos_y, pos_z);

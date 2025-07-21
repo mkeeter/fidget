@@ -466,7 +466,10 @@ impl<F: Function> Worker3D<'_, F> {
             return true; // ambiguous, keep going
         }
 
-        let sub_tape = if let Some(trace) = simplify.as_ref() {
+        // Only simplify the root tiles
+        let sub_tape = if depth == 0
+            && let Some(trace) = simplify.as_ref()
+        {
             shape.simplify(
                 trace,
                 &mut self.workspace,
