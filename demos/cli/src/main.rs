@@ -173,6 +173,10 @@ struct ImageSettings {
     #[clap(long)]
     wgpu: bool,
 
+    /// Use voxel raycasting (instead of tile-based renderer)
+    #[clap(long, requires = "wgpu")]
+    raycast: bool,
+
     /// Number of threads to use
     #[clap(short, long)]
     threads: Option<NonZeroUsize>,
@@ -577,26 +581,50 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
     settings: &ImageSettings,
 ) -> Vec<u8> {
     let start = Instant::now();
-    let mut ctx = fidget::wgpu::VoxelRayContext::new().unwrap();
-
-    // Send over our image pixels
+    let image_size = fidget::render::VoxelSize::from(settings.size);
     let mut image = vec![];
-    for _i in 0..settings.n {
-        let threads = settings.threads();
-        // Note that this copies the bytecode each time
-        image = ctx
-            .run_3d(
-                shape.clone(),
-                fidget::render::VoxelRenderConfig {
-                    image_size: fidget::render::VoxelSize::from(settings.size),
-                    tile_sizes: fidget::render::TileSizes::new(&[64, 8])
-                        .unwrap(),
-                    threads: threads.as_ref(),
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-            .unwrap();
+    let threads = settings.threads();
+
+    if settings.raycast {
+        let mut ctx = fidget::wgpu::VoxelRayContext::new().unwrap();
+
+        // Send over our image pixels
+        for _i in 0..settings.n {
+            // Note that this copies the bytecode each time
+            image = ctx
+                .run_3d(
+                    shape.clone(),
+                    fidget::render::VoxelRenderConfig {
+                        image_size,
+                        tile_sizes: fidget::render::TileSizes::new(&[64, 8])
+                            .unwrap(),
+                        threads: threads.as_ref(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+                .unwrap();
+        }
+    } else {
+        let mut ctx = fidget::wgpu::VoxelContext::new().unwrap();
+
+        // Send over our image pixels
+        for _i in 0..settings.n {
+            // Note that this copies the bytecode each time
+            image = ctx
+                .run_3d(
+                    shape.clone(),
+                    fidget::render::VoxelRenderConfig {
+                        image_size,
+                        tile_sizes: fidget::render::TileSizes::new(&[64, 8])
+                            .unwrap(),
+                        threads: threads.as_ref(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+                .unwrap();
+        }
     }
     info!(
         "Rendered {}x at {:?} ms/frame",
