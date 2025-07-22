@@ -732,12 +732,13 @@ class Scene {
     // 0 = use type and numComponents above
     const offset = 0; // how many bytes inside the buffer to start from
     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.pos);
-    
+
     // Use the appropriate program's vertex attribute based on current mode
-    const vertexAttrib = this.currentMode === "shaded" 
-      ? this.shadedProgram.vertexPositionAttrib 
-      : this.basicProgram.vertexPositionAttrib;
-    
+    const vertexAttrib =
+      this.currentMode === "shaded"
+        ? this.shadedProgram.vertexPositionAttrib
+        : this.basicProgram.vertexPositionAttrib;
+
     this.gl.vertexAttribPointer(
       vertexAttrib,
       numComponents,
