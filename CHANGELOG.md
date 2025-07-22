@@ -14,6 +14,7 @@
   Saturated voxels snap to the image's depth and have a normal of `[0, 0, 1]`.
 - Replaced `view` in `ImageRenderConfig` and `VoxelRenderConfig` with a generic
   `world_to_model` matrix, for more flexibility when rendering.
+- Add mathematical constants for Rhai scripts (`PI`, `E`, `TAU`...)
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!
