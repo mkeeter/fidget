@@ -377,16 +377,18 @@ mod test {
     #[test]
     fn test_constants() {
         let engine = engine();
-        
+
         // Test that PI constant is available
         let pi: f64 = engine.eval("PI").unwrap();
         assert!((pi - std::f64::consts::PI).abs() < f64::EPSILON);
-        
+
         // Test using constants in angular calculations
-        let t = engine.eval("let angle = PI / 4.0; x * cos(angle) + y * sin(angle)").unwrap();
+        let t = engine
+            .eval("let angle = PI / 4.0; x * cos(angle) + y * sin(angle)")
+            .unwrap();
         let mut ctx = Context::new();
         let expr = ctx.import(&t);
-        
+
         // Evaluate at (1, 1) - should be sqrt(2) since cos(π/4) = sin(π/4) = 1/√2
         let result = ctx.eval_xyz(expr, 1.0, 1.0, 0.0).unwrap();
         let expected = std::f64::consts::SQRT_2;
