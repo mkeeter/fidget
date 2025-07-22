@@ -9,7 +9,7 @@ pub use pixel::PixelContext;
 mod voxel;
 pub use voxel::VoxelContext;
 mod voxel_ray;
-pub use voxel_ray::VoxelContext as VoxelRayContext;
+pub use voxel_ray::VoxelRayContext;
 
 // Square tiles
 #[derive(Debug, IntoBytes, Immutable)]
@@ -148,15 +148,6 @@ impl TileContext {
         self.write_buffer_with(&self.tile_buf, tiles.as_bytes());
     }
 
-    /// Loads a raw buffer of types
-    fn load_raw_tiles(&mut self, tiles: &[u32]) {
-        let required_size = std::mem::size_of_val(tiles);
-        if required_size > self.tile_buf.size() as usize {
-            self.tile_buf = Self::new_tile_buffer(&self.device, required_size);
-        }
-        self.write_buffer_with(&self.tile_buf, tiles.as_bytes());
-    }
-
     /// Loads a tape into `tape_buf`, resizing as needed
     fn load_tape(&mut self, bytecode: &[u8]) {
         let required_size = std::mem::size_of_val(bytecode);
@@ -184,6 +175,32 @@ impl TileContext {
             self.out_buf = Self::new_out_buffer(&self.device, required_size);
         }
     }
+}
+
+pub(crate) fn write_storage_buffer<T: IntoBytes + Immutable>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    buf: &mut wgpu::Buffer,
+    name: &'static str,
+    data: &[T],
+) {
+    let size = std::mem::size_of_val(data) as u64;
+    if size > buf.size() {
+        *buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(name),
+            size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+    }
+    queue
+        .write_buffer_with(
+            buf,
+            0,
+            size.try_into().expect("buffer size must be > 0"),
+        )
+        .unwrap()
+        .copy_from_slice(data.as_bytes())
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -223,8 +240,19 @@ pub fn voxel_ray_shader() -> String {
     shader_code
 }
 
+/// Returns a shader string to perform the interval evaluation step
+pub fn interval_tiles_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += INTERPRETER_I;
+    shader_code += INTERVAL_TILES_SHADER;
+    shader_code
+}
+
 /// Shader fragment to run a f32x4 interpreter
 const INTERPRETER_4F: &str = include_str!("interpreter_4f.wgsl");
+
+/// Shader fragment to run a interval arithmetic interpreter
+const INTERPRETER_I: &str = include_str!("interpreter_i.wgsl");
 
 /// `main` shader function for pixel tile evaluation
 const PIXEL_TILES_SHADER: &str = include_str!("pixel_tiles.wgsl");
@@ -234,6 +262,9 @@ const VOXEL_TILES_SHADER: &str = include_str!("voxel_tiles.wgsl");
 
 /// `main` shader function for voxel tile evaluation with raymarching
 const VOXEL_RAY_SHADER: &str = include_str!("voxel_ray.wgsl");
+
+/// `main` shader function for voxel tile evaluation with raymarching
+const INTERVAL_TILES_SHADER: &str = include_str!("interval_tiles.wgsl");
 
 /// Common data types for shaders
 const COMMON_SHADER: &str = include_str!("common.wgsl");
@@ -265,6 +296,7 @@ mod test {
             (pixel_tiles_shader(), "pixel tiles"),
             (voxel_tiles_shader(), "voxel tiles"),
             (voxel_ray_shader(), "voxel raymarching"),
+            (interval_tiles_shader(), "interval tiles"),
         ] {
             // This isn't the best formatting, but it will at least include the
             // relevant text.
