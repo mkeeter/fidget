@@ -291,12 +291,12 @@ impl VoxelContext {
         // Each workgroup is 8x8
         println!(
             "spawning {} x {} x 1",
-            settings.image_size.width() / 8,
-            settings.image_size.height() / 8
+            settings.image_size.width().div_ceil(8),
+            settings.image_size.height().div_ceil(8)
         );
         compute_pass.dispatch_workgroups(
-            settings.image_size.width() / 8,
-            settings.image_size.height() / 8,
+            settings.image_size.width().div_ceil(8),
+            settings.image_size.height().div_ceil(8),
             1,
         );
         drop(compute_pass);
