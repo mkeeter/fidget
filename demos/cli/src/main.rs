@@ -109,6 +109,7 @@ enum ShaderName {
     PixelTiles,
     VoxelTiles,
     VoxelRay,
+    IntervalTiles,
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -988,6 +989,9 @@ fn main() -> Result<()> {
             }
             ShaderName::VoxelRay => {
                 println!("{}", fidget::wgpu::voxel_ray_shader())
+            }
+            ShaderName::IntervalTiles => {
+                println!("{}", fidget::wgpu::interval_tiles_shader())
             }
         },
     }

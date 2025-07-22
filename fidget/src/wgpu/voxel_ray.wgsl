@@ -25,15 +25,17 @@ struct Config {
     /// Mapping from X, Y, Z to input indices
     axes: vec3u,
 
-    /// Tile size, in pixels
-    tile_size: u32,
+    /// Explicit padding
+    _padding1: u32,
 
     /// Window size, in pixels
     image_size: vec3u,
 
     /// Explicit padding
-    _padding: u32,
+    _padding2: u32,
 }
+
+const TILE_SIZE: u32 = 8;
 
 @compute @workgroup_size(4, 4, 4)
 fn main(
@@ -41,18 +43,18 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3u
 ) {
     // Tile index
-    let tile = id.xy / config.tile_size;
+    let tile = id.xy / TILE_SIZE;
 
     // Compute the number of tiles on each axis
-    let nx = config.image_size.x / config.tile_size;
-    let ny = config.image_size.y / config.tile_size;
+    let nx = config.image_size.x / TILE_SIZE;
+    let ny = config.image_size.y / TILE_SIZE;
 
     // We start at the camera's position
     var z = i32(config.image_size.z) - 1 - i32(local_id.z) * 4;
 
     let pixel_index = id.x + id.y * config.image_size.x;
     while (z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
-        let tz = u32(z) / config.tile_size;
+        let tz = u32(z) / TILE_SIZE;
 
         // Get the current tile that we're hanging out in
         let i = tile.x + tile.y * nx + tz * nx * ny;
@@ -61,7 +63,7 @@ fn main(
         if (v == 0xFFFFFFFFu) {
             // Empty tile, keep going by jumping to the next tile boundary (or
             // the raycast step, whichever is larger).
-            z -= max(16, i32(config.tile_size));
+            z -= max(16, i32(TILE_SIZE));
             continue;
         } else if ((v & 0x80000000) != 0) {
             // Full tile, we can break

@@ -1,4 +1,4 @@
-/// WGSL fragment for running an interpreter on 4x floats
+// WGSL fragment for running an interpreter on 4x floats
 //
 // `OP_*` constants are generated at runtime based on bytecode format, so this
 // shader cannot be compiled as-is.
@@ -146,7 +146,7 @@ fn run_tape(start: u32, inputs: mat4x4f) -> vec4f {
             case OP_MUL_REG_REG:      { reg[op[1]] = reg[op[2]] * reg[op[3]]; }
             case OP_DIV_REG_REG:      { reg[op[1]] = reg[op[2]] / reg[op[3]]; }
             case OP_SUB_REG_REG:      { reg[op[1]] = reg[op[2]] - reg[op[3]]; }
-            case OP_COMPARE_REG_REG:  { reg[op[1]] = reg[op[2]] - reg[op[3]]; }
+            case OP_COMPARE_REG_REG:  { reg[op[1]] = compare_4f(reg[op[2]], reg[op[3]]); }
             case OP_ATAN_REG_REG:      { reg[op[1]] = atan2(reg[op[2]], reg[op[3]]); }
             case OP_MOD_REG_REG:      { reg[op[1]] = mod_4f(reg[op[2]], reg[op[3]]); }
 
