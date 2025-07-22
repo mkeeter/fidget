@@ -504,6 +504,14 @@ class Scene {
     this.shadedProgram = new ShadedProgramInfo(this.gl);
     this.currentMode = "normals";
 
+    // Enable float texture extension (required for gl.FLOAT textures)
+    const floatExt = this.gl.getExtension("OES_texture_float");
+    if (!floatExt) {
+      throw new Error(
+        "Float textures not supported - required for shaded mode",
+      );
+    }
+
     // RGBA textures for bitmap/heightmap/normals modes
     this.rgbaTextures = [];
     // Float textures for depth+normal data (shaded mode)
