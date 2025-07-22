@@ -43,6 +43,29 @@
 //! `x, y, z` variables are also automatically injected into the `Engine`'s
 //! context before evaluation.
 //!
+//! # Mathematical constants
+//! The Rhai context includes common mathematical constants that can be used
+//! in expressions:
+//!
+//! ```
+//! # fidget::rhai::engine().run("
+//! // Use PI for angular calculations
+//! let angle = PI / 4.0;
+//! let radius = 2.0;
+//! circle(#{ center: [radius * cos(angle), radius * sin(angle)], radius: 1.0 })
+//! # ").unwrap();
+//! ```
+//!
+//! Available constants include:
+//! - `PI` - π (3.14159...)
+//! - `E` - Euler's number (2.71828...)
+//! - `TAU` - 2π (6.28318...)
+//! - `PHI` / `GOLDEN_RATIO` - Golden ratio (1.61803...)
+//! - `SQRT_2`, `SQRT_3` - Square roots
+//! - `FRAC_PI_2`, `FRAC_PI_4`, etc. - Fractions of π
+//! - `LN_2`, `LN_10` - Natural logarithms
+//! - And many more mathematical constants
+//!
 //! # Vector types
 //! The Rhai context includes `vec2`, `vec3`, and `vec4` types, which are
 //! roughly analogous to their GLSL equivalents (for floating-point only).
@@ -200,6 +223,7 @@
 //! .move(#{ offset: [1, 1] });
 //! # ").unwrap();
 //! ```
+pub mod constants;
 pub mod shapes;
 pub mod tree;
 pub mod types;
@@ -208,6 +232,7 @@ use crate::context::Tree;
 
 /// Build a new engine with Fidget-specific bindings and settings
 ///
+/// - Mathematical constants (PI, E, TAU, etc.), provided by the [`resolver`] function
 /// - `Tree`-specific type, overloads, and `axes()` ([`tree::register`])
 /// - Custom types (e.g. GLSL-style vectors), provided by [`types::register`]
 /// - Shapes and transforms ([`shapes::register`])
@@ -217,7 +242,7 @@ use crate::context::Tree;
 /// - [`set_fail_on_invalid_map_property`](rhai::Engine::set_fail_on_invalid_map_property)
 ///   set to `true`, so that missing map items raise an error
 /// - A custom resolver ([`resolver`]) which provides fallbacks for `x`, `y`,
-///   and `z` (if not defined)
+///   `z`, and mathematical constants (if not defined)
 pub fn engine() -> rhai::Engine {
     let mut engine = rhai::Engine::new();
 
@@ -241,7 +266,7 @@ pub fn engine() -> rhai::Engine {
     engine
 }
 
-/// Variable resolver which provides `x`, `y`, `z` if not found
+/// Variable resolver which provides `x`, `y`, `z` and mathematical constants if not found
 pub fn resolver(
     name: &str,
     _index: usize,
@@ -254,7 +279,14 @@ pub fn resolver(
             "x" => Ok(Some(rhai::Dynamic::from(Tree::x()))),
             "y" => Ok(Some(rhai::Dynamic::from(Tree::y()))),
             "z" => Ok(Some(rhai::Dynamic::from(Tree::z()))),
-            _ => Ok(None),
+            _ => {
+                // Try to resolve as a mathematical constant
+                if let Some(constant) = constants::get_constant(name) {
+                    Ok(Some(rhai::Dynamic::from(constant)))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 }
@@ -340,5 +372,26 @@ mod test {
         let out: i64 =
             engine.eval("let foo = []; foo.push(1); foo.len()").unwrap();
         assert_eq!(out, 1);
+    }
+
+    #[test]
+    fn test_constants() {
+        let engine = engine();
+
+        // Test that PI constant is available
+        let pi: f64 = engine.eval("PI").unwrap();
+        assert!((pi - std::f64::consts::PI).abs() < f64::EPSILON);
+
+        // Test using constants in angular calculations
+        let t = engine
+            .eval("let angle = PI / 4.0; x * cos(angle) + y * sin(angle)")
+            .unwrap();
+        let mut ctx = Context::new();
+        let expr = ctx.import(&t);
+
+        // Evaluate at (1, 1) - should be sqrt(2) since cos(π/4) = sin(π/4) = 1/√2
+        let result = ctx.eval_xyz(expr, 1.0, 1.0, 0.0).unwrap();
+        let expected = std::f64::consts::SQRT_2;
+        assert!((result - expected).abs() < 1e-10);
     }
 }
