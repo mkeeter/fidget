@@ -15,6 +15,7 @@
 - Replaced `view` in `ImageRenderConfig` and `VoxelRenderConfig` with a generic
   `world_to_model` matrix, for more flexibility when rendering.
 - Add mathematical constants for Rhai scripts (`PI`, `E`, `TAU`...)
+- Add shaded render mode in web demo
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!

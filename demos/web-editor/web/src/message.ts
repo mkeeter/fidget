@@ -11,7 +11,7 @@ export class ScriptRequest {
   }
 }
 
-type RenderMode = "bitmap" | "heightmap" | "normals";
+type RenderMode = "bitmap" | "heightmap" | "normals" | "shaded";
 export class RenderRequest {
   kind: "shape";
   tape: Uint8Array;
