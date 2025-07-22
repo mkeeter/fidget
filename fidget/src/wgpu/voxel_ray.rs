@@ -288,15 +288,11 @@ impl VoxelContext {
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        // Each workgroup is 8x8
-        println!(
-            "spawning {} x {} x 1",
-            settings.image_size.width().div_ceil(8),
-            settings.image_size.height().div_ceil(8)
-        );
+        // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
+        // workers in the Z direction.
         compute_pass.dispatch_workgroups(
-            settings.image_size.width().div_ceil(8),
-            settings.image_size.height().div_ceil(8),
+            settings.image_size.width().div_ceil(4),
+            settings.image_size.height().div_ceil(4),
             1,
         );
         drop(compute_pass);

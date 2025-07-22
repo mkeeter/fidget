@@ -35,8 +35,11 @@ struct Config {
     _padding: u32,
 }
 
-@compute @workgroup_size(8, 8)
-fn main(@builtin(global_invocation_id) id: vec3u) {
+@compute @workgroup_size(4, 4, 4)
+fn main(
+    @builtin(global_invocation_id) id: vec3u,
+    @builtin(local_invocation_id) local_id: vec3u
+) {
     // Tile index
     let tile = id.xy / config.tile_size;
 
@@ -45,10 +48,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let ny = config.image_size.y / config.tile_size;
 
     // We start at the camera's position
-    var z = i32(config.image_size.z) - 1;
+    var z = i32(config.image_size.z) - 1 - i32(local_id.z) * 4;
 
-    var out = 0u;
-    while (z >= 0 && out == 0) {
+    let pixel_index = id.x + id.y * config.image_size.x;
+    while (z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
         let tz = u32(z) / config.tile_size;
 
         // Get the current tile that we're hanging out in
@@ -56,24 +59,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         let v: u32 = tiles[i];
 
         if (v == 0xFFFFFFFFu) {
-            // Empty tile, keep going
-            z -= i32(config.tile_size);
+            // Empty tile, keep going by jumping to the next tile boundary (or
+            // the raycast step, whichever is larger).
+            z -= max(16, i32(config.tile_size));
             continue;
         } else if ((v & 0x80000000) != 0) {
             // Full tile, we can break
-            out = u32(z);
+            atomicMax(&result[pixel_index], u32(z));
         } else {
-            for (var n = 0u; n < config.tile_size / 4u; n++) {
-                out = raycast(v, vec3u(id.xy, u32(z)));
-                if (out != 0) {
-                    break;
-                }
-                z -= 4;
-            }
+            let out = raycast(v, vec3u(id.xy, u32(z)));
+            atomicMax(&result[pixel_index], out);
+            z -= 16;
         }
     }
-    let j = id.x + id.y * config.image_size.x;
-    atomicStore(&result[j], out);
 }
 
 fn raycast(tape_start: u32, pos: vec3u) -> u32 {
