@@ -36,6 +36,11 @@ class Worker {
           out = fidget.render_normals(shape, size, camera, cancel);
           break;
         }
+        case "shaded": {
+          const camera = fidget.JsCamera3.deserialize(s.camera);
+          out = fidget.render_depth_normals(shape, size, camera, cancel);
+          break;
+        }
       }
       postMessage(new ImageResponse(out, s.depth), { transfer: [out.buffer] });
     } catch (e) {

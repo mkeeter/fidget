@@ -152,7 +152,8 @@ class App {
   onModeChanged() {
     switch (this.getMode()) {
       case "heightmap":
-      case "normals": {
+      case "normals":
+      case "shaded": {
         this.scene.resetCamera("3d");
         break;
       }
@@ -174,7 +175,8 @@ class App {
     switch (e.value) {
       case "bitmap":
       case "normals":
-      case "heightmap": {
+      case "heightmap":
+      case "shaded": {
         return e.value;
       }
       default: {
@@ -390,13 +392,97 @@ class ProgramInfo {
   }
 }
 
+class ShadedProgramInfo {
+  program: WebGLProgram;
+  vertexPositionAttrib: number;
+  uGeometrySampler: WebGLUniformLocation;
+  uMaxDepth: WebGLUniformLocation;
+
+  constructor(gl: WebGLRenderingContext) {
+    // Vertex shader program (same as regular)
+    const vsSource = `
+      attribute vec4 aVertexPosition;
+      varying highp vec2 vTextureCoord;
+      void main() {
+        gl_Position = aVertexPosition;
+        vTextureCoord = vec2((aVertexPosition.xy + 1.0) / 2.0);
+        vTextureCoord.y = 1.0 - vTextureCoord.y;
+      }
+    `;
+
+    // Fragment shader for shaded rendering
+    const fsSource = `
+      precision highp float;
+      varying highp vec2 vTextureCoord;
+      uniform sampler2D uGeometrySampler;
+      uniform float uMaxDepth;
+
+      struct Light {
+        vec3 position;
+        float intensity;
+      };
+
+      void main() {
+        vec4 geometryData = texture2D(uGeometrySampler, vTextureCoord);
+        
+        // Extract depth and normal from geometry texture
+        float depth = geometryData.r;
+        vec3 normal = geometryData.gba;
+        
+        // If depth is 0, this pixel is transparent
+        if (depth == 0.0) {
+          discard;
+        }
+        
+        // Calculate 3D position from texture coordinates and depth
+        vec3 p = vec3(
+          (vTextureCoord.xy - 0.5) * 2.0,
+          2.0 * (depth - 0.5)
+        );
+        
+        vec3 n = normalize(normal);
+        
+        // Define lights (matching the Rust implementation)
+        Light lights[3];
+        lights[0] = Light(vec3(5.0, -5.0, 10.0), 0.5);
+        lights[1] = Light(vec3(-5.0, 0.0, 10.0), 0.15);
+        lights[2] = Light(vec3(0.0, -5.0, 10.0), 0.15);
+        
+        // Calculate lighting
+        float accum = 0.2; // ambient light
+        for (int i = 0; i < 3; i++) {
+          vec3 lightDir = normalize(lights[i].position - p);
+          accum += max(dot(lightDir, n), 0.0) * lights[i].intensity;
+        }
+        accum = clamp(accum, 0.0, 1.0);
+        
+        gl_FragColor = vec4(accum, accum, accum, 1.0);
+      }
+    `;
+
+    this.program = initShaderProgram(gl, vsSource, fsSource);
+    this.vertexPositionAttrib = gl.getAttribLocation(
+      this.program,
+      "aVertexPosition",
+    );
+    this.uGeometrySampler = gl.getUniformLocation(
+      this.program,
+      "uGeometrySampler",
+    );
+    this.uMaxDepth = gl.getUniformLocation(this.program, "uMaxDepth");
+  }
+}
+
 class Scene {
   canvas: HTMLCanvasElement;
   gl: WebGLRenderingContext;
-  programInfo: ProgramInfo;
+  basicProgram: ProgramInfo;
+  shadedProgram: ShadedProgramInfo;
   buffers: Buffers;
-  textures: WebGLTexture[];
+  rgbaTextures: WebGLTexture[];
+  depthNormalTextures: WebGLTexture[];
   camera: Camera;
+  currentMode: string;
 
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
@@ -412,16 +498,22 @@ class Scene {
       );
       return;
     }
-    this.buffers = new Buffers(this.gl);
-    this.programInfo = new ProgramInfo(this.gl);
 
-    // XXX use mipmap levels instead?
-    this.textures = [];
+    this.buffers = new Buffers(this.gl);
+    this.basicProgram = new ProgramInfo(this.gl);
+    this.shadedProgram = new ShadedProgramInfo(this.gl);
+    this.currentMode = "normals";
+
+    // RGBA textures for bitmap/heightmap/normals modes
+    this.rgbaTextures = [];
+    // Float textures for depth+normal data (shaded mode)
+    this.depthNormalTextures = [];
+
     for (var depth = 0; depth <= MAX_DEPTH; ++depth) {
-      const texture = this.gl.createTexture();
       const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
 
-      // Bind an initial texture of the correct size
+      // RGBA texture
+      const texture = this.gl.createTexture();
       this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
       this.gl.texParameteri(
         this.gl.TEXTURE_2D,
@@ -455,7 +547,43 @@ class Scene {
         new Uint8Array(size * size * 4),
       );
       this.gl.generateMipmap(this.gl.TEXTURE_2D);
-      this.textures.push(texture);
+      this.rgbaTextures.push(texture);
+
+      // Depth/normal texture for shaded mode (RGBA32F equivalent using RGBA + FLOAT)
+      const depthNormalTexture = this.gl.createTexture();
+      this.gl.bindTexture(this.gl.TEXTURE_2D, depthNormalTexture);
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_WRAP_S,
+        this.gl.CLAMP_TO_EDGE,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_WRAP_T,
+        this.gl.CLAMP_TO_EDGE,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_MIN_FILTER,
+        this.gl.NEAREST,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_MAG_FILTER,
+        this.gl.NEAREST,
+      );
+      this.gl.texImage2D(
+        this.gl.TEXTURE_2D,
+        0,
+        this.gl.RGBA,
+        size,
+        size,
+        0, // border
+        this.gl.RGBA,
+        this.gl.FLOAT,
+        new Float32Array(size * size * 4),
+      );
+      this.depthNormalTextures.push(depthNormalTexture);
     }
   }
 
@@ -513,19 +641,41 @@ class Scene {
   }
 
   setTextureRegion(data: Uint8Array, depth: number) {
+    const mode = (document.getElementById("mode") as HTMLSelectElement).value;
     const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
-    this.gl.texImage2D(
-      this.gl.TEXTURE_2D,
-      0,
-      this.gl.RGBA,
-      size,
-      size,
-      0, // border
-      this.gl.RGBA,
-      this.gl.UNSIGNED_BYTE,
-      data,
-    );
+
+    if (mode === "shaded") {
+      // Handle depth+normal data for shaded rendering
+      const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+      this.gl.bindTexture(this.gl.TEXTURE_2D, this.depthNormalTextures[depth]);
+      const floatData = new Float32Array(data.buffer);
+      this.gl.texImage2D(
+        this.gl.TEXTURE_2D,
+        0,
+        this.gl.RGBA,
+        size,
+        size,
+        0, // border
+        this.gl.RGBA,
+        this.gl.FLOAT,
+        floatData,
+      );
+    } else {
+      // Handle RGBA data
+      this.gl.bindTexture(this.gl.TEXTURE_2D, this.rgbaTextures[depth]);
+      this.gl.texImage2D(
+        this.gl.TEXTURE_2D,
+        0,
+        this.gl.RGBA,
+        size,
+        size,
+        0, // border
+        this.gl.RGBA,
+        this.gl.UNSIGNED_BYTE,
+        data,
+      );
+    }
+    this.currentMode = mode;
   }
 
   draw(depth: number) {
@@ -533,15 +683,41 @@ class Scene {
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
     this.setPositionAttribute();
 
-    // Tell WebGL to use our program when drawing
-    this.gl.useProgram(this.programInfo.program);
+    if (this.currentMode === "shaded") {
+      this.drawShaded(depth);
+    } else {
+      this.drawBasic(depth);
+    }
+  }
+
+  drawBasic(depth: number) {
+    this.gl.useProgram(this.basicProgram.program);
 
     // Tell WebGL we want to affect texture unit 0
     this.gl.activeTexture(this.gl.TEXTURE0);
 
     // Bind the texture to texture unit 0
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
-    this.gl.uniform1i(this.programInfo.uSampler, 0);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.rgbaTextures[depth]);
+    this.gl.uniform1i(this.basicProgram.uSampler, 0);
+
+    const offset = 0;
+    const vertexCount = 4;
+    this.gl.drawArrays(this.gl.TRIANGLE_STRIP, offset, vertexCount);
+  }
+
+  drawShaded(depth: number) {
+    this.gl.useProgram(this.shadedProgram.program);
+
+    // Tell WebGL we want to affect texture unit 0
+    this.gl.activeTexture(this.gl.TEXTURE0);
+
+    // Bind the depth+normal texture to texture unit 0
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.depthNormalTextures[depth]);
+    this.gl.uniform1i(this.shadedProgram.uGeometrySampler, 0);
+
+    // Set max depth for normalization
+    const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+    this.gl.uniform1f(this.shadedProgram.uMaxDepth, size);
 
     const offset = 0;
     const vertexCount = 4;
@@ -556,15 +732,21 @@ class Scene {
     // 0 = use type and numComponents above
     const offset = 0; // how many bytes inside the buffer to start from
     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.pos);
+    
+    // Use the appropriate program's vertex attribute based on current mode
+    const vertexAttrib = this.currentMode === "shaded" 
+      ? this.shadedProgram.vertexPositionAttrib 
+      : this.basicProgram.vertexPositionAttrib;
+    
     this.gl.vertexAttribPointer(
-      this.programInfo.vertexPositionAttrib,
+      vertexAttrib,
       numComponents,
       type,
       normalize,
       stride,
       offset,
     );
-    this.gl.enableVertexAttribArray(this.programInfo.vertexPositionAttrib);
+    this.gl.enableVertexAttribArray(vertexAttrib);
   }
 }
 

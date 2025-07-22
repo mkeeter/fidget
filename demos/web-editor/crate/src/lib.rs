@@ -121,6 +121,39 @@ pub fn render_normals(
         .collect())
 }
 
+/// Renders raw depth and normal data for shaded rendering
+#[wasm_bindgen]
+pub fn render_depth_normals(
+    shape: JsVmShape,
+    image_size: usize,
+    camera: JsCamera3,
+    cancel: JsCancelToken,
+) -> Result<Vec<u8>, String> {
+    let image = render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+        .ok_or_else(|| "cancelled".to_string())?;
+
+    // Convert geometry data to bytes for WebGL texture
+    // Format: [depth_as_f32, normal_x, normal_y, normal_z] per pixel
+    Ok(image
+        .into_iter()
+        .flat_map(|p| {
+            if p.depth > 0 {
+                let depth_normalized = p.depth as f32 / image_size as f32;
+                let normal = p.normal;
+                [
+                    depth_normalized.to_le_bytes(),
+                    normal[0].to_le_bytes(),
+                    normal[1].to_le_bytes(),
+                    normal[2].to_le_bytes(),
+                ]
+                .concat()
+            } else {
+                [0u8; 16].to_vec()
+            }
+        })
+        .collect())
+}
+
 fn render_3d_inner(
     shape: VmShape,
     image_size: usize,
