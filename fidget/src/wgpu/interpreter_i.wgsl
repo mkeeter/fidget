@@ -218,8 +218,8 @@ fn mul_i(lhs: vec2f, rhs: vec2f) -> vec2f {
     let ab = lhs * rhs;
     let cd = lhs.yx * rhs;
     return vec2f(
+        min(min(ab[0], ab[1]), min(cd[0], cd[1])),
         max(max(ab[0], ab[1]), max(cd[0], cd[1])),
-        min(min(ab[0], ab[1]), min(cd[0], cd[1]))
     );
 }
 
@@ -230,8 +230,8 @@ fn div_i(lhs: vec2f, rhs: vec2f) -> vec2f {
     let ab = lhs / rhs;
     let cd = lhs.yx / rhs;
     return vec2f(
+        min(min(ab[0], ab[1]), min(cd[0], cd[1])),
         max(max(ab[0], ab[1]), max(cd[0], cd[1])),
-        min(min(ab[0], ab[1]), min(cd[0], cd[1]))
     );
 }
 

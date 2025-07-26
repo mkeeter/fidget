@@ -185,11 +185,14 @@ pub(crate) fn write_storage_buffer<T: IntoBytes + Immutable>(
     data: &[T],
 ) {
     let size = std::mem::size_of_val(data) as u64;
-    if size > buf.size() {
+    if size != buf.size() {
+        println!("making new buffer wit hlabel {name} and size {size}");
         *buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name),
             size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC, // not necessary
             mapped_at_creation: false,
         });
     }

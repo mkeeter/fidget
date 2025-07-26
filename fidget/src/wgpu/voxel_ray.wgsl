@@ -6,7 +6,7 @@
 /// Render configuration
 @group(0) @binding(0) var<uniform> config: Config;
 
-/// Tile data
+/// Tile data (8^3, dense)
 @group(0) @binding(1) var<storage, read> tiles: array<u32>;
 
 /// Input tape(s), serialized to bytecode

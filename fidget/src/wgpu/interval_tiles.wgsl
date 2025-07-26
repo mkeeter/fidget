@@ -83,10 +83,12 @@ fn main(
         // subtile buffers are already cleared
         return;
     } else if ((tile_data & 0x80000000u) != 0u) {
-        // Full, load tape start
+        // Full, load tape start into the tile
         dense_tile8_out[subtile_index_xyz] = tile_data;
         return;
     }
+
+    // Otherwise, we have to evaluate the subtile!
     let tape_start = tile_data;
 
     // Convert from subtiles to voxels
@@ -98,10 +100,10 @@ fn main(
     let iz = vec2f(f32(subtile_corner.z), f32(subtile_corner.x + 8));
     var ts = mat4x2f(vec2f(0.0), vec2f(0.0), vec2f(0.0), vec2f(0.0));
     for (var i = 0; i < 4; i++) {
-        ts[i] = mul_i(vec2f(config.mat[i][0]), ix)
-            + mul_i(vec2f(config.mat[i][1]), iy)
-            + mul_i(vec2f(config.mat[i][2]), iz)
-            + vec2f(config.mat[i][3]);
+        ts[i] = mul_i(vec2f(config.mat[0][i]), ix)
+            + mul_i(vec2f(config.mat[1][i]), iy)
+            + mul_i(vec2f(config.mat[2][i]), iz)
+            + vec2f(config.mat[3][i]);
     }
 
     // Build up input map
