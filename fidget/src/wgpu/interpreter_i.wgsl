@@ -13,7 +13,7 @@ fn nan_i() -> vec2f {
 }
 
 fn neg_i(lhs: vec2f) -> vec2f {
-    return vec2f(-lhs[1], -lhs[0]);
+    return -lhs.yx;
 }
 
 fn abs_i(lhs: vec2f) -> vec2f {
@@ -288,7 +288,7 @@ fn run_tape(start: u32, inputs: mat4x2f) -> vec2f {
             case OP_COMPARE_REG_IMM:  { reg[op[1]] = compare_i(reg[op[2]], read_imm_i(&i)); }
 
             case OP_DIV_IMM_REG:      { reg[op[1]] = div_i(read_imm_i(&i), reg[op[2]]); }
-            case OP_SUB_IMM_REG:      { reg[op[1]] = read_imm_i(&i) - reg[op[2]]; }
+            case OP_SUB_IMM_REG:      { reg[op[1]] = read_imm_i(&i) - reg[op[2]].yx; }
             case OP_MOD_IMM_REG:      { reg[op[1]] = mod_i(read_imm_i(&i), reg[op[2]]); }
             case OP_ATAN_IMM_REG:     { reg[op[1]] = atan2_i(read_imm_i(&i), reg[op[2]]); }
             case OP_COMPARE_IMM_REG:  { reg[op[1]] = compare_i(read_imm_i(&i), reg[op[2]]); }
@@ -301,7 +301,7 @@ fn run_tape(start: u32, inputs: mat4x2f) -> vec2f {
             case OP_ADD_REG_REG:      { reg[op[1]] = reg[op[2]] + reg[op[3]]; }
             case OP_MUL_REG_REG:      { reg[op[1]] = mul_i(reg[op[2]], reg[op[3]]); }
             case OP_DIV_REG_REG:      { reg[op[1]] = div_i(reg[op[2]], reg[op[3]]); }
-            case OP_SUB_REG_REG:      { reg[op[1]] = reg[op[2]] - reg[op[3]]; }
+            case OP_SUB_REG_REG:      { reg[op[1]] = reg[op[2]] - reg[op[3]].yx; }
             case OP_COMPARE_REG_REG:  { reg[op[1]] = compare_i(reg[op[2]], reg[op[3]]); }
             case OP_ATAN_REG_REG:      { reg[op[1]] = atan2_i(reg[op[2]], reg[op[3]]); }
             case OP_MOD_REG_REG:      { reg[op[1]] = mod_i(reg[op[2]], reg[op[3]]); }
