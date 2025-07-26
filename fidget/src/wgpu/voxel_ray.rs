@@ -642,7 +642,7 @@ impl VoxelRayContext {
         let mut data = bytecode.data; // address 0 is the original tape
         pos.insert(shape.inner().id(), 0);
 
-        // Build the 64^3 dense tile array and active tile list
+        // Build the dense tile array of 64^3 tiles, and active tile list
         let nx = settings.image_size.width().div_ceil(64);
         let ny = settings.image_size.height().div_ceil(64);
         let nz = settings.image_size.depth().div_ceil(64);

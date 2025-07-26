@@ -68,11 +68,13 @@ fn main(
     let ty = (t / config.image_size_tiles.x) % config.image_size_tiles.y;
     let tz = (t / (config.image_size_tiles.x * config.image_size_tiles.y)) % config.image_size_tiles.z;
 
-    // Tile corner position, in subtiles
+    // Tile corner position, in subtile coordinates
     let tile_corner_8 = vec3u(tx, ty, tz) * 8;
 
     // Local position, in subtile units
     let subtile_corner_8 = tile_corner_8 + vec3u(local_id.xy, workgroup_id.z);
+
+    // Local index in the dense subtile array (so also in subtile units)
     let subtile_index_xy = subtile_corner_8.x
         + subtile_corner_8.y * config.image_size_tiles.x * 8;
     let subtile_index_xyz = subtile_index_xy
@@ -96,8 +98,8 @@ fn main(
 
     // Compute transformed interval regions
     let ix = vec2f(f32(subtile_corner.x), f32(subtile_corner.x + 8));
-    let iy = vec2f(f32(subtile_corner.y), f32(subtile_corner.x + 8));
-    let iz = vec2f(f32(subtile_corner.z), f32(subtile_corner.x + 8));
+    let iy = vec2f(f32(subtile_corner.y), f32(subtile_corner.y + 8));
+    let iz = vec2f(f32(subtile_corner.z), f32(subtile_corner.z + 8));
     var ts = mat4x2f(vec2f(0.0), vec2f(0.0), vec2f(0.0), vec2f(0.0));
     for (var i = 0; i < 4; i++) {
         ts[i] = mul_i(vec2f(config.mat[0][i]), ix)
