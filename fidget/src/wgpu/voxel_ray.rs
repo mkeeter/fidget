@@ -642,13 +642,19 @@ impl VoxelRayContext {
         shape: Shape<F>, // XXX add ShapeVars here
         settings: VoxelRenderConfig,
     ) -> Option<Result<Vec<u32>, Error>> {
-        if settings.tile_sizes.iter().collect::<Vec<_>>() != [&64] {
+        if settings.tile_sizes.iter().last().unwrap() != &64 {
             panic!("Voxel raycast only uses 64x64x64 tile rendering");
         };
 
         // Convert to a 4x4 matrix and apply to the shape
         let shape = shape.apply_transform(settings.mat());
         let mat = shape.transform().unwrap();
+
+        let max_size = settings
+            .image_size
+            .width()
+            .max(settings.image_size.height()) as usize;
+        let tile_sizes = TileSizesRef::new(&settings.tile_sizes, max_size);
 
         let start = std::time::Instant::now();
         let rs = crate::render::render_tiles::<F, Worker3D<F>>(
@@ -667,6 +673,7 @@ impl VoxelRayContext {
         pos.insert(shape.inner().id(), 0);
 
         // Build the dense tile array of 64^3 tiles, and active tile list
+        let tile_size = tile_sizes.last() as u32;
         let nx = settings.image_size.width().div_ceil(64);
         let ny = settings.image_size.height().div_ceil(64);
         let nz = settings.image_size.depth().div_ceil(64);
@@ -690,23 +697,31 @@ impl VoxelRayContext {
             assert_eq!(r.corner.x % 64, 0);
             assert_eq!(r.corner.y % 64, 0);
             assert_eq!(r.corner.z % 64, 0);
-            let i = r.corner.x / 64
-                + r.corner.y / 64 * nx
-                + r.corner.z / 64 * nx * ny;
-            ts[i as usize] = match r.mode {
-                TileMode::Empty => {
-                    empty += 1;
-                    u32::MAX
+
+            for x in 0..r.tile_size / tile_size {
+                for y in 0..r.tile_size / tile_size {
+                    for z in 0..r.tile_size / tile_size {
+                        let i = r.corner.x / tile_size
+                            + x
+                            + (r.corner.y / tile_size + y) * nx
+                            + (r.corner.z / tile_size + z) * nx * ny;
+                        ts[i as usize] = match r.mode {
+                            TileMode::Empty => {
+                                empty += 1;
+                                u32::MAX
+                            }
+                            TileMode::Full => {
+                                full += 1;
+                                start | (1 << 31)
+                            }
+                            TileMode::Voxels => {
+                                active_tiles.push(i);
+                                start
+                            }
+                        };
+                    }
                 }
-                TileMode::Full => {
-                    full += 1;
-                    start | (1 << 31)
-                }
-                TileMode::Voxels => {
-                    active_tiles.push(i);
-                    start
-                }
-            };
+            }
         }
 
         if data.len() < 1024 {
@@ -813,6 +828,8 @@ enum TileMode {
 struct WorkResult<F> {
     /// Tile corner (in image space)
     corner: Point3<u32>,
+    /// Tile size, in pixels
+    tile_size: u32,
     /// Shape at this tile
     shape: Shape<F>,
     /// Fill or render individual pixels
@@ -905,6 +922,7 @@ impl<F: Function> Worker3D<'_, F> {
         if i.upper() < 0.0 {
             self.result.push(WorkResult {
                 corner: tile.corner.map(|i| i as u32),
+                tile_size: tile_size as u32,
                 shape: shape.inner().clone(),
                 mode: TileMode::Full,
             });
@@ -912,6 +930,7 @@ impl<F: Function> Worker3D<'_, F> {
         } else if i.lower() > 0.0 {
             self.result.push(WorkResult {
                 corner: tile.corner.map(|i| i as u32),
+                tile_size: tile_size as u32,
                 shape: shape.inner().clone(),
                 mode: TileMode::Empty,
             });
@@ -919,9 +938,7 @@ impl<F: Function> Worker3D<'_, F> {
         }
 
         // Only simplify at root tiles, to keep buffer sizes down
-        let sub_tape = if depth == 0
-            && let Some(trace) = simplify.as_ref()
-        {
+        let sub_tape = if let Some(trace) = simplify.as_ref() {
             shape.simplify(
                 trace,
                 &mut self.workspace,
@@ -955,6 +972,7 @@ impl<F: Function> Worker3D<'_, F> {
             // Pixel-level rendering is done on the GPU
             self.result.push(WorkResult {
                 corner: tile.corner.map(|p| p as u32),
+                tile_size: tile_size as u32,
                 shape: sub_tape.inner().clone(),
                 mode: TileMode::Voxels,
             });
