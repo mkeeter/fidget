@@ -186,7 +186,7 @@ pub(crate) fn write_storage_buffer<T: IntoBytes + Immutable>(
 ) {
     let size = std::mem::size_of_val(data) as u64;
     if size != buf.size() {
-        println!("making new buffer wit hlabel {name} and size {size}");
+        println!("making new buffer with label {name} and size {size}");
         *buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name),
             size,

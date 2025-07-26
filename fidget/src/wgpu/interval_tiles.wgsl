@@ -71,7 +71,9 @@ fn main(
     // Tile corner position, in subtile coordinates
     let tile_corner_8 = vec3u(tx, ty, tz) * 8;
 
-    // Local position, in subtile units
+    // Local position, in subtile units.  Note that we split the XY subtile
+    // position (in local_id.xy) and the Z subtile offset (in workgroup_id.z);
+    // this is because we can't dispatch an 8x8x8 workgroup.
     let subtile_corner_8 = tile_corner_8 + vec3u(local_id.xy, workgroup_id.z);
 
     // Local index in the dense subtile array (so also in subtile units)
@@ -82,7 +84,7 @@ fn main(
 
     let tile_data = dense_tile64[t];
     if (tile_data == 0xFFFFFFFFu) {
-        // subtile buffers are already cleared
+        // subtile buffers are already cleared, so we don't need to write them
         return;
     } else if ((tile_data & 0x80000000u) != 0u) {
         // Full, load tape start into the tile
