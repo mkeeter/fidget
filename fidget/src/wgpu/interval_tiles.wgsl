@@ -84,7 +84,7 @@ fn main(
 
     let tile_data = dense_tile64[t];
     if (tile_data == 0xFFFFFFFFu) {
-        // subtile buffers are already cleared, so we don't need to write them
+        dense_tile8_out[subtile_index_xyz] = 0xFFFFFFFFu;
         return;
     } else if ((tile_data & 0x80000000u) != 0u) {
         // Full, load tape start into the tile

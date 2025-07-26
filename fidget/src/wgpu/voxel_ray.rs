@@ -353,6 +353,18 @@ impl VoxelContext {
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
                                 read_only: false,
                             },
                             has_dynamic_offset: false,
@@ -487,14 +499,18 @@ impl VoxelContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.dense_tile8_out.as_entire_binding(),
+                        resource: ctx.dense_tile64.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.tape_buf.as_entire_binding(),
+                        resource: ctx.dense_tile8_out.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
+                        resource: ctx.tape_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
                         resource: self.result_buf.as_entire_binding(),
                     },
                 ],
@@ -547,9 +563,6 @@ pub struct VoxelRayContext {
     ///
     /// This output is written by the interval pass and used by the voxel pass
     dense_tile8_out: wgpu::Buffer,
-
-    /// Scratch data used when clearing `dense_tile8_out`
-    clear_data: Vec<u32>,
 
     interval_ctx: IntervalTileContext,
     voxel_ctx: VoxelContext,
@@ -615,7 +628,6 @@ impl VoxelRayContext {
             queue,
             interval_ctx,
             voxel_ctx,
-            clear_data: vec![],
             tape_buf,
             dense_tile64,
             dense_tile8_out,
@@ -725,19 +737,20 @@ impl VoxelRayContext {
             ts.as_slice(),
         );
 
-        // Dense 8^3 tiles must be cleared, because they aren't always written
-        // by the first interval evaluation pass.
+        // Allocate a buffer for the densely-packed 8^3 subtiles
         let dense_tile8_count =
             nx as usize * ny as usize * ny as usize * 8usize.pow(3);
-        if self.clear_data.len() != dense_tile8_count {
-            self.clear_data = vec![0xFFFFFFFF; dense_tile8_count];
-            write_storage_buffer(
-                &self.device,
-                &self.queue,
-                &mut self.dense_tile8_out,
-                "dense tile8",
-                self.clear_data.as_slice(),
-            );
+        let dense_tile8_buf_size =
+            (dense_tile8_count * std::mem::size_of::<u32>()) as u64;
+        if self.dense_tile8_out.size() != dense_tile8_buf_size {
+            self.dense_tile8_out =
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("dense til8"),
+                    size: dense_tile8_buf_size,
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
         }
 
         // Create a command encoder and dispatch the compute work
