@@ -693,7 +693,6 @@ impl VoxelRayContext {
                 }
             };
         }
-        println!("active tiles: {active_tiles:?}");
 
         if data.len() < 1024 {
             println!("bytecode len: {} B", data.len() * 4);
@@ -757,23 +756,6 @@ impl VoxelRayContext {
         self.interval_ctx.run(&active_tiles, &ctx, &mut encoder);
         self.voxel_ctx.run(&ctx, &mut encoder);
 
-        // XXX shenanigans
-        let dense_scratch =
-            self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("dense scratch"),
-                size: dense_tile8_count as u64 * 4,
-                usage: wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-        encoder.copy_buffer_to_buffer(
-            &self.dense_tile8_out,
-            0,
-            &dense_scratch,
-            0,
-            dense_tile8_count as u64 * 4,
-        );
-
         // Submit the commands and wait for the GPU to complete
         self.queue.submit(Some(encoder.finish()));
 
@@ -797,38 +779,6 @@ impl VoxelRayContext {
                 let i = ((*r as u64) * 255 / m as u64) as u8 as u32;
                 *r = 0xFF << 24 | i << 8 | i << 16 | i;
             }
-        }
-
-        // XXX SHENANIGANS: get active 8x8 voxels
-        {
-            // Map result buffer and read back the data
-            let buffer_slice = dense_scratch.slice(..);
-            buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-            self.device.poll(wgpu::Maintain::Wait);
-
-            // Get the pixel-populated image
-            let m = <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
-                .unwrap()
-                .to_owned();
-            let mut i = 0;
-            for _z in 0..settings.image_size.depth() / 8 {
-                for _y in 0..settings.image_size.height() / 8 {
-                    for _x in 0..settings.image_size.width() / 8 {
-                        let v = m[i];
-                        i += 1;
-                        if v == 0xFFFF_FFFF {
-                            print!("..");
-                        } else if v & 0x8000_0000 != 0 {
-                            print!("FF");
-                        } else {
-                            print!("--");
-                        }
-                    }
-                    println!();
-                }
-                println!();
-            }
-            dense_scratch.unmap();
         }
 
         Some(Ok(result))
