@@ -592,6 +592,7 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
         // Send over our image pixels
         for _i in 0..settings.n {
             // Note that this copies the bytecode each time
+            let s = std::time::Instant::now();
             image = ctx
                 .run_3d(
                     shape.clone(),
@@ -605,6 +606,7 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
                 )
                 .unwrap()
                 .unwrap();
+            println!(" => {:?}", s.elapsed());
         }
     } else {
         let mut ctx = fidget::wgpu::VoxelContext::new().unwrap();
@@ -612,6 +614,7 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
         // Send over our image pixels
         for _i in 0..settings.n {
             // Note that this copies the bytecode each time
+            let s = std::time::Instant::now();
             image = ctx
                 .run_3d(
                     shape.clone(),
@@ -625,6 +628,7 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
                 )
                 .unwrap()
                 .unwrap();
+            println!(" => {:?}", s.elapsed());
         }
     }
     info!(

@@ -575,7 +575,10 @@ impl VoxelRayContext {
         let instance = wgpu::Instance::default();
         let (device, queue) = pollster::block_on(async {
             let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions::default())
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    ..wgpu::RequestAdapterOptions::default()
+                })
                 .await
                 .ok_or(Error::NoAdapter)?;
             adapter
@@ -728,14 +731,14 @@ impl VoxelRayContext {
             nx as usize * ny as usize * ny as usize * 8usize.pow(3);
         if self.clear_data.len() != dense_tile8_count {
             self.clear_data = vec![0xFFFFFFFF; dense_tile8_count];
+            write_storage_buffer(
+                &self.device,
+                &self.queue,
+                &mut self.dense_tile8_out,
+                "dense tile8",
+                self.clear_data.as_slice(),
+            );
         }
-        write_storage_buffer(
-            &self.device,
-            &self.queue,
-            &mut self.dense_tile8_out,
-            "dense tile8",
-            self.clear_data.as_slice(),
-        );
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = self.device.create_command_encoder(
