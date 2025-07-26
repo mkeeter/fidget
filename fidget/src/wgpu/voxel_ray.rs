@@ -155,7 +155,7 @@ impl IntervalTileContext {
 
         let active_tiles = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("active_tiles"),
-            size: 512,
+            size: 4,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -238,8 +238,14 @@ impl IntervalTileContext {
 
         compute_pass.dispatch_workgroups(
             (active_tiles.len() % 65536) as u32,
-            (active_tiles.len() / 65536).try_into().unwrap(),
+            (active_tiles.len() / 65536).max(1).try_into().unwrap(),
             8,
+        );
+        println!(
+            "dispatching with {}, {}, {}",
+            (active_tiles.len() % 65536) as u32,
+            (active_tiles.len() / 65536),
+            8
         );
         drop(compute_pass);
     }
@@ -374,7 +380,7 @@ impl VoxelContext {
             });
 
         // Dummy buffers
-        let (result_buf, image_buf) = Self::new_result_buffers(device, 512);
+        let (result_buf, image_buf) = Self::new_result_buffers(device, 4);
 
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
@@ -572,23 +578,22 @@ impl VoxelRayContext {
         let interval_ctx = IntervalTileContext::new(&device)?;
         let voxel_ctx = VoxelContext::new(&device)?;
 
+        // Dummy buffers
         let tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tape buf"),
-            size: 512,
+            label: Some("dummy tape buf"),
+            size: 4,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-
         let dense_tile64 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("dense_tile64"),
-            size: 512,
+            label: Some("dummy dense tile64"),
+            size: 4,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-
         let dense_tile8_out = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("dense_tile8_out"),
-            size: 512,
+            label: Some("dummy dense tile8 out"),
+            size: 4,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
@@ -742,6 +747,23 @@ impl VoxelRayContext {
         self.interval_ctx.run(&active_tiles, &ctx, &mut encoder);
         self.voxel_ctx.run(&ctx, &mut encoder);
 
+        // XXX shenanigans
+        let dense_scratch =
+            self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("dense scratch"),
+                size: dense_tile8_count as u64 * 4,
+                usage: wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+        encoder.copy_buffer_to_buffer(
+            &self.dense_tile8_out,
+            0,
+            &dense_scratch,
+            0,
+            dense_tile8_count as u64 * 4,
+        );
+
         // Submit the commands and wait for the GPU to complete
         self.queue.submit(Some(encoder.finish()));
 
@@ -765,6 +787,38 @@ impl VoxelRayContext {
                 let i = ((*r as u64) * 255 / m as u64) as u8 as u32;
                 *r = 0xFF << 24 | i << 8 | i << 16 | i;
             }
+        }
+
+        // XXX SHENANIGANS: get active 8x8 voxels
+        {
+            // Map result buffer and read back the data
+            let buffer_slice = dense_scratch.slice(..);
+            buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+            self.device.poll(wgpu::Maintain::Wait);
+
+            // Get the pixel-populated image
+            let m = <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+                .unwrap()
+                .to_owned();
+            let mut i = 0;
+            for _z in 0..settings.image_size.depth() / 8 {
+                for _y in 0..settings.image_size.height() / 8 {
+                    for _x in 0..settings.image_size.width() / 8 {
+                        let v = m[i];
+                        i += 1;
+                        if v == 0xFFFF_FFFF {
+                            print!("..");
+                        } else if v & 0x8000_0000 != 0 {
+                            print!("FF");
+                        } else {
+                            print!("--");
+                        }
+                    }
+                    println!();
+                }
+                println!();
+            }
+            dense_scratch.unmap();
         }
 
         Some(Ok(result))
