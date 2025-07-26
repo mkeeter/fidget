@@ -239,7 +239,7 @@ impl IntervalTileContext {
         compute_pass.dispatch_workgroups(
             (active_tiles.len() % 65536) as u32,
             (active_tiles.len() / 65536).try_into().unwrap(),
-            1,
+            8,
         );
         drop(compute_pass);
     }
@@ -658,7 +658,12 @@ impl VoxelRayContext {
                 prev
             });
             let start = *start as u32;
-            let i = r.corner.x + r.corner.y * nx + r.corner.z * nx * ny;
+            assert_eq!(r.corner.x % 64, 0);
+            assert_eq!(r.corner.y % 64, 0);
+            assert_eq!(r.corner.z % 64, 0);
+            let i = r.corner.x / 64
+                + r.corner.y / 64 * nx
+                + r.corner.z / 64 * nx * ny;
             ts[i as usize] = match r.mode {
                 TileMode::Empty => {
                     empty += 1;
@@ -675,7 +680,11 @@ impl VoxelRayContext {
             };
         }
 
-        println!("bytecode len: {} KiB", data.len() * 4 / 1024);
+        if data.len() < 1024 {
+            println!("bytecode len: {} B", data.len() * 4);
+        } else {
+            println!("bytecode len: {} KiB", data.len() * 4 / 1024);
+        }
         println!("max reg: {max_reg}");
         println!(
             "full: {full}\nempty: {empty}\nvoxels: {}",

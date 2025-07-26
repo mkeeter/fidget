@@ -49,7 +49,7 @@ struct Config {
     _padding: u32,
 }
 
-@compute @workgroup_size(8, 8, 8)
+@compute @workgroup_size(8, 8, 1)
 fn main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
@@ -72,7 +72,7 @@ fn main(
     let tile_corner_8 = vec3u(tx, ty, tz) * 8;
 
     // Local position, in subtile units
-    let subtile_corner_8 = tile_corner_8 + local_id;
+    let subtile_corner_8 = tile_corner_8 + vec3u(local_id.xy, workgroup_id.z);
     let subtile_index_xy = subtile_corner_8.x
         + subtile_corner_8.y * config.image_size_tiles.x * 8;
     let subtile_index_xyz = subtile_index_xy
