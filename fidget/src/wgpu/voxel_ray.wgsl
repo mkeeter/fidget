@@ -9,8 +9,8 @@
 /// Tile data (64^3, dense)
 @group(0) @binding(1) var<storage, read> dense_tiles64: array<u32>;
 
-/// Tile data (8^3, dense)
-@group(0) @binding(2) var<storage, read> dense_tiles8: array<u32>;
+/// Output array, a densely-packed map of occupancy maps
+@group(0) @binding(2) var<storage, read> dense_tile64_occupancy: array<array<u32, 32>>;
 
 /// Input tape(s), serialized to bytecode
 @group(0) @binding(3) var<storage, read> tape: array<u32>;
@@ -48,15 +48,11 @@ fn main(
 ) {
     // Tile and subtile index
     let tile = id.xy / TILE_SIZE;
-    let subtile = id.xy / SUBTILE_SIZE;
-
-    // Compute the number of subtiles on each axis
-    let nx8 = (config.image_size.x + SUBTILE_SIZE - 1) / SUBTILE_SIZE;
-    let ny8 = (config.image_size.y + SUBTILE_SIZE - 1) / SUBTILE_SIZE;
+    let subtile_offset = (id.xy / SUBTILE_SIZE) % 8;
 
     // Compute the number of tiles on each axis
-    let nx64 = (config.image_size.x + TILE_SIZE - 1)/ TILE_SIZE;
-    let ny64 = (config.image_size.y + TILE_SIZE - 1) / TILE_SIZE;
+    let nx = (config.image_size.x + TILE_SIZE - 1)/ TILE_SIZE;
+    let ny = (config.image_size.y + TILE_SIZE - 1) / TILE_SIZE;
 
     // We start at the camera's position
     var z = i32(config.image_size.z) - 1 - i32(local_id.z) * 4;
@@ -64,8 +60,8 @@ fn main(
     let pixel_index = id.x + id.y * config.image_size.x;
     while (z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
         // Get the current tile that we're hanging out in
-        let tz64 = u32(z) / TILE_SIZE;
-        let i = tile.x + tile.y * nx64 + tz64 * nx64 * ny64;
+        let tz = u32(z) / TILE_SIZE;
+        let i = tile.x + tile.y * nx + tz * nx * ny;
         let u: u32 = dense_tiles64[i];
         if (u == 0xFFFFFFFFu) {
             // Empty tile, keep going by jumping to the next tile boundary (or
@@ -78,23 +74,20 @@ fn main(
             break;
         }
 
-        // Get the current subtile that we're hanging out in
-        let tz8 = u32(z) / SUBTILE_SIZE;
-        let j = subtile.x + subtile.y * nx8 + tz8 * nx8 * ny8;
-        let v: u32 = dense_tiles8[j];
+        let subtile_bit_index = 2 * ((u32(z) / SUBTILE_SIZE) % 8 + subtile_offset.y * 8 + subtile_offset.x * 64);
+        let st = (dense_tile64_occupancy[i][subtile_bit_index / 32] >> (subtile_bit_index % 32)) & 3;
 
-        if (v == 0xFFFFFFFFu) {
+        if (st == 2) {
             // Empty tile, keep going by jumping to the next tile boundary (or
             // the raycast step, whichever is larger).
             z -= max(16, i32(SUBTILE_SIZE));
             continue;
-        } else if ((v & 0x80000000) != 0) {
+        } else if (st == 1) {
             // Full tile, we can break
             atomicMax(&result[pixel_index], u32(z));
             break;
         } else {
-            // Note that we're using the tape index from the tile, not the
-            // subtile!
+            // Voxel evaluation (or unpopulated, which shouldn't happen?)
             let out = raycast(u, vec3u(id.xy, u32(z)));
             atomicMax(&result[pixel_index], out);
             z -= 16;
