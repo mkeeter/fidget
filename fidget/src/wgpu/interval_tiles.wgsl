@@ -53,14 +53,14 @@ fn main(
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
-    let tile_index = workgroup_id.x + workgroup_id.y * 65535;
+    let active_tile_index = workgroup_id.x + workgroup_id.y * 65535;
 
-    if (tile_index >= config.tile_count) {
+    if (active_tile_index >= config.tile_count) {
         return;
     }
 
     // Get global tile position, in tile coordinates
-    let t = active_tiles[tile_index];
+    let t = active_tiles[active_tile_index];
     let tx = t % config.image_size_tiles.x;
     let ty = (t / config.image_size_tiles.x) % config.image_size_tiles.y;
     let tz = (t / (config.image_size_tiles.x * config.image_size_tiles.y)) % config.image_size_tiles.z;
@@ -69,8 +69,7 @@ fn main(
     // Subtile offset within the tile
     let subtile_offset = vec3u(local_id.xy, workgroup_id.z);
 
-    // Figure out what bit to touch in the array
-    // Each subtile gets two bits
+    // Figure out which 2 bits to touch in the occupancy array
     let subtile_bit_index = 2 * (subtile_offset.z + subtile_offset.y * 8 + subtile_offset.x * 64);
 
     // Pick out our starting tape.  active_tiles only contains truly active
