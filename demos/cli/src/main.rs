@@ -879,7 +879,6 @@ fn main() -> Result<()> {
             );
             let center =
                 nalgebra::Translation3::new(-center[0], -center[1], -center[2]);
-            println!("got center {center:?}");
 
             let perspective =
                 perspective.unwrap_or(if isometric { 0.0 } else { 0.3 });

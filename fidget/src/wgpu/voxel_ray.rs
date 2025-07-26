@@ -200,6 +200,15 @@ impl IntervalTileContext {
             .unwrap()
             .copy_from_slice(config.as_bytes());
 
+        // Write active tiles to our buffer
+        write_storage_buffer(
+            ctx.device,
+            ctx.queue,
+            &mut self.active_tiles,
+            "active tiles",
+            active_tiles,
+        );
+
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -244,7 +253,7 @@ impl IntervalTileContext {
         println!(
             "dispatching with {}, {}, {}",
             (active_tiles.len() % 65536) as u32,
-            (active_tiles.len() / 65536),
+            (active_tiles.len() / 65536).max(1),
             8
         );
         drop(compute_pass);
@@ -684,6 +693,7 @@ impl VoxelRayContext {
                 }
             };
         }
+        println!("active tiles: {active_tiles:?}");
 
         if data.len() < 1024 {
             println!("bytecode len: {} B", data.len() * 4);
