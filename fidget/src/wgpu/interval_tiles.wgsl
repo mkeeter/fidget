@@ -23,11 +23,8 @@
 /// Active tiles, as indices into `dense_tile64`
 @group(0) @binding(3) var<storage, read> active_tiles: array<u32>;
 
-/// Output array, a densely-packed array of 8x8x8 tiles
-///
-/// This array uses the same encoding as the dense tile array, and must be reset
-/// to all `0xFFFFFFFF` (empty) before running this shader is run.
-@group(0) @binding(4) var<storage, read_write> dense_tile8_out: array<u32>;
+/// Output array, a densely-packed map of occupancy maps
+@group(0) @binding(4) var<storage, read_write> dense_tile64_occupancy: array<array<atomic<u32>, 32>>;
 
 /// Global render configuration
 ///
@@ -67,36 +64,21 @@ fn main(
     let tx = t % config.image_size_tiles.x;
     let ty = (t / config.image_size_tiles.x) % config.image_size_tiles.y;
     let tz = (t / (config.image_size_tiles.x * config.image_size_tiles.y)) % config.image_size_tiles.z;
+    let tile_corner = vec3u(tx, ty, tz);
 
-    // Tile corner position, in subtile coordinates
-    let tile_corner_8 = vec3u(tx, ty, tz) * 8;
+    // Subtile offset within the tile
+    let subtile_offset = vec3u(local_id.xy, workgroup_id.z);
 
-    // Local position, in subtile units.  Note that we split the XY subtile
-    // position (in local_id.xy) and the Z subtile offset (in workgroup_id.z);
-    // this is because we can't dispatch an 8x8x8 workgroup.
-    let subtile_corner_8 = tile_corner_8 + vec3u(local_id.xy, workgroup_id.z);
+    // Figure out what bit to touch in the array
+    // Each subtile gets two bits
+    let subtile_bit_index = 2 * (subtile_offset.z + subtile_offset.y * 8 + subtile_offset.x * 64);
 
-    // Local index in the dense subtile array (so also in subtile units)
-    let subtile_index_xy = subtile_corner_8.x
-        + subtile_corner_8.y * config.image_size_tiles.x * 8;
-    let subtile_index_xyz = subtile_index_xy
-        + subtile_corner_8.z * config.image_size_tiles.x * config.image_size_tiles.y * 64;
+    // Pick out our starting tape.  active_tiles only contains truly active
+    // tiles, so we don't need to check for the empty / full case.
+    let tape_start = dense_tile64[t];
 
-    let tile_data = dense_tile64[t];
-    if (tile_data == 0xFFFFFFFFu) {
-        dense_tile8_out[subtile_index_xyz] = 0xFFFFFFFFu;
-        return;
-    } else if ((tile_data & 0x80000000u) != 0u) {
-        // Full, load tape start into the tile
-        dense_tile8_out[subtile_index_xyz] = tile_data;
-        return;
-    }
-
-    // Otherwise, we have to evaluate the subtile!
-    let tape_start = tile_data;
-
-    // Convert from subtiles to voxels
-    let subtile_corner = subtile_corner_8 * 8;
+    // Subtile corner position, in voxels
+    let subtile_corner = tile_corner * 64 + subtile_offset * 8;
 
     // Compute transformed interval regions
     let ix = vec2f(f32(subtile_corner.x), f32(subtile_corner.x + 8));
@@ -126,12 +108,22 @@ fn main(
     let out = run_tape(tape_start, m);
 
     if (out[1] < 0.0) {
-        // Full, hooray
-        dense_tile8_out[subtile_index_xyz] = 0x80000000u | tape_start;
+        // Full = 0b01
+        atomicOr(
+            &dense_tile64_occupancy[t][subtile_bit_index / 32],
+            1u << (subtile_bit_index % 32)
+        );
     } else if (out[0] > 0.0) {
-        // Empty, nothing to do here
-        dense_tile8_out[subtile_index_xyz] = 0xFFFFFFFFu;
+        // Empty = 0b10
+        atomicOr(
+            &dense_tile64_occupancy[t][subtile_bit_index / 32],
+            2u << (subtile_bit_index % 32)
+        );
     } else {
-        dense_tile8_out[subtile_index_xyz] = tape_start;
+        // Ambiguous = 0b11
+        atomicOr(
+            &dense_tile64_occupancy[t][subtile_bit_index / 32],
+            3u << (subtile_bit_index % 32)
+        );
     }
 }

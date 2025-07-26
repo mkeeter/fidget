@@ -232,7 +232,9 @@ impl IntervalTileContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: ctx.dense_tile8_out.as_entire_binding(),
+                        resource: ctx
+                            .dense_tile64_occupancy
+                            .as_entire_binding(),
                     },
                 ],
             });
@@ -503,7 +505,9 @@ impl VoxelContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.dense_tile8_out.as_entire_binding(),
+                        resource: ctx
+                            .dense_tile64_occupancy
+                            .as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -559,10 +563,10 @@ pub struct VoxelRayContext {
     /// 64x64x64 tiles data (densely packed), used by both pipelines
     dense_tile64: wgpu::Buffer,
 
-    /// 8x8x8 tiles output (densely packed)
+    /// 64x64x64 tile occupancy (densely packed)
     ///
     /// This output is written by the interval pass and used by the voxel pass
-    dense_tile8_out: wgpu::Buffer,
+    dense_tile64_occupancy: wgpu::Buffer,
 
     interval_ctx: IntervalTileContext,
     voxel_ctx: VoxelContext,
@@ -574,7 +578,7 @@ pub struct CommonCtx<'a, 'b, F> {
     queue: &'a wgpu::Queue,
     tape_buf: &'a wgpu::Buffer,
     dense_tile64: &'a wgpu::Buffer,
-    dense_tile8_out: &'a wgpu::Buffer,
+    dense_tile64_occupancy: &'a wgpu::Buffer,
     settings: &'a VoxelRenderConfig<'b>,
 
     shape: &'a Shape<F>,
@@ -616,12 +620,13 @@ impl VoxelRayContext {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let dense_tile8_out = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("dummy dense tile8 out"),
-            size: 4,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
+        let dense_tile64_occupancy =
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("dummy dense tile64 occupancy"),
+                size: 4,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
 
         Ok(Self {
             device,
@@ -630,7 +635,7 @@ impl VoxelRayContext {
             voxel_ctx,
             tape_buf,
             dense_tile64,
-            dense_tile8_out,
+            dense_tile64_occupancy,
         })
     }
 
@@ -753,15 +758,18 @@ impl VoxelRayContext {
         );
 
         // Allocate a buffer for the densely-packed 8^3 subtiles
-        let dense_tile8_count =
-            nx as usize * ny as usize * ny as usize * 8usize.pow(3);
-        let dense_tile8_buf_size =
-            (dense_tile8_count * std::mem::size_of::<u32>()) as u64;
-        if self.dense_tile8_out.size() != dense_tile8_buf_size {
-            self.dense_tile8_out =
+        let dense_tile64_count = nx as usize * ny as usize * ny as usize;
+        let dense_tile64_occupancy_size =
+            (dense_tile64_count * std::mem::size_of::<[u32; 32]>()) as u64;
+        if self.dense_tile64_occupancy.size() != dense_tile64_occupancy_size {
+            println!(
+                "allocating {dense_tile64_occupancy_size} bytes \
+                 for dense 64 occupancy map"
+            );
+            self.dense_tile64_occupancy =
                 self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("dense til8"),
-                    size: dense_tile8_buf_size,
+                    label: Some("dense tile64 occupancy"),
+                    size: dense_tile64_occupancy_size,
                     usage: wgpu::BufferUsages::STORAGE
                         | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
@@ -778,7 +786,7 @@ impl VoxelRayContext {
             queue: &self.queue,
             tape_buf: &self.tape_buf,
             dense_tile64: &self.dense_tile64,
-            dense_tile8_out: &self.dense_tile8_out,
+            dense_tile64_occupancy: &self.dense_tile64_occupancy,
             mat,
             shape: &shape,
             settings: &settings,
