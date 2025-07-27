@@ -770,8 +770,7 @@ impl VoxelRayContext {
                 self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("dense tile64 occupancy"),
                     size: dense_tile64_occupancy_size,
-                    usage: wgpu::BufferUsages::STORAGE
-                        | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::STORAGE,
                     mapped_at_creation: false,
                 });
         }
