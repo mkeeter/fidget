@@ -58,40 +58,45 @@ fn main(
     var z = i32(config.image_size.z) - 1 - i32(local_id.z) * 4;
 
     let pixel_index = id.x + id.y * config.image_size.x;
-    while (z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
+    var done = false;
+    while (!done && z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
         // Get the current tile that we're hanging out in
         let tz = u32(z) / TILE_SIZE;
         let i = tile.x + tile.y * nx + tz * nx * ny;
-        let u: u32 = dense_tiles64[i];
-        if (u == 0xFFFFFFFFu) {
-            // Empty tile, keep going by jumping to the next tile boundary (or
-            // the raycast step, whichever is larger).
-            z -= max(16, i32(TILE_SIZE));
+        let tape_start: u32 = dense_tiles64[i];
+        if (tape_start == 0xFFFFFFFFu) {
+            // Empty tile, keep going by jumping to the next tile boundary
+            z -= 64;
             continue;
-        } else if ((u & 0x80000000) != 0) {
+        } else if ((tape_start & 0x80000000) != 0) {
             // Full tile, we can break
             atomicMax(&result[pixel_index], u32(z));
             break;
         }
 
-        let subtile_bit_index = 2 * ((u32(z) / SUBTILE_SIZE) % 8 + subtile_offset.y * 8 + subtile_offset.x * 64);
-        let st = (dense_tile64_occupancy[i][subtile_bit_index / 32] >> (subtile_bit_index % 32)) & 3;
-
-        if (st == 2) {
-            // Empty tile, keep going by jumping to the next tile boundary (or
-            // the raycast step, whichever is larger).
-            z -= max(16, i32(SUBTILE_SIZE));
-            continue;
-        } else if (st == 1) {
-            // Full tile, we can break
-            atomicMax(&result[pixel_index], u32(z));
-            break;
-        } else {
-            // Voxel evaluation (or unpopulated, which shouldn't happen?)
-            let out = raycast(u, vec3u(id.xy, u32(z)));
-            atomicMax(&result[pixel_index], out);
-            z -= 16;
+        // Iterate over subtiles in this tile
+        for (var j=0; j < 4; j += 1) {
+            let z_ = z - j * 16;
+            let subtile_bit_index = 2 * ((u32(z_) / 8) % 8 + subtile_offset.y * 8 + subtile_offset.x * 64);
+            let st = (dense_tile64_occupancy[i][subtile_bit_index / 32] >> (subtile_bit_index % 32)) & 3;
+            if (st == 2) {
+                // empty tile, keep going
+            } else if (st == 1) {
+                // Full tile, we can break
+                atomicMax(&result[pixel_index], u32(z_));
+                done = true;
+                break;
+            } else {
+                // Voxel evaluation (or unpopulated, which shouldn't happen?)
+                let out = raycast(tape_start, vec3u(id.xy, u32(z_)));
+                atomicMax(&result[pixel_index], out);
+                if (out > 0) {
+                    done = true;
+                    break;
+                }
+            }
         }
+        z -= 64;
     }
 }
 
