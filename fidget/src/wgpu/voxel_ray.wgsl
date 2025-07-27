@@ -42,7 +42,7 @@ const TILE_SIZE: u32 = 64;
 const SUBTILE_SIZE: u32 = 8;
 
 @compute @workgroup_size(4, 4, 4)
-fn main(
+fn voxel_ray_main(
     @builtin(global_invocation_id) id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {

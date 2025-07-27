@@ -141,14 +141,14 @@ impl IntervalTileContext {
                 label: None,
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
-                entry_point: Some("main"),
+                entry_point: Some("interval_main"),
                 compilation_options: Default::default(),
                 cache: None,
             });
 
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
-            size: std::mem::size_of::<VoxelConfig>() as u64,
+            size: std::mem::size_of::<IntervalConfig>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -397,7 +397,7 @@ impl VoxelContext {
                 label: None,
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
-                entry_point: Some("main"),
+                entry_point: Some("voxel_ray_main"),
                 compilation_options: Default::default(),
                 cache: None,
             });
