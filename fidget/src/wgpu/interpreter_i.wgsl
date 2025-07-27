@@ -178,7 +178,7 @@ fn read_imm_i(i: ptr<function, u32>) -> vec2f {
 }
 
 fn read_imm_f(i: ptr<function, u32>) -> f32 {
-    let imm = bitcast<f32>(tape[*i]);
+    let imm = bitcast<f32>(tape_data[*i]);
     *i = *i + 1;
     return imm;
 }
@@ -242,21 +242,21 @@ fn atan2_i(lhs: vec2f, rhs: vec2f) -> vec2f {
     return vec2f(-3.141592654, 3.141592654);
 }
 
-fn run_tape(start: u32, inputs: mat4x2f) -> vec2f {
+fn run_tape_i(start: u32, inputs: mat4x2f) -> vec2f {
     var i: u32 = start;
     var reg: array<vec2f, 256>;
     while (true) {
-        let op = unpack4xU8(tape[i]);
+        let op = unpack4xU8(tape_data[i]);
         i = i + 1;
         switch op[0] {
             case OP_OUTPUT: {
                 // XXX we're not actually writing to an output slot here
-                let imm = tape[i];
+                let imm = tape_data[i];
                 i = i + 1;
                 return reg[op[1]];
             }
             case OP_INPUT: {
-                let imm = tape[i];
+                let imm = tape_data[i];
                 i = i + 1;
                 reg[op[1]] = inputs[imm];
             }
@@ -322,3 +322,30 @@ fn run_tape(start: u32, inputs: mat4x2f) -> vec2f {
     }
     return nan_i(); // unknown opcode
 }
+
+// Occupancy data for 64 children
+struct Occupancy {
+    // Each member contains 2-bit values for 16 subregions
+    data: array<u32, 4>,
+}
+
+// Finds the number of voxel children in an occupancy mask
+fn occupancy_size(o: Occupancy) -> u32 {
+    var out = 0u;
+    for (var i=0u; i < 4u; i += 1u) {
+        out += countOneBits(o.data[i] & (o.data[i] >> 1u) & 0x55555555);
+    }
+    return out;
+}
+
+// Finds the offset of a particular voxel child
+fn occupancy_offset(o: Occupancy, i: u32) -> u32 {
+    var out = 0u;
+    for (var j=0u; j < i / 16u; j += 1u) {
+        out += countOneBits(o.data[j] & (o.data[j] >> 1u) & 0x55555555);
+    }
+    // Mask off high bits with a shift
+    let d = o.data[i / 4u] << (2u * (16u - (i % 16u)));
+    return out + countOneBits(d & (d >> 1u) & 0x55555555);
+}
+
