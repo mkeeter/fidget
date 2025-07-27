@@ -249,6 +249,14 @@ pub fn interval_tiles_shader() -> String {
     shader_code
 }
 
+/// Returns a shader string to perform the interval evaluation step
+pub fn interval_subtiles_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += INTERPRETER_I;
+    shader_code += INTERVAL_SUBTILES_SHADER;
+    shader_code
+}
+
 /// Shader fragment to run a f32x4 interpreter
 const INTERPRETER_4F: &str = include_str!("interpreter_4f.wgsl");
 
@@ -264,8 +272,11 @@ const VOXEL_TILES_SHADER: &str = include_str!("voxel_tiles.wgsl");
 /// `main` shader function for voxel tile evaluation with raymarching
 const VOXEL_RAY_SHADER: &str = include_str!("voxel_ray.wgsl");
 
-/// `main` shader function for voxel tile evaluation with raymarching
+/// `main` shader function for 16x16x16 tile interval evaluation
 const INTERVAL_TILES_SHADER: &str = include_str!("interval_tiles.wgsl");
+
+/// `main` shader function for 4x4x4 tile interval evaluation
+const INTERVAL_SUBTILES_SHADER: &str = include_str!("interval_subtiles.wgsl");
 
 /// Common data types for shaders
 const COMMON_SHADER: &str = include_str!("common.wgsl");

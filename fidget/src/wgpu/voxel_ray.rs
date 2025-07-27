@@ -27,14 +27,14 @@ struct IntervalConfig {
     /// `u32::MAX` is used as a marker if an axis is unused
     axes: [u32; 3],
 
-    /// Number of tiles in `active_tiles`
-    tile_count: u32,
+    /// Alignment to 16-byte boundary
+    _padding: u32,
 
     /// Total window size
     image_size_tiles: [u32; 3],
 
-    /// Alignment to 16-byte boundary
-    _padding: u32,
+    /// Number of slots in the output buffer
+    out_buffer_size: u32,
 }
 
 struct IntervalTileContext {
@@ -181,13 +181,13 @@ impl IntervalTileContext {
                 .shape
                 .axes()
                 .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX)),
-            tile_count: active_tiles.len().try_into().unwrap(),
             image_size_tiles: [
                 ctx.settings.image_size.width().div_ceil(64),
                 ctx.settings.image_size.height().div_ceil(64),
                 ctx.settings.image_size.depth().div_ceil(64),
             ],
             _padding: 0,
+            out_buffer_size: 0,
         };
 
         // Load the config into our buffer
@@ -250,13 +250,7 @@ impl IntervalTileContext {
         compute_pass.dispatch_workgroups(
             (active_tiles.len() % 65536) as u32,
             (active_tiles.len() / 65536).max(1).try_into().unwrap(),
-            8,
-        );
-        println!(
-            "dispatching with {}, {}, {}",
-            (active_tiles.len() % 65536) as u32,
-            (active_tiles.len() / 65536).max(1),
-            8
+            1,
         );
         drop(compute_pass);
     }
