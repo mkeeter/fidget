@@ -5,7 +5,7 @@
 @group(0) @binding(1) var<storage, read> tiles: array<Tile>;
 
 /// Input tape(s), serialized to bytecode
-@group(0) @binding(2) var<storage, read> tape: array<u32>;
+@group(0) @binding(2) var<storage, read> tape_data: array<u32>;
 
 /// Output array, image size
 @group(0) @binding(3) var<storage, read_write> result: array<atomic<u32>>;
@@ -38,6 +38,6 @@ struct Tile {
     /// Corner of the tile, as a voxel position
     corner: vec3u,
 
-    /// Starting point of this tile in the `tape` array
+    /// Starting point of this tile in the `tape_data` array
     start: u32,
 }

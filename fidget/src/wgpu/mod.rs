@@ -204,6 +204,40 @@ pub(crate) fn write_storage_buffer<T: IntoBytes + Immutable>(
         .copy_from_slice(data.as_bytes())
 }
 
+pub(crate) fn resize_buffer<T>(
+    device: &wgpu::Device,
+    buf: &mut wgpu::Buffer,
+    name: &'static str,
+    count: usize,
+) {
+    resize_buffer_with::<T>(
+        device,
+        buf,
+        name,
+        count,
+        wgpu::BufferUsages::STORAGE,
+    )
+}
+
+pub(crate) fn resize_buffer_with<T>(
+    device: &wgpu::Device,
+    buf: &mut wgpu::Buffer,
+    name: &'static str,
+    count: usize,
+    usages: wgpu::BufferUsages,
+) {
+    let size = (std::mem::size_of::<T>() * count) as u64;
+    if size != buf.size() {
+        println!("making new buffer with label {name} and size {size}");
+        *buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(name),
+            size,
+            usage: usages,
+            mapped_at_creation: false,
+        });
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Returns a set of constant definitions for each opcode

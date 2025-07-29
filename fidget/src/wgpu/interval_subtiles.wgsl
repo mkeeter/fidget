@@ -13,8 +13,9 @@
 @group(0) @binding(1) var<storage, read> tape_data: array<u32>;
 @group(0) @binding(2) var<storage, read> tile64_tapes: array<u32>;
 
-@group(0) @binding(5) var<storage, read> active_tile16: array<u32>;
-@group(0) @binding(6) var<storage, read_write> tile16_occupancy: array<array<atomic<u32>, 4>>;
+@group(0) @binding(3) var<storage, read> active_tile16_count: array<u32>;
+@group(0) @binding(4) var<storage, read> active_tile16: array<u32>;
+@group(0) @binding(5) var<storage, read_write> tile16_occupancy: array<array<atomic<u32>, 4>>;
 
 /// Global render configuration
 ///
@@ -33,13 +34,18 @@ struct Config {
 }
 
 @compute @workgroup_size(4, 4, 4)
-fn interval_main(
+fn interval_tile4_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
-    let active_tile16_index = workgroup_id.x + workgroup_id.y * 65535;
+    let active_tile16_index = workgroup_id.x + workgroup_id.y * 65536;
+
+    let tile16_count = active_tile16_count[0] + active_tile16_count[1] * 65536;
+    if (active_tile16_index >= tile16_count) {
+        return;
+    }
 
     // Convert to a size in tile units
     let size64 = (config.image_size + 63u) / 64;
