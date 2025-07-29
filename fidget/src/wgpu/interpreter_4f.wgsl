@@ -72,7 +72,7 @@ fn not_4f(lhs: vec4f) -> vec4f {
 }
 
 fn read_imm_4f(i: ptr<function, u32>) -> vec4f {
-    let imm = bitcast<f32>(tape[*i]);
+    let imm = bitcast<f32>(tape_data[*i]);
     *i = *i + 1;
     return vec4f(imm);
 }
@@ -87,17 +87,17 @@ fn run_tape(start: u32, inputs: mat4x4f) -> vec4f {
     var i: u32 = start;
     var reg: array<vec4f, 256>;
     while (true) {
-        let op = unpack4xU8(tape[i]);
+        let op = unpack4xU8(tape_data[i]);
         i = i + 1;
         switch op[0] {
             case OP_OUTPUT: {
                 // XXX we're not actually writing to an output slot here
-                let imm = tape[i];
+                let imm = tape_data[i];
                 i = i + 1;
                 return reg[op[1]];
             }
             case OP_INPUT: {
-                let imm = tape[i];
+                let imm = tape_data[i];
                 i = i + 1;
                 reg[op[1]] = inputs[imm];
             }

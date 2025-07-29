@@ -6,17 +6,17 @@
 /// Render configuration
 @group(0) @binding(0) var<uniform> config: Config;
 
-/// Tile data (64^3, dense)
-@group(0) @binding(1) var<storage, read> dense_tiles64: array<u32>;
-
-/// Output array, a densely-packed map of occupancy maps
-@group(0) @binding(2) var<storage, read> dense_tile64_occupancy: array<array<u32, 32>>;
-
 /// Input tape(s), serialized to bytecode
-@group(0) @binding(3) var<storage, read> tape: array<u32>;
+@group(0) @binding(1) var<storage, read> tape_data: array<u32>;
+
+/// Tile data (64^3, dense)
+@group(0) @binding(2) var<storage, read> tile64_tapes: array<u32>;
+@group(0) @binding(3) var<storage, read> tile64_occupancy: array<array<u32, 4>>;
+@group(0) @binding(4) var<storage, read> tile64_next: array<u32>;
+@group(0) @binding(5) var<storage, read> tile16_occupancy: array<array<u32, 4>>;
 
 /// Output array, image size
-@group(0) @binding(4) var<storage, read_write> result: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> result: array<atomic<u32>>;
 
 /// Global render configuration
 ///
@@ -31,72 +31,97 @@ struct Config {
     /// Explicit padding
     _padding1: u32,
 
-    /// Window size, in pixels
+    /// Window size, in voxels
     image_size: vec3u,
 
     /// Explicit padding
     _padding2: u32,
 }
 
-const TILE_SIZE: u32 = 64;
-const SUBTILE_SIZE: u32 = 8;
-
 @compute @workgroup_size(4, 4, 4)
 fn voxel_ray_main(
-    @builtin(global_invocation_id) id: vec3u,
+    @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
     // Tile and subtile index
-    let tile = id.xy / TILE_SIZE;
-    let subtile_offset = (id.xy / SUBTILE_SIZE) % 8;
+    let tile64 = global_id.xy / 64;
+    let tile16_offset = (global_id.xy % 64) / 16;
+    let tile4_offset = (global_id.xy % 16) / 4;
 
     // Compute the number of tiles on each axis
-    let nx = (config.image_size.x + TILE_SIZE - 1)/ TILE_SIZE;
-    let ny = (config.image_size.y + TILE_SIZE - 1) / TILE_SIZE;
+    let size64 = (config.image_size + 63u) / 64u;
 
     // We start at the camera's position
-    var z = i32(config.image_size.z) - 1 - i32(local_id.z) * 4;
+    var pos = vec3i(vec2i(global_id.xy), i32(config.image_size.z) - 1 - i32(local_id.z));
 
-    let pixel_index = id.x + id.y * config.image_size.x;
+    let pixel_index = global_id.x + global_id.y * config.image_size.x;
     var done = false;
-    while (!done && z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
+    while (!done && pos.z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
         // Get the current tile that we're hanging out in
-        let tz = u32(z) / TILE_SIZE;
-        let i = tile.x + tile.y * nx + tz * nx * ny;
-        let tape_start: u32 = dense_tiles64[i];
+        let z64 = u32(pos.z) / 64;
+        let i = tile64.x + tile64.y * size64.x + z64 * size64.x * size64.y;
+        let tape_start: u32 = tile64_tapes[i];
         if (tape_start == 0xFFFFFFFFu) {
             // Empty tile, keep going by jumping to the next tile boundary
-            z -= 64;
+            pos.z -= 64;
             continue;
         } else if ((tape_start & 0x80000000) != 0) {
             // Full tile, we can break
-            atomicMax(&result[pixel_index], u32(z));
+            atomicMax(&result[pixel_index], u32(pos.z));
             break;
         }
 
-        // Iterate over subtiles in this tile
-        for (var j=0; j < 4; j += 1) {
-            let z_ = z - j * 16;
-            let subtile_bit_index = 2 * ((u32(z_) / 8) % 8 + subtile_offset.y * 8 + subtile_offset.x * 64);
-            let st = (dense_tile64_occupancy[i][subtile_bit_index / 32] >> (subtile_bit_index % 32)) & 3;
+        // Iterate over tile16 in this tile
+        for (var j=0; j < 4 && !done; j += 1) {
+            let bit_index = 2 * ((u32(pos.z) % 64) / 16 + tile16_offset.y * 4 + tile16_offset.x * 16);
+            let st = (tile64_occupancy[i][bit_index / 32] >> (bit_index % 32)) & 3;
             if (st == 2) {
                 // empty tile, keep going
+                pos.z -= 16;
+                continue;
             } else if (st == 1) {
                 // Full tile, we can break
-                atomicMax(&result[pixel_index], u32(z_));
+                atomicMax(&result[pixel_index], u32(pos.z));
                 done = true;
-                break;
             } else {
-                // Voxel evaluation (or unpopulated, which shouldn't happen?)
-                let out = raycast(tape_start, vec3u(id.xy, u32(z_)));
-                atomicMax(&result[pixel_index], out);
-                if (out > 0) {
-                    done = true;
-                    break;
+                // Iterate over tile4 in this tile
+                let i16 = tile64_next[i];
+
+                // Special case: we ran out of buffer space for tile16 occupancy
+                if (i16 == 0xFFFFFFFF) {
+                    for (var k=0; k < 4 && !done; k += 1) {
+                        // Voxel evaluation (or unpopulated, which shouldn't happen?)
+                        let out = raycast(tape_start, vec3u(pos));
+                        atomicMax(&result[pixel_index], out);
+                        if (out > 0) {
+                            done = true;
+                        }
+                        pos.z -= 4;
+                    }
+                } else {
+                    for (var k=0; k < 4 && !done; k += 1) {
+                        let bit_index = 2 * ((u32(pos.z) % 16) / 4 + tile4_offset.y * 4 + tile4_offset.x * 16);
+                        let st = (tile16_occupancy[i16][bit_index / 32] >> (bit_index % 32)) & 3;
+                        if (st == 2) {
+                            pos.z -= 4;
+                            continue;
+                        } else if (st == 1) {
+                            // Full tile, we can break
+                            atomicMax(&result[pixel_index], u32(pos.z));
+                            done = true;
+                        } else {
+                            // Voxel evaluation (or unpopulated, which shouldn't happen?)
+                            let out = raycast(tape_start, vec3u(pos));
+                            atomicMax(&result[pixel_index], out);
+                            if (out > 0) {
+                                done = true;
+                            }
+                            pos.z -= 4;
+                        }
+                    }
                 }
             }
         }
-        z -= 64;
     }
 }
 
@@ -124,11 +149,21 @@ fn raycast(tape_start: u32, pos: vec3u) -> u32 {
     // Do the actual interpreter work
     let out = run_tape(tape_start, m);
 
+    // TODO we're only using one result here
+
     // Unpack the 4x results into pixels
+    /*
     for (var i = 0u; i < 4; i += 1u) {
         if (out[i] < 0.0) {
             return pos.z - i;
         }
     }
     return 0u;
+    */
+
+    if (out[0] < 0.0) {
+        return pos.z;
+    } else {
+        return 0u;
+    }
 }

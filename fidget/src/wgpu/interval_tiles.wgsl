@@ -41,7 +41,8 @@ struct Config {
     /// Mapping from X, Y, Z to input indices
     axes: vec3u,
 
-    _padding: u32,
+    /// Number of active tiles in `active_tile64`
+    active_tile_count: u32,
 
     /// Image size, in voxel units
     image_size: vec3u,
@@ -54,13 +55,17 @@ var<workgroup> wg_occupancy: array<atomic<u32>, 4>;
 var<workgroup> wg_offset: u32;
 
 @compute @workgroup_size(4, 4, 4)
-fn interval_main(
+fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
-    let active_tile64_index = workgroup_id.x + workgroup_id.y * 65535;
+    let active_tile64_index = workgroup_id.x + workgroup_id.y * 65536;
+
+    if (active_tile64_index >= config.active_tile_count) {
+        return;
+    }
 
     // Convert to a size in tile units
     let size64 = (config.image_size + 63u) / 64;
