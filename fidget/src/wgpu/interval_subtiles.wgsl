@@ -42,7 +42,7 @@ fn interval_tile4_main(
     // size limits on any single dimension.
     let active_tile16_index = workgroup_id.x + workgroup_id.y * 65536;
 
-    let tile16_count = active_tile16_count[0] + active_tile16_count[1] * 65536;
+    let tile16_count = active_tile16_count[0] + (active_tile16_count[1] - 1) * 65536;
     if (active_tile16_index >= tile16_count) {
         return;
     }
@@ -100,23 +100,24 @@ fn interval_tile4_main(
     let out = run_tape_i(tape_start, m);
 
     // Figure out which 2 bits to touch in the occupancy array
-    let bit_index = 2 * (tile4_offset.z + tile4_offset.y * 4 + tile4_offset.x * 4);
+    let tile16_index = tile16_corner.x + tile16_corner.y * size16.x + tile16_corner.z * size16.x * size16.y;
+    let bit_index = 2 * (tile4_offset.z + tile4_offset.y * 4 + tile4_offset.x * 16);
     if (out[1] < 0.0) {
         // Full = 0b01
         atomicOr(
-            &tile16_occupancy[active_tile16_index][bit_index / 32],
+            &tile16_occupancy[tile16_index][bit_index / 32],
             1u << (bit_index % 32)
         );
     } else if (out[0] > 0.0) {
         // Empty = 0b10
         atomicOr(
-            &tile16_occupancy[active_tile16_index][bit_index / 32],
+            &tile16_occupancy[tile16_index][bit_index / 32],
             2u << (bit_index % 32)
         );
     } else {
         // Ambiguous = 0b11
         atomicOr(
-            &tile16_occupancy[active_tile16_index][bit_index / 32],
+            &tile16_occupancy[tile16_index][bit_index / 32],
             3u << (bit_index % 32)
         );
     }

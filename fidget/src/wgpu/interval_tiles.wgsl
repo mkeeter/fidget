@@ -118,6 +118,7 @@ fn interval_tile16_main(
 
     // Figure out which 2 bits to touch in the occupancy array
     let bit_index = 2 * (tile16_offset.z + tile16_offset.y * 4 + tile16_offset.x * 16);
+    var ambiguous = false;
     if (out[1] < 0.0) {
         // Full = 0b01
         atomicOr(&wg_occupancy[bit_index / 32], 1u << (bit_index % 32));
@@ -127,6 +128,7 @@ fn interval_tile16_main(
     } else {
         // Ambiguous = 0b11
         atomicOr(&wg_occupancy[bit_index / 32], 3u << (bit_index % 32));
+        ambiguous = true;
     }
 
     workgroupBarrier();
@@ -144,33 +146,25 @@ fn interval_tile16_main(
     if (bit_index == 0u) {
         var prev_x = atomicAdd(&active_tile16_count[0], total_offset);
         var prev_y = 0u;
+        // TODO this atomic stuff is probably wrong
         if (prev_x + total_offset >= 65536u) {
             atomicSub(&active_tile16_count[0], 65536u);
             prev_y = atomicAdd(&active_tile16_count[1], 1u);
         } else {
             prev_y = atomicLoad(&active_tile16_count[1]);
         }
-        wg_offset = prev_x + prev_y * 65536u;
+        wg_offset = prev_x + (prev_y - 1) * 65536u;
     }
     workgroupBarrier();
 
-    let offset = wg_offset;
-    if (offset + total_offset < config.out_buffer_size) {
+    if (ambiguous) {
+        let offset = wg_offset;
+
         let local_offset = offset + occupancy_offset(o, bit_index / 2u);
         let tile16_corner = tile64_corner * 4 + tile16_offset;
         let subtile_index = tile16_corner.x +
             (tile16_corner.y * size16.x) +
             (tile16_corner.z * size16.x * size16.y);
         active_tile16[local_offset] = subtile_index;
-        for (var i=0; i < 4; i++) {
-            tile16_occupancy[local_offset][i] = 0u;
-        }
-        if (bit_index == 0u) {
-            tile64_next[t] = offset;
-        }
-    } else {
-        if (bit_index == 0u) {
-            tile64_next[t] = 0xFFFFFFFFu;
-        }
     }
 }
