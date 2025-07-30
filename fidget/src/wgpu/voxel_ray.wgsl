@@ -85,7 +85,8 @@ fn voxel_ray_main(
                 done = true;
             } else {
                 // Iterate over tile4 in this tile
-                let i16 = tile64_next[i];
+                let o = Occupancy(tile64_occupancy[i]);
+                let i16 = tile64_next[i] + occupancy_offset(o, bit_index / 2);
 
                 // Special case: we ran out of buffer space for tile16 occupancy
                 if (i16 == 0xFFFFFFFF) {

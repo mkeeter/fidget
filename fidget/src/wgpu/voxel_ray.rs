@@ -140,7 +140,7 @@ impl IntervalTileContext {
                 label: None,
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
-                entry_point: Some("interval_tile_main"),
+                entry_point: Some("interval_tile16_main"),
                 compilation_options: Default::default(),
                 cache: None,
             });
@@ -208,6 +208,8 @@ impl IntervalTileContext {
             active_tile_count: active_tiles.len().try_into().unwrap(),
             out_buffer_size: MAX_TILE16_COUNT as u32,
         };
+        println!("{config:?}");
+        println!("{}", ctx.mat);
 
         // Load the config into our buffer
         ctx.queue
@@ -227,7 +229,7 @@ impl IntervalTileContext {
                 (std::mem::size_of::<[u32; 3]>() as u64).try_into().unwrap(),
             )
             .unwrap()
-            .copy_from_slice([0u32, 0, 0].as_bytes());
+            .copy_from_slice([0u32, 1, 1].as_bytes());
 
         // Write active tiles to our buffer
         write_storage_buffer(
@@ -1023,6 +1025,14 @@ impl VoxelRayContext {
             &self.interval_tile_ctx.active_tile16_count,
         );
         println!("got size {size:?}");
+        /*
+
+        let size = get_buffer::<u32>(
+            &self.device,
+            &self.queue,
+            &self.interval_tile_ctx.active_tile16_count,
+        );
+        println!("got size {size:?}");
         let occupancy64 = get_buffer::<[u32; 4]>(
             &self.device,
             &self.queue,
@@ -1049,6 +1059,7 @@ impl VoxelRayContext {
             }
             println!();
         }
+        */
 
         Some(Ok(result))
     }

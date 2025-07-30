@@ -55,7 +55,7 @@ var<workgroup> wg_occupancy: array<atomic<u32>, 4>;
 var<workgroup> wg_offset: u32;
 
 @compute @workgroup_size(4, 4, 4)
-fn interval_tile_main(
+fn interval_tile16_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
