@@ -139,32 +139,23 @@ fn interval_tile16_main(
     if (local_id.y == 0 && local_id.z == 0) {
         tile64_occupancy[t][local_id.x] = occupancy[local_id.x];
     }
-    let o = Occupancy(occupancy);
-    let total_offset = occupancy_size(o);
 
-    // Allocate memory in the 0,0,0 subtile thread
-    if (bit_index == 0u) {
-        var prev_x = atomicAdd(&active_tile16_count[0], total_offset);
+    // Allocate memory for the new active tile
+    if (ambiguous) {
+        var prev_x = atomicAdd(&active_tile16_count[0], 1u);
         var prev_y = 0u;
         // TODO this atomic stuff is probably wrong
-        if (prev_x + total_offset >= 65536u) {
+        if (prev_x + 1u >= 65536u) {
             atomicSub(&active_tile16_count[0], 65536u);
             prev_y = atomicAdd(&active_tile16_count[1], 1u);
         } else {
             prev_y = atomicLoad(&active_tile16_count[1]);
         }
-        wg_offset = prev_x + (prev_y - 1) * 65536u;
-    }
-    workgroupBarrier();
-
-    if (ambiguous) {
-        let offset = wg_offset;
-
-        let local_offset = offset + occupancy_offset(o, bit_index / 2u);
+        let offset = prev_x + (prev_y - 1) * 65536u;
         let tile16_corner = tile64_corner * 4 + tile16_offset;
         let subtile_index = tile16_corner.x +
             (tile16_corner.y * size16.x) +
             (tile16_corner.z * size16.x * size16.y);
-        active_tile16[local_offset] = subtile_index;
+        active_tile16[offset] = subtile_index;
     }
 }
