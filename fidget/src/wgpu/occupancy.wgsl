@@ -13,7 +13,7 @@ fn occupancy_size(o: Occupancy) -> u32 {
     return out;
 }
 
-// Finds the offset of a particular voxel child
+// Finds the offset of a particular voxel child (in the 0-64 range)
 fn occupancy_offset(o: Occupancy, i: u32) -> u32 {
     var out = 0u;
     for (var j=0u; j < i / 16u; j += 1u) {
