@@ -20,7 +20,7 @@ fn occupancy_offset(o: Occupancy, i: u32) -> u32 {
         out += countOneBits(o.data[j] & (o.data[j] >> 1u) & 0x55555555);
     }
     // Mask off high bits with a shift
-    let d = o.data[i / 4u] << (2u * (16u - (i % 16u)));
+    let d = o.data[i / 16u] << (2u * (16u - (i % 16u)));
     return out + countOneBits(d & (d >> 1u) & 0x55555555);
 }
 

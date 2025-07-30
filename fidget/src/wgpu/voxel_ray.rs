@@ -19,8 +19,6 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const MAX_TILE16_COUNT: usize = 1024 * 1024 * 8;
-
 #[derive(Debug, IntoBytes, Immutable)]
 #[repr(C)]
 struct IntervalTileConfig {
@@ -37,9 +35,7 @@ struct IntervalTileConfig {
 
     /// Total window size
     image_size: [u32; 3],
-
-    /// Number of slots in the output buffer
-    out_buffer_size: u32,
+    _padding: u32,
 }
 
 struct IntervalTileContext {
@@ -153,8 +149,14 @@ impl IntervalTileContext {
         });
 
         let active_tile64 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("active_tile64"),
-            size: 4,
+            label: Some("scratch active_tile64"),
+            size: 1,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let active_tile16 = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scratch active_tile16"),
+            size: 1,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -163,19 +165,13 @@ impl IntervalTileContext {
         let active_tile16_count =
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("active_tile16_count"),
-                size: 4 * std::mem::size_of::<u32>() as u64,
+                size: 3 * std::mem::size_of::<u32>() as u64,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC
                     | wgpu::BufferUsages::INDIRECT,
                 mapped_at_creation: false,
             });
-        let active_tile16 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("active_tile16"),
-            size: (MAX_TILE16_COUNT * core::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
 
         Ok(Self {
             pipeline,
@@ -206,7 +202,7 @@ impl IntervalTileContext {
                 ctx.settings.image_size.depth(),
             ],
             active_tile_count: active_tiles.len().try_into().unwrap(),
-            out_buffer_size: MAX_TILE16_COUNT as u32,
+            _padding: 0u32,
         };
         println!("{config:?}");
         println!("{}", ctx.mat);
@@ -754,6 +750,7 @@ impl DynamicBuffers {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        active_tile16: &mut wgpu::Buffer,
         tape_data: &[u32],
         tile64_tapes: &[u32],
         image_size: VoxelSize,
@@ -772,26 +769,34 @@ impl DynamicBuffers {
             "tile64_tapes",
             tile64_tapes,
         );
-        let nx = u64::from(image_size.width().div_ceil(64));
-        let ny = u64::from(image_size.height().div_ceil(64));
-        let nz = u64::from(image_size.depth().div_ceil(64));
+        let tile64_count = u64::from(image_size.width().div_ceil(64))
+            * u64::from(image_size.height().div_ceil(64))
+            * u64::from(image_size.depth().div_ceil(64));
         resize_buffer::<[u32; 4]>(
             device,
             &mut self.tile64_occupancy,
             "tile64_occupancy",
-            (nx * ny * nz) as usize,
+            tile64_count as usize,
         );
         resize_buffer::<u32>(
             device,
             &mut self.tile64_next,
             "tile64_next",
-            (nx * ny * nz) as usize,
+            tile64_count as usize,
+        );
+
+        let tile16_count = tile64_count * 4u64.pow(3);
+        resize_buffer::<u32>(
+            device,
+            active_tile16,
+            "active_tile16",
+            tile16_count as usize,
         );
         resize_buffer::<[u32; 4]>(
             device,
             &mut self.tile16_occupancy,
             "tile16_occupancy",
-            MAX_TILE16_COUNT,
+            tile16_count as usize,
         );
 
         let image_pixels =
@@ -965,6 +970,7 @@ impl VoxelRayContext {
         self.buffers.resize(
             &self.device,
             &self.queue,
+            &mut self.interval_tile_ctx.active_tile16,
             &tape_data,
             &tile64_occupancy,
             settings.image_size,
@@ -1024,44 +1030,70 @@ impl VoxelRayContext {
             &self.queue,
             &self.interval_tile_ctx.active_tile16_count,
         );
-        println!("got size {size:?}");
-        /*
-
-        let size = get_buffer::<u32>(
+        println!("got dispatch size {size:?}");
+        let active = get_buffer::<u32>(
             &self.device,
             &self.queue,
-            &self.interval_tile_ctx.active_tile16_count,
+            &self.interval_tile_ctx.active_tile16,
         );
-        println!("got size {size:?}");
+        println!(
+            "got active tile16 {:?}",
+            &active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
+        );
+        println!(
+            "got active tile16 {:?}",
+            active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
+                .iter()
+                .map(|t| (t % 4, (t / 4) % 4, (t / 16)))
+                .collect::<Vec<_>>()
+        );
+
         let occupancy64 = get_buffer::<[u32; 4]>(
             &self.device,
             &self.queue,
             &self.buffers.tile64_occupancy,
         );
-        for (n, i) in occupancy64.into_iter().enumerate() {
-            println!("Occupancy for tile {n}:");
-            for z in 0..4 {
-                for y in 0..4 {
-                    for x in 0..4 {
-                        let b = 2 * (z + y * 4 + x * 16);
-                        let c = match (i[b / 32] >> (b % 32)) & 0b11 {
-                            0 => '?',
-                            1 => 'X',
-                            2 => '.',
-                            3 => '-',
-                            _ => panic!(),
-                        };
-                        print!("{c}{c}");
-                    }
-                    println!();
-                }
-                println!();
+        print_occupancy_map(settings.image_size, 64, &occupancy64);
+        println!("----------------------------------------\n");
+        let occupancy16 = get_buffer::<[u32; 4]>(
+            &self.device,
+            &self.queue,
+            &self.buffers.tile16_occupancy,
+        );
+        print_occupancy_map(settings.image_size, 16, &occupancy16);
+
+        Some(Ok(result))
+    }
+}
+
+fn print_occupancy_map(
+    size: VoxelSize,
+    tile_size: u32,
+    occupancy: &[[u32; 4]],
+) {
+    let nx = size.width().div_ceil(tile_size);
+    let ny = size.height().div_ceil(tile_size);
+    let nz = size.depth().div_ceil(tile_size);
+    for z in 0..nz * 4 {
+        println!("Z = {}", z * tile_size / 4);
+        for y in 0..ny * 4 {
+            for x in 0..nx * 4 {
+                let tile = x / 4 + y / 4 * nx + z / 4 * nx * ny;
+                let b = 2 * ((z % 4) + (y % 4) * 4 + (x % 4) * 16) as usize;
+                let c = match (occupancy[tile as usize][b / 32] >> (b % 32))
+                    & 0b11
+                {
+                    0 => '?',
+                    1 => 'X',
+                    2 => '.',
+                    3 => '-',
+                    _ => panic!(),
+                };
+                print!("{c}{c}");
             }
             println!();
         }
-        */
-
-        Some(Ok(result))
+        println!();
     }
 }
 
