@@ -1025,42 +1025,44 @@ impl VoxelRayContext {
             }
         }
 
-        let size = get_buffer::<u32>(
-            &self.device,
-            &self.queue,
-            &self.interval_tile_ctx.active_tile16_count,
-        );
-        println!("got dispatch size {size:?}");
-        let active = get_buffer::<u32>(
-            &self.device,
-            &self.queue,
-            &self.interval_tile_ctx.active_tile16,
-        );
-        println!(
-            "got active tile16 {:?}",
-            &active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
-        );
-        println!(
-            "got active tile16 {:?}",
-            active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
-                .iter()
-                .map(|t| (t % 4, (t / 4) % 4, (t / 16)))
-                .collect::<Vec<_>>()
-        );
+        if false {
+            let size = get_buffer::<u32>(
+                &self.device,
+                &self.queue,
+                &self.interval_tile_ctx.active_tile16_count,
+            );
+            println!("got dispatch size {size:?}");
+            let active = get_buffer::<u32>(
+                &self.device,
+                &self.queue,
+                &self.interval_tile_ctx.active_tile16,
+            );
+            println!(
+                "got active tile16 {:?}",
+                &active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
+            );
+            println!(
+                "got active tile16 {:?}",
+                active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
+                    .iter()
+                    .map(|t| (t % 4, (t / 4) % 4, (t / 16)))
+                    .collect::<Vec<_>>()
+            );
 
-        let occupancy64 = get_buffer::<[u32; 4]>(
-            &self.device,
-            &self.queue,
-            &self.buffers.tile64_occupancy,
-        );
-        print_occupancy_map(settings.image_size, 64, &occupancy64);
-        println!("----------------------------------------\n");
-        let occupancy16 = get_buffer::<[u32; 4]>(
-            &self.device,
-            &self.queue,
-            &self.buffers.tile16_occupancy,
-        );
-        print_occupancy_map(settings.image_size, 16, &occupancy16);
+            let occupancy64 = get_buffer::<[u32; 4]>(
+                &self.device,
+                &self.queue,
+                &self.buffers.tile64_occupancy,
+            );
+            print_occupancy_map(settings.image_size, 64, &occupancy64);
+            println!("----------------------------------------\n");
+            let occupancy16 = get_buffer::<[u32; 4]>(
+                &self.device,
+                &self.queue,
+                &self.buffers.tile16_occupancy,
+            );
+            print_occupancy_map(settings.image_size, 16, &occupancy16);
+        }
 
         Some(Ok(result))
     }
