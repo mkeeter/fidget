@@ -115,41 +115,25 @@ fn voxel_ray_main(
 
 fn raycast(tape_start: u32, pos: vec3u) -> u32 {
     // Build up input map
-    var m = mat4x4f(
-        vec4f(0.0), vec4f(0.0), vec4f(0.0), vec4f(0.0)
-    );
+    var m = vec4f(0.0);
 
-    for (var i=0u; i < 4; i += 1u) {
-        let pos_pixels = vec4f(f32(pos.x), f32(pos.y), f32(pos.z - i), 1.0);
-        let pos_model = config.mat * pos_pixels;
+    let pos_pixels = vec4f(f32(pos.x), f32(pos.y), f32(pos.z), 1.0);
+    let pos_model = config.mat * pos_pixels;
 
-        if (config.axes.x < 4) {
-            m[config.axes.x][i] = pos_model.x / pos_model.w;
-        }
-        if (config.axes.y < 4) {
-            m[config.axes.y][i] = pos_model.y / pos_model.w;
-        }
-        if (config.axes.z < 4) {
-            m[config.axes.z][i] = pos_model.z / pos_model.w;
-        }
+    if (config.axes.x < 4) {
+        m[config.axes.x] = pos_model.x / pos_model.w;
+    }
+    if (config.axes.y < 4) {
+        m[config.axes.y] = pos_model.y / pos_model.w;
+    }
+    if (config.axes.z < 4) {
+        m[config.axes.z] = pos_model.z / pos_model.w;
     }
 
     // Do the actual interpreter work
     let out = run_tape(tape_start, m);
 
-    // TODO we're only using one result here
-
-    // Unpack the 4x results into pixels
-    /*
-    for (var i = 0u; i < 4; i += 1u) {
-        if (out[i] < 0.0) {
-            return pos.z - i;
-        }
-    }
-    return 0u;
-    */
-
-    if (out[0] < 0.0) {
+    if (out < 0.0) {
         return pos.z;
     } else {
         return 0u;
