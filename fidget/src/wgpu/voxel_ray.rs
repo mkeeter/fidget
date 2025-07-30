@@ -166,6 +166,7 @@ impl IntervalTileContext {
                 size: 4 * std::mem::size_of::<u32>() as u64,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC
                     | wgpu::BufferUsages::INDIRECT,
                 mapped_at_creation: false,
             });
@@ -647,6 +648,42 @@ impl VoxelContext {
     }
 }
 
+fn get_buffer<T>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    buf: &wgpu::Buffer,
+) -> Vec<T>
+where
+    T: FromBytes + Immutable + Clone,
+{
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: None,
+        });
+
+    let scratch = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("scratch"),
+        size: buf.size(),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+    encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
+
+    queue.submit(Some(encoder.finish()));
+
+    let buffer_slice = scratch.slice(..);
+    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+    device.poll(wgpu::Maintain::Wait);
+
+    let out = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+        .unwrap()
+        .to_vec();
+    scratch.unmap();
+    out
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Context for 3D (voxel) rendering
@@ -695,7 +732,7 @@ impl DynamicBuffers {
         let scratch = |name| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(name),
-                size: 4,
+                size: 1,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
@@ -978,6 +1015,39 @@ impl VoxelRayContext {
                 let i = ((*r as u64) * 255 / m as u64) as u8 as u32;
                 *r = 0xFF << 24 | i << 8 | i << 16 | i;
             }
+        }
+
+        let size = get_buffer::<u32>(
+            &self.device,
+            &self.queue,
+            &self.interval_tile_ctx.active_tile16_count,
+        );
+        println!("got size {size:?}");
+        let occupancy64 = get_buffer::<[u32; 4]>(
+            &self.device,
+            &self.queue,
+            &self.buffers.tile64_occupancy,
+        );
+        for (n, i) in occupancy64.into_iter().enumerate() {
+            println!("Occupancy for tile {n}:");
+            for z in 0..4 {
+                for y in 0..4 {
+                    for x in 0..4 {
+                        let b = 2 * (z + y * 4 + x * 16);
+                        let c = match (i[b / 32] >> (b % 32)) & 0b11 {
+                            0 => '?',
+                            1 => 'X',
+                            2 => '.',
+                            3 => '-',
+                            _ => panic!(),
+                        };
+                        print!("{c}{c}");
+                    }
+                    println!();
+                }
+                println!();
+            }
+            println!();
         }
 
         Some(Ok(result))
