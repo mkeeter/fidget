@@ -272,6 +272,7 @@ pub fn voxel_tiles_shader() -> String {
 pub fn voxel_ray_shader() -> String {
     let mut shader_code = opcode_constants();
     shader_code += INTERPRETER_4F;
+    shader_code += OCCUPANCY_SHADER;
     shader_code += VOXEL_RAY_SHADER;
     shader_code
 }
@@ -281,6 +282,7 @@ pub fn interval_tiles_shader() -> String {
     let mut shader_code = opcode_constants();
     shader_code += INTERPRETER_I;
     shader_code += INTERVAL_TILES_SHADER;
+    shader_code += OCCUPANCY_SHADER;
     shader_code
 }
 
@@ -289,6 +291,7 @@ pub fn interval_subtiles_shader() -> String {
     let mut shader_code = opcode_constants();
     shader_code += INTERPRETER_I;
     shader_code += INTERVAL_SUBTILES_SHADER;
+    shader_code += OCCUPANCY_SHADER;
     shader_code
 }
 
@@ -312,6 +315,9 @@ const INTERVAL_TILES_SHADER: &str = include_str!("interval_tiles.wgsl");
 
 /// `main` shader function for 4x4x4 tile interval evaluation
 const INTERVAL_SUBTILES_SHADER: &str = include_str!("interval_subtiles.wgsl");
+
+/// `Occupancy` data type for shaders
+const OCCUPANCY_SHADER: &str = include_str!("occupancy.wgsl");
 
 /// Common data types for shaders
 const COMMON_SHADER: &str = include_str!("common.wgsl");
@@ -344,6 +350,7 @@ mod test {
             (voxel_tiles_shader(), "voxel tiles"),
             (voxel_ray_shader(), "voxel raymarching"),
             (interval_tiles_shader(), "interval tiles"),
+            (interval_subtiles_shader(), "interval subtiles"),
         ] {
             // This isn't the best formatting, but it will at least include the
             // relevant text.
