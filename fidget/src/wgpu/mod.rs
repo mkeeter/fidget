@@ -215,7 +215,8 @@ pub(crate) fn resize_buffer<T>(
         buf,
         name,
         count,
-        wgpu::BufferUsages::STORAGE,
+        // XXX remove COPY_SRC once debug is done
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     )
 }
 
