@@ -23,13 +23,9 @@
 /// Active tiles, as global tile positions
 @group(0) @binding(3) var<storage, read> active_tile64: array<u32>;
 
-@group(0) @binding(4) var<storage, read_write> tile64_next: array<u32>;
-@group(0) @binding(5) var<storage, read_write> tile64_occupancy: array<array<u32, 4>>;
-
 /// tile16 outputs
-@group(0) @binding(6) var<storage, read_write> active_tile16_count: array<atomic<u32>, 3>;
-@group(0) @binding(7) var<storage, read_write> active_tile16: array<u32>;
-@group(0) @binding(8) var<storage, read_write> tile16_occupancy: array<array<u32, 4>>;
+@group(0) @binding(4) var<storage, read_write> active_tile16_count: array<atomic<u32>, 3>;
+@group(0) @binding(5) var<storage, read_write> active_tile16: array<u32>;
 
 /// Global render configuration
 ///
@@ -50,9 +46,6 @@ struct Config {
     /// Number of slots in the output buffer
     out_buffer_size: u32,
 }
-
-var<workgroup> wg_occupancy: array<atomic<u32>, 4>;
-var<workgroup> wg_offset: u32;
 
 @compute @workgroup_size(4, 4, 4)
 fn interval_tile16_main(
@@ -117,41 +110,40 @@ fn interval_tile16_main(
     let out = run_tape_i(tape_start, m);
 
     // Figure out which 2 bits to touch in the occupancy array
-    let bit_index = 2 * (tile16_offset.z + tile16_offset.y * 4 + tile16_offset.x * 16);
-    var ambiguous = false;
     if (out[1] < 0.0) {
-        // Full = 0b01
-        atomicOr(&wg_occupancy[bit_index / 32], 1u << (bit_index % 32));
+        // Full
     } else if (out[0] > 0.0) {
-        // Empty = 0b10
-        atomicOr(&wg_occupancy[bit_index / 32], 2u << (bit_index % 32));
+        // Empty
     } else {
-        // Ambiguous = 0b11
-        atomicOr(&wg_occupancy[bit_index / 32], 3u << (bit_index % 32));
-        ambiguous = true;
-    }
-
-    workgroupBarrier();
-    var occupancy = array<u32, 4>(0u, 0u, 0u, 0u);
-    for (var i=0; i < 4; i++) {
-        occupancy[i] = atomicLoad(&wg_occupancy[i]);
-    }
-    if (local_id.y == 0 && local_id.z == 0) {
-        tile64_occupancy[t][local_id.x] = occupancy[local_id.x];
-    }
-
-    // Allocate memory for the new active tile
-    if (ambiguous) {
-        var prev_x = atomicAdd(&active_tile16_count[0], 1u);
-        var prev_y = 0u;
-        // TODO this atomic stuff is probably wrong
-        if (prev_x + 1u >= 65536u) {
-            atomicSub(&active_tile16_count[0], 65536u);
-            prev_y = atomicAdd(&active_tile16_count[1], 1u);
-        } else {
-            prev_y = atomicLoad(&active_tile16_count[1]);
+        var offset = 0u;
+        loop {
+            var prev_y = atomicLoad(&active_tile16_count[1]);
+            var prev_x = atomicAdd(&active_tile16_count[0], 1u);
+            if (prev_x + 1u == 65535u) {
+                let ex = atomicCompareExchangeWeak(
+                    &active_tile16_count[1],
+                    prev_y,
+                    prev_y + 1
+                );
+                if (ex.exchanged) {
+                    atomicSub(&active_tile16_count[0], 65536u);
+                    offset = prev_x + (prev_y - 1) * 65536;
+                    break;
+                }
+            } else {
+                let ex = atomicCompareExchangeWeak(
+                    &active_tile16_count[1],
+                    prev_y,
+                    prev_y,
+                );
+                if (ex.exchanged) {
+                    offset = prev_x + (prev_y - 1) * 65536;
+                    break;
+                }
+            }
+            atomicSub(&active_tile16_count[0], 1u); // undo the increment
         }
-        let offset = prev_x + (prev_y - 1) * 65536u;
+
         let tile16_corner = tile64_corner * 4 + tile16_offset;
         let subtile_index = tile16_corner.x +
             (tile16_corner.y * size16.x) +
