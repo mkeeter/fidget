@@ -271,7 +271,7 @@ pub fn voxel_tiles_shader() -> String {
 /// Returns a shader string to evaluate voxel tiles (3D)
 pub fn voxel_ray_shader() -> String {
     let mut shader_code = opcode_constants();
-    shader_code += INTERPRETER_1F;
+    shader_code += INTERPRETER_4F;
     shader_code += OCCUPANCY_SHADER;
     shader_code += VOXEL_RAY_SHADER;
     shader_code
@@ -299,6 +299,7 @@ pub fn interval_subtiles_shader() -> String {
 const INTERPRETER_4F: &str = include_str!("interpreter_4f.wgsl");
 
 /// Shader fragment to run a f32 interpreter
+#[allow(unused)]
 const INTERPRETER_1F: &str = include_str!("interpreter_1f.wgsl");
 
 /// Shader fragment to run a interval arithmetic interpreter
