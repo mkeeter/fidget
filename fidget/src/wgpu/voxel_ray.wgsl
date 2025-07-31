@@ -38,6 +38,8 @@ struct Config {
     _padding2: u32,
 }
 
+var<workgroup> wg_done: atomic<u32>;
+
 @compute @workgroup_size(4, 4, 4)
 fn voxel_ray_main(
     @builtin(global_invocation_id) global_id: vec3u,
@@ -57,7 +59,8 @@ fn voxel_ray_main(
     var pos = vec3i(vec2i(global_id.xy), i32(size64.z * 64u - 1 - local_id.z * 4));
 
     let pixel_index = global_id.x + global_id.y * config.image_size.x;
-    while (i32(atomicLoad(&result[pixel_index])) < pos.z) {
+    let wg_index = local_id.x + local_id.y * 4;
+    while (pos.z >= 0 && atomicLoad(&wg_done) != 0xFFFF) {
         // Get the current tile that we're hanging out in
         let z64 = u32(pos.z) / 64;
         let tile64_index = tile64.x + tile64.y * size64.x + z64 * size64.x * size64.y;
@@ -68,6 +71,7 @@ fn voxel_ray_main(
         } else if ((tape_start & 0x80000000) != 0) {
             // Full tile, we can break
             atomicMax(&result[pixel_index], u32(pos.z));
+            atomicOr(&wg_done, 1u << wg_index);
         } else {
             // Iterate over tile16 in this tile
             for (var j=0; j < 4; j += 1) {
@@ -78,6 +82,7 @@ fn voxel_ray_main(
                 } else if (st == 1) {
                     // Full tile, we can break
                     atomicMax(&result[pixel_index], u32(pos.z));
+                    atomicOr(&wg_done, 1u << wg_index);
                 } else if (st == 3) {
                     let z16 = u32(pos.z) / 16;
                     let tile16_index = tile16.x + tile16.y * size16.x + z16 * size16.x * size16.y;
@@ -89,17 +94,20 @@ fn voxel_ray_main(
                     } else if (st == 1) {
                         // Full tile, we can break
                         atomicMax(&result[pixel_index], u32(pos.z));
+                        atomicOr(&wg_done, 1u << wg_index);
                     } else if (st == 3) {
                         // Voxel evaluation
                         let out = raycast(tape_start, vec3u(pos));
                         if (out > 0) {
                             atomicMax(&result[pixel_index], out);
+                            atomicOr(&wg_done, 1u << wg_index);
                         }
                     }
                 }
                 pos.z -= 16;
             }
         }
+        workgroupBarrier();
     }
 }
 
