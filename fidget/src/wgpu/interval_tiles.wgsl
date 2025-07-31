@@ -54,8 +54,7 @@ fn interval_tile16_main(
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
-    let active_tile64_index = workgroup_id.x + workgroup_id.y * 65536;
-
+    let active_tile64_index = workgroup_id.x;
     if (active_tile64_index >= config.active_tile_count) {
         return;
     }
@@ -115,35 +114,7 @@ fn interval_tile16_main(
     } else if (out[0] > 0.0) {
         // Empty
     } else {
-        var offset = 0u;
-        loop {
-            var prev_y = atomicLoad(&active_tile16_count[1]);
-            var prev_x = atomicAdd(&active_tile16_count[0], 1u);
-            if (prev_x + 1u == 65535u) {
-                let ex = atomicCompareExchangeWeak(
-                    &active_tile16_count[1],
-                    prev_y,
-                    prev_y + 1
-                );
-                if (ex.exchanged) {
-                    atomicSub(&active_tile16_count[0], 65536u);
-                    offset = prev_x + (prev_y - 1) * 65536;
-                    break;
-                }
-            } else {
-                let ex = atomicCompareExchangeWeak(
-                    &active_tile16_count[1],
-                    prev_y,
-                    prev_y,
-                );
-                if (ex.exchanged) {
-                    offset = prev_x + (prev_y - 1) * 65536;
-                    break;
-                }
-            }
-            atomicSub(&active_tile16_count[0], 1u); // undo the increment
-        }
-
+        let offset = atomicAdd(&active_tile16_count[0], 1u);
         let tile16_corner = tile64_corner * 4 + tile16_offset;
         let subtile_index = tile16_corner.x +
             (tile16_corner.y * size16.x) +

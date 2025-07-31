@@ -12,7 +12,7 @@
 /// Tile data (64^3, dense)
 @group(0) @binding(2) var<storage, read> tile64_tapes: array<u32>;
 
-@group(0) @binding(3) var<storage, read> active_tile4_count: array<u32, 3>;
+@group(0) @binding(3) var<storage, read> active_tile4_count: array<u32, 4>;
 @group(0) @binding(4) var<storage, read> active_tile4: array<u32>;
 
 /// Output array, image size
@@ -47,10 +47,8 @@ fn voxel_ray_main(
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
-    let active_tile4_index = workgroup_id.x + workgroup_id.y * 65536;
-
-    let tile4_count = active_tile4_count[0] + (active_tile4_count[1] - 1) * 65536;
-    if (active_tile4_index >= tile4_count) {
+    let active_tile4_index = workgroup_id.x + workgroup_id.y * 32768;
+    if (active_tile4_index >= active_tile4_count[0]) {
         return;
     }
 
@@ -78,6 +76,9 @@ fn voxel_ray_main(
 
     // Voxel evaluation
     let pixel_index = corner_pos.x + corner_pos.y * config.image_size.x;
+    if (atomicLoad(&result[pixel_index]) >= u32(corner_pos.z)) {
+        return;
+    }
     let out = raycast(tape_start, vec3u(corner_pos));
     if (out > 0) {
         atomicMax(&result[pixel_index], out);
