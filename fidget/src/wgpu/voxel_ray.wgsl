@@ -54,11 +54,10 @@ fn voxel_ray_main(
     let size16 = (config.image_size + 15) / 16u;
 
     // We start at the camera's position
-    var pos = vec3i(vec2i(global_id.xy), i32(config.image_size.z) - 1 - i32(local_id.z));
+    var pos = vec3i(vec2i(global_id.xy), i32(size64.z * 64u - 1 - local_id.z * 4));
 
     let pixel_index = global_id.x + global_id.y * config.image_size.x;
-    var done = false;
-    while (!done && pos.z >= 0 && atomicLoad(&result[pixel_index]) == 0) {
+    while (i32(atomicLoad(&result[pixel_index])) < pos.z) {
         // Get the current tile that we're hanging out in
         let z64 = u32(pos.z) / 64;
         let tile64_index = tile64.x + tile64.y * size64.x + z64 * size64.x * size64.y;
@@ -66,48 +65,39 @@ fn voxel_ray_main(
         if (tape_start == 0xFFFFFFFFu) {
             // Empty tile, keep going by jumping to the next tile boundary
             pos.z -= 64;
-            continue;
         } else if ((tape_start & 0x80000000) != 0) {
             // Full tile, we can break
             atomicMax(&result[pixel_index], u32(pos.z));
-            break;
-        }
+        } else {
+            // Iterate over tile16 in this tile
+            for (var j=0; j < 4; j += 1) {
+                let bit_index = 2 * ((u32(pos.z) % 64) / 16 + tile16_offset.y * 4 + tile16_offset.x * 16);
+                let st = (tile64_occupancy[tile64_index][bit_index / 32] >> (bit_index % 32)) & 3;
+                if (st == 2) {
+                    // empty tile, keep going
+                } else if (st == 1) {
+                    // Full tile, we can break
+                    atomicMax(&result[pixel_index], u32(pos.z));
+                } else if (st == 3) {
+                    let z16 = u32(pos.z) / 16;
+                    let tile16_index = tile16.x + tile16.y * size16.x + z16 * size16.x * size16.y;
 
-        // Iterate over tile16 in this tile
-        for (var j=0; j < 4 && !done; j += 1) {
-            let bit_index = 2 * ((u32(pos.z) % 64) / 16 + tile16_offset.y * 4 + tile16_offset.x * 16);
-            let st = (tile64_occupancy[tile64_index][bit_index / 32] >> (bit_index % 32)) & 3;
-            if (st == 2) {
-                // empty tile, keep going
-                pos.z -= 16;
-                continue;
-            } else if (st == 1) {
-                // Full tile, we can break
-                atomicMax(&result[pixel_index], u32(pos.z));
-                done = true;
-            } else {
-                let z16 = u32(pos.z) / 16;
-                let tile16_index = tile16.x + tile16.y * size16.x + z16 * size16.x * size16.y;
-                for (var k=0; k < 4 && !done; k += 1) {
                     let bit_index = 2 * ((u32(pos.z) % 16) / 4 + tile4_offset.y * 4 + tile4_offset.x * 16);
                     let st = (tile16_occupancy[tile16_index][bit_index / 32] >> (bit_index % 32)) & 3;
                     if (st == 2) {
-                        pos.z -= 4;
-                        continue;
+                        // empty tile4, keep going
                     } else if (st == 1) {
                         // Full tile, we can break
                         atomicMax(&result[pixel_index], u32(pos.z));
-                        done = true;
-                    } else {
-                        // Voxel evaluation (or unpopulated, which shouldn't happen?)
+                    } else if (st == 3) {
+                        // Voxel evaluation
                         let out = raycast(tape_start, vec3u(pos));
-                        atomicMax(&result[pixel_index], out);
                         if (out > 0) {
-                            done = true;
+                            atomicMax(&result[pixel_index], out);
                         }
-                        pos.z -= 4;
                     }
                 }
+                pos.z -= 16;
             }
         }
     }
@@ -115,27 +105,32 @@ fn voxel_ray_main(
 
 fn raycast(tape_start: u32, pos: vec3u) -> u32 {
     // Build up input map
-    var m = vec4f(0.0);
+    var m = mat4x4f(
+        vec4f(0.0), vec4f(0.0), vec4f(0.0), vec4f(0.0)
+    );
 
-    let pos_pixels = vec4f(f32(pos.x), f32(pos.y), f32(pos.z), 1.0);
-    let pos_model = config.mat * pos_pixels;
+    for (var i=0u; i < 4; i += 1u) {
+        let pos_pixels = vec4f(f32(pos.x), f32(pos.y), f32(pos.z - i), 1.0);
+        let pos_model = config.mat * pos_pixels;
 
-    if (config.axes.x < 4) {
-        m[config.axes.x] = pos_model.x / pos_model.w;
-    }
-    if (config.axes.y < 4) {
-        m[config.axes.y] = pos_model.y / pos_model.w;
-    }
-    if (config.axes.z < 4) {
-        m[config.axes.z] = pos_model.z / pos_model.w;
+        if (config.axes.x < 4) {
+            m[config.axes.x][i] = pos_model.x / pos_model.w;
+        }
+        if (config.axes.y < 4) {
+            m[config.axes.y][i] = pos_model.y / pos_model.w;
+        }
+        if (config.axes.z < 4) {
+            m[config.axes.z][i] = pos_model.z / pos_model.w;
+        }
     }
 
     // Do the actual interpreter work
     let out = run_tape(tape_start, m);
 
-    if (out < 0.0) {
-        return pos.z;
-    } else {
-        return 0u;
+    for (var i = 0u; i < 4; i += 1u) {
+        if (out[i] < 0.0) {
+            return pos.z - i;
+        }
     }
+    return 0u;
 }
