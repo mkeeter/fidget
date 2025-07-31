@@ -107,12 +107,9 @@ impl IntervalTileContext {
                     buffer_cfg(0), // config
                     buffer_ro(1),  // tape_data
                     buffer_ro(2),  // tile64_tapes
-                    buffer_ro(3),  // active_tile64
-                    buffer_rw(4),  // tile64_next
-                    buffer_rw(5),  // tile64_occupancy
-                    buffer_rw(6),  // active_tile16_count
-                    buffer_rw(7),  // active_tile16
-                    buffer_rw(8),  // tile16_occupancy
+                    buffer_ro(3),  // active_tile64 (count is in Config)
+                    buffer_rw(4),  // active_tile16_count
+                    buffer_rw(5),  // active_tile16
                 ],
             });
 
@@ -259,23 +256,11 @@ impl IntervalTileContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: ctx.buf.tile64_next.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: ctx.buf.tile64_occupancy.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
                         resource: self.active_tile16_count.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 7,
+                        binding: 5,
                         resource: self.active_tile16.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
-                        resource: ctx.buf.tile16_occupancy.as_entire_binding(),
                     },
                 ],
             });
@@ -288,9 +273,10 @@ impl IntervalTileContext {
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
+        // XXX is this correct?
         compute_pass.dispatch_workgroups(
             (active_tiles.len() % 65536) as u32,
-            (active_tiles.len() / 65536).max(1).try_into().unwrap(),
+            active_tiles.len().div_ceil(65536).try_into().unwrap(),
             1,
         );
         drop(compute_pass);
@@ -320,6 +306,10 @@ struct IntervalSubtileContext {
     /// Configuration data (fixed size)
     config_buf: wgpu::Buffer,
 
+    /// Output from this stage
+    active_tile4_count: wgpu::Buffer,
+    active_tile4: wgpu::Buffer,
+
     /// Compute pipeline
     pipeline: wgpu::ComputePipeline,
 
@@ -341,7 +331,8 @@ impl IntervalSubtileContext {
                     buffer_ro(2),  // tile64_tapes
                     buffer_ro(3),  // active_tile16_count
                     buffer_ro(4),  // active_tile16
-                    buffer_rw(5),  // tile16_occupancy
+                    buffer_rw(5),  // active_tile4_count
+                    buffer_rw(6),  // active_tile4
                 ],
             });
 
@@ -377,10 +368,31 @@ impl IntervalSubtileContext {
             mapped_at_creation: false,
         });
 
+        let active_tile4 = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scratch active_tile4"),
+            size: 1,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // These buffers never change size
+        let active_tile4_count =
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("active_tile4_count"),
+                size: 3 * std::mem::size_of::<u32>() as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::INDIRECT,
+                mapped_at_creation: false,
+            });
+
         Ok(Self {
             pipeline,
             bind_group_layout,
             config_buf,
+            active_tile4_count,
+            active_tile4,
         })
     }
 
@@ -417,6 +429,25 @@ impl IntervalSubtileContext {
             .unwrap()
             .copy_from_slice(config.as_bytes());
 
+        // Clear the `active_tile4_count` global counter
+        ctx.queue
+            .write_buffer_with(
+                &self.active_tile4_count,
+                0,
+                (std::mem::size_of::<[u32; 3]>() as u64).try_into().unwrap(),
+            )
+            .unwrap()
+            .copy_from_slice([0u32, 1, 1].as_bytes());
+        let nx = ctx.settings.image_size.width().div_ceil(64) as usize * 16;
+        let ny = ctx.settings.image_size.height().div_ceil(64) as usize * 16;
+        let nz = ctx.settings.image_size.depth().div_ceil(64) as usize * 16;
+        resize_buffer::<u32>(
+            ctx.device,
+            &mut self.active_tile4,
+            "active_tile4",
+            nx * ny * nz,
+        );
+
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -444,7 +475,11 @@ impl IntervalSubtileContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: ctx.buf.tile16_occupancy.as_entire_binding(),
+                        resource: self.active_tile4_count.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: self.active_tile4.as_entire_binding(),
                     },
                 ],
             });
@@ -505,10 +540,9 @@ impl VoxelContext {
                     buffer_cfg(0), // config
                     buffer_ro(1),  // tape_data
                     buffer_ro(2),  // tile64_tapes
-                    buffer_ro(3),  // tile64_occupancy
-                    buffer_ro(4),  // tile64_next
-                    buffer_ro(5),  // tile16_occupancy
-                    buffer_rw(6),  // result
+                    buffer_ro(3),  // active_tile4_count
+                    buffer_ro(4),  // active_tile4
+                    buffer_rw(5),  // result
                 ],
             });
 
@@ -554,6 +588,8 @@ impl VoxelContext {
     fn run<F: Function>(
         &mut self,
         ctx: &CommonCtx<F>,
+        active_tile4_count: &wgpu::Buffer,
+        active_tile4: &wgpu::Buffer,
         encoder: &mut wgpu::CommandEncoder,
     ) {
         let vars = ctx.shape.inner().vars();
@@ -601,18 +637,14 @@ impl VoxelContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: ctx.buf.tile64_occupancy.as_entire_binding(),
+                        resource: active_tile4_count.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: ctx.buf.tile64_next.as_entire_binding(),
+                        resource: active_tile4.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: ctx.buf.tile16_occupancy.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
                         resource: ctx.buf.result.as_entire_binding(),
                     },
                 ],
@@ -628,11 +660,7 @@ impl VoxelContext {
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
-        compute_pass.dispatch_workgroups(
-            ctx.settings.image_size.width().div_ceil(4),
-            ctx.settings.image_size.height().div_ceil(4),
-            1,
-        );
+        compute_pass.dispatch_workgroups_indirect(active_tile4_count, 0);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -702,15 +730,6 @@ pub struct DynamicBuffers {
     /// Densely-packed tape indices (or special values to indicate empty / full)
     tile64_tapes: wgpu::Buffer,
 
-    /// Densely-packed occupancy arrays
-    tile64_occupancy: wgpu::Buffer,
-
-    /// Densely-packed 'next tile' pointers
-    tile64_next: wgpu::Buffer,
-
-    /// Sparsely-packed occupancy arrays
-    tile16_occupancy: wgpu::Buffer,
-
     /// Result buffer written by the voxel compute shader
     ///
     /// Note that this buffer can't be read by the host; it must be copied to
@@ -739,9 +758,6 @@ impl DynamicBuffers {
         Self {
             tape_data: scratch("dummy tape data"),
             tile64_tapes: scratch("dummy tile64 tapes"),
-            tile64_occupancy: scratch("dummy tile64 occupancy"),
-            tile64_next: scratch("dummy tile64 next"),
-            tile16_occupancy: scratch("dummy tile16 occupancy"),
             result: scratch("dummy result"),
             image: scratch("dummy image"),
         }
@@ -772,30 +788,12 @@ impl DynamicBuffers {
         let tile64_count = u64::from(image_size.width().div_ceil(64))
             * u64::from(image_size.height().div_ceil(64))
             * u64::from(image_size.depth().div_ceil(64));
-        resize_buffer::<[u32; 4]>(
-            device,
-            &mut self.tile64_occupancy,
-            "tile64_occupancy",
-            tile64_count as usize,
-        );
-        resize_buffer::<u32>(
-            device,
-            &mut self.tile64_next,
-            "tile64_next",
-            tile64_count as usize,
-        );
 
         let tile16_count = tile64_count * 4u64.pow(3);
         resize_buffer::<u32>(
             device,
             active_tile16,
             "active_tile16",
-            tile16_count as usize,
-        );
-        resize_buffer::<[u32; 4]>(
-            device,
-            &mut self.tile16_occupancy,
-            "tile16_occupancy",
             tile16_count as usize,
         );
 
@@ -907,7 +905,7 @@ impl VoxelRayContext {
         let nx = settings.image_size.width().div_ceil(64);
         let ny = settings.image_size.height().div_ceil(64);
         let nz = settings.image_size.depth().div_ceil(64);
-        let mut tile64_occupancy =
+        let mut tile64_tapes =
             vec![0u32; nx as usize * ny as usize * nz as usize];
 
         // Iterate over 64^3 tile results
@@ -936,7 +934,7 @@ impl VoxelRayContext {
                             + x
                             + (r.corner.y / tile_size + y) * nx
                             + (r.corner.z / tile_size + z) * nx * ny;
-                        tile64_occupancy[i as usize] = match r.mode {
+                        tile64_tapes[i as usize] = match r.mode {
                             TileMode::Empty => {
                                 empty += 1;
                                 u32::MAX
@@ -972,7 +970,7 @@ impl VoxelRayContext {
             &self.queue,
             &mut self.interval_tile_ctx.active_tile16,
             &tape_data,
-            &tile64_occupancy,
+            &tile64_tapes,
             settings.image_size,
         );
 
@@ -998,10 +996,28 @@ impl VoxelRayContext {
             &self.interval_tile_ctx.active_tile16,
             &mut encoder,
         );
-        self.voxel_ctx.run(&ctx, &mut encoder);
+        self.voxel_ctx.run(
+            &ctx,
+            &self.interval_subtile_ctx.active_tile4_count,
+            &self.interval_subtile_ctx.active_tile4,
+            &mut encoder,
+        );
 
         // Submit the commands and wait for the GPU to complete
         self.queue.submit(Some(encoder.finish()));
+
+        let tile16_size = get_buffer::<u32>(
+            ctx.device,
+            ctx.queue,
+            &self.interval_tile_ctx.active_tile16_count,
+        );
+        println!("{tile16_size:?}");
+        let tile4_size = get_buffer::<u32>(
+            ctx.device,
+            ctx.queue,
+            &self.interval_subtile_ctx.active_tile4_count,
+        );
+        println!("{tile4_size:?}");
 
         // Map result buffer and read back the data
         let buffer_slice = self.buffers.image.slice(..);
@@ -1048,54 +1064,9 @@ impl VoxelRayContext {
                     .map(|t| (t % 4, (t / 4) % 4, (t / 16)))
                     .collect::<Vec<_>>()
             );
-
-            let occupancy64 = get_buffer::<[u32; 4]>(
-                &self.device,
-                &self.queue,
-                &self.buffers.tile64_occupancy,
-            );
-            print_occupancy_map(settings.image_size, 64, &occupancy64);
-            println!("----------------------------------------\n");
-            let occupancy16 = get_buffer::<[u32; 4]>(
-                &self.device,
-                &self.queue,
-                &self.buffers.tile16_occupancy,
-            );
-            print_occupancy_map(settings.image_size, 16, &occupancy16);
         }
 
         Some(Ok(result))
-    }
-}
-
-fn print_occupancy_map(
-    size: VoxelSize,
-    tile_size: u32,
-    occupancy: &[[u32; 4]],
-) {
-    let nx = size.width().div_ceil(tile_size);
-    let ny = size.height().div_ceil(tile_size);
-    let nz = size.depth().div_ceil(tile_size);
-    for z in 0..nz * 4 {
-        println!("Z = {}", z * tile_size / 4);
-        for y in 0..ny * 4 {
-            for x in 0..nx * 4 {
-                let tile = x / 4 + y / 4 * nx + z / 4 * nx * ny;
-                let b = 2 * ((z % 4) + (y % 4) * 4 + (x % 4) * 16) as usize;
-                let c = match (occupancy[tile as usize][b / 32] >> (b % 32))
-                    & 0b11
-                {
-                    0 => '?',
-                    1 => 'X',
-                    2 => '.',
-                    3 => '-',
-                    _ => panic!(),
-                };
-                print!("{c}{c}");
-            }
-            println!();
-        }
-        println!();
     }
 }
 

@@ -13,9 +13,11 @@
 @group(0) @binding(1) var<storage, read> tape_data: array<u32>;
 @group(0) @binding(2) var<storage, read> tile64_tapes: array<u32>;
 
-@group(0) @binding(3) var<storage, read> active_tile16_count: array<u32>;
+@group(0) @binding(3) var<storage, read> active_tile16_count: array<u32, 3>;
 @group(0) @binding(4) var<storage, read> active_tile16: array<u32>;
-@group(0) @binding(5) var<storage, read_write> tile16_occupancy: array<array<atomic<u32>, 4>>;
+
+@group(0) @binding(5) var<storage, read_write> active_tile4_count: array<atomic<u32>, 3>;
+@group(0) @binding(6) var<storage, read_write> active_tile4: array<u32>;
 
 /// Global render configuration
 ///
@@ -59,11 +61,8 @@ fn interval_tile4_main(
     let tz = (t / (size16.x * size16.y)) % size16.z;
     let tile16_corner = vec3u(tx, ty, tz);
 
-    // Subtile offset within the tile
-    let tile4_offset = vec3u(local_id.xyz);
-
     // Subtile corner position, in voxels
-    let corner_pos = tile16_corner * 16 + tile4_offset * 4;
+    let corner_pos = tile16_corner * 16 + local_id * 4;
 
     // Pick out our starting tape, based on absolute position
     let tile64_pos = corner_pos / 64;
@@ -99,26 +98,44 @@ fn interval_tile4_main(
     // Do the actual interpreter work
     let out = run_tape_i(tape_start, m);
 
-    // Figure out which 2 bits to touch in the occupancy array
-    let tile16_index = tile16_corner.x + tile16_corner.y * size16.x + tile16_corner.z * size16.x * size16.y;
-    let bit_index = 2 * (tile4_offset.z + tile4_offset.y * 4 + tile4_offset.x * 16);
     if (out[1] < 0.0) {
-        // Full = 0b01
-        atomicOr(
-            &tile16_occupancy[tile16_index][bit_index / 32],
-            1u << (bit_index % 32)
-        );
+        // Full
     } else if (out[0] > 0.0) {
-        // Empty = 0b10
-        atomicOr(
-            &tile16_occupancy[tile16_index][bit_index / 32],
-            2u << (bit_index % 32)
-        );
+        // Empty
     } else {
-        // Ambiguous = 0b11
-        atomicOr(
-            &tile16_occupancy[tile16_index][bit_index / 32],
-            3u << (bit_index % 32)
-        );
+        var offset = 0u;
+        loop {
+            var prev_y = atomicLoad(&active_tile4_count[1]);
+            var prev_x = atomicAdd(&active_tile4_count[0], 1u);
+            if (prev_x + 1u == 65535u) {
+                let ex = atomicCompareExchangeWeak(
+                    &active_tile4_count[1],
+                    prev_y,
+                    prev_y + 1
+                );
+                if (ex.exchanged) {
+                    atomicSub(&active_tile4_count[0], 65536u);
+                    offset = prev_x + (prev_y - 1) * 65536;
+                    break;
+                }
+            } else {
+                let ex = atomicCompareExchangeWeak(
+                    &active_tile4_count[1],
+                    prev_y,
+                    prev_y,
+                );
+                if (ex.exchanged) {
+                    offset = prev_x + (prev_y - 1) * 65536;
+                    break;
+                }
+            }
+            atomicSub(&active_tile4_count[0], 1u); // undo the increment
+        }
+
+        let tile4_corner = tile16_corner * 4 + local_id;
+        let subtile_index = tile4_corner.x +
+            (tile4_corner.y * size4.x) +
+            (tile4_corner.z * size4.x * size4.y);
+        active_tile4[offset] = subtile_index;
     }
 }
