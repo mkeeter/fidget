@@ -277,6 +277,11 @@ pub fn voxel_ray_shader() -> String {
     shader_code
 }
 
+/// Returns a shader string to fix up a `[u32; 3]` size
+pub fn size_fix_shader() -> String {
+    SIZE_FIX_SHADER.to_owned()
+}
+
 /// Returns a shader string to perform the interval evaluation step
 pub fn interval_tiles_shader() -> String {
     let mut shader_code = opcode_constants();
@@ -324,6 +329,9 @@ const OCCUPANCY_SHADER: &str = include_str!("occupancy.wgsl");
 
 /// Common data types for shaders
 const COMMON_SHADER: &str = include_str!("common.wgsl");
+
+/// Size fixup shader
+const SIZE_FIX_SHADER: &str = include_str!("size_fix.wgsl");
 
 ////////////////////////////////////////////////////////////////////////////////
 

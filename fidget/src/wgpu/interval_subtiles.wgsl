@@ -16,7 +16,7 @@
 @group(0) @binding(3) var<storage, read> active_tile16_count: array<u32, 3>;
 @group(0) @binding(4) var<storage, read> active_tile16: array<u32>;
 
-@group(0) @binding(5) var<storage, read_write> active_tile4_count: array<atomic<u32>, 3>;
+@group(0) @binding(5) var<storage, read_write> active_tile4_count: array<atomic<u32>, 4>;
 @group(0) @binding(6) var<storage, read_write> active_tile4: array<u32>;
 
 /// Global render configuration
@@ -42,10 +42,8 @@ fn interval_tile4_main(
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
-    let active_tile16_index = workgroup_id.x + workgroup_id.y * 65536;
-
-    let tile16_count = active_tile16_count[0] + (active_tile16_count[1] - 1) * 65536;
-    if (active_tile16_index >= tile16_count) {
+    let active_tile16_index = workgroup_id.x + workgroup_id.y * 32768;
+    if (active_tile16_index >= active_tile16_count[0]) {
         return;
     }
 
@@ -103,35 +101,7 @@ fn interval_tile4_main(
     } else if (out[0] > 0.0) {
         // Empty
     } else {
-        var offset = 0u;
-        loop {
-            var prev_y = atomicLoad(&active_tile4_count[1]);
-            var prev_x = atomicAdd(&active_tile4_count[0], 1u);
-            if (prev_x + 1u == 65535u) {
-                let ex = atomicCompareExchangeWeak(
-                    &active_tile4_count[1],
-                    prev_y,
-                    prev_y + 1
-                );
-                if (ex.exchanged) {
-                    atomicSub(&active_tile4_count[0], 65536u);
-                    offset = prev_x + (prev_y - 1) * 65536;
-                    break;
-                }
-            } else {
-                let ex = atomicCompareExchangeWeak(
-                    &active_tile4_count[1],
-                    prev_y,
-                    prev_y,
-                );
-                if (ex.exchanged) {
-                    offset = prev_x + (prev_y - 1) * 65536;
-                    break;
-                }
-            }
-            atomicSub(&active_tile4_count[0], 1u); // undo the increment
-        }
-
+        let offset = atomicAdd(&active_tile4_count[0], 1u);
         let tile4_corner = tile16_corner * 4 + local_id;
         let subtile_index = tile4_corner.x +
             (tile4_corner.y * size4.x) +

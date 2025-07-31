@@ -9,7 +9,8 @@ use crate::{
     types::Interval,
     wgpu::{
         interval_subtiles_shader, interval_tiles_shader, resize_buffer,
-        resize_buffer_with, voxel_ray_shader, write_storage_buffer,
+        resize_buffer_with, size_fix_shader, voxel_ray_shader,
+        write_storage_buffer,
     },
 };
 
@@ -162,7 +163,7 @@ impl IntervalTileContext {
         let active_tile16_count =
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("active_tile16_count"),
-                size: 3 * std::mem::size_of::<u32>() as u64,
+                size: 4 * std::mem::size_of::<u32>() as u64,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC
@@ -219,10 +220,10 @@ impl IntervalTileContext {
             .write_buffer_with(
                 &self.active_tile16_count,
                 0,
-                (std::mem::size_of::<[u32; 3]>() as u64).try_into().unwrap(),
+                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
             )
             .unwrap()
-            .copy_from_slice([0u32, 1, 1].as_bytes());
+            .copy_from_slice([0u32; 4].as_bytes());
 
         // Write active tiles to our buffer
         write_storage_buffer(
@@ -273,12 +274,8 @@ impl IntervalTileContext {
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        // XXX is this correct?
-        compute_pass.dispatch_workgroups(
-            (active_tiles.len() % 65536) as u32,
-            active_tiles.len().div_ceil(65536).try_into().unwrap(),
-            1,
-        );
+        // XXX could this overflow?
+        compute_pass.dispatch_workgroups(active_tiles.len() as u32, 1, 1);
         drop(compute_pass);
     }
 }
@@ -379,7 +376,7 @@ impl IntervalSubtileContext {
         let active_tile4_count =
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("active_tile4_count"),
-                size: 3 * std::mem::size_of::<u32>() as u64,
+                size: 4 * std::mem::size_of::<u32>() as u64,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC
@@ -434,10 +431,10 @@ impl IntervalSubtileContext {
             .write_buffer_with(
                 &self.active_tile4_count,
                 0,
-                (std::mem::size_of::<[u32; 3]>() as u64).try_into().unwrap(),
+                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
             )
             .unwrap()
-            .copy_from_slice([0u32, 1, 1].as_bytes());
+            .copy_from_slice([0u32; 4].as_bytes());
         let nx = ctx.settings.image_size.width().div_ceil(64) as usize * 16;
         let ny = ctx.settings.image_size.height().div_ceil(64) as usize * 16;
         let nz = ctx.settings.image_size.depth().div_ceil(64) as usize * 16;
@@ -492,7 +489,7 @@ impl IntervalSubtileContext {
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        compute_pass.dispatch_workgroups_indirect(active_tile16_count, 0);
+        compute_pass.dispatch_workgroups_indirect(active_tile16_count, 4);
         drop(compute_pass);
     }
 }
@@ -660,7 +657,7 @@ impl VoxelContext {
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
-        compute_pass.dispatch_workgroups_indirect(active_tile4_count, 0);
+        compute_pass.dispatch_workgroups_indirect(active_tile4_count, 4);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -721,6 +718,7 @@ pub struct VoxelRayContext {
     interval_tile_ctx: IntervalTileContext,
     interval_subtile_ctx: IntervalSubtileContext,
     voxel_ctx: VoxelContext,
+    size_fix_ctx: SizeFixContext,
 }
 
 /// Buffers which must be dynamically sized
@@ -804,8 +802,19 @@ impl DynamicBuffers {
             &mut self.result,
             "result",
             image_pixels,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
+        queue
+            .write_buffer_with(
+                &self.result,
+                0,
+                (image_pixels as u64 * 4).try_into().unwrap(),
+            )
+            .unwrap()
+            .copy_from_slice(vec![0u8; image_pixels * 4].as_slice());
+
         resize_buffer_with::<u32>(
             device,
             &mut self.image,
@@ -850,6 +859,7 @@ impl VoxelRayContext {
         let interval_tile_ctx = IntervalTileContext::new(&device)?;
         let interval_subtile_ctx = IntervalSubtileContext::new(&device)?;
         let voxel_ctx = VoxelContext::new(&device)?;
+        let size_fix_ctx = SizeFixContext::new(&device)?;
         let buffers = DynamicBuffers::new(&device);
 
         Ok(Self {
@@ -859,6 +869,7 @@ impl VoxelRayContext {
             interval_tile_ctx,
             interval_subtile_ctx,
             voxel_ctx,
+            size_fix_ctx,
         })
     }
 
@@ -990,10 +1001,20 @@ impl VoxelRayContext {
 
         self.interval_tile_ctx
             .run(&active_tiles, &ctx, &mut encoder);
+        self.size_fix_ctx.run(
+            ctx.device,
+            &self.interval_tile_ctx.active_tile16_count,
+            &mut encoder,
+        );
         self.interval_subtile_ctx.run(
             &ctx,
             &self.interval_tile_ctx.active_tile16_count,
             &self.interval_tile_ctx.active_tile16,
+            &mut encoder,
+        );
+        self.size_fix_ctx.run(
+            ctx.device,
+            &self.interval_subtile_ctx.active_tile4_count,
             &mut encoder,
         );
         self.voxel_ctx.run(
@@ -1006,18 +1027,26 @@ impl VoxelRayContext {
         // Submit the commands and wait for the GPU to complete
         self.queue.submit(Some(encoder.finish()));
 
-        let tile16_size = get_buffer::<u32>(
-            ctx.device,
-            ctx.queue,
-            &self.interval_tile_ctx.active_tile16_count,
-        );
-        println!("{tile16_size:?}");
-        let tile4_size = get_buffer::<u32>(
-            ctx.device,
-            ctx.queue,
-            &self.interval_subtile_ctx.active_tile4_count,
-        );
-        println!("{tile4_size:?}");
+        if false {
+            let tile16_size = get_buffer::<u32>(
+                ctx.device,
+                ctx.queue,
+                &self.interval_tile_ctx.active_tile16_count,
+            );
+            println!("{tile16_size:?}");
+            let tile4_size = get_buffer::<u32>(
+                ctx.device,
+                ctx.queue,
+                &self.interval_subtile_ctx.active_tile4_count,
+            );
+            println!("{tile4_size:?}");
+            let tile4_data = get_buffer::<u32>(
+                ctx.device,
+                ctx.queue,
+                &self.interval_subtile_ctx.active_tile4,
+            );
+            println!("{:?}", &tile4_data[..tile4_size[0] as usize]);
+        }
 
         // Map result buffer and read back the data
         let buffer_slice = self.buffers.image.slice(..);
@@ -1053,13 +1082,10 @@ impl VoxelRayContext {
                 &self.queue,
                 &self.interval_tile_ctx.active_tile16,
             );
+            println!("got active tile16 {:?}", &active[..size[0] as usize]);
             println!(
                 "got active tile16 {:?}",
-                &active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
-            );
-            println!(
-                "got active tile16 {:?}",
-                active[..size[0] as usize + 65536 * (size[1] as usize - 1)]
+                active[..size[0] as usize]
                     .iter()
                     .map(|t| (t % 4, (t / 4) % 4, (t / 16)))
                     .collect::<Vec<_>>()
@@ -1067,6 +1093,89 @@ impl VoxelRayContext {
         }
 
         Some(Ok(result))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct SizeFixContext {
+    /// Compute pipeline
+    pipeline: wgpu::ComputePipeline,
+
+    /// Bind group layout
+    bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl SizeFixContext {
+    fn new(device: &wgpu::Device) -> Result<Self, Error> {
+        let shader_code = size_fix_shader();
+
+        // Create bind group layout and bind group
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_rw(0), // size
+                ],
+            });
+
+        // Create the compute pipeline
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        // Compile the shader
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+
+        let pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("size_fix"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        Ok(Self {
+            pipeline,
+            bind_group_layout,
+        })
+    }
+
+    fn run(
+        &mut self,
+        device: &wgpu::Device,
+        buf: &wgpu::Buffer,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buf.as_entire_binding(),
+            }],
+        });
+
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None,
+            });
+        compute_pass.set_pipeline(&self.pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+
+        // XXX is this correct?
+        compute_pass.dispatch_workgroups(1, 1, 1);
+        drop(compute_pass);
     }
 }
 
