@@ -306,6 +306,7 @@ struct IntervalSubtileContext {
     /// Output from this stage
     active_tile4_count: wgpu::Buffer,
     active_tile4: wgpu::Buffer,
+    tile4_zmin: wgpu::Buffer,
 
     /// Compute pipeline
     pipeline: wgpu::ComputePipeline,
@@ -330,6 +331,7 @@ impl IntervalSubtileContext {
                     buffer_ro(4),  // active_tile16
                     buffer_rw(5),  // active_tile4_count
                     buffer_rw(6),  // active_tile4
+                    buffer_rw(7),  // tile4_zmin
                 ],
             });
 
@@ -371,6 +373,12 @@ impl IntervalSubtileContext {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let tile4_zmin = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scratch tile4_zmin"),
+            size: 1,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         // These buffers never change size
         let active_tile4_count =
@@ -390,6 +398,7 @@ impl IntervalSubtileContext {
             config_buf,
             active_tile4_count,
             active_tile4,
+            tile4_zmin,
         })
     }
 
@@ -435,6 +444,7 @@ impl IntervalSubtileContext {
             )
             .unwrap()
             .copy_from_slice([0u32; 4].as_bytes());
+
         let nx = ctx.settings.image_size.width().div_ceil(64) as usize * 16;
         let ny = ctx.settings.image_size.height().div_ceil(64) as usize * 16;
         let nz = ctx.settings.image_size.depth().div_ceil(64) as usize * 16;
@@ -443,6 +453,13 @@ impl IntervalSubtileContext {
             &mut self.active_tile4,
             "active_tile4",
             nx * ny * nz,
+        );
+        write_storage_buffer::<u32>(
+            ctx.device,
+            ctx.queue,
+            &mut self.tile4_zmin,
+            "tile4_zmin",
+            &vec![0u32; nx * ny],
         );
 
         let bind_group =
@@ -477,6 +494,10 @@ impl IntervalSubtileContext {
                     wgpu::BindGroupEntry {
                         binding: 6,
                         resource: self.active_tile4.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: self.tile4_zmin.as_entire_binding(),
                     },
                 ],
             });
@@ -539,7 +560,8 @@ impl VoxelContext {
                     buffer_ro(2),  // tile64_tapes
                     buffer_ro(3),  // active_tile4_count
                     buffer_ro(4),  // active_tile4
-                    buffer_rw(5),  // result
+                    buffer_ro(5),  // tile4_zmin
+                    buffer_rw(6),  // result
                 ],
             });
 
@@ -587,6 +609,7 @@ impl VoxelContext {
         ctx: &CommonCtx<F>,
         active_tile4_count: &wgpu::Buffer,
         active_tile4: &wgpu::Buffer,
+        tile4_zmin: &wgpu::Buffer,
         encoder: &mut wgpu::CommandEncoder,
     ) {
         let vars = ctx.shape.inner().vars();
@@ -642,6 +665,10 @@ impl VoxelContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
+                        resource: tile4_zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
                         resource: ctx.buf.result.as_entire_binding(),
                     },
                 ],
@@ -1021,6 +1048,7 @@ impl VoxelRayContext {
             &ctx,
             &self.interval_subtile_ctx.active_tile4_count,
             &self.interval_subtile_ctx.active_tile4,
+            &self.interval_subtile_ctx.tile4_zmin,
             &mut encoder,
         );
 

@@ -14,9 +14,10 @@
 
 @group(0) @binding(3) var<storage, read> active_tile4_count: array<u32, 4>;
 @group(0) @binding(4) var<storage, read> active_tile4: array<u32>;
+@group(0) @binding(5) var<storage, read> tile4_zmin: array<u32>;
 
 /// Output array, image size
-@group(0) @binding(5) var<storage, read_write> result: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> result: array<atomic<u32>>;
 
 /// Global render configuration
 ///
@@ -37,8 +38,6 @@ struct Config {
     /// Explicit padding
     _padding2: u32,
 }
-
-var<workgroup> wg_done: atomic<u32>;
 
 @compute @workgroup_size(4, 4, 4)
 fn voxel_ray_main(
@@ -67,6 +66,13 @@ fn voxel_ray_main(
     // Subtile corner position, in voxels
     let corner_pos = tile4_corner * 4 + local_id;
 
+    let tile4_index_xy = tx + ty * size4.x;
+    let pixel_index_xy = corner_pos.x + corner_pos.y * config.image_size.x;
+    if (tile4_zmin[tile4_index_xy] >= corner_pos.z) {
+        atomicMax(&result[pixel_index_xy], tile4_zmin[tile4_index_xy]);
+        return;
+    }
+
     // Pick out our starting tape, based on absolute position
     let tile64_pos = corner_pos / 64;
     let tile64_index = tile64_pos.x +
@@ -75,13 +81,12 @@ fn voxel_ray_main(
     let tape_start = tile64_tapes[tile64_index];
 
     // Voxel evaluation
-    let pixel_index = corner_pos.x + corner_pos.y * config.image_size.x;
-    if (atomicLoad(&result[pixel_index]) >= u32(corner_pos.z)) {
+    if (atomicLoad(&result[pixel_index_xy]) >= u32(corner_pos.z)) {
         return;
     }
     let out = raycast(tape_start, vec3u(corner_pos));
     if (out > 0) {
-        atomicMax(&result[pixel_index], out);
+        atomicMax(&result[pixel_index_xy], out);
     }
 }
 

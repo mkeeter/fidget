@@ -18,6 +18,7 @@
 
 @group(0) @binding(5) var<storage, read_write> active_tile4_count: array<atomic<u32>, 4>;
 @group(0) @binding(6) var<storage, read_write> active_tile4: array<u32>;
+@group(0) @binding(7) var<storage, read_write> tile4_zmin: array<atomic<u32>>;
 
 /// Global render configuration
 ///
@@ -96,16 +97,18 @@ fn interval_tile4_main(
     // Do the actual interpreter work
     let out = run_tape_i(tape_start, m);
 
+    let tile4_corner = tile16_corner * 4 + local_id;
     if (out[1] < 0.0) {
         // Full
+        let tile4_index_xy = tile4_corner.x + (tile4_corner.y * size4.x);
+        atomicMax(&tile4_zmin[tile4_index_xy], corner_pos.z + 4);
     } else if (out[0] > 0.0) {
-        // Empty
+        // Empty, nothing to do here
     } else {
         let offset = atomicAdd(&active_tile4_count[0], 1u);
-        let tile4_corner = tile16_corner * 4 + local_id;
-        let subtile_index = tile4_corner.x +
+        let tile4_index_xyz = tile4_corner.x +
             (tile4_corner.y * size4.x) +
             (tile4_corner.z * size4.x * size4.y);
-        active_tile4[offset] = subtile_index;
+        active_tile4[offset] = tile4_index_xyz;
     }
 }
