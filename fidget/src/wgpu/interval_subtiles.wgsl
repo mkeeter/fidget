@@ -15,10 +15,11 @@
 
 @group(0) @binding(3) var<storage, read> active_tile16_count: array<u32, 3>;
 @group(0) @binding(4) var<storage, read> active_tile16: array<u32>;
+@group(0) @binding(5) var<storage, read> tile16_zmin: array<u32>;
 
-@group(0) @binding(5) var<storage, read_write> active_tile4_count: array<atomic<u32>, 4>;
-@group(0) @binding(6) var<storage, read_write> active_tile4: array<u32>;
-@group(0) @binding(7) var<storage, read_write> tile4_zmin: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> active_tile4_count: array<atomic<u32>, 4>;
+@group(0) @binding(7) var<storage, read_write> active_tile4: array<u32>;
+@group(0) @binding(8) var<storage, read_write> tile4_zmin: array<atomic<u32>>;
 
 /// Global render configuration
 ///
@@ -60,8 +61,19 @@ fn interval_tile4_main(
     let tz = (t / (size16.x * size16.y)) % size16.z;
     let tile16_corner = vec3u(tx, ty, tz);
 
+    // Subtile corner position
+    let tile4_corner = tile16_corner * 4 + local_id;
+    let tile4_index_xy = tile4_corner.x + (tile4_corner.y * size4.x);
+
     // Subtile corner position, in voxels
-    let corner_pos = tile16_corner * 16 + local_id * 4;
+    let corner_pos = tile4_corner * 4;
+
+    // Check for Z masking from tile16
+    let tile16_index_xy = tile16_corner.x + tile16_corner.y * size16.x;
+    if (tile16_zmin[tile16_index_xy] >= corner_pos.z) {
+        atomicMax(&tile4_zmin[tile4_index_xy], tile16_zmin[tile16_index_xy]);
+        return;
+    }
 
     // Pick out our starting tape, based on absolute position
     let tile64_pos = corner_pos / 64;
@@ -94,13 +106,16 @@ fn interval_tile4_main(
         m[config.axes.z] = div_i(ts[2], ts[3]);
     }
 
+    // Last-minute check to see if anyone filled out this tile
+    if (atomicLoad(&tile4_zmin[tile4_index_xy]) >= corner_pos.z + 4) {
+        return;
+    }
+
     // Do the actual interpreter work
     let out = run_tape_i(tape_start, m);
 
-    let tile4_corner = tile16_corner * 4 + local_id;
     if (out[1] < 0.0) {
-        // Full
-        let tile4_index_xy = tile4_corner.x + (tile4_corner.y * size4.x);
+        // Full, write to tile4_zmin
         atomicMax(&tile4_zmin[tile4_index_xy], corner_pos.z + 4);
     } else if (out[0] > 0.0) {
         // Empty, nothing to do here
