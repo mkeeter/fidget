@@ -75,9 +75,9 @@ impl TileContext {
             let adapter = instance
                 .request_adapter(&wgpu::RequestAdapterOptions::default())
                 .await
-                .ok_or(Error::NoAdapter)?;
+                .map_err(|_| Error::NoAdapter)?;
             adapter
-                .request_device(&wgpu::DeviceDescriptor::default(), None)
+                .request_device(&wgpu::DeviceDescriptor::default())
                 .await
                 .map_err(Error::NoDevice)
         })?;
@@ -181,7 +181,7 @@ pub(crate) fn write_storage_buffer<T: IntoBytes + Immutable>(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     buf: &mut wgpu::Buffer,
-    name: &'static str,
+    name: &str,
     data: &[T],
 ) {
     let size = std::mem::size_of_val(data) as u64;
@@ -207,7 +207,7 @@ pub(crate) fn write_storage_buffer<T: IntoBytes + Immutable>(
 pub(crate) fn resize_buffer<T>(
     device: &wgpu::Device,
     buf: &mut wgpu::Buffer,
-    name: &'static str,
+    name: &str,
     count: usize,
 ) {
     resize_buffer_with::<T>(
@@ -223,7 +223,7 @@ pub(crate) fn resize_buffer<T>(
 pub(crate) fn resize_buffer_with<T>(
     device: &wgpu::Device,
     buf: &mut wgpu::Buffer,
-    name: &'static str,
+    name: &str,
     count: usize,
     usages: wgpu::BufferUsages,
 ) {
@@ -272,14 +272,8 @@ pub fn voxel_tiles_shader() -> String {
 pub fn voxel_ray_shader() -> String {
     let mut shader_code = opcode_constants();
     shader_code += INTERPRETER_1F;
-    shader_code += OCCUPANCY_SHADER;
     shader_code += VOXEL_RAY_SHADER;
     shader_code
-}
-
-/// Returns a shader string to fix up a `[u32; 3]` size
-pub fn size_fix_shader() -> String {
-    SIZE_FIX_SHADER.to_owned()
 }
 
 /// Returns a shader string to perform the interval evaluation step
@@ -287,16 +281,6 @@ pub fn interval_tiles_shader() -> String {
     let mut shader_code = opcode_constants();
     shader_code += INTERPRETER_I;
     shader_code += INTERVAL_TILES_SHADER;
-    shader_code += OCCUPANCY_SHADER;
-    shader_code
-}
-
-/// Returns a shader string to perform the interval evaluation step
-pub fn interval_subtiles_shader() -> String {
-    let mut shader_code = opcode_constants();
-    shader_code += INTERPRETER_I;
-    shader_code += INTERVAL_SUBTILES_SHADER;
-    shader_code += OCCUPANCY_SHADER;
     shader_code
 }
 
@@ -321,17 +305,8 @@ const VOXEL_RAY_SHADER: &str = include_str!("voxel_ray.wgsl");
 /// `main` shader function for 16x16x16 tile interval evaluation
 const INTERVAL_TILES_SHADER: &str = include_str!("interval_tiles.wgsl");
 
-/// `main` shader function for 4x4x4 tile interval evaluation
-const INTERVAL_SUBTILES_SHADER: &str = include_str!("interval_subtiles.wgsl");
-
-/// `Occupancy` data type for shaders
-const OCCUPANCY_SHADER: &str = include_str!("occupancy.wgsl");
-
 /// Common data types for shaders
 const COMMON_SHADER: &str = include_str!("common.wgsl");
-
-/// Size fixup shader
-const SIZE_FIX_SHADER: &str = include_str!("size_fix.wgsl");
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -361,7 +336,6 @@ mod test {
             (voxel_tiles_shader(), "voxel tiles"),
             (voxel_ray_shader(), "voxel raymarching"),
             (interval_tiles_shader(), "interval tiles"),
-            (interval_subtiles_shader(), "interval subtiles"),
         ] {
             // This isn't the best formatting, but it will at least include the
             // relevant text.

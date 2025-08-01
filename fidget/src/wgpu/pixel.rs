@@ -256,7 +256,7 @@ impl PixelContext {
         // Map result buffer and read back the data
         let buffer_slice = self.ctx.out_buf.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.ctx.device.poll(wgpu::Maintain::Wait);
+        self.ctx.device.poll(wgpu::PollType::Wait).unwrap();
 
         let mut result =
             <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
@@ -375,7 +375,7 @@ impl PixelContext {
         // Map result buffer and read back the data
         let buffer_slice = self.ctx.out_buf.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.ctx.device.poll(wgpu::Maintain::Wait);
+        self.ctx.device.poll(wgpu::PollType::Wait).unwrap();
 
         let result = <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
             .unwrap()

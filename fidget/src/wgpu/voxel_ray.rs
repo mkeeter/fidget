@@ -8,8 +8,7 @@ use crate::{
     shape::{Shape, ShapeTracingEval, ShapeVars},
     types::Interval,
     wgpu::{
-        interval_subtiles_shader, interval_tiles_shader, resize_buffer,
-        resize_buffer_with, size_fix_shader, voxel_ray_shader,
+        interval_tiles_shader, resize_buffer_with, voxel_ray_shader,
         write_storage_buffer,
     },
 };
@@ -30,29 +29,31 @@ struct IntervalTileConfig {
     ///
     /// `u32::MAX` is used as a marker if an axis is unused
     axes: [u32; 3],
-
-    /// Number of tiles in the active tile list
-    active_tile_count: u32,
+    _padding1: u32,
 
     /// Total window size
     image_size: [u32; 3],
-    _padding: u32,
+    _padding2: u32,
 }
 
 struct IntervalTileContext {
     /// Configuration data (fixed size)
     config_buf: wgpu::Buffer,
 
-    /// Active tile list (flexibly sized, with one tile per workgroup)
-    active_tile64: wgpu::Buffer,
+    /// Input tiles (64^3)
+    tile64_buffers: TileBuffers<64>,
 
-    /// Output from this stage
-    active_tile16_count: wgpu::Buffer,
-    active_tile16: wgpu::Buffer,
-    tile16_zmin: wgpu::Buffer,
+    /// First stage output tiles (16^3)
+    tile16_buffers: TileBuffers<16>,
 
-    /// Compute pipeline
-    pipeline: wgpu::ComputePipeline,
+    /// First stage output tiles (4^3)
+    tile4_buffers: TileBuffers<4>,
+
+    /// Compute pipeline for 16^3 tiles
+    pipeline16: wgpu::ComputePipeline,
+
+    /// Compute pipeline for 4^3 tiles
+    pipeline4: wgpu::ComputePipeline,
 
     /// Bind group layout
     bind_group_layout: wgpu::BindGroupLayout,
@@ -109,10 +110,12 @@ impl IntervalTileContext {
                     buffer_cfg(0), // config
                     buffer_ro(1),  // tape_data
                     buffer_ro(2),  // tile64_tapes
-                    buffer_ro(3),  // active_tile64 (count is in Config)
-                    buffer_rw(4),  // active_tile16_count
-                    buffer_rw(5),  // active_tile16
-                    buffer_rw(6),  // tile16_zmin
+                    buffer_ro(3),  // active_tile_count
+                    buffer_ro(4),  // active_tile
+                    buffer_ro(5),  // tile_zmin
+                    buffer_rw(6),  // active_subtile_count
+                    buffer_rw(7),  // active_subtile
+                    buffer_rw(8),  // subtile_zmin
                 ],
             });
 
@@ -131,13 +134,29 @@ impl IntervalTileContext {
                 source: wgpu::ShaderSource::Wgsl(shader_code.into()),
             });
 
-        let pipeline =
+        let pipeline16 =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: None,
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
-                entry_point: Some("interval_tile16_main"),
-                compilation_options: Default::default(),
+                entry_point: Some("interval_tile_main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("TILE_SIZE", 64.0)],
+                    ..Default::default()
+                },
+                cache: None,
+            });
+
+        let pipeline4 =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("interval_tile_main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("TILE_SIZE", 16.0)],
+                    ..Default::default()
+                },
                 cache: None,
             });
 
@@ -148,45 +167,18 @@ impl IntervalTileContext {
             mapped_at_creation: false,
         });
 
-        let active_tile64 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("scratch active_tile64"),
-            size: 1,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let active_tile16 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("scratch active_tile16"),
-            size: 1,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let tile16_zmin = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("scratch tile16_zmin"),
-            size: 1,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // These buffers never change size
-        let active_tile16_count =
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("active_tile16_count"),
-                size: 4 * std::mem::size_of::<u32>() as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC
-                    | wgpu::BufferUsages::INDIRECT,
-                mapped_at_creation: false,
-            });
+        let tile64_buffers = TileBuffers::new(device);
+        let tile16_buffers = TileBuffers::new(device);
+        let tile4_buffers = TileBuffers::new(device);
 
         Ok(Self {
-            pipeline,
             bind_group_layout,
             config_buf,
-            active_tile64,
-            active_tile16_count,
-            active_tile16,
-            tile16_zmin,
+            tile64_buffers,
+            tile16_buffers,
+            tile4_buffers,
+            pipeline16,
+            pipeline4,
         })
     }
 
@@ -203,13 +195,13 @@ impl IntervalTileContext {
                 .shape
                 .axes()
                 .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX)),
+            _padding1: 0u32,
             image_size: [
                 ctx.settings.image_size.width(),
                 ctx.settings.image_size.height(),
                 ctx.settings.image_size.depth(),
             ],
-            active_tile_count: active_tiles.len().try_into().unwrap(),
-            _padding: 0u32,
+            _padding2: 0u32,
         };
         println!("{config:?}");
         println!("{}", ctx.mat);
@@ -224,333 +216,130 @@ impl IntervalTileContext {
             .unwrap()
             .copy_from_slice(config.as_bytes());
 
-        // Clear the `active_tile16_count` global counter
+        self.tile64_buffers.reset_with_count(
+            ctx.device,
+            ctx.queue,
+            active_tiles.len(),
+            ctx.settings.image_size,
+        );
+        self.tile16_buffers.reset(
+            ctx.device,
+            ctx.queue,
+            ctx.settings.image_size,
+        );
+        self.tile4_buffers.reset(
+            ctx.device,
+            ctx.queue,
+            ctx.settings.image_size,
+        );
+
+        // Write tile count and buffer data
         ctx.queue
             .write_buffer_with(
-                &self.active_tile16_count,
+                &self.tile64_buffers.count,
                 0,
-                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
+                (std::mem::size_of::<u32>() as u64).try_into().unwrap(),
             )
             .unwrap()
-            .copy_from_slice([0u32; 4].as_bytes());
+            .copy_from_slice((active_tiles.len() as u32).as_bytes());
+        ctx.queue
+            .write_buffer_with(
+                &self.tile64_buffers.active,
+                0,
+                (active_tiles.len() as u64 * 4).try_into().unwrap(),
+            )
+            .unwrap()
+            .copy_from_slice(active_tiles.as_bytes());
 
-        // Write active tiles to our buffer
-        write_storage_buffer(
-            ctx.device,
-            ctx.queue,
-            &mut self.active_tile64,
-            "active tiles",
-            active_tiles,
+        let bind_group16 = self.create_bind_group(
+            ctx,
+            &self.tile64_buffers,
+            &self.tile16_buffers,
         );
-        resize_buffer::<u32>(
-            ctx.device,
-            &mut self.active_tile16,
-            "active_tile16",
-            active_tiles.len() * 64,
-        );
-        // Clear the tile16_zmin buffer
-        let nx = ctx.settings.image_size.width().div_ceil(64) as usize * 4;
-        let ny = ctx.settings.image_size.height().div_ceil(64) as usize * 4;
-        write_storage_buffer::<u32>(
-            ctx.device,
-            ctx.queue,
-            &mut self.tile16_zmin,
-            "tile16_zmin",
-            &vec![0u32; nx * ny], // TODO cache this?
-        );
-
-        let bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.config_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: ctx.buf.tape_data.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: ctx.buf.tile64_tapes.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: self.active_tile64.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: self.active_tile16_count.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: self.active_tile16.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: self.tile16_zmin.as_entire_binding(),
-                    },
-                ],
-            });
-
-        let mut compute_pass =
+        let mut compute_pass16 =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
                 timestamp_writes: None,
             });
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
-
+        compute_pass16.set_pipeline(&self.pipeline16);
+        compute_pass16.set_bind_group(0, &bind_group16, &[]);
         // XXX could this overflow?
-        compute_pass.dispatch_workgroups(active_tiles.len() as u32, 1, 1);
-        drop(compute_pass);
+        println!("DISPATCHING {}", active_tiles.len());
+        compute_pass16.dispatch_workgroups(active_tiles.len() as u32, 1, 1);
+        drop(compute_pass16);
+
+        let bind_group4 = self.create_bind_group(
+            ctx,
+            &self.tile16_buffers,
+            &self.tile4_buffers,
+        );
+        let mut compute_pass4 =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None,
+            });
+        compute_pass4.set_pipeline(&self.pipeline4);
+        compute_pass4.set_bind_group(0, &bind_group4, &[]);
+        compute_pass4
+            .dispatch_workgroups_indirect(&self.tile16_buffers.count, 4);
+        drop(compute_pass4);
     }
-}
 
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, IntoBytes, Immutable)]
-#[repr(C)]
-struct IntervalSubtileConfig {
-    /// Screen-to-model transform matrix
-    mat: [f32; 16],
-
-    /// Input index of X, Y, Z axes
-    ///
-    /// `u32::MAX` is used as a marker if an axis is unused
-    axes: [u32; 3],
-    _padding1: u32,
-
-    /// Total window size
-    image_size: [u32; 3],
-    _padding2: u32,
-}
-
-struct IntervalSubtileContext {
-    /// Configuration data (fixed size)
-    config_buf: wgpu::Buffer,
-
-    /// Output from this stage
-    active_tile4_count: wgpu::Buffer,
-    active_tile4: wgpu::Buffer,
-    tile4_zmin: wgpu::Buffer,
-
-    /// Compute pipeline
-    pipeline: wgpu::ComputePipeline,
-
-    /// Bind group layout
-    bind_group_layout: wgpu::BindGroupLayout,
-}
-
-impl IntervalSubtileContext {
-    fn new(device: &wgpu::Device) -> Result<Self, Error> {
-        let shader_code = interval_subtiles_shader();
-
-        // Create bind group layout and bind group
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // tape_data
-                    buffer_ro(2),  // tile64_tapes
-                    buffer_ro(3),  // active_tile16_count
-                    buffer_ro(4),  // active_tile16
-                    buffer_ro(5),  // tile16_zmin
-                    buffer_rw(6),  // active_tile4_count
-                    buffer_rw(7),  // active_tile4
-                    buffer_rw(8),  // tile4_zmin
-                ],
-            });
-
-        // Create the compute pipeline
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        // Compile the shader
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-
-        let pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("interval_tile4_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: std::mem::size_of::<IntervalTileConfig>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let active_tile4 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("scratch active_tile4"),
-            size: 1,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let tile4_zmin = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("scratch tile4_zmin"),
-            size: 1,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // These buffers never change size
-        let active_tile4_count =
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("active_tile4_count"),
-                size: 4 * std::mem::size_of::<u32>() as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC
-                    | wgpu::BufferUsages::INDIRECT,
-                mapped_at_creation: false,
-            });
-
-        Ok(Self {
-            pipeline,
-            bind_group_layout,
-            config_buf,
-            active_tile4_count,
-            active_tile4,
-            tile4_zmin,
+    fn create_bind_group<
+        F: Function + MathFunction,
+        const N: usize,
+        const M: usize,
+    >(
+        &self,
+        ctx: &CommonCtx<F>,
+        tile_buffers: &TileBuffers<N>,
+        subtile_buffers: &TileBuffers<M>,
+    ) -> wgpu::BindGroup {
+        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.config_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: ctx.buf.tape_data.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: ctx.buf.tile64_tapes.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: tile_buffers.count.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: tile_buffers.active.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: tile_buffers.zmin.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: subtile_buffers.count.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: subtile_buffers.active.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: subtile_buffers.zmin.as_entire_binding(),
+                },
+            ],
         })
     }
-
-    fn run<F: Function + MathFunction>(
-        &mut self,
-        ctx: &CommonCtx<F>,
-        tile64_count: u64,
-        active_tile16_count: &wgpu::Buffer,
-        active_tile16: &wgpu::Buffer,
-        tile16_zmin: &wgpu::Buffer,
-        encoder: &mut wgpu::CommandEncoder,
-    ) {
-        let vars = ctx.shape.inner().vars();
-        let config = IntervalSubtileConfig {
-            mat: ctx.mat.data.as_slice().try_into().unwrap(),
-            axes: ctx
-                .shape
-                .axes()
-                .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX)),
-            image_size: [
-                ctx.settings.image_size.width(),
-                ctx.settings.image_size.height(),
-                ctx.settings.image_size.depth(),
-            ],
-            _padding1: 0,
-            _padding2: 0,
-        };
-
-        // Load the config into our buffer
-        ctx.queue
-            .write_buffer_with(
-                &self.config_buf,
-                0,
-                (std::mem::size_of_val(&config) as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice(config.as_bytes());
-
-        // Clear the `active_tile4_count` global counter
-        ctx.queue
-            .write_buffer_with(
-                &self.active_tile4_count,
-                0,
-                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice([0u32; 4].as_bytes());
-
-        let nx = ctx.settings.image_size.width().div_ceil(64) as usize * 16;
-        let ny = ctx.settings.image_size.height().div_ceil(64) as usize * 16;
-        resize_buffer::<u32>(
-            ctx.device,
-            &mut self.active_tile4,
-            "active_tile4",
-            tile64_count as usize * 64usize.pow(2),
-        );
-
-        // Clear the tile4_zmin buffer
-        write_storage_buffer::<u32>(
-            ctx.device,
-            ctx.queue,
-            &mut self.tile4_zmin,
-            "tile4_zmin",
-            &vec![0u32; nx * ny], // TODO cache this?
-        );
-
-        let bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.config_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: ctx.buf.tape_data.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: ctx.buf.tile64_tapes.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: active_tile16_count.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: active_tile16.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: tile16_zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: self.active_tile4_count.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: self.active_tile4.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
-                        resource: self.tile4_zmin.as_entire_binding(),
-                    },
-                ],
-            });
-
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
-
-        compute_pass.dispatch_workgroups_indirect(active_tile16_count, 4);
-        drop(compute_pass);
-    }
 }
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, IntoBytes, Immutable)]
@@ -644,9 +433,7 @@ impl VoxelContext {
     fn run<F: Function>(
         &mut self,
         ctx: &CommonCtx<F>,
-        active_tile4_count: &wgpu::Buffer,
-        active_tile4: &wgpu::Buffer,
-        tile4_zmin: &wgpu::Buffer,
+        tile4_buffers: &TileBuffers<4>,
         encoder: &mut wgpu::CommandEncoder,
     ) {
         let vars = ctx.shape.inner().vars();
@@ -694,15 +481,15 @@ impl VoxelContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: active_tile4_count.as_entire_binding(),
+                        resource: tile4_buffers.count.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: active_tile4.as_entire_binding(),
+                        resource: tile4_buffers.active.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: tile4_zmin.as_entire_binding(),
+                        resource: tile4_buffers.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 6,
@@ -721,7 +508,7 @@ impl VoxelContext {
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
-        compute_pass.dispatch_workgroups_indirect(active_tile4_count, 4);
+        compute_pass.dispatch_workgroups_indirect(&tile4_buffers.count, 4);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -762,7 +549,7 @@ where
 
     let buffer_slice = scratch.slice(..);
     buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-    device.poll(wgpu::Maintain::Wait);
+    device.poll(wgpu::PollType::Wait).unwrap();
 
     let out = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
         .unwrap()
@@ -780,9 +567,89 @@ pub struct VoxelRayContext {
     buffers: DynamicBuffers,
 
     interval_tile_ctx: IntervalTileContext,
-    interval_subtile_ctx: IntervalSubtileContext,
     voxel_ctx: VoxelContext,
-    size_fix_ctx: SizeFixContext,
+}
+
+struct TileBuffers<const N: usize> {
+    count: wgpu::Buffer,
+    active: wgpu::Buffer,
+    zmin: wgpu::Buffer,
+    zmin_scratch: Vec<u32>,
+}
+
+impl<const N: usize> TileBuffers<N> {
+    fn new(device: &wgpu::Device) -> Self {
+        Self {
+            count: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("active_tile{N}_count")),
+                size: 4 * std::mem::size_of::<u32>() as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::INDIRECT,
+                mapped_at_creation: false,
+            }),
+            active: scratch_buffer(device),
+            zmin: scratch_buffer(device),
+            zmin_scratch: vec![],
+        }
+    }
+
+    /// Reset buffers, allocating room for densely packed tiles tiles
+    fn reset(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image_size: VoxelSize,
+    ) {
+        let nx = image_size.width().div_ceil(64) as usize * (64 / N);
+        let ny = image_size.width().div_ceil(64) as usize * (64 / N);
+        let nz = image_size.width().div_ceil(64) as usize * (64 / N);
+        self.reset_with_count(device, queue, nx * ny * nz, image_size);
+    }
+
+    fn reset_with_count(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        active_tile_count: usize,
+        image_size: VoxelSize,
+    ) {
+        // resize the active tile list
+        let nx = image_size.width().div_ceil(64) as usize * (64 / N);
+        let ny = image_size.width().div_ceil(64) as usize * (64 / N);
+        resize_buffer_with::<u32>(
+            device,
+            &mut self.active,
+            &format!("active_tile{N}"),
+            active_tile_count,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        // zero out the zmin buffer
+        if self.zmin_scratch.len() != nx * ny {
+            self.zmin_scratch.resize(nx * ny, 0u32);
+        }
+        write_storage_buffer(
+            device,
+            queue,
+            &mut self.zmin,
+            &format!("tile{N}_zmin"),
+            &self.zmin_scratch,
+        );
+
+        // reset the active tile count buffer
+        queue
+            .write_buffer_with(
+                &self.count,
+                0,
+                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
+            )
+            .unwrap()
+            .copy_from_slice([0u32, 0, 0, 1].as_bytes());
+    }
 }
 
 /// Buffers which must be dynamically sized
@@ -806,22 +673,22 @@ pub struct DynamicBuffers {
     image: wgpu::Buffer,
 }
 
+fn scratch_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 1,
+        usage: wgpu::BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    })
+}
+
 impl DynamicBuffers {
     fn new(device: &wgpu::Device) -> Self {
-        let scratch = |name| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(name),
-                size: 1,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        };
         Self {
-            tape_data: scratch("dummy tape data"),
-            tile64_tapes: scratch("dummy tile64 tapes"),
-            result: scratch("dummy result"),
-            image: scratch("dummy image"),
+            tape_data: scratch_buffer(device),
+            tile64_tapes: scratch_buffer(device),
+            result: scratch_buffer(device),
+            image: scratch_buffer(device),
         }
     }
     fn resize(
@@ -901,17 +768,15 @@ impl VoxelRayContext {
                     ..wgpu::RequestAdapterOptions::default()
                 })
                 .await
-                .ok_or(Error::NoAdapter)?;
+                .map_err(|_| Error::NoAdapter)?;
             adapter
-                .request_device(&wgpu::DeviceDescriptor::default(), None)
+                .request_device(&wgpu::DeviceDescriptor::default())
                 .await
                 .map_err(Error::NoDevice)
         })?;
 
         let interval_tile_ctx = IntervalTileContext::new(&device)?;
-        let interval_subtile_ctx = IntervalSubtileContext::new(&device)?;
         let voxel_ctx = VoxelContext::new(&device)?;
-        let size_fix_ctx = SizeFixContext::new(&device)?;
         let buffers = DynamicBuffers::new(&device);
 
         Ok(Self {
@@ -919,9 +784,7 @@ impl VoxelRayContext {
             buffers,
             queue,
             interval_tile_ctx,
-            interval_subtile_ctx,
             voxel_ctx,
-            size_fix_ctx,
         })
     }
 
@@ -1052,29 +915,9 @@ impl VoxelRayContext {
 
         self.interval_tile_ctx
             .run(&active_tiles, &ctx, &mut encoder);
-        self.size_fix_ctx.run(
-            ctx.device,
-            &self.interval_tile_ctx.active_tile16_count,
-            &mut encoder,
-        );
-        self.interval_subtile_ctx.run(
-            &ctx,
-            active_tiles.len() as u64,
-            &self.interval_tile_ctx.active_tile16_count,
-            &self.interval_tile_ctx.active_tile16,
-            &self.interval_tile_ctx.tile16_zmin,
-            &mut encoder,
-        );
-        self.size_fix_ctx.run(
-            ctx.device,
-            &self.interval_subtile_ctx.active_tile4_count,
-            &mut encoder,
-        );
         self.voxel_ctx.run(
             &ctx,
-            &self.interval_subtile_ctx.active_tile4_count,
-            &self.interval_subtile_ctx.active_tile4,
-            &self.interval_subtile_ctx.tile4_zmin,
+            &self.interval_tile_ctx.tile4_buffers,
             &mut encoder,
         );
 
@@ -1082,30 +925,36 @@ impl VoxelRayContext {
         self.queue.submit(Some(encoder.finish()));
 
         if false {
+            let tile64_size = get_buffer::<u32>(
+                ctx.device,
+                ctx.queue,
+                &self.interval_tile_ctx.tile64_buffers.count,
+            );
+            println!("tile64 size: {tile64_size:?}");
             let tile16_size = get_buffer::<u32>(
                 ctx.device,
                 ctx.queue,
-                &self.interval_tile_ctx.active_tile16_count,
+                &self.interval_tile_ctx.tile16_buffers.count,
             );
-            println!("{tile16_size:?}");
+            println!("tile16 size: {tile16_size:?}");
             let tile4_size = get_buffer::<u32>(
                 ctx.device,
                 ctx.queue,
-                &self.interval_subtile_ctx.active_tile4_count,
+                &self.interval_tile_ctx.tile4_buffers.count,
             );
-            println!("{tile4_size:?}");
+            println!("tile4 size: {tile4_size:?}");
             let tile4_data = get_buffer::<u32>(
                 ctx.device,
                 ctx.queue,
-                &self.interval_subtile_ctx.active_tile4,
+                &self.interval_tile_ctx.tile4_buffers.active,
             );
-            println!("{:?}", &tile4_data[..tile4_size[0] as usize]);
+            //println!("{:?}", &tile4_data[..tile4_size[0] as usize]);
         }
 
         // Map result buffer and read back the data
         let buffer_slice = self.buffers.image.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::Maintain::Wait);
+        self.device.poll(wgpu::PollType::Wait).unwrap();
 
         // Get the pixel-populated image
         let mut result =
@@ -1128,13 +977,13 @@ impl VoxelRayContext {
             let size = get_buffer::<u32>(
                 &self.device,
                 &self.queue,
-                &self.interval_tile_ctx.active_tile16_count,
+                &self.interval_tile_ctx.tile16_buffers.count,
             );
             println!("got dispatch size {size:?}");
             let active = get_buffer::<u32>(
                 &self.device,
                 &self.queue,
-                &self.interval_tile_ctx.active_tile16,
+                &self.interval_tile_ctx.tile16_buffers.active,
             );
             println!("got active tile16 {:?}", &active[..size[0] as usize]);
             println!(
@@ -1147,89 +996,6 @@ impl VoxelRayContext {
         }
 
         Some(Ok(result))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-struct SizeFixContext {
-    /// Compute pipeline
-    pipeline: wgpu::ComputePipeline,
-
-    /// Bind group layout
-    bind_group_layout: wgpu::BindGroupLayout,
-}
-
-impl SizeFixContext {
-    fn new(device: &wgpu::Device) -> Result<Self, Error> {
-        let shader_code = size_fix_shader();
-
-        // Create bind group layout and bind group
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_rw(0), // size
-                ],
-            });
-
-        // Create the compute pipeline
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        // Compile the shader
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-
-        let pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("size_fix"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        Ok(Self {
-            pipeline,
-            bind_group_layout,
-        })
-    }
-
-    fn run(
-        &mut self,
-        device: &wgpu::Device,
-        buf: &wgpu::Buffer,
-        encoder: &mut wgpu::CommandEncoder,
-    ) {
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: buf.as_entire_binding(),
-            }],
-        });
-
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
-
-        // XXX is this correct?
-        compute_pass.dispatch_workgroups(1, 1, 1);
-        drop(compute_pass);
     }
 }
 

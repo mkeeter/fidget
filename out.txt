@@ -1,0 +1,29 @@
+got tiles in 3.50625ms
+bytecode len: 116 KiB
+max reg: 14
+full: 0
+empty: 36
+voxels: 476
+making new buffer with label tape_data and size 119232
+making new buffer with label tile64_tapes and size 2048
+making new buffer with label result and size 1048576
+making new buffer with label image and size 1048576
+IntervalTileConfig { mat: [0.004510549, 0.0, 0.0026041667, 0.0, -0.0011005685, -0.004720353, 0.0019062404, 0.0, -0.0023601765, 0.002201137, 0.0040879454, 0.001171875, -0.26985037, 0.640199, -2.1992722, 0.7], axes: [0, 1, 2], _padding1: 0, image_size: [512, 512, 512], _padding2: 0 }
+
+  ┌                                                         ┐
+  │   0.004510549 -0.0011005685 -0.0023601765   -0.26985037 │
+  │             0  -0.004720353   0.002201137      0.640199 │
+  │  0.0026041667  0.0019062404  0.0040879454    -2.1992722 │
+  │             0             0   0.001171875           0.7 │
+  └                                                         ┘
+
+
+making new buffer with label active_tile64 and size 1904
+making new buffer with label tile64_zmin and size 256
+making new buffer with label active_tile16 and size 131072
+making new buffer with label tile16_zmin and size 4096
+making new buffer with label active_tile4 and size 8388608
+making new buffer with label tile4_zmin and size 65536
+[17616, 17616, 1, 1]
+[219704, 32768, 7, 1]
+ => 111.48825ms
