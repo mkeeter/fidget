@@ -49,6 +49,7 @@ struct IntervalTileContext {
     /// Output from this stage
     active_tile16_count: wgpu::Buffer,
     active_tile16: wgpu::Buffer,
+    tile16_zmin: wgpu::Buffer,
 
     /// Compute pipeline
     pipeline: wgpu::ComputePipeline,
@@ -111,6 +112,7 @@ impl IntervalTileContext {
                     buffer_ro(3),  // active_tile64 (count is in Config)
                     buffer_rw(4),  // active_tile16_count
                     buffer_rw(5),  // active_tile16
+                    buffer_rw(6),  // tile16_zmin
                 ],
             });
 
@@ -158,6 +160,12 @@ impl IntervalTileContext {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let tile16_zmin = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scratch tile16_zmin"),
+            size: 1,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         // These buffers never change size
         let active_tile16_count =
@@ -175,9 +183,10 @@ impl IntervalTileContext {
             pipeline,
             bind_group_layout,
             config_buf,
-            active_tile16_count,
             active_tile64,
+            active_tile16_count,
             active_tile16,
+            tile16_zmin,
         })
     }
 
@@ -233,6 +242,22 @@ impl IntervalTileContext {
             "active tiles",
             active_tiles,
         );
+        resize_buffer::<u32>(
+            ctx.device,
+            &mut self.active_tile16,
+            "active_tile16",
+            active_tiles.len() * 64,
+        );
+        // Clear the tile16_zmin buffer
+        let nx = ctx.settings.image_size.width().div_ceil(64) as usize * 4;
+        let ny = ctx.settings.image_size.height().div_ceil(64) as usize * 4;
+        write_storage_buffer::<u32>(
+            ctx.device,
+            ctx.queue,
+            &mut self.tile16_zmin,
+            "tile16_zmin",
+            &vec![0u32; nx * ny], // TODO cache this?
+        );
 
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -262,6 +287,10 @@ impl IntervalTileContext {
                     wgpu::BindGroupEntry {
                         binding: 5,
                         resource: self.active_tile16.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: self.tile16_zmin.as_entire_binding(),
                     },
                 ],
             });
@@ -329,9 +358,10 @@ impl IntervalSubtileContext {
                     buffer_ro(2),  // tile64_tapes
                     buffer_ro(3),  // active_tile16_count
                     buffer_ro(4),  // active_tile16
-                    buffer_rw(5),  // active_tile4_count
-                    buffer_rw(6),  // active_tile4
-                    buffer_rw(7),  // tile4_zmin
+                    buffer_ro(5),  // tile16_zmin
+                    buffer_rw(6),  // active_tile4_count
+                    buffer_rw(7),  // active_tile4
+                    buffer_rw(8),  // tile4_zmin
                 ],
             });
 
@@ -405,8 +435,10 @@ impl IntervalSubtileContext {
     fn run<F: Function + MathFunction>(
         &mut self,
         ctx: &CommonCtx<F>,
+        tile64_count: u64,
         active_tile16_count: &wgpu::Buffer,
         active_tile16: &wgpu::Buffer,
+        tile16_zmin: &wgpu::Buffer,
         encoder: &mut wgpu::CommandEncoder,
     ) {
         let vars = ctx.shape.inner().vars();
@@ -447,19 +479,20 @@ impl IntervalSubtileContext {
 
         let nx = ctx.settings.image_size.width().div_ceil(64) as usize * 16;
         let ny = ctx.settings.image_size.height().div_ceil(64) as usize * 16;
-        let nz = ctx.settings.image_size.depth().div_ceil(64) as usize * 16;
         resize_buffer::<u32>(
             ctx.device,
             &mut self.active_tile4,
             "active_tile4",
-            nx * ny * nz,
+            tile64_count as usize * 64usize.pow(2),
         );
+
+        // Clear the tile4_zmin buffer
         write_storage_buffer::<u32>(
             ctx.device,
             ctx.queue,
             &mut self.tile4_zmin,
             "tile4_zmin",
-            &vec![0u32; nx * ny],
+            &vec![0u32; nx * ny], // TODO cache this?
         );
 
         let bind_group =
@@ -489,14 +522,18 @@ impl IntervalSubtileContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: self.active_tile4_count.as_entire_binding(),
+                        resource: tile16_zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 6,
-                        resource: self.active_tile4.as_entire_binding(),
+                        resource: self.active_tile4_count.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 7,
+                        resource: self.active_tile4.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
                         resource: self.tile4_zmin.as_entire_binding(),
                     },
                 ],
@@ -791,7 +828,6 @@ impl DynamicBuffers {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        active_tile16: &mut wgpu::Buffer,
         tape_data: &[u32],
         tile64_tapes: &[u32],
         image_size: VoxelSize,
@@ -809,17 +845,6 @@ impl DynamicBuffers {
             &mut self.tile64_tapes,
             "tile64_tapes",
             tile64_tapes,
-        );
-        let tile64_count = u64::from(image_size.width().div_ceil(64))
-            * u64::from(image_size.height().div_ceil(64))
-            * u64::from(image_size.depth().div_ceil(64));
-
-        let tile16_count = tile64_count * 4u64.pow(3);
-        resize_buffer::<u32>(
-            device,
-            active_tile16,
-            "active_tile16",
-            tile16_count as usize,
         );
 
         let image_pixels =
@@ -1006,7 +1031,6 @@ impl VoxelRayContext {
         self.buffers.resize(
             &self.device,
             &self.queue,
-            &mut self.interval_tile_ctx.active_tile16,
             &tape_data,
             &tile64_tapes,
             settings.image_size,
@@ -1035,8 +1059,10 @@ impl VoxelRayContext {
         );
         self.interval_subtile_ctx.run(
             &ctx,
+            active_tiles.len() as u64,
             &self.interval_tile_ctx.active_tile16_count,
             &self.interval_tile_ctx.active_tile16,
+            &self.interval_tile_ctx.tile16_zmin,
             &mut encoder,
         );
         self.size_fix_ctx.run(

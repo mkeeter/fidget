@@ -26,6 +26,7 @@
 /// tile16 outputs
 @group(0) @binding(4) var<storage, read_write> active_tile16_count: array<atomic<u32>, 3>;
 @group(0) @binding(5) var<storage, read_write> active_tile16: array<u32>;
+@group(0) @binding(6) var<storage, read_write> tile16_zmin: array<atomic<u32>>;
 
 /// Global render configuration
 ///
@@ -71,15 +72,16 @@ fn interval_tile16_main(
     let tz = (t / (size64.x * size64.y)) % size64.z;
     let tile64_corner = vec3u(tx, ty, tz);
 
-    // Subtile offset within the tile
-    let tile16_offset = vec3u(local_id.xyz);
-
     // Pick out our starting tape. `active_tile64` only contains truly active
     // tiles, so we don't need to check for the empty / full case.
     let tape_start = tile64_tapes[t];
 
+    // Index in the XY tile16 map
+    let tile16_corner = tile64_corner * 4 + local_id;
+    let tile16_index_xy = tile16_corner.x + (tile16_corner.y * size16.x);
+
     // Subtile corner position, in voxels
-    let corner_pos = tile64_corner * 64 + tile16_offset * 16;
+    let corner_pos = tile16_corner * 16;
 
     // Compute transformed interval regions
     let ix = vec2f(f32(corner_pos.x), f32(corner_pos.x + 16));
@@ -105,17 +107,22 @@ fn interval_tile16_main(
         m[config.axes.z] = div_i(ts[2], ts[3]);
     }
 
+    // Last-minute check to see if anyone filled out this tile
+    if (atomicLoad(&tile16_zmin[tile16_index_xy]) >= corner_pos.z + 16) {
+        return;
+    }
+
     // Do the actual interpreter work
     let out = run_tape_i(tape_start, m);
 
     // Figure out which 2 bits to touch in the occupancy array
     if (out[1] < 0.0) {
         // Full
+        atomicMax(&tile16_zmin[tile16_index_xy], corner_pos.z + 16);
     } else if (out[0] > 0.0) {
         // Empty
     } else {
         let offset = atomicAdd(&active_tile16_count[0], 1u);
-        let tile16_corner = tile64_corner * 4 + tile16_offset;
         let subtile_index = tile16_corner.x +
             (tile16_corner.y * size16.x) +
             (tile16_corner.z * size16.x * size16.y);
