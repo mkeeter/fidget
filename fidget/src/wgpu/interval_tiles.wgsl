@@ -11,22 +11,15 @@
 /// This array contains many tapes concatenated together; tape start positions
 /// are recorded in the `tile64_tapes` input array.
 @group(0) @binding(1) var<storage, read> tape_data: array<u32>;
-
-/// Tile data
-///
-/// This is a dense grid of 64x64x64 tile data, which is either
-/// - `u32::MAX` (empty)
-/// - A value with bit 32 set (full, with tape index in bits 0-31)
-/// - A value with bit 32 cleared (ambiguous, with tape index in bits 0-31)
 @group(0) @binding(2) var<storage, read> tile64_tapes: array<u32>;
 
-/// Active tiles, as global tile positions
-@group(0) @binding(3) var<storage, read> active_tile64: array<u32>;
+@group(0) @binding(3) var<storage, read> active_tile_count: u32;
+@group(0) @binding(4) var<storage, read> active_tile: array<u32>;
+@group(0) @binding(5) var<storage, read> tile_zmin: array<u32>;
 
-/// tile16 outputs
-@group(0) @binding(4) var<storage, read_write> active_tile16_count: array<atomic<u32>, 3>;
-@group(0) @binding(5) var<storage, read_write> active_tile16: array<u32>;
-@group(0) @binding(6) var<storage, read_write> tile16_zmin: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> active_subtile_count: array<atomic<u32>, 4>;
+@group(0) @binding(7) var<storage, read_write> active_subtile: array<u32>;
+@group(0) @binding(8) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
 
 /// Global render configuration
 ///
@@ -37,56 +30,64 @@ struct Config {
 
     /// Mapping from X, Y, Z to input indices
     axes: vec3u,
+    _padding1: u32,
 
-    /// Number of active tiles in `active_tile64`
-    active_tile_count: u32,
-
-    /// Image size, in voxel units
+    /// Image size, in voxels
     image_size: vec3u,
-
-    /// Number of slots in the output buffer
-    out_buffer_size: u32,
+    _padding2: u32,
 }
 
+override TILE_SIZE: u32;
+
 @compute @workgroup_size(4, 4, 4)
-fn interval_tile16_main(
+fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
-    let active_tile64_index = workgroup_id.x;
-    if (active_tile64_index >= config.active_tile_count) {
+    let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
+    if (active_tile_index >= active_tile_count) {
         return;
     }
 
     // Convert to a size in tile units
     let size64 = (config.image_size + 63u) / 64;
-    let size16 = size64 * 4u;
+    let size_tiles = size64 * (64 / TILE_SIZE);
+    let size_subtiles = size_tiles * 4u;
 
-    // Get global tile position, in tile64 coordinates (which corresponds to
-    // position in the tile64_* arrays)
-    let t = active_tile64[active_tile64_index];
-    let tx = t % size64.x;
-    let ty = (t / size64.x) % size64.y;
-    let tz = (t / (size64.x * size64.y)) % size64.z;
-    let tile64_corner = vec3u(tx, ty, tz);
+    // Get global tile position, in tile coordinates
+    let t = active_tile[active_tile_index];
+    let tx = t % size_tiles.x;
+    let ty = (t / size_tiles.x) % size_tiles.y;
+    let tz = (t / (size_tiles.x * size_tiles.y)) % size_tiles.z;
+    let tile_corner = vec3u(tx, ty, tz);
 
-    // Pick out our starting tape. `active_tile64` only contains truly active
-    // tiles, so we don't need to check for the empty / full case.
-    let tape_start = tile64_tapes[t];
-
-    // Index in the XY tile16 map
-    let tile16_corner = tile64_corner * 4 + local_id;
-    let tile16_index_xy = tile16_corner.x + (tile16_corner.y * size16.x);
+    // Subtile corner position
+    let subtile_corner = tile_corner * 4 + local_id;
+    let subtile_index_xy = subtile_corner.x + subtile_corner.y * size_subtiles.x;
 
     // Subtile corner position, in voxels
-    let corner_pos = tile16_corner * 16;
+    let corner_pos = subtile_corner * TILE_SIZE / 4;
+
+    // Check for Z masking from tile
+    let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
+    if (tile_zmin[tile_index_xy] >= corner_pos.z) {
+        atomicMax(&subtile_zmin[subtile_index_xy], tile_zmin[tile_index_xy]);
+        return;
+    }
+
+    // Pick out our starting tape, based on absolute position
+    let tile64_pos = corner_pos / 64;
+    let tile64_index = tile64_pos.x +
+        tile64_pos.y * size64.x +
+        tile64_pos.z * size64.x * size64.y;
+    let tape_start = tile64_tapes[tile64_index];
 
     // Compute transformed interval regions
-    let ix = vec2f(f32(corner_pos.x), f32(corner_pos.x + 16));
-    let iy = vec2f(f32(corner_pos.y), f32(corner_pos.y + 16));
-    let iz = vec2f(f32(corner_pos.z), f32(corner_pos.z + 16));
+    let ix = vec2f(f32(corner_pos.x), f32(corner_pos.x + TILE_SIZE / 4));
+    let iy = vec2f(f32(corner_pos.y), f32(corner_pos.y + TILE_SIZE / 4));
+    let iz = vec2f(f32(corner_pos.z), f32(corner_pos.z + TILE_SIZE / 4));
     var ts = mat4x2f(vec2f(0.0), vec2f(0.0), vec2f(0.0), vec2f(0.0));
     for (var i = 0; i < 4; i++) {
         ts[i] = mul_i(vec2f(config.mat[0][i]), ix)
@@ -108,24 +109,30 @@ fn interval_tile16_main(
     }
 
     // Last-minute check to see if anyone filled out this tile
-    if (atomicLoad(&tile16_zmin[tile16_index_xy]) >= corner_pos.z + 16) {
+    if (atomicLoad(&subtile_zmin[subtile_index_xy]) >= corner_pos.z + TILE_SIZE / 4) {
         return;
     }
 
     // Do the actual interpreter work
     let out = run_tape_i(tape_start, m);
 
-    // Figure out which 2 bits to touch in the occupancy array
     if (out[1] < 0.0) {
-        // Full
-        atomicMax(&tile16_zmin[tile16_index_xy], corner_pos.z + 16);
+        // Full, write to subtile_zmin
+        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + TILE_SIZE / 4);
     } else if (out[0] > 0.0) {
-        // Empty
+        // Empty, nothing to do here
     } else {
-        let offset = atomicAdd(&active_tile16_count[0], 1u);
-        let subtile_index = tile16_corner.x +
-            (tile16_corner.y * size16.x) +
-            (tile16_corner.z * size16.x * size16.y);
-        active_tile16[offset] = subtile_index;
+        let offset = atomicAdd(&active_subtile_count[0], 1u);
+        let subtile_index_xyz = subtile_corner.x +
+            (subtile_corner.y * size_subtiles.x) +
+            (subtile_corner.z * size_subtiles.x * size_subtiles.y);
+        active_subtile[offset] = subtile_index_xyz;
+
+        let count = offset + 1u;
+        let wg_dispatch_x = min(count, 32768u);
+        let wg_dispatch_y = (count + 32767u) / 32768u;
+        atomicMax(&active_subtile_count[1], wg_dispatch_x);
+        atomicMax(&active_subtile_count[2], wg_dispatch_y);
+        atomicMax(&active_subtile_count[3], 1u);
     }
 }

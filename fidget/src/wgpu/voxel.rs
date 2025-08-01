@@ -285,7 +285,7 @@ impl VoxelContext {
         // Map result buffer and read back the data
         let buffer_slice = self.ctx.out_buf.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.ctx.device.poll(wgpu::Maintain::Wait);
+        self.ctx.device.poll(wgpu::PollType::Wait).unwrap();
 
         // Get the pixel-populated image
         let mut result =
