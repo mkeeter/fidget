@@ -216,10 +216,10 @@ impl IntervalTileContext {
             .unwrap()
             .copy_from_slice(config.as_bytes());
 
-        self.tile64_buffers.reset_with_count(
+        self.tile64_buffers.reset_with_tiles(
             ctx.device,
             ctx.queue,
-            active_tiles.len(),
+            active_tiles,
             ctx.settings.image_size,
         );
         self.tile16_buffers.reset(
@@ -232,24 +232,6 @@ impl IntervalTileContext {
             ctx.queue,
             ctx.settings.image_size,
         );
-
-        // Write tile count and buffer data
-        ctx.queue
-            .write_buffer_with(
-                &self.tile64_buffers.count,
-                0,
-                (std::mem::size_of::<u32>() as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice((active_tiles.len() as u32).as_bytes());
-        ctx.queue
-            .write_buffer_with(
-                &self.tile64_buffers.active,
-                0,
-                (active_tiles.len() as u64 * 4).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice(active_tiles.as_bytes());
 
         let bind_group16 = self.create_bind_group(
             ctx,
@@ -603,26 +585,14 @@ impl<const N: usize> TileBuffers<N> {
         image_size: VoxelSize,
     ) {
         let nx = image_size.width().div_ceil(64) as usize * (64 / N);
-        let ny = image_size.width().div_ceil(64) as usize * (64 / N);
-        let nz = image_size.width().div_ceil(64) as usize * (64 / N);
-        self.reset_with_count(device, queue, nx * ny * nz, image_size);
-    }
+        let ny = image_size.height().div_ceil(64) as usize * (64 / N);
+        let nz = image_size.depth().div_ceil(64) as usize * (64 / N);
 
-    fn reset_with_count(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        active_tile_count: usize,
-        image_size: VoxelSize,
-    ) {
-        // resize the active tile list
-        let nx = image_size.width().div_ceil(64) as usize * (64 / N);
-        let ny = image_size.width().div_ceil(64) as usize * (64 / N);
         resize_buffer_with::<u32>(
             device,
             &mut self.active,
             &format!("active_tile{N}"),
-            active_tile_count,
+            nx * ny * nz,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
@@ -649,6 +619,47 @@ impl<const N: usize> TileBuffers<N> {
             )
             .unwrap()
             .copy_from_slice([0u32, 0, 0, 1].as_bytes());
+    }
+
+    fn reset_with_tiles(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        active_tiles: &[u32],
+        image_size: VoxelSize,
+    ) {
+        // resize the active tile list
+        let nx = image_size.width().div_ceil(64) as usize * (64 / N);
+        let ny = image_size.width().div_ceil(64) as usize * (64 / N);
+        write_storage_buffer::<u32>(
+            device,
+            queue,
+            &mut self.active,
+            &format!("active_tile{N}"),
+            active_tiles,
+        );
+
+        // zero out the zmin buffer
+        if self.zmin_scratch.len() != nx * ny {
+            self.zmin_scratch.resize(nx * ny, 0u32);
+        }
+        write_storage_buffer(
+            device,
+            queue,
+            &mut self.zmin,
+            &format!("tile{N}_zmin"),
+            &self.zmin_scratch,
+        );
+
+        // reset the active tile count buffer
+        queue
+            .write_buffer_with(
+                &self.count,
+                0,
+                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
+            )
+            .unwrap()
+            .copy_from_slice([active_tiles.len() as u32, 0, 0, 0].as_bytes());
     }
 }
 
