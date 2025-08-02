@@ -21,7 +21,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 #[derive(Debug, IntoBytes, Immutable)]
 #[repr(C)]
-struct IntervalTileConfig {
+struct Config {
     /// Screen-to-model transform matrix
     mat: [f32; 16],
 
@@ -37,9 +37,6 @@ struct IntervalTileConfig {
 }
 
 struct IntervalTileContext {
-    /// Configuration data (fixed size)
-    config_buf: wgpu::Buffer,
-
     /// Input tiles (64^3)
     tile64_buffers: TileBuffers<64>,
 
@@ -57,19 +54,6 @@ struct IntervalTileContext {
 
     /// Bind group layout
     bind_group_layout: wgpu::BindGroupLayout,
-}
-
-fn buffer_cfg(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
 }
 
 fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -107,15 +91,13 @@ impl IntervalTileContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // tape_data
-                    buffer_ro(2),  // tile64_tapes
-                    buffer_ro(3),  // active_tile_count
-                    buffer_ro(4),  // active_tile
-                    buffer_ro(5),  // tile_zmin
-                    buffer_rw(6),  // active_subtile_count
-                    buffer_rw(7),  // active_subtile
-                    buffer_rw(8),  // subtile_zmin
+                    buffer_ro(0), // config + tape data
+                    buffer_ro(1), // tile64_tapes
+                    buffer_ro(2), // tiles_in
+                    buffer_ro(3), // tile_zmin
+                    buffer_rw(4), // subtiles_out
+                    buffer_rw(5), // subtile_zmin
+                    buffer_rw(6), // count_clear
                 ],
             });
 
@@ -160,20 +142,12 @@ impl IntervalTileContext {
                 cache: None,
             });
 
-        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: std::mem::size_of::<IntervalTileConfig>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let tile64_buffers = TileBuffers::new(device);
         let tile16_buffers = TileBuffers::new(device);
         let tile4_buffers = TileBuffers::new(device);
 
         Ok(Self {
             bind_group_layout,
-            config_buf,
             tile64_buffers,
             tile16_buffers,
             tile4_buffers,
@@ -182,41 +156,13 @@ impl IntervalTileContext {
         })
     }
 
-    fn run<F: Function + MathFunction>(
+    fn run(
         &mut self,
         active_tiles: &[u32],
         tile64_zmin: &[u32],
-        ctx: &CommonCtx<F>,
+        ctx: &CommonCtx,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        let vars = ctx.shape.inner().vars();
-        let config = IntervalTileConfig {
-            mat: ctx.mat.data.as_slice().try_into().unwrap(),
-            axes: ctx
-                .shape
-                .axes()
-                .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX)),
-            _padding1: 0u32,
-            image_size: [
-                ctx.settings.image_size.width(),
-                ctx.settings.image_size.height(),
-                ctx.settings.image_size.depth(),
-            ],
-            _padding2: 0u32,
-        };
-        println!("{config:?}");
-        println!("{}", ctx.mat);
-
-        // Load the config into our buffer
-        ctx.queue
-            .write_buffer_with(
-                &self.config_buf,
-                0,
-                (std::mem::size_of_val(&config) as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice(config.as_bytes());
-
         self.tile64_buffers.reset_with_tiles(
             ctx.device,
             ctx.queue,
@@ -238,6 +184,7 @@ impl IntervalTileContext {
             ctx,
             &self.tile64_buffers,
             &self.tile16_buffers,
+            &self.tile4_buffers.tiles,
         );
         let mut compute_pass16 =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -246,8 +193,6 @@ impl IntervalTileContext {
             });
         compute_pass16.set_pipeline(&self.pipeline16);
         compute_pass16.set_bind_group(0, &bind_group16, &[]);
-        // XXX could this overflow?
-        println!("DISPATCHING {}", active_tiles.len());
         compute_pass16.dispatch_workgroups(active_tiles.len() as u32, 1, 1);
         drop(compute_pass16);
 
@@ -255,6 +200,7 @@ impl IntervalTileContext {
             ctx,
             &self.tile16_buffers,
             &self.tile4_buffers,
+            &self.tile64_buffers.tiles, // clear
         );
         let mut compute_pass4 =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -264,19 +210,16 @@ impl IntervalTileContext {
         compute_pass4.set_pipeline(&self.pipeline4);
         compute_pass4.set_bind_group(0, &bind_group4, &[]);
         compute_pass4
-            .dispatch_workgroups_indirect(&self.tile16_buffers.count, 4);
+            .dispatch_workgroups_indirect(&self.tile16_buffers.tiles, 0);
         drop(compute_pass4);
     }
 
-    fn create_bind_group<
-        F: Function + MathFunction,
-        const N: usize,
-        const M: usize,
-    >(
+    fn create_bind_group<const N: usize, const M: usize>(
         &self,
-        ctx: &CommonCtx<F>,
+        ctx: &CommonCtx,
         tile_buffers: &TileBuffers<N>,
         subtile_buffers: &TileBuffers<M>,
+        clear: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -284,39 +227,31 @@ impl IntervalTileContext {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: self.config_buf.as_entire_binding(),
+                    resource: ctx.buf.config.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: ctx.buf.tape_data.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: ctx.buf.tile64_tapes.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: tile_buffers.tiles.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: tile_buffers.count.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: tile_buffers.active.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
                     resource: tile_buffers.zmin.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: subtile_buffers.count.as_entire_binding(),
+                    binding: 4,
+                    resource: subtile_buffers.tiles.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: subtile_buffers.active.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
+                    binding: 5,
                     resource: subtile_buffers.zmin.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: clear.slice(0..16).into(),
                 },
             ],
         })
@@ -325,29 +260,7 @@ impl IntervalTileContext {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, IntoBytes, Immutable)]
-#[repr(C)]
-struct VoxelConfig {
-    /// Screen-to-model transform matrix
-    mat: [f32; 16],
-
-    /// Input index of X, Y, Z axes
-    ///
-    /// `u32::MAX` is used as a marker if an axis is unused
-    axes: [u32; 3],
-
-    _padding1: u32,
-
-    /// Total window size
-    image_size: [u32; 3],
-
-    _padding2: u32,
-}
-
 struct VoxelContext {
-    /// Configuration data (fixed size)
-    config_buf: wgpu::Buffer,
-
     /// Compute pipeline
     pipeline: wgpu::ComputePipeline,
 
@@ -364,13 +277,12 @@ impl VoxelContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // tape_data
-                    buffer_ro(2),  // tile64_tapes
-                    buffer_ro(3),  // active_tile4_count
-                    buffer_ro(4),  // active_tile4
-                    buffer_ro(5),  // tile4_zmin
-                    buffer_rw(6),  // result
+                    buffer_ro(0), // config + tape_data
+                    buffer_ro(1), // tile64_tapes
+                    buffer_ro(2), // tiles4_in
+                    buffer_ro(3), // tile4_zmin
+                    buffer_rw(4), // result
+                    buffer_rw(5), // count_clear
                 ],
             });
 
@@ -399,52 +311,19 @@ impl VoxelContext {
                 cache: None,
             });
 
-        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: std::mem::size_of::<VoxelConfig>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         Ok(Self {
             pipeline,
-            config_buf,
             bind_group_layout,
         })
     }
 
-    fn run<F: Function>(
+    fn run(
         &mut self,
-        ctx: &CommonCtx<F>,
+        ctx: &CommonCtx,
         tile4_buffers: &TileBuffers<4>,
+        clear: &wgpu::Buffer,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        let vars = ctx.shape.inner().vars();
-        let config = VoxelConfig {
-            mat: ctx.mat.data.as_slice().try_into().unwrap(),
-            axes: ctx
-                .shape
-                .axes()
-                .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX)),
-            _padding1: 0,
-            image_size: [
-                ctx.settings.image_size.width(),
-                ctx.settings.image_size.height(),
-                ctx.settings.image_size.depth(),
-            ],
-            _padding2: 0,
-        };
-
-        // Load the config into our buffer
-        ctx.queue
-            .write_buffer_with(
-                &self.config_buf,
-                0,
-                (std::mem::size_of_val(&config) as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice(config.as_bytes());
-
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -452,31 +331,27 @@ impl VoxelContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: self.config_buf.as_entire_binding(),
+                        resource: ctx.buf.config.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.buf.tape_data.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
                         resource: ctx.buf.tile64_tapes.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: tile4_buffers.tiles.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: tile4_buffers.count.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: tile4_buffers.active.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
                         resource: tile4_buffers.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 6,
+                        binding: 4,
                         resource: ctx.buf.result.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: clear.slice(0..16).into(),
                     },
                 ],
             });
@@ -491,7 +366,7 @@ impl VoxelContext {
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
-        compute_pass.dispatch_workgroups_indirect(&tile4_buffers.count, 4);
+        compute_pass.dispatch_workgroups_indirect(&tile4_buffers.tiles, 0);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -554,8 +429,8 @@ pub struct VoxelRayContext {
 }
 
 struct TileBuffers<const N: usize> {
-    count: wgpu::Buffer,
-    active: wgpu::Buffer,
+    // TileList, so 4 u32s of count then active tile list
+    tiles: wgpu::Buffer,
     zmin: wgpu::Buffer,
     zmin_scratch: Vec<u32>,
 }
@@ -563,22 +438,13 @@ struct TileBuffers<const N: usize> {
 impl<const N: usize> TileBuffers<N> {
     fn new(device: &wgpu::Device) -> Self {
         Self {
-            count: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(&format!("active_tile{N}_count")),
-                size: 4 * std::mem::size_of::<u32>() as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC
-                    | wgpu::BufferUsages::INDIRECT,
-                mapped_at_creation: false,
-            }),
-            active: scratch_buffer(device),
+            tiles: scratch_buffer(device),
             zmin: scratch_buffer(device),
             zmin_scratch: vec![],
         }
     }
 
-    /// Reset buffers, allocating room for densely packed tiles tiles
+    /// Reset buffers, allocating room for densely packed tiles
     fn reset(
         &mut self,
         device: &wgpu::Device,
@@ -591,12 +457,12 @@ impl<const N: usize> TileBuffers<N> {
 
         resize_buffer_with::<u32>(
             device,
-            &mut self.active,
+            &mut self.tiles,
             &format!("active_tile{N}"),
-            nx * ny * nz,
+            4 + nx * ny * nz,
             wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
+                | wgpu::BufferUsages::INDIRECT
+                | wgpu::BufferUsages::COPY_SRC, // for debug
         );
 
         // zero out the zmin buffer
@@ -610,16 +476,6 @@ impl<const N: usize> TileBuffers<N> {
             &format!("tile{N}_zmin"),
             &self.zmin_scratch,
         );
-
-        // reset the active tile count buffer
-        queue
-            .write_buffer_with(
-                &self.count,
-                0,
-                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice([0u32, 0, 0, 1].as_bytes());
     }
 
     fn reset_with_tiles(
@@ -629,13 +485,28 @@ impl<const N: usize> TileBuffers<N> {
         active_tiles: &[u32],
         tile_zmin: &[u32],
     ) {
-        write_storage_buffer::<u32>(
+        resize_buffer_with::<u32>(
             device,
-            queue,
-            &mut self.active,
+            &mut self.tiles,
             &format!("active_tile{N}"),
-            active_tiles,
+            4 + active_tiles.len(),
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC, // for debug
         );
+        let mut buf = queue
+            .write_buffer_with(
+                &self.tiles,
+                0,
+                ((4 + active_tiles.len() as u64) * 4)
+                    .try_into()
+                    .expect("buffer size must be > 0"),
+            )
+            .unwrap();
+        buf[0..16].copy_from_slice(
+            [0u32, 0, 0, active_tiles.len() as u32].as_bytes(),
+        );
+        buf[16..].copy_from_slice(active_tiles.as_bytes());
 
         write_storage_buffer(
             device,
@@ -644,22 +515,12 @@ impl<const N: usize> TileBuffers<N> {
             &format!("tile{N}_zmin"),
             tile_zmin,
         );
-
-        // reset the active tile count buffer
-        queue
-            .write_buffer_with(
-                &self.count,
-                0,
-                (std::mem::size_of::<[u32; 4]>() as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice([active_tiles.len() as u32, 0, 0, 0].as_bytes());
     }
 }
 
 /// Buffers which must be dynamically sized
 pub struct DynamicBuffers {
-    tape_data: wgpu::Buffer,
+    config: wgpu::Buffer,
 
     /// Densely-packed tape indices (or special values to indicate empty / full)
     tile64_tapes: wgpu::Buffer,
@@ -671,6 +532,7 @@ pub struct DynamicBuffers {
     ///
     /// (dynamic size, implicit from image size in config)
     result: wgpu::Buffer,
+    result_scratch: Vec<u32>,
 
     /// Result buffer that can be read back from the host
     ///
@@ -690,26 +552,27 @@ fn scratch_buffer(device: &wgpu::Device) -> wgpu::Buffer {
 impl DynamicBuffers {
     fn new(device: &wgpu::Device) -> Self {
         Self {
-            tape_data: scratch_buffer(device),
+            config: scratch_buffer(device),
             tile64_tapes: scratch_buffer(device),
             result: scratch_buffer(device),
             image: scratch_buffer(device),
+            result_scratch: vec![],
         }
     }
-    fn resize(
+    fn reset(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        tape_data: &[u32],
+        config_data: &[u8],
         tile64_tapes: &[u32],
         image_size: VoxelSize,
     ) {
         write_storage_buffer(
             device,
             queue,
-            &mut self.tape_data,
-            "tape_data",
-            tape_data,
+            &mut self.config,
+            "config",
+            config_data,
         );
         write_storage_buffer(
             device,
@@ -730,6 +593,9 @@ impl DynamicBuffers {
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
         );
+        if image_pixels != self.result_scratch.len() {
+            self.result_scratch.resize(image_pixels, 0u32);
+        }
         queue
             .write_buffer_with(
                 &self.result,
@@ -737,7 +603,7 @@ impl DynamicBuffers {
                 (image_pixels as u64 * 4).try_into().unwrap(),
             )
             .unwrap()
-            .copy_from_slice(vec![0u8; image_pixels * 4].as_slice());
+            .copy_from_slice(self.result_scratch.as_bytes());
 
         resize_buffer_with::<u32>(
             device,
@@ -750,15 +616,12 @@ impl DynamicBuffers {
 }
 
 #[derive(Copy, Clone)]
-pub struct CommonCtx<'a, 'b, F> {
+pub struct CommonCtx<'a, 'b> {
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
 
     buf: &'a DynamicBuffers,
     settings: &'a VoxelRenderConfig<'b>,
-
-    shape: &'a Shape<F>,
-    mat: nalgebra::Matrix4<f32>,
 }
 
 impl VoxelRayContext {
@@ -815,6 +678,7 @@ impl VoxelRayContext {
             .max(settings.image_size.height()) as usize;
         let tile_sizes = TileSizesRef::new(&settings.tile_sizes, max_size);
 
+        // CPU work
         let start = std::time::Instant::now();
         let rs = crate::render::render_tiles::<F, Worker3D<F>>(
             shape.clone(),
@@ -823,12 +687,30 @@ impl VoxelRayContext {
         )?;
         println!("got tiles in {:?}", start.elapsed());
 
+        let vars = shape.inner().vars();
+        let config = Config {
+            mat: mat.data.as_slice().try_into().unwrap(),
+            axes: shape
+                .axes()
+                .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX)),
+            _padding1: 0u32,
+            image_size: [
+                settings.image_size.width(),
+                settings.image_size.height(),
+                settings.image_size.depth(),
+            ],
+            _padding2: 0u32,
+        };
+        println!("{config:?}");
+        let mut cfg_buf = config.as_bytes().to_vec();
         let bytecode = shape.inner().to_bytecode();
         let mut max_reg = bytecode.reg_count;
         let mut max_mem = bytecode.mem_count;
 
         let mut pos = HashMap::new(); // map from shape to bytecode start
-        let mut tape_data = bytecode.data; // address 0 is the original tape
+        let tape_start = cfg_buf.len();
+        println!("tape start at {tape_start}");
+        cfg_buf.extend(bytecode.as_bytes()); // address 0 is the original tape
         pos.insert(shape.inner().id(), 0);
 
         // Build the dense tile array of 64^3 tiles, and active tile list
@@ -847,12 +729,13 @@ impl VoxelRayContext {
         for r in rs.iter().flat_map(|(_t, r)| r.iter()) {
             let id = r.shape.inner().id();
             let start = pos.entry(id).or_insert_with(|| {
-                let prev = tape_data.len();
+                let prev = cfg_buf.len() - tape_start;
+                assert_eq!(prev % 4, 0);
                 let bytecode = r.shape.inner().to_bytecode();
                 max_reg = max_reg.max(bytecode.reg_count);
                 max_mem = max_mem.max(bytecode.mem_count);
-                tape_data.extend(bytecode.data.into_iter());
-                prev
+                cfg_buf.extend(bytecode.as_bytes());
+                prev / 4
             });
             let start = *start as u32;
             assert_eq!(r.corner.x % 64, 0);
@@ -890,10 +773,11 @@ impl VoxelRayContext {
             }
         }
 
-        if tape_data.len() < 1024 {
-            println!("bytecode len: {} B", tape_data.len() * 4);
+        let tape_data_len = cfg_buf.len() - tape_start;
+        if tape_data_len < 1024 {
+            println!("bytecode len: {tape_data_len} B");
         } else {
-            println!("bytecode len: {} KiB", tape_data.len() * 4 / 1024);
+            println!("bytecode len: {} KiB", tape_data_len / 1024);
         }
         println!("max reg: {max_reg}");
         println!(
@@ -902,10 +786,10 @@ impl VoxelRayContext {
         );
         assert_eq!(max_mem, 0, "external memory is not yet supported");
 
-        self.buffers.resize(
+        self.buffers.reset(
             &self.device,
             &self.queue,
-            &tape_data,
+            &cfg_buf,
             &tile64_tapes,
             settings.image_size,
         );
@@ -919,8 +803,6 @@ impl VoxelRayContext {
             device: &self.device,
             queue: &self.queue,
             buf: &self.buffers,
-            mat,
-            shape: &shape,
             settings: &settings,
         };
 
@@ -933,6 +815,7 @@ impl VoxelRayContext {
         self.voxel_ctx.run(
             &ctx,
             &self.interval_tile_ctx.tile4_buffers,
+            &self.interval_tile_ctx.tile16_buffers.tiles,
             &mut encoder,
         );
 
@@ -940,29 +823,24 @@ impl VoxelRayContext {
         self.queue.submit(Some(encoder.finish()));
 
         if false {
-            let tile64_size = get_buffer::<u32>(
+            let tile64_data = get_buffer::<u32>(
                 ctx.device,
                 ctx.queue,
-                &self.interval_tile_ctx.tile64_buffers.count,
+                &self.interval_tile_ctx.tile64_buffers.tiles,
             );
-            println!("tile64 size: {tile64_size:?}");
-            let tile16_size = get_buffer::<u32>(
+            println!("tile64 size: {:?}", &tile64_data[..4]);
+            let tile16_data = get_buffer::<u32>(
                 ctx.device,
                 ctx.queue,
-                &self.interval_tile_ctx.tile16_buffers.count,
+                &self.interval_tile_ctx.tile16_buffers.tiles,
             );
-            println!("tile16 size: {tile16_size:?}");
-            let tile4_size = get_buffer::<u32>(
-                ctx.device,
-                ctx.queue,
-                &self.interval_tile_ctx.tile4_buffers.count,
-            );
-            println!("tile4 size: {tile4_size:?}");
+            println!("tile16 size: {:?}", &tile16_data[..4]);
             let tile4_data = get_buffer::<u32>(
                 ctx.device,
                 ctx.queue,
-                &self.interval_tile_ctx.tile4_buffers.active,
+                &self.interval_tile_ctx.tile4_buffers.tiles,
             );
+            println!("tile4 size: {:?}", &tile4_data[0..4]);
             //println!("{:?}", &tile4_data[..tile4_size[0] as usize]);
         }
 
@@ -986,28 +864,6 @@ impl VoxelRayContext {
                 let i = ((*r as u64) * 255 / m as u64) as u8 as u32;
                 *r = 0xFF << 24 | i << 8 | i << 16 | i;
             }
-        }
-
-        if false {
-            let size = get_buffer::<u32>(
-                &self.device,
-                &self.queue,
-                &self.interval_tile_ctx.tile16_buffers.count,
-            );
-            println!("got dispatch size {size:?}");
-            let active = get_buffer::<u32>(
-                &self.device,
-                &self.queue,
-                &self.interval_tile_ctx.tile16_buffers.active,
-            );
-            println!("got active tile16 {:?}", &active[..size[0] as usize]);
-            println!(
-                "got active tile16 {:?}",
-                active[..size[0] as usize]
-                    .iter()
-                    .map(|t| (t % 4, (t / 4) % 4, (t / 16)))
-                    .collect::<Vec<_>>()
-            );
         }
 
         Some(Ok(result))

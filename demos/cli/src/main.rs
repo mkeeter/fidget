@@ -106,10 +106,8 @@ enum Command {
 
 #[derive(ValueEnum, Clone)]
 enum ShaderName {
-    PixelTiles,
-    VoxelTiles,
-    VoxelRay,
     IntervalTiles,
+    VoxelRay,
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -173,10 +171,6 @@ struct ImageSettings {
     /// (interval evaluation still uses the mode specified by `--eval`)
     #[clap(long)]
     wgpu: bool,
-
-    /// Use voxel raycasting (instead of tile-based renderer)
-    #[clap(long, requires = "wgpu")]
-    raycast: bool,
 
     /// Number of threads to use
     #[clap(short, long)]
@@ -507,76 +501,6 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     }
 }
 
-fn run_wgpu_2d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
-    shape: fidget::shape::Shape<F>,
-    settings: &ImageSettings,
-    mode: RenderMode2D,
-) -> Vec<u8> {
-    let start = Instant::now();
-    let out = if matches!(mode, RenderMode2D::Brute) {
-        run_wgpu_2d_brute(shape, settings)
-    } else {
-        run_wgpu_2d_smart(shape, settings)
-    };
-    info!(
-        "Rendered {}x at {:?} ms/frame",
-        settings.n,
-        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
-    );
-    out
-}
-
-fn run_wgpu_2d_brute<
-    F: fidget::eval::MathFunction + fidget::render::RenderHints,
->(
-    shape: fidget::shape::Shape<F>,
-    settings: &ImageSettings,
-) -> Vec<u8> {
-    let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
-    let mut image = vec![];
-    for _i in 0..settings.n {
-        // Note that this copies the bytecode each time
-        image = ctx
-            .run_2d_brute(
-                shape.clone(),
-                fidget::render::ImageSize::from(settings.size),
-                Default::default(),
-            )
-            .unwrap();
-    }
-
-    image.into_iter().flat_map(|b| b.to_le_bytes()).collect()
-}
-
-fn run_wgpu_2d_smart<
-    F: fidget::eval::MathFunction + fidget::render::RenderHints,
->(
-    shape: fidget::shape::Shape<F>,
-    settings: &ImageSettings,
-) -> Vec<u8> {
-    let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
-    let mut image = vec![];
-    for _i in 0..settings.n {
-        let threads = settings.threads();
-        // Note that this copies the bytecode each time
-        image = ctx
-            .run_2d(
-                shape.clone(),
-                fidget::render::ImageRenderConfig {
-                    image_size: fidget::render::ImageSize::from(settings.size),
-                    tile_sizes: fidget::render::TileSizes::new(&[64, 8])
-                        .unwrap(),
-                    threads: threads.as_ref(),
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-            .unwrap();
-    }
-
-    image.into_iter().flat_map(|b| b.to_le_bytes()).collect()
-}
-
 fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
@@ -586,50 +510,26 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
     let mut image = vec![];
     let threads = settings.threads();
 
-    if settings.raycast {
-        let mut ctx = fidget::wgpu::VoxelRayContext::new().unwrap();
+    let mut ctx = fidget::wgpu::VoxelRayContext::new().unwrap();
 
-        // Send over our image pixels
-        for _i in 0..settings.n {
-            // Note that this copies the bytecode each time
-            let s = std::time::Instant::now();
-            image = ctx
-                .run_3d(
-                    shape.clone(),
-                    fidget::render::VoxelRenderConfig {
-                        image_size,
-                        tile_sizes: fidget::render::TileSizes::new(&[128, 64])
-                            .unwrap(),
-                        threads: threads.as_ref(),
-                        ..Default::default()
-                    },
-                )
-                .unwrap()
-                .unwrap();
-            println!(" => {:?}", s.elapsed());
-        }
-    } else {
-        let mut ctx = fidget::wgpu::VoxelContext::new().unwrap();
-
-        // Send over our image pixels
-        for _i in 0..settings.n {
-            // Note that this copies the bytecode each time
-            let s = std::time::Instant::now();
-            image = ctx
-                .run_3d(
-                    shape.clone(),
-                    fidget::render::VoxelRenderConfig {
-                        image_size,
-                        tile_sizes: fidget::render::TileSizes::new(&[64, 8])
-                            .unwrap(),
-                        threads: threads.as_ref(),
-                        ..Default::default()
-                    },
-                )
-                .unwrap()
-                .unwrap();
-            println!(" => {:?}", s.elapsed());
-        }
+    // Send over our image pixels
+    for _i in 0..settings.n {
+        // Note that this copies the bytecode each time
+        let s = std::time::Instant::now();
+        image = ctx
+            .run_3d(
+                shape.clone(),
+                fidget::render::VoxelRenderConfig {
+                    image_size,
+                    tile_sizes: fidget::render::TileSizes::new(&[128, 64])
+                        .unwrap(),
+                    threads: threads.as_ref(),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap();
+        println!(" => {:?}", s.elapsed());
     }
     info!(
         "Rendered {}x at {:?} ms/frame",
@@ -772,19 +672,7 @@ fn main() -> Result<()> {
                 nalgebra::Translation3::new(-center[0], -center[1], 0.0);
             let t = center.to_homogeneous() * scale.to_homogeneous();
             let buffer = if settings.wgpu {
-                match settings.eval {
-                    #[cfg(feature = "jit")]
-                    EvalMode::Jit => {
-                        let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                        info!("Built shape in {:?}", start.elapsed());
-                        run_wgpu_2d(shape, &settings, mode)
-                    }
-                    EvalMode::Vm => {
-                        let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                        info!("Built shape in {:?}", start.elapsed());
-                        run_wgpu_2d(shape, &settings, mode)
-                    }
-                }
+                bail!("cannot use wgpu for 2D rendering");
             } else {
                 match settings.eval {
                     #[cfg(feature = "jit")]
@@ -984,12 +872,6 @@ fn main() -> Result<()> {
             }
         }
         Command::Shader { name } => match name {
-            ShaderName::PixelTiles => {
-                println!("{}", fidget::wgpu::pixel_tiles_shader())
-            }
-            ShaderName::VoxelTiles => {
-                println!("{}", fidget::wgpu::voxel_tiles_shader())
-            }
             ShaderName::VoxelRay => {
                 println!("{}", fidget::wgpu::voxel_ray_shader())
             }
