@@ -185,6 +185,7 @@ impl IntervalTileContext {
     fn run<F: Function + MathFunction>(
         &mut self,
         active_tiles: &[u32],
+        tile64_zmin: &[u32],
         ctx: &CommonCtx<F>,
         encoder: &mut wgpu::CommandEncoder,
     ) {
@@ -220,7 +221,7 @@ impl IntervalTileContext {
             ctx.device,
             ctx.queue,
             active_tiles,
-            ctx.settings.image_size,
+            tile64_zmin,
         );
         self.tile16_buffers.reset(
             ctx.device,
@@ -626,11 +627,8 @@ impl<const N: usize> TileBuffers<N> {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         active_tiles: &[u32],
-        image_size: VoxelSize,
+        tile_zmin: &[u32],
     ) {
-        // resize the active tile list
-        let nx = image_size.width().div_ceil(64) as usize * (64 / N);
-        let ny = image_size.width().div_ceil(64) as usize * (64 / N);
         write_storage_buffer::<u32>(
             device,
             queue,
@@ -639,16 +637,12 @@ impl<const N: usize> TileBuffers<N> {
             active_tiles,
         );
 
-        // zero out the zmin buffer
-        if self.zmin_scratch.len() != nx * ny {
-            self.zmin_scratch.resize(nx * ny, 0u32);
-        }
         write_storage_buffer(
             device,
             queue,
             &mut self.zmin,
             &format!("tile{N}_zmin"),
-            &self.zmin_scratch,
+            tile_zmin,
         );
 
         // reset the active tile count buffer
@@ -844,6 +838,7 @@ impl VoxelRayContext {
         let nz = settings.image_size.depth().div_ceil(64);
         let mut tile64_tapes =
             vec![0u32; nx as usize * ny as usize * nz as usize];
+        let mut tile64_zmin = vec![0u32; nx as usize * ny as usize];
 
         // Iterate over 64^3 tile results
         let mut active_tiles = vec![];
@@ -877,6 +872,11 @@ impl VoxelRayContext {
                                 u32::MAX
                             }
                             TileMode::Full => {
+                                let i = r.corner.x / tile_size
+                                    + x
+                                    + (r.corner.y / tile_size + y) * nx;
+                                let t = &mut tile64_zmin[i as usize];
+                                *t = (*t).max(r.corner.z + z * 64 + 64);
                                 full += 1;
                                 start | (1 << 31)
                             }
@@ -924,8 +924,12 @@ impl VoxelRayContext {
             settings: &settings,
         };
 
-        self.interval_tile_ctx
-            .run(&active_tiles, &ctx, &mut encoder);
+        self.interval_tile_ctx.run(
+            &active_tiles,
+            &tile64_zmin,
+            &ctx,
+            &mut encoder,
+        );
         self.voxel_ctx.run(
             &ctx,
             &self.interval_tile_ctx.tile4_buffers,
