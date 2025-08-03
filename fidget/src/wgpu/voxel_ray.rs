@@ -14,7 +14,7 @@ use crate::{
 };
 
 use nalgebra::{Point3, Vector3};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -118,7 +118,7 @@ impl IntervalTileContext {
 
         let pipeline16 =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
+                label: Some("tile64"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("interval_tile_main"),
@@ -131,7 +131,7 @@ impl IntervalTileContext {
 
         let pipeline4 =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
+                label: Some("tile16"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("interval_tile_main"),
@@ -160,45 +160,31 @@ impl IntervalTileContext {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        active_tile_count: usize,
+        active_tiles: BTreeMap<u32, Vec<u32>>,
         tile64_zmin: &[u32],
         image_size: VoxelSize,
-    ) {
+    ) -> Vec<(usize, usize)> {
+        self.tile16_buffers.reset(device, queue, image_size);
+        self.tile4_buffers.reset(device, queue, image_size);
         self.tile64_buffers.reset_with_tile_count(
             device,
             queue,
-            active_tile_count,
+            active_tiles,
             tile64_zmin,
-        );
-        self.tile16_buffers.reset(device, queue, image_size);
-        self.tile4_buffers.reset(device, queue, image_size);
+        )
     }
 
     fn run(
         &mut self,
-        active_tiles: &[u32],
+        active_offset: usize,
+        active_count: usize,
         ctx: &CommonCtx,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        let mut buf = ctx
-            .queue
-            .write_buffer_with(
-                &self.tile64_buffers.tiles,
-                0,
-                ((4 + active_tiles.len() as u64) * 4)
-                    .try_into()
-                    .expect("buffer size must be > 0"),
-            )
-            .unwrap();
-        buf[0..16].copy_from_slice(
-            [0u32, 0, 0, active_tiles.len() as u32].as_bytes(),
-        );
-        buf[16..].copy_from_slice(active_tiles.as_bytes());
-        drop(buf); // schedules write
-
         let bind_group16 = self.create_bind_group(
             ctx,
             &self.tile64_buffers,
+            active_offset,
             &self.tile16_buffers,
             &self.tile4_buffers.tiles,
         );
@@ -209,12 +195,13 @@ impl IntervalTileContext {
             });
         compute_pass16.set_pipeline(&self.pipeline16);
         compute_pass16.set_bind_group(0, &bind_group16, &[]);
-        compute_pass16.dispatch_workgroups(active_tiles.len() as u32, 1, 1);
+        compute_pass16.dispatch_workgroups(active_count as u32, 1, 1);
         drop(compute_pass16);
 
         let bind_group4 = self.create_bind_group(
             ctx,
             &self.tile16_buffers,
+            0,
             &self.tile4_buffers,
             &self.tile64_buffers.tiles, // clear
         );
@@ -234,6 +221,7 @@ impl IntervalTileContext {
         &self,
         ctx: &CommonCtx,
         tile_buffers: &TileBuffers<N>,
+        offset: usize,
         subtile_buffers: &TileBuffers<M>,
         clear: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
@@ -251,7 +239,10 @@ impl IntervalTileContext {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: tile_buffers.tiles.as_entire_binding(),
+                    resource: tile_buffers
+                        .tiles
+                        .slice(offset as u64 * 4..)
+                        .into(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -319,7 +310,7 @@ impl VoxelContext {
 
         let pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
+                label: Some("voxels"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("voxel_ray_main"),
@@ -384,15 +375,6 @@ impl VoxelContext {
         // workers in the Z direction.
         compute_pass.dispatch_workgroups_indirect(&tile4_buffers.tiles, 0);
         drop(compute_pass);
-
-        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
-        encoder.copy_buffer_to_buffer(
-            &ctx.buf.result,
-            0,
-            &ctx.buf.image,
-            0,
-            ctx.buf.result.size(),
-        );
     }
 }
 
@@ -498,17 +480,27 @@ impl<const N: usize> TileBuffers<N> {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        active_tile_count: usize,
+        active_tiles: BTreeMap<u32, Vec<u32>>,
         tile_zmin: &[u32],
-    ) {
-        resize_buffer_with::<u32>(
+    ) -> Vec<(usize, usize)> {
+        let mut packed_tiles = vec![];
+        let mut out = vec![];
+        for (_z, ts) in active_tiles.iter().rev() {
+            // Ensure 256-byte alignment for buffer offsets
+            while packed_tiles.len() % 64 != 0 {
+                packed_tiles.push(0u32);
+            }
+            out.push((packed_tiles.len(), ts.len()));
+            packed_tiles.extend([0u32, 0, 0, ts.len() as u32]);
+            packed_tiles.extend(ts);
+        }
+
+        write_storage_buffer(
             device,
+            queue,
             &mut self.tiles,
             &format!("active_tile{N}"),
-            4 + active_tile_count,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC, // for debug
+            &packed_tiles,
         );
 
         write_storage_buffer(
@@ -518,6 +510,8 @@ impl<const N: usize> TileBuffers<N> {
             &format!("tile{N}_zmin"),
             tile_zmin,
         );
+
+        out
     }
 }
 
@@ -702,7 +696,6 @@ impl VoxelRayContext {
             ],
             _padding2: 0u32,
         };
-        println!("{config:?}");
         let mut cfg_buf = config.as_bytes().to_vec();
         let bytecode = shape.inner().to_bytecode();
         let mut max_reg = bytecode.reg_count;
@@ -710,7 +703,6 @@ impl VoxelRayContext {
 
         let mut pos = HashMap::new(); // map from shape to bytecode start
         let tape_start = cfg_buf.len();
-        println!("tape start at {tape_start}");
         cfg_buf.extend(bytecode.as_bytes()); // address 0 is the original tape
         pos.insert(shape.inner().id(), 0);
 
@@ -724,7 +716,7 @@ impl VoxelRayContext {
         let mut tile64_zmin = vec![0u32; nx as usize * ny as usize];
 
         // Iterate over 64^3 tile results
-        let mut active_tiles = vec![];
+        let mut active_tiles: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
         let mut full = 0;
         let mut empty = 0;
         for r in rs.iter().flat_map(|(_t, r)| r.iter()) {
@@ -750,6 +742,7 @@ impl VoxelRayContext {
                             + x
                             + (r.corner.y / tile_size + y) * nx
                             + (r.corner.z / tile_size + z) * nx * ny;
+
                         tile64_tapes[i as usize] = match r.mode {
                             TileMode::Empty => {
                                 empty += 1;
@@ -765,7 +758,8 @@ impl VoxelRayContext {
                                 start | (1 << 31)
                             }
                             TileMode::Voxels => {
-                                active_tiles.push(i);
+                                let strata = (r.corner.z + z * tile_size) / 64;
+                                active_tiles.entry(strata).or_default().push(i);
                                 start
                             }
                         };
@@ -794,10 +788,10 @@ impl VoxelRayContext {
             &tile64_tapes,
             settings.image_size,
         );
-        self.interval_tile_ctx.reset(
+        let active_tile_offsets = self.interval_tile_ctx.reset(
             &self.device,
             &self.queue,
-            active_tiles.len(),
+            active_tiles,
             &tile64_zmin,
             settings.image_size,
         );
@@ -813,13 +807,25 @@ impl VoxelRayContext {
             buf: &self.buffers,
         };
 
-        self.interval_tile_ctx
-            .run(&active_tiles, &ctx, &mut encoder);
-        self.voxel_ctx.run(
-            &ctx,
-            &self.interval_tile_ctx.tile4_buffers,
-            &self.interval_tile_ctx.tile16_buffers.tiles,
-            &mut encoder,
+        // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
+        for (offset, count) in active_tile_offsets {
+            self.interval_tile_ctx
+                .run(offset, count, &ctx, &mut encoder);
+            self.voxel_ctx.run(
+                &ctx,
+                &self.interval_tile_ctx.tile4_buffers, // dispatch list
+                &self.interval_tile_ctx.tile16_buffers.tiles, // to clear
+                &mut encoder,
+            );
+        }
+
+        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+        encoder.copy_buffer_to_buffer(
+            &ctx.buf.result,
+            0,
+            &ctx.buf.image,
+            0,
+            ctx.buf.result.size(),
         );
 
         // Submit the commands and wait for the GPU to complete
