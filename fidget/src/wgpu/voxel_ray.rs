@@ -156,29 +156,45 @@ impl IntervalTileContext {
         })
     }
 
+    fn reset(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        active_tile_count: usize,
+        tile64_zmin: &[u32],
+        image_size: VoxelSize,
+    ) {
+        self.tile64_buffers.reset_with_tile_count(
+            device,
+            queue,
+            active_tile_count,
+            tile64_zmin,
+        );
+        self.tile16_buffers.reset(device, queue, image_size);
+        self.tile4_buffers.reset(device, queue, image_size);
+    }
+
     fn run(
         &mut self,
         active_tiles: &[u32],
-        tile64_zmin: &[u32],
         ctx: &CommonCtx,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        self.tile64_buffers.reset_with_tiles(
-            ctx.device,
-            ctx.queue,
-            active_tiles,
-            tile64_zmin,
+        let mut buf = ctx
+            .queue
+            .write_buffer_with(
+                &self.tile64_buffers.tiles,
+                0,
+                ((4 + active_tiles.len() as u64) * 4)
+                    .try_into()
+                    .expect("buffer size must be > 0"),
+            )
+            .unwrap();
+        buf[0..16].copy_from_slice(
+            [0u32, 0, 0, active_tiles.len() as u32].as_bytes(),
         );
-        self.tile16_buffers.reset(
-            ctx.device,
-            ctx.queue,
-            ctx.settings.image_size,
-        );
-        self.tile4_buffers.reset(
-            ctx.device,
-            ctx.queue,
-            ctx.settings.image_size,
-        );
+        buf[16..].copy_from_slice(active_tiles.as_bytes());
+        drop(buf); // schedules write
 
         let bind_group16 = self.create_bind_group(
             ctx,
@@ -478,35 +494,22 @@ impl<const N: usize> TileBuffers<N> {
         );
     }
 
-    fn reset_with_tiles(
+    fn reset_with_tile_count(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        active_tiles: &[u32],
+        active_tile_count: usize,
         tile_zmin: &[u32],
     ) {
         resize_buffer_with::<u32>(
             device,
             &mut self.tiles,
             &format!("active_tile{N}"),
-            4 + active_tiles.len(),
+            4 + active_tile_count,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC, // for debug
         );
-        let mut buf = queue
-            .write_buffer_with(
-                &self.tiles,
-                0,
-                ((4 + active_tiles.len() as u64) * 4)
-                    .try_into()
-                    .expect("buffer size must be > 0"),
-            )
-            .unwrap();
-        buf[0..16].copy_from_slice(
-            [0u32, 0, 0, active_tiles.len() as u32].as_bytes(),
-        );
-        buf[16..].copy_from_slice(active_tiles.as_bytes());
 
         write_storage_buffer(
             device,
@@ -616,12 +619,10 @@ impl DynamicBuffers {
 }
 
 #[derive(Copy, Clone)]
-pub struct CommonCtx<'a, 'b> {
+pub struct CommonCtx<'a> {
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
-
     buf: &'a DynamicBuffers,
-    settings: &'a VoxelRenderConfig<'b>,
 }
 
 impl VoxelRayContext {
@@ -793,6 +794,13 @@ impl VoxelRayContext {
             &tile64_tapes,
             settings.image_size,
         );
+        self.interval_tile_ctx.reset(
+            &self.device,
+            &self.queue,
+            active_tiles.len(),
+            &tile64_zmin,
+            settings.image_size,
+        );
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = self.device.create_command_encoder(
@@ -803,15 +811,10 @@ impl VoxelRayContext {
             device: &self.device,
             queue: &self.queue,
             buf: &self.buffers,
-            settings: &settings,
         };
 
-        self.interval_tile_ctx.run(
-            &active_tiles,
-            &tile64_zmin,
-            &ctx,
-            &mut encoder,
-        );
+        self.interval_tile_ctx
+            .run(&active_tiles, &ctx, &mut encoder);
         self.voxel_ctx.run(
             &ctx,
             &self.interval_tile_ctx.tile4_buffers,
