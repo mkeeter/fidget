@@ -15,6 +15,8 @@
 - Replaced `view` in `ImageRenderConfig` and `VoxelRenderConfig` with a generic
   `world_to_model` matrix, for more flexibility when rendering.
 - Add mathematical constants for Rhai scripts (`PI`, `E`, `TAU`...)
+- Add `std::ops::Neg` implementation for `Vec2,3,4` types, in both Rust and
+  Rhai.
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!

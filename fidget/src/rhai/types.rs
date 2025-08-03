@@ -19,6 +19,7 @@ macro_rules! register_all {
 
         register_unary!($engine, $ty, sqrt);
         register_unary!($engine, $ty, abs);
+        $engine.register_fn("-", |v: $ty| -v);
     };
 }
 
@@ -437,5 +438,14 @@ mod test {
             lines.lock().unwrap().last().map(|s| s.as_str()),
             Some("plane(\"yz\")")
         );
+    }
+
+    #[test]
+    fn type_ops() {
+        let mut e = rhai::Engine::new();
+        register(&mut e);
+        let v = e.eval::<Vec2>("-vec2(1, 2)").unwrap();
+        assert_eq!(v.x, -1.0);
+        assert_eq!(v.y, -2.0);
     }
 }

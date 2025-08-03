@@ -246,6 +246,14 @@ macro_rules! impl_binary {
 }
 
 macro_rules! impl_unary {
+    ($ty:ident, $op:ident, $base_fn:ident) => {
+        impl std::ops::$op for $ty {
+            type Output = $ty;
+            fn $base_fn(self) -> $ty {
+                self.map(std::ops::$op::$base_fn)
+            }
+        }
+    };
     ($ty:ident, $base_fn:ident, $f:expr) => {
         pub fn $base_fn(self) -> Self {
             self.map($f)
@@ -262,6 +270,7 @@ macro_rules! impl_all {
         impl_binary!($ty, Mul, mul);
         impl_binary!($ty, Sub, sub);
         impl_binary!($ty, Div, div);
+        impl_unary!($ty, Neg, neg);
 
         #[allow(missing_docs)]
         impl $ty {
