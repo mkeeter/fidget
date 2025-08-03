@@ -108,6 +108,7 @@ enum Command {
 enum ShaderName {
     IntervalTiles,
     VoxelRay,
+    Backfill,
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -877,6 +878,9 @@ fn main() -> Result<()> {
             }
             ShaderName::IntervalTiles => {
                 println!("{}", fidget::wgpu::interval_tiles_shader())
+            }
+            ShaderName::Backfill => {
+                println!("{}", fidget::wgpu::backfill_shader())
             }
         },
     }

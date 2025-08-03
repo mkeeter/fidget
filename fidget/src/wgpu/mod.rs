@@ -80,6 +80,11 @@ pub fn interval_tiles_shader() -> String {
     shader_code
 }
 
+/// Returns a shader string to backfill from subtiles to tile zmin
+pub fn backfill_shader() -> String {
+    COMMON_RAY.to_owned() + include_str!("backfill.wgsl")
+}
+
 /// `main` shader function for voxel tile evaluation with raymarching
 const VOXEL_RAY_SHADER: &str = include_str!("voxel_ray.wgsl");
 

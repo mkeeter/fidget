@@ -8,8 +8,8 @@ use crate::{
     shape::{Shape, ShapeTracingEval, ShapeVars},
     types::Interval,
     wgpu::{
-        interval_tiles_shader, resize_buffer_with, voxel_ray_shader,
-        write_storage_buffer,
+        backfill_shader, interval_tiles_shader, resize_buffer_with,
+        voxel_ray_shader, write_storage_buffer,
     },
 };
 
@@ -179,7 +179,7 @@ impl IntervalTileContext {
         active_offset: usize,
         active_count: usize,
         ctx: &CommonCtx,
-        encoder: &mut wgpu::CommandEncoder,
+        compute_pass: &mut wgpu::ComputePass,
     ) {
         let bind_group16 = self.create_bind_group(
             ctx,
@@ -188,15 +188,9 @@ impl IntervalTileContext {
             &self.tile16_buffers,
             &self.tile4_buffers.tiles,
         );
-        let mut compute_pass16 =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-        compute_pass16.set_pipeline(&self.pipeline16);
-        compute_pass16.set_bind_group(0, &bind_group16, &[]);
-        compute_pass16.dispatch_workgroups(active_count as u32, 1, 1);
-        drop(compute_pass16);
+        compute_pass.set_pipeline(&self.pipeline16);
+        compute_pass.set_bind_group(0, &bind_group16, &[]);
+        compute_pass.dispatch_workgroups(active_count as u32, 1, 1);
 
         let bind_group4 = self.create_bind_group(
             ctx,
@@ -205,16 +199,10 @@ impl IntervalTileContext {
             &self.tile4_buffers,
             &self.tile64_buffers.tiles, // clear
         );
-        let mut compute_pass4 =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-        compute_pass4.set_pipeline(&self.pipeline4);
-        compute_pass4.set_bind_group(0, &bind_group4, &[]);
-        compute_pass4
+        compute_pass.set_pipeline(&self.pipeline4);
+        compute_pass.set_bind_group(0, &bind_group4, &[]);
+        compute_pass
             .dispatch_workgroups_indirect(&self.tile16_buffers.tiles, 0);
-        drop(compute_pass4);
     }
 
     fn create_bind_group<const N: usize, const M: usize>(
@@ -329,7 +317,7 @@ impl VoxelContext {
         ctx: &CommonCtx,
         tile4_buffers: &TileBuffers<4>,
         clear: &wgpu::Buffer,
-        encoder: &mut wgpu::CommandEncoder,
+        compute_pass: &mut wgpu::ComputePass,
     ) {
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -363,18 +351,12 @@ impl VoxelContext {
                 ],
             });
 
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
         compute_pass.dispatch_workgroups_indirect(&tile4_buffers.tiles, 0);
-        drop(compute_pass);
     }
 }
 
@@ -424,6 +406,7 @@ pub struct VoxelRayContext {
 
     interval_tile_ctx: IntervalTileContext,
     voxel_ctx: VoxelContext,
+    backfill_ctx: BackfillContext,
 }
 
 struct TileBuffers<const N: usize> {
@@ -613,10 +596,11 @@ impl DynamicBuffers {
 }
 
 #[derive(Copy, Clone)]
-pub struct CommonCtx<'a> {
+pub struct CommonCtx<'a, 'b> {
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     buf: &'a DynamicBuffers,
+    settings: &'a VoxelRenderConfig<'b>,
 }
 
 impl VoxelRayContext {
@@ -640,6 +624,7 @@ impl VoxelRayContext {
 
         let interval_tile_ctx = IntervalTileContext::new(&device)?;
         let voxel_ctx = VoxelContext::new(&device)?;
+        let backfill_ctx = BackfillContext::new(&device)?;
         let buffers = DynamicBuffers::new(&device);
 
         Ok(Self {
@@ -648,6 +633,7 @@ impl VoxelRayContext {
             queue,
             interval_tile_ctx,
             voxel_ctx,
+            backfill_ctx,
         })
     }
 
@@ -805,19 +791,34 @@ impl VoxelRayContext {
             device: &self.device,
             queue: &self.queue,
             buf: &self.buffers,
+            settings: &settings,
         };
 
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None,
+            });
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         for (offset, count) in active_tile_offsets {
             self.interval_tile_ctx
-                .run(offset, count, &ctx, &mut encoder);
+                .run(offset, count, &ctx, &mut compute_pass);
             self.voxel_ctx.run(
                 &ctx,
                 &self.interval_tile_ctx.tile4_buffers, // dispatch list
                 &self.interval_tile_ctx.tile16_buffers.tiles, // to clear
-                &mut encoder,
+                &mut compute_pass,
+            );
+            self.backfill_ctx.run(
+                &ctx.buf.result,
+                &self.interval_tile_ctx.tile4_buffers.zmin,
+                &self.interval_tile_ctx.tile16_buffers.zmin,
+                &self.interval_tile_ctx.tile64_buffers.zmin,
+                &ctx,
+                &mut compute_pass,
             );
         }
+        drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
         encoder.copy_buffer_to_buffer(
@@ -876,6 +877,149 @@ impl VoxelRayContext {
         }
 
         Some(Ok(result))
+    }
+}
+
+struct BackfillContext {
+    bind_group_layout: wgpu::BindGroupLayout,
+
+    pipeline4: wgpu::ComputePipeline,
+    pipeline16: wgpu::ComputePipeline,
+    pipeline64: wgpu::ComputePipeline,
+}
+
+impl BackfillContext {
+    fn new(device: &wgpu::Device) -> Result<Self, Error> {
+        let shader_code = backfill_shader();
+
+        // Create bind group layout and bind group
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_ro(0), // config + tape data
+                    buffer_ro(1), // subtile_zmin
+                    buffer_rw(2), // count_clear
+                ],
+            });
+
+        // Create the compute pipeline
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        // Compile the shader
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+
+        let pipeline4 =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("backfill4"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("backfill_main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("TILE_SIZE", 4.0)],
+                    ..Default::default()
+                },
+                cache: None,
+            });
+        let pipeline16 =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("backfill16"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("backfill_main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("TILE_SIZE", 16.0)],
+                    ..Default::default()
+                },
+                cache: None,
+            });
+        let pipeline64 =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("backfill64"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("backfill_main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("TILE_SIZE", 64.0)],
+                    ..Default::default()
+                },
+                cache: None,
+            });
+
+        Ok(Self {
+            pipeline64,
+            pipeline16,
+            pipeline4,
+            bind_group_layout,
+        })
+    }
+
+    fn run(
+        &mut self,
+        result: &wgpu::Buffer,
+        tile4_zmin: &wgpu::Buffer,
+        tile16_zmin: &wgpu::Buffer,
+        tile64_zmin: &wgpu::Buffer,
+        ctx: &CommonCtx,
+        compute_pass: &mut wgpu::ComputePass,
+    ) {
+        assert_eq!(ctx.settings.image_size.width() % 64, 0);
+        assert_eq!(ctx.settings.image_size.height() % 64, 0);
+        assert_eq!(ctx.settings.image_size.depth() % 64, 0);
+
+        let nx = ctx.settings.image_size.width().div_ceil(64) as usize;
+        let ny = ctx.settings.image_size.width().div_ceil(64) as usize;
+
+        let bind_group4 = self.create_bind_group(ctx, result, tile4_zmin);
+        compute_pass.set_pipeline(&self.pipeline4);
+        compute_pass.set_bind_group(0, &bind_group4, &[]);
+        compute_pass.dispatch_workgroups((nx * ny * 16) as u32, 1, 1);
+
+        let bind_group16 = self.create_bind_group(ctx, tile4_zmin, tile16_zmin);
+        compute_pass.set_pipeline(&self.pipeline16);
+        compute_pass.set_bind_group(0, &bind_group16, &[]);
+        compute_pass.dispatch_workgroups((ny * ny * 4) as u32, 1, 1);
+
+        let bind_group64 =
+            self.create_bind_group(ctx, tile16_zmin, tile64_zmin);
+        compute_pass.set_pipeline(&self.pipeline64);
+        compute_pass.set_bind_group(0, &bind_group64, &[]);
+        compute_pass.dispatch_workgroups((ny * ny) as u32, 1, 1);
+    }
+
+    fn create_bind_group(
+        &self,
+        ctx: &CommonCtx,
+        subtile_zmin: &wgpu::Buffer,
+        tile_zmin: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ctx.buf.config.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: subtile_zmin.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: tile_zmin.as_entire_binding(),
+                },
+            ],
+        })
     }
 }
 
