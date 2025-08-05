@@ -49,7 +49,7 @@ impl Octree {
         settings: Settings,
     ) -> Self {
         // Transform the shape given our world-to-model matrix
-        let t = settings.view.world_to_model();
+        let t = settings.world_to_model;
         if t == nalgebra::Matrix4::identity() {
             Self::build_inner(shape, vars, settings)
         } else {
@@ -1614,7 +1614,8 @@ mod test {
         let center = Vector3::new(1.0, 1.0, 1.0);
         let settings = Settings {
             depth: 4,
-            view: View3::from_center_and_scale(center, 0.5),
+            world_to_model: View3::from_center_and_scale(center, 0.5)
+                .world_to_model(),
             threads: None,
         };
 
@@ -1637,7 +1638,7 @@ mod test {
             let settings = Settings {
                 depth: 4,
                 threads,
-                view: View3::default(),
+                ..Default::default()
             };
 
             for r in [0.5, 0.75] {

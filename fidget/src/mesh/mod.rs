@@ -83,7 +83,7 @@ pub struct Settings<'a> {
     pub depth: u8,
 
     /// Viewport to provide a world-to-model transform
-    pub view: View3,
+    pub world_to_model: nalgebra::Matrix4<f32>,
 
     /// Thread pool to use for rendering
     ///
@@ -96,7 +96,7 @@ impl Default for Settings<'_> {
     fn default() -> Self {
         Self {
             depth: 3,
-            view: Default::default(),
+            world_to_model: View3::default().world_to_model(),
             threads: Some(&ThreadPool::Global),
         }
     }
