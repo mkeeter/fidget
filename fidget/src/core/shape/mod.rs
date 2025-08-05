@@ -43,8 +43,18 @@ use std::collections::HashMap;
 ///
 /// Shapes are shared between threads, so they should be cheap to clone.  In
 /// most cases, they're a thin wrapper around an `Arc<..>`.
-#[derive(Clone)]
-pub struct Shape<F> {
+///
+/// At construction, a shape has no associated transformation.  A transformation
+/// matrix can be applied by calling [`Shape::with_transform`].
+///
+/// The shape's transformation matrix is propagated into tapes (constructed by
+/// `*_tape` functions), which use the matrix to transform incoming coordinates
+/// during evaluation.
+///
+/// Note that `with_transform` returns a `Shape` with [`Transformed`] as the
+/// second template parameter; to preserve immutability, the marker prevents
+/// further mutation of the transform.
+pub struct Shape<F, T = ()> {
     /// Wrapped function
     f: F,
 
@@ -52,10 +62,26 @@ pub struct Shape<F> {
     axes: [Var; 3],
 
     /// Optional transform to apply to the shape
+    ///
+    /// This may only be `Some(..)` if `T` is `Transformed` (enforced at
+    /// compilation time)
     transform: Option<Matrix4<f32>>,
+
+    _marker: std::marker::PhantomData<T>,
 }
 
-impl<F: Function + Clone> Shape<F> {
+impl<F: Clone, T> Clone for Shape<F, T> {
+    fn clone(&self) -> Self {
+        Self {
+            f: self.f.clone(),
+            axes: self.axes,
+            transform: self.transform,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<F: Function + Clone, T> Shape<F, T> {
     /// Builds a new point evaluator
     pub fn new_point_eval() -> ShapeTracingEval<F::PointEval> {
         ShapeTracingEval {
@@ -163,6 +189,7 @@ impl<F: Function + Clone> Shape<F> {
             f,
             axes: self.axes,
             transform: self.transform,
+            _marker: std::marker::PhantomData,
         })
     }
 
@@ -183,7 +210,7 @@ impl<F: Function + Clone> Shape<F> {
     }
 }
 
-impl<F> Shape<F> {
+impl<F, T> Shape<F, T> {
     /// Borrows the inner [`Function`] object
     pub fn inner(&self) -> &F {
         &self.f
@@ -200,16 +227,23 @@ impl<F> Shape<F> {
             f,
             axes,
             transform: None,
+            _marker: std::marker::PhantomData,
         }
     }
+}
+
+/// Marker struct indicating that a shape has a transform applied
+pub struct Transformed;
+
+impl<F: Clone> Shape<F, ()> {
     /// Returns a shape with the given transform applied
-    pub fn apply_transform(mut self, mat: Matrix4<f32>) -> Self {
-        if let Some(prev) = self.transform.as_mut() {
-            *prev *= mat;
-        } else {
-            self.transform = Some(mat);
+    pub fn with_transform(&self, mat: Matrix4<f32>) -> Shape<F, Transformed> {
+        Shape {
+            f: self.f.clone(),
+            axes: self.axes,
+            transform: Some(mat),
+            _marker: std::marker::PhantomData,
         }
-        self
     }
 }
 
@@ -296,7 +330,7 @@ pub trait EzShape<F: Function> {
         Self: Sized;
 }
 
-impl<F: Function> EzShape<F> for Shape<F> {
+impl<F: Function, T> EzShape<F> for Shape<F, T> {
     fn ez_point_tape(
         &self,
     ) -> ShapeTape<<F::PointEval as TracingEvaluator>::Tape> {
@@ -339,6 +373,7 @@ impl<F: MathFunction> Shape<F> {
             f,
             axes,
             transform: None,
+            _marker: std::marker::PhantomData,
         })
     }
 
