@@ -68,7 +68,7 @@ struct Worker<'a, F: Function> {
     out: GeometryBuffer,
 }
 
-impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
+impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
     type Config = VoxelRenderConfig<'a>;
     type Output = GeometryBuffer;
 
@@ -94,7 +94,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
 
     fn render_tile(
         &mut self,
-        shape: &mut RenderHandle<F>,
+        shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         tile: super::config::Tile<2>,
     ) -> Self::Output {
@@ -124,9 +124,9 @@ impl<F: Function> Worker<'_, F> {
     /// Render a single tile
     ///
     /// Returns `true` if we should keep rendering, `false` otherwise
-    fn render_tile_recurse(
+    fn render_tile_recurse<T>(
         &mut self,
-        shape: &mut RenderHandle<F>,
+        shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<3>,
@@ -203,9 +203,9 @@ impl<F: Function> Worker<'_, F> {
         true // keep going
     }
 
-    fn render_tile_pixels(
+    fn render_tile_pixels<T>(
         &mut self,
-        shape: &mut RenderHandle<F>,
+        shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<3>,
@@ -347,9 +347,9 @@ pub fn render<F: Function>(
     vars: &ShapeVars<f32>,
     config: &VoxelRenderConfig,
 ) -> Option<GeometryBuffer> {
-    let shape = shape.apply_transform(config.mat());
+    let shape = shape.with_transform(config.mat());
 
-    let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config)?;
+    let tiles = super::render_tiles::<F, Worker<F>, _>(shape, vars, config)?;
     let tile_sizes = config.tile_sizes();
 
     let width = config.image_size.width() as usize;

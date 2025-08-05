@@ -36,8 +36,8 @@ use render3d::render as render3d;
 /// reference to a recursive function.
 ///
 /// The most recent simplification is cached for reuse (if the trace matches).
-pub struct RenderHandle<F: Function> {
-    shape: Shape<F>,
+pub struct RenderHandle<F: Function, T = ()> {
+    shape: Shape<F, T>,
 
     i_tape: Option<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>,
     f_tape: Option<ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape>>,
@@ -46,7 +46,7 @@ pub struct RenderHandle<F: Function> {
     next: Option<(F::Trace, Box<Self>)>,
 }
 
-impl<F: Function> Clone for RenderHandle<F> {
+impl<F: Function, T> Clone for RenderHandle<F, T> {
     fn clone(&self) -> Self {
         Self {
             shape: self.shape.clone(),
@@ -58,11 +58,11 @@ impl<F: Function> Clone for RenderHandle<F> {
     }
 }
 
-impl<F: Function> RenderHandle<F> {
+impl<F: Function, T> RenderHandle<F, T> {
     /// Build a new [`RenderHandle`] for the given shape
     ///
     /// None of the tapes are populated here.
-    pub fn new(shape: Shape<F>) -> Self {
+    pub fn new(shape: Shape<F, T>) -> Self {
         Self {
             shape,
             i_tape: None,
@@ -312,13 +312,14 @@ pub trait RenderHints {
 /// parallel (using [`rayon`] for parallelism at the tile level).
 ///
 /// It returns a set of output tiles, or `None` if rendering has been cancelled
-pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F>>(
-    shape: Shape<F>,
+pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F, T>, T>(
+    shape: Shape<F, T>,
     vars: &ShapeVars<f32>,
     config: &'a W::Config,
 ) -> Option<Vec<(Tile<2>, W::Output)>>
 where
     W::Config: Send + Sync,
+    T: Sync,
 {
     use rayon::prelude::*;
 
@@ -390,7 +391,7 @@ pub(crate) trait RenderConfig {
 }
 
 /// Helper trait for a tiled renderer worker
-pub(crate) trait RenderWorker<'a, F: Function> {
+pub(crate) trait RenderWorker<'a, F: Function, T> {
     type Config: RenderConfig;
     type Output: Send;
 
@@ -402,7 +403,7 @@ pub(crate) trait RenderWorker<'a, F: Function> {
     /// Render a single tile, returning a worker-dependent output
     fn render_tile(
         &mut self,
-        shape: &mut RenderHandle<F>,
+        shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         tile: config::Tile<2>,
     ) -> Self::Output;

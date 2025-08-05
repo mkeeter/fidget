@@ -270,6 +270,7 @@ fn parse_vec2(s: &str) -> Result<[f32; 2]> {
 ////////////////////////////////////////////////////////////////////////////////
 fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
+    world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
     mode: RenderMode3D,
 ) -> Vec<u8> {
@@ -288,6 +289,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
         threads,
+        world_to_model,
         ..Default::default()
     };
 
@@ -405,6 +407,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
 fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
+    world_to_model: nalgebra::Matrix3<f32>,
     settings: &ImageSettings,
     mode: RenderMode2D,
 ) -> Vec<u8> {
@@ -449,6 +452,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             tile_sizes: F::tile_sizes_2d(),
             threads: threads.as_ref(),
             pixel_perfect: matches!(mode, RenderMode2D::Sdf),
+            world_to_model,
             ..Default::default()
         };
         let mut image = fidget::render::Image::default();
@@ -503,8 +507,7 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
         -settings.center[1],
         -settings.center[2],
     );
-    let t = center.to_homogeneous() * scale.to_homogeneous();
-    let shape = shape.apply_transform(t);
+    let world_to_model = center.to_homogeneous() * scale.to_homogeneous();
 
     let threads = match settings.threads {
         Some(n) if n.get() == 1 => None,
@@ -524,7 +527,7 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
         let settings = fidget::mesh::Settings {
             depth: settings.depth,
             threads,
-            ..Default::default()
+            world_to_model,
         };
         let start = std::time::Instant::now();
         let octree = fidget::mesh::Octree::build(&shape, settings);
@@ -614,24 +617,20 @@ fn main() -> Result<()> {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let s = 1.0 / settings.scale;
-            let scale = nalgebra::Scale3::new(s, s, s);
-            let center =
-                nalgebra::Translation3::new(-center[0], -center[1], 0.0);
+            let scale = nalgebra::Scale2::new(s, s);
+            let center = nalgebra::Translation2::new(-center[0], -center[1]);
             let t = center.to_homogeneous() * scale.to_homogeneous();
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?
-                        .apply_transform(t);
-
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, &settings, mode)
+                    run2d(shape, t, &settings, mode)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?
-                        .apply_transform(t);
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, &settings, mode)
+                    run2d(shape, t, &settings, mode)
                 }
             };
 
@@ -734,16 +733,14 @@ fn main() -> Result<()> {
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?
-                        .apply_transform(t);
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, mode)
+                    run3d(shape, t, &settings, mode)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?
-                        .apply_transform(t);
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, mode)
+                    run3d(shape, t, &settings, mode)
                 }
             };
 

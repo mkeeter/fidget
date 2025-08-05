@@ -53,7 +53,7 @@ impl Octree {
         if t == nalgebra::Matrix4::identity() {
             Self::build_inner(shape, vars, settings)
         } else {
-            let shape = shape.clone().apply_transform(t);
+            let shape = shape.with_transform(t);
             let mut out = Self::build_inner(&shape, vars, settings);
 
             // Apply the transform from [-1, +1] back to model space
@@ -80,8 +80,8 @@ impl Octree {
         Self::build_with_vars(shape, &ShapeVars::new(), settings)
     }
 
-    fn build_inner<F: Function + RenderHints + Clone>(
-        shape: &Shape<F>,
+    fn build_inner<F: Function + RenderHints + Clone, T: Sync>(
+        shape: &Shape<F, T>,
         vars: &ShapeVars<f32>,
         settings: Settings,
     ) -> Self {
@@ -103,8 +103,8 @@ impl Octree {
     }
 
     /// Multithreaded constructor
-    fn build_inner_mt<F: Function + RenderHints + Clone>(
-        shape: &Shape<F>,
+    fn build_inner_mt<F: Function + RenderHints + Clone, T: Sync>(
+        shape: &Shape<F, T>,
         vars: &ShapeVars<f32>,
         max_depth: u8,
         threads: &ThreadPool,
@@ -516,9 +516,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// Writes to `self.o.cells[cell]`, which must be reserved
     ///
     /// If a leaf is written, then `hermite` is populated
-    fn recurse(
+    fn recurse<T>(
         &mut self,
-        eval: &mut RenderHandle<F>,
+        eval: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         cell: CellIndex<3>,
         max_depth: u8,
@@ -582,9 +582,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// Writes the leaf vertex to `self.o.verts`, hermite data to
     /// `self.hermite`, and the leaf data to `self.leafs`.  Does **not** write
     /// anything to `self.o.cells`; the cell is returned instead.
-    fn leaf(
+    fn leaf<T>(
         &mut self,
-        eval: &mut RenderHandle<F>,
+        eval: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         cell: CellIndex<3>,
         hermite_cell: &mut LeafHermiteData,

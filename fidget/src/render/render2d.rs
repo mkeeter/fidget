@@ -135,7 +135,7 @@ struct Worker<'a, F: Function> {
     image: Image<DistancePixel>,
 }
 
-impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
+impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
     type Config = ImageRenderConfig<'a>;
     type Output = Image<DistancePixel>;
     fn new(cfg: &'a Self::Config) -> Self {
@@ -155,7 +155,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
 
     fn render_tile(
         &mut self,
-        shape: &mut RenderHandle<F>,
+        shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         tile: super::config::Tile<2>,
     ) -> Self::Output {
@@ -166,9 +166,9 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
 }
 
 impl<F: Function> Worker<'_, F> {
-    fn render_tile_recurse(
+    fn render_tile_recurse<T>(
         &mut self,
-        shape: &mut RenderHandle<F>,
+        shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<2>,
@@ -243,9 +243,9 @@ impl<F: Function> Worker<'_, F> {
         }
     }
 
-    fn render_tile_pixels(
+    fn render_tile_pixels<T>(
         &mut self,
-        shape: &mut RenderHandle<F>,
+        shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<2>,
@@ -304,10 +304,10 @@ pub fn render<F: Function>(
     let mat = config.mat();
     let mat = mat.insert_row(2, 0.0);
     let mat = mat.insert_column(2, 0.0);
-    let shape = shape.apply_transform(mat);
+    let shape = shape.with_transform(mat);
 
     let tiles =
-        super::render_tiles::<F, Worker<F>>(shape.clone(), vars, config)?;
+        super::render_tiles::<F, Worker<F>, _>(shape.clone(), vars, config)?;
     let tile_sizes = config.tile_sizes();
 
     let width = config.image_size.width() as usize;
@@ -357,10 +357,19 @@ mod test {
 
     impl Cfg {
         fn test<F: Function>(&self, shape: Shape<F>, expected: &'static str) {
+            self.test_with_mat(shape, nalgebra::Matrix3::identity(), expected);
+        }
+
+        fn test_with_mat<F: Function>(
+            &self,
+            shape: Shape<F>,
+            world_to_model: nalgebra::Matrix3<f32>,
+            expected: &'static str,
+        ) {
             let width = if self.wide { 64 } else { 32 };
             let cfg = ImageRenderConfig {
                 image_size: ImageSize::new(width, 32),
-                world_to_model: self.view.world_to_model(),
+                world_to_model: world_to_model * self.view.world_to_model(),
                 ..Default::default()
             };
             let out = cfg
@@ -470,10 +479,9 @@ mod test {
     fn check_hi_transformed<F: Function + MathFunction>() {
         let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
         let shape = Shape::<F>::new(&ctx, root).unwrap();
-        let mut mat = nalgebra::Matrix4::<f32>::identity();
-        mat.prepend_translation_mut(&nalgebra::Vector3::new(0.5, 0.5, 0.0));
+        let mut mat = nalgebra::Matrix3::<f32>::identity();
+        mat.prepend_translation_mut(&nalgebra::Vector2::new(0.5, 0.5));
         mat.prepend_scaling_mut(0.5);
-        let shape = shape.apply_transform(mat);
         const EXPECTED: &str = "
             .XXX............................
             .XXX............................
@@ -507,7 +515,7 @@ mod test {
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
             ................................";
-        Cfg::default().test(shape, EXPECTED);
+        Cfg::default().test_with_mat(shape, mat, EXPECTED);
     }
 
     fn check_hi_bounded<F: Function + MathFunction>() {

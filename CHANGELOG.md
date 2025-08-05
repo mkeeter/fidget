@@ -18,6 +18,20 @@
 - Add mathematical constants for Rhai scripts (`PI`, `E`, `TAU`...)
 - Add `std::ops::Neg` implementation for `Vec2,3,4` types, in both Rust and
   Rhai.
+- Remove `Shape::apply_transform`; there were too many ways to apply transforms
+  to shapes, and having mutable operations on a handle passed by `Clone` opens
+  up possibilities for confusion.  Here's the new plan:
+    - When using high-level algorithms (e.g. meshing and rendering), the
+      world-to-model transform is now *only* set by the `world_to_model` matrix
+      in the config or settings object (`ImageRenderConfig`,
+      `VoxelRenderConfig`, `mesh::Settings`)
+    - When using a `Shape` directly, a transform can be set with
+      `Shape::with_transform`.  This returns a new `Shape<F, Transformed>`,
+      where `Transformed` is a marker type indicating that the transform field
+      is `Some(..)`.  `Shape::with_transform` is a one-way operation: it's only
+      available on `Shape<F>` (which is actually now `Shape<F, ()>`).  Note that
+      high-level operations require a `Shape<F, ()>`, because they set the
+      transform themselves!
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!
