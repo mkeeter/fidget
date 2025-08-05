@@ -12,8 +12,9 @@
     - `Tree::ptr_eq` can be used to perform shallow equality checks
 - Changed 3D image rendering to saturate when voxels are touching the camera.
   Saturated voxels snap to the image's depth and have a normal of `[0, 0, 1]`.
-- Replaced `view` in `ImageRenderConfig` and `VoxelRenderConfig` with a generic
-  `world_to_model` matrix, for more flexibility when rendering.
+- Replaced `view` in `ImageRenderConfig`, `VoxelRenderConfig`, and
+  `mesh::Settings` with a generic `world_to_model` matrix, for more flexibility
+  when rendering.
 - Add mathematical constants for Rhai scripts (`PI`, `E`, `TAU`...)
 - Add `std::ops::Neg` implementation for `Vec2,3,4` types, in both Rust and
   Rhai.
