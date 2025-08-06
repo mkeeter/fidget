@@ -32,6 +32,7 @@
       available on `Shape<F>` (which is actually now `Shape<F, ()>`).  Note that
       high-level operations require a `Shape<F, ()>`, because they set the
       transform themselves!
+- Add `vec2([..])` and `vec3([..])` functions to Rhai environment
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!
