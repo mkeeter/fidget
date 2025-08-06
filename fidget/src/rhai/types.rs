@@ -86,6 +86,14 @@ impl CustomType for Vec2 {
                     Ok(Self { x, y })
                 },
             )
+            .with_fn(
+                "vec2",
+                |ctx: rhai::NativeCallContext,
+                 array: rhai::Array|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    Vec2::from_rhai_array(&ctx, array)
+                },
+            )
             .with_get_set("x", |v: &mut Self| v.x, |v: &mut Self, x| v.x = x)
             .with_get_set("y", |v: &mut Self| v.y, |v: &mut Self, y| v.y = y);
     }
@@ -107,6 +115,14 @@ impl CustomType for Vec3 {
                     let y = f64::from_dynamic(&ctx, y, None)?;
                     let z = f64::from_dynamic(&ctx, z, None)?;
                     Ok(Self { x, y, z })
+                },
+            )
+            .with_fn(
+                "vec3",
+                |ctx: rhai::NativeCallContext,
+                 array: rhai::Array|
+                 -> Result<Self, Box<EvalAltResult>> {
+                    Vec3::from_rhai_array(&ctx, array, None)
                 },
             )
             .with_get_set("x", |v: &mut Self| v.x, |v: &mut Self, x| v.x = x)
@@ -131,19 +147,28 @@ impl FromDynamic for Vec2 {
                     ctx.position(),
                 )
             })?;
-            match array.len() {
-                2 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-                    let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
-                    Ok(Vec2 { x, y })
-                }
-                n => Err(EvalAltResult::ErrorMismatchDataType(
-                    "[float; 2]".to_string(),
-                    format!("[dynamic; {n}]"),
-                    ctx.position(),
-                )
-                .into()),
+            Self::from_rhai_array(ctx, array)
+        }
+    }
+}
+
+impl Vec2 {
+    fn from_rhai_array(
+        ctx: &rhai::NativeCallContext,
+        array: rhai::Array,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        match array.len() {
+            2 => {
+                let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+                let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+                Ok(Vec2 { x, y })
             }
+            n => Err(EvalAltResult::ErrorMismatchDataType(
+                "[float; 2]".to_string(),
+                format!("[dynamic; {n}]"),
+                ctx.position(),
+            )
+            .into()),
         }
     }
 }
@@ -170,20 +195,36 @@ impl FromDynamic for Vec3 {
                     ctx.position(),
                 )
             })?;
-            match array.len() {
-                3 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-                    let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
-                    let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
-                    Ok(Vec3 { x, y, z })
-                }
-                n => Err(EvalAltResult::ErrorMismatchDataType(
-                    "[float; 3]".to_string(),
-                    format!("[dynamic; {n}]"),
-                    ctx.position(),
-                )
-                .into()),
+            Self::from_rhai_array(ctx, array, default)
+        }
+    }
+}
+
+impl Vec3 {
+    fn from_rhai_array(
+        ctx: &rhai::NativeCallContext,
+        array: rhai::Array,
+        default: Option<&Vec3>,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        match array.len() {
+            2 => {
+                let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+                let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+                let z = default.map(|d| d.z).unwrap_or(0.0);
+                Ok(Vec3 { x, y, z })
             }
+            3 => {
+                let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+                let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+                let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
+                Ok(Vec3 { x, y, z })
+            }
+            n => Err(EvalAltResult::ErrorMismatchDataType(
+                "[float; 3]".to_string(),
+                format!("[dynamic; {n}]"),
+                ctx.position(),
+            )
+            .into()),
         }
     }
 }
@@ -390,6 +431,19 @@ mod test {
     fn type_constructors() {
         let mut e = rhai::Engine::new();
         register(&mut e);
+        assert_eq!(
+            e.eval::<Vec2>("vec2([5, 10.0])").unwrap(),
+            Vec2::new(5.0, 10.0),
+        );
+        assert_eq!(
+            e.eval::<Vec3>("vec3([1, 2, 3])").unwrap(),
+            Vec3::new(1.0, 2.0, 3.0),
+        );
+        assert_eq!(
+            e.eval::<Vec3>("vec3([1, 2])").unwrap(),
+            Vec3::new(1.0, 2.0, 0.0),
+        );
+
         assert_eq!(e.eval::<Axis>("axis([1, 0])").unwrap(), Axis::X);
         assert_eq!(e.eval::<Axis>("axis([0, 0, 1])").unwrap(), Axis::Z);
         assert_eq!(e.eval::<Axis>("axis('z')").unwrap(), Axis::Z);
