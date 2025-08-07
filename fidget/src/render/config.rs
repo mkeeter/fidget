@@ -138,7 +138,7 @@ impl RenderConfig for ImageRenderConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
     }
-    fn tile_sizes(&self) -> TileSizesRef {
+    fn tile_sizes(&self) -> TileSizesRef<'_> {
         let max_size = self.width().max(self.height()) as usize;
         TileSizesRef::new(&self.tile_sizes, max_size)
     }
@@ -223,7 +223,7 @@ impl RenderConfig for VoxelRenderConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
     }
-    fn tile_sizes(&self) -> TileSizesRef {
+    fn tile_sizes(&self) -> TileSizesRef<'_> {
         let max_size = self.width().max(self.height()) as usize;
         TileSizesRef::new(&self.tile_sizes, max_size)
     }

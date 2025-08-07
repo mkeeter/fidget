@@ -1227,7 +1227,7 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
         &mut self,
         tape: &JitBulkFn<T>,
         vars: &[V],
-    ) -> BulkOutput<T> {
+    ) -> BulkOutput<'_, T> {
         let n = vars.first().map(|v| v.deref().len()).unwrap_or(0);
 
         self.out.resize_with(tape.output_count(), Vec::new);
@@ -1320,7 +1320,7 @@ impl BulkEvaluator for JitFloatSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<f32>, Error> {
+    ) -> Result<BulkOutput<'_, f32>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1338,7 +1338,7 @@ impl BulkEvaluator for JitGradSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<Grad>, Error> {
+    ) -> Result<BulkOutput<'_, Grad>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }

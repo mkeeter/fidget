@@ -865,7 +865,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<f32>, Error> {
+    ) -> Result<BulkOutput<'_, f32>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.data();
 
@@ -1178,7 +1178,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<Grad>, Error> {
+    ) -> Result<BulkOutput<'_, Grad>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.data();
         let size = vars.first().map(|v| v.len()).unwrap_or(0);
