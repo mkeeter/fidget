@@ -47,7 +47,7 @@ pub trait TracingEvaluator: Default {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<TracingResult<Self::Data, Self::Trace>, Error>;
+    ) -> Result<TracingResult<'_, Self::Data, Self::Trace>, Error>;
 
     /// Build a new empty evaluator
     fn new() -> Self {

@@ -44,7 +44,7 @@ pub trait BulkEvaluator: Default {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<Self::Data>, Error>;
+    ) -> Result<BulkOutput<'_, Self::Data>, Error>;
 
     /// Build a new empty evaluator
     fn new() -> Self {

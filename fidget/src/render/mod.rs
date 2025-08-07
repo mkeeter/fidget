@@ -252,7 +252,7 @@ impl<'a> std::ops::Index<usize> for TileSizesRef<'a> {
 
 impl TileSizesRef<'_> {
     /// Builds a new `TileSizesRef` based on the maximum tile size
-    fn new(tiles: &TileSizes, max_size: usize) -> TileSizesRef {
+    fn new(tiles: &TileSizes, max_size: usize) -> TileSizesRef<'_> {
         let i = tiles
             .0
             .iter()
@@ -385,7 +385,7 @@ where
 pub(crate) trait RenderConfig {
     fn width(&self) -> u32;
     fn height(&self) -> u32;
-    fn tile_sizes(&self) -> TileSizesRef;
+    fn tile_sizes(&self) -> TileSizesRef<'_>;
     fn threads(&self) -> Option<&ThreadPool>;
     fn is_cancelled(&self) -> bool;
 }
