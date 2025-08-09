@@ -42,6 +42,24 @@ impl From<Circle> for Tree {
     }
 }
 
+/// Rectangle defined by lower and upper corners
+#[derive(Clone, Facet)]
+pub struct Rectangle {
+    /// Lower corner of the rectangle
+    pub lower: Vec2,
+    /// Upper corner of the rectangle
+    pub upper: Vec2,
+}
+
+impl From<Rectangle> for Tree {
+    fn from(v: Rectangle) -> Self {
+        let (x, y, _) = Tree::axes();
+        (v.lower.x - x.clone())
+            .max(x - v.upper.x)
+            .max((v.lower.y - y.clone()).max(y - v.upper.y))
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // 3D shapes
 
@@ -64,6 +82,25 @@ impl From<Sphere> for Tree {
             + (z - v.center.z).square())
         .sqrt()
             - v.radius
+    }
+}
+
+/// Box defined by lower and upper corners
+#[derive(Clone, Facet)]
+pub struct Box {
+    /// Lower corner of the rectangle
+    pub lower: Vec3,
+    /// Upper corner of the rectangle
+    pub upper: Vec3,
+}
+
+impl From<Box> for Tree {
+    fn from(v: Box) -> Self {
+        let (x, y, z) = Tree::axes();
+        (v.lower.x - x.clone())
+            .max(x - v.upper.x)
+            .max((v.lower.y - y.clone()).max(y - v.upper.y))
+            .max((v.lower.z - z.clone()).max(z - v.upper.z))
     }
 }
 
@@ -92,6 +129,33 @@ impl From<Union> for Tree {
                 }
             }
             recurse(&v.input)
+        }
+    }
+}
+
+/// Smooth quadratic blend of two shapes
+///
+/// This formula is taken from "Lipschitz Pruning: Hierarchical Simplification
+/// of Primitive-Based SDFs" (Barbier _et al_ '25), which in turn cites
+/// [Quilez '20](https://iquilezles.org/articles/smin/)
+#[derive(Clone, Facet)]
+pub struct Blend {
+    /// First shape input
+    pub a: Tree,
+    /// Second shape input
+    pub b: Tree,
+    /// Blending radius
+    pub radius: f64,
+}
+
+impl From<Blend> for Tree {
+    fn from(v: Blend) -> Self {
+        if v.radius > 0.0 {
+            v.a.clone().min(v.b.clone())
+                - 1.0 / (4.0 * v.radius)
+                    * (v.radius - (v.a - v.b).abs()).max(0.0).square()
+        } else {
+            v.a.min(v.b)
         }
     }
 }
@@ -196,6 +260,26 @@ impl From<Scale> for Tree {
     }
 }
 
+/// Uniform scaling
+#[derive(Clone, Facet)]
+pub struct ScaleUniform {
+    /// Shape to scale
+    pub shape: Tree,
+    /// Scale to apply
+    #[facet(default = 1.0)]
+    pub scale: f64,
+}
+
+impl From<ScaleUniform> for Tree {
+    fn from(v: ScaleUniform) -> Self {
+        let s = 1.0 / v.scale;
+        v.shape
+            .remap_affine(nalgebra::convert(nalgebra::Scale3::<f64>::new(
+                s, s, s,
+            )))
+    }
+}
+
 /// Reflection
 #[derive(Clone, Facet)]
 pub struct Reflect {
@@ -216,6 +300,7 @@ impl From<Reflect> for Tree {
         let scale: Tree = 2.0 * d;
         // TODO could we use nalgebra::Reflection3 here to make the transform
         // affine?  For some reason, it doesn't implement the right SubSet
+        // https://github.com/dimforge/nalgebra/issues/1527
         v.shape.remap_xyz(
             x - scale.clone() * a.x,
             y - scale.clone() * a.y,
@@ -296,6 +381,198 @@ impl From<ReflectZ> for Tree {
     }
 }
 
+/// Rotates an object about an arbitrary axis and rotation center
+#[derive(Clone, Facet)]
+pub struct Rotate {
+    /// Shape to rotate
+    pub shape: Tree,
+
+    /// Axis about which to rotate
+    #[facet(default = Axis::Z)]
+    pub axis: Axis,
+
+    /// Angle to rotate (in degrees)
+    #[facet(default = 0.0)]
+    pub angle: f64,
+
+    /// Center of rotation
+    #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
+    pub center: Vec3,
+}
+
+impl From<Rotate> for Tree {
+    fn from(v: Rotate) -> Self {
+        let shape = Tree::from(Move {
+            shape: v.shape,
+            offset: -v.center,
+        });
+        let d = -v.angle.to_radians();
+        let axis = v.axis.vec();
+        let shape = shape.remap_affine(nalgebra::convert(
+            nalgebra::Rotation3::<f64>::new(nalgebra::Vector3::from(d * *axis)),
+        ));
+        Move {
+            shape,
+            offset: v.center,
+        }
+        .into()
+    }
+}
+
+/// Rotates an object about the X axis
+#[derive(Clone, Facet)]
+pub struct RotateX {
+    /// Shape to rotate
+    pub shape: Tree,
+
+    /// Angle to rotate (in degrees)
+    #[facet(default = 0.0)]
+    pub angle: f64,
+
+    /// Center of rotation
+    #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
+    pub center: Vec3,
+}
+
+impl From<RotateX> for Tree {
+    fn from(v: RotateX) -> Self {
+        Rotate {
+            shape: v.shape,
+            angle: v.angle,
+            center: v.center,
+            axis: Axis::X,
+        }
+        .into()
+    }
+}
+
+/// Rotates an object about the Y axis
+#[derive(Clone, Facet)]
+pub struct RotateY {
+    /// Shape to rotate
+    pub shape: Tree,
+
+    /// Angle to rotate (in degrees)
+    #[facet(default = 0.0)]
+    pub angle: f64,
+
+    /// Center of rotation
+    #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
+    pub center: Vec3,
+}
+
+impl From<RotateY> for Tree {
+    fn from(v: RotateY) -> Self {
+        Rotate {
+            shape: v.shape,
+            angle: v.angle,
+            center: v.center,
+            axis: Axis::Y,
+        }
+        .into()
+    }
+}
+
+/// Rotates an object about the Z axis
+#[derive(Clone, Facet)]
+pub struct RotateZ {
+    /// Shape to rotate
+    pub shape: Tree,
+
+    /// Angle to rotate (in degrees)
+    #[facet(default = 0.0)]
+    pub angle: f64,
+
+    /// Center of rotation
+    #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
+    pub center: Vec3,
+}
+
+impl From<RotateZ> for Tree {
+    fn from(v: RotateZ) -> Self {
+        Rotate {
+            shape: v.shape,
+            angle: v.angle,
+            center: v.center,
+            axis: Axis::Z,
+        }
+        .into()
+    }
+}
+
+// TODO figure out a generic Revolve?  The matrix math is a bit tricky!
+
+/// Revolve a shape about the Y axis, creating a 3D volume
+#[derive(Clone, Facet)]
+pub struct RevolveY {
+    /// Shape to revolve
+    pub shape: Tree,
+    /// X offset about which to revolve
+    #[facet(default = 0.0)]
+    pub offset: f64,
+}
+
+impl From<RevolveY> for Tree {
+    fn from(v: RevolveY) -> Self {
+        let offset = Vec3::new(-v.offset, 0.0, 0.0);
+        let shape = Tree::from(Move {
+            shape: v.shape.clone(),
+            offset: -offset,
+        });
+        let (x, y, z) = Tree::axes();
+        let r = (x.square() + y.square()).sqrt();
+        let shape = shape.remap_xyz(r, y, z);
+        Move { shape, offset }.into()
+    }
+}
+
+/// Extrude an XY shape in the Z direction
+#[derive(Clone, Facet)]
+pub struct ExtrudeZ {
+    /// Shape to extrude
+    pub shape: Tree,
+    /// Lower bounds of the extrusion
+    #[facet(default = 0.0)]
+    pub lower: f64,
+    /// Upper bounds of the extrusion
+    #[facet(default = 1.0)]
+    pub upper: f64,
+}
+
+impl From<ExtrudeZ> for Tree {
+    fn from(v: ExtrudeZ) -> Self {
+        let (x, y, z) = Tree::axes();
+        let t = v.shape.remap_xyz(x, y, Tree::constant(0.0));
+        t.max((v.lower - z.clone()).max(z - v.upper))
+    }
+}
+
+/// Loft between two XY shape in the Z direction
+#[derive(Clone, Facet)]
+pub struct LoftZ {
+    /// Lower shape
+    pub a: Tree,
+    /// Upper shape
+    pub b: Tree,
+    /// Lower bounds of the loft
+    #[facet(default = 0.0)]
+    pub lower: f64,
+    /// Upper bounds of the loft
+    #[facet(default = 1.0)]
+    pub upper: f64,
+}
+
+impl From<LoftZ> for Tree {
+    fn from(v: LoftZ) -> Self {
+        let (x, y, z) = Tree::axes();
+        let ta = v.a.remap_xyz(x.clone(), y.clone(), Tree::constant(0.0));
+        let tb = v.b.remap_xyz(x, y, Tree::constant(0.0));
+        let t = ((z.clone() - v.lower) * tb + (v.upper - z.clone()) * ta)
+            / (v.upper - v.lower);
+        t.max((v.lower - z.clone()).max(z - v.upper))
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Trait for a type which can visit each of the shapes in our library
@@ -308,17 +585,30 @@ pub trait ShapeVisitor {
 
 /// Maps a shape visitor across all shape definitions
 pub fn visit_shapes<V: ShapeVisitor>(visitor: &mut V) {
-    visitor.visit::<Circle>();
     visitor.visit::<Sphere>();
+    visitor.visit::<Box>();
+    visitor.visit::<Plane>();
+
+    visitor.visit::<Circle>();
+    visitor.visit::<Rectangle>();
 
     visitor.visit::<Move>();
     visitor.visit::<Scale>();
+    visitor.visit::<ScaleUniform>();
     visitor.visit::<Reflect>();
     visitor.visit::<ReflectX>();
     visitor.visit::<ReflectY>();
     visitor.visit::<ReflectZ>();
+    visitor.visit::<Rotate>();
+    visitor.visit::<RotateX>();
+    visitor.visit::<RotateY>();
+    visitor.visit::<RotateZ>();
+    visitor.visit::<RevolveY>();
+    visitor.visit::<ExtrudeZ>();
+    visitor.visit::<LoftZ>();
 
     visitor.visit::<Union>();
+    visitor.visit::<Blend>();
     visitor.visit::<Intersection>();
     visitor.visit::<Difference>();
     visitor.visit::<Inverse>();
@@ -329,10 +619,37 @@ pub fn visit_shapes<V: ShapeVisitor>(visitor: &mut V) {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::Context;
 
     #[test]
     fn circle_docstring() {
         assert_eq!(Circle::SHAPE.doc, &[" 2D circle"]);
+    }
+
+    #[test]
+    fn transform_order() {
+        let x = Tree::x();
+        let moved: Tree = Move {
+            shape: x,
+            offset: Vec3::new(-1.0, 0.0, 0.0),
+        }
+        .into();
+        let mut ctx = Context::new();
+        let cm = ctx.import(&moved);
+        assert_eq!(ctx.eval_xyz(cm, 0.0, 0.0, 0.0).unwrap(), 1.0);
+        assert_eq!(ctx.eval_xyz(cm, 0.0, 1.0, 0.0).unwrap(), 1.0);
+        assert_eq!(ctx.eval_xyz(cm, -1.0, 0.0, 0.0).unwrap(), 0.0);
+
+        let rotated: Tree = RotateZ {
+            shape: moved,
+            angle: 90.0,
+            center: Vec3::new(0.0, 0.0, 0.0),
+        }
+        .into();
+        let cr = ctx.import(&rotated);
+        assert_eq!(ctx.eval_xyz(cr, 0.0, 0.0, 0.0).unwrap(), 1.0);
+        assert_eq!(ctx.eval_xyz(cr, 0.0, -1.0, 0.0).unwrap(), 0.0);
+        assert_eq!(ctx.eval_xyz(cr, 0.0, 1.0, 0.0).unwrap(), 2.0);
     }
 
     #[test]

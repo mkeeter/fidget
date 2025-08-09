@@ -33,6 +33,13 @@
       high-level operations require a `Shape<F, ()>`, because they set the
       transform themselves!
 - Add `vec2([..])` and `vec3([..])` functions to Rhai environment
+- Fix `remap_affine` composition; previously, it applied operations in the wrong
+  order given multiple affine transformations.
+- New shapes: `Rectangle`, `Box`, `Rotate(X|Y|Z)`, `Blend`, `Plane`,
+  `ScaleUniform`, `RevolveY`, `ExtrudeZ`, `LoftZ`
+- Added ordered constructors to Rhai bindings, e.g. `rectangle([0,0], [1,1])`.
+  These are only available if a previous constructor didn't use the same
+  function prototype.
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!

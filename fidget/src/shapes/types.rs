@@ -360,6 +360,14 @@ impl Plane {
     };
 }
 
+impl From<Plane> for Tree {
+    fn from(v: Plane) -> Self {
+        let (x, y, z) = Tree::axes();
+        let a = v.axis.vec();
+        x * a.x + y * a.y + z * a.z - v.offset
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Enumeration representing all types that can be used in shapes

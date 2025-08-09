@@ -129,6 +129,7 @@ fn register_shape<
     let name_lower = name.to_snake_case();
 
     engine.register_fn(&name_lower, build_from_map::<T>);
+    let mut skip_ordered_builder = false;
 
     // Special handling for transform-shaped functions
     let tree_count = s
@@ -143,9 +144,11 @@ fn register_shape<
             .all(|f| f.shape().id != ConstTypeId::of::<Vec<Tree>>())
     {
         engine.register_fn(&name_lower, build_transform::<T>);
+        skip_ordered_builder = true;
     }
     if tree_count == 2 && s.fields.len() == 2 {
         engine.register_fn(&name_lower, build_binary::<T>);
+        skip_ordered_builder = true;
     }
 
     // Pure tree reduction functions
@@ -160,6 +163,7 @@ fn register_shape<
         engine.register_fn(&name_lower, build_reduce6::<T>);
         engine.register_fn(&name_lower, build_reduce7::<T>);
         engine.register_fn(&name_lower, build_reduce8::<T>);
+        skip_ordered_builder = true;
     }
 
     let mut count = enum_map::EnumMap::<Type, usize>::default();
@@ -189,6 +193,21 @@ fn register_shape<
                 _ => engine,
             };
         }
+        skip_ordered_builder = true;
+    }
+
+    if !skip_ordered_builder {
+        match s.fields.len() {
+            1 => engine.register_fn(&name_lower, build_ordered1::<T>),
+            2 => engine.register_fn(&name_lower, build_ordered2::<T>),
+            3 => engine.register_fn(&name_lower, build_ordered3::<T>),
+            4 => engine.register_fn(&name_lower, build_ordered4::<T>),
+            5 => engine.register_fn(&name_lower, build_ordered5::<T>),
+            6 => engine.register_fn(&name_lower, build_ordered6::<T>),
+            7 => engine.register_fn(&name_lower, build_ordered7::<T>),
+            8 => engine.register_fn(&name_lower, build_ordered8::<T>),
+            _ => engine,
+        };
     }
 }
 
@@ -476,6 +495,69 @@ unique!(build_unique8, a, b, c, d, e, f, g, h);
 
 ////////////////////////////////////////////////////////////////////////////////
 
+macro_rules! ordered {
+    ($name:ident$(,)? $($v:ident),*) => {
+        /// Builds a `T` from an ordered list of Rhai values
+        ///
+        /// # Panics
+        /// `T` must be a `struct` with [`Type`]-compatible fields
+        #[allow(clippy::too_many_arguments)]
+        fn $name<T: Facet<'static> + Into<Tree>>(
+            ctx: NativeCallContext,
+            $($v: rhai::Dynamic),*
+        ) -> Result<Tree, Box<EvalAltResult>> {
+            let mut vs = vec![];
+            $(
+                let v = Value::from_dynamic(&ctx, $v.clone(), None)?;
+                vs.push(v);
+            )*
+
+            from_value_list::<T>(ctx, vs)
+        }
+    }
+}
+
+fn from_value_list<T: Facet<'static> + Into<Tree>>(
+    ctx: NativeCallContext,
+    vs: Vec<Value>,
+) -> Result<Tree, Box<EvalAltResult>> {
+    let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
+        panic!("must build a struct");
+    };
+    assert_eq!(vs.len(), shape.fields.len(), "invalid field count");
+
+    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
+
+    for (i, (f, v)) in shape.fields.iter().zip(vs).enumerate() {
+        let expected_tag = Type::try_from(f.shape().id).unwrap();
+        let actual_tag: Type = Type::from(&v);
+        if actual_tag != expected_tag {
+            return Err(EvalAltResult::ErrorMismatchDataType(
+                expected_tag.to_string(),
+                actual_tag.to_string(),
+                ctx.position(),
+            )
+            .into());
+        }
+
+        v.put(&mut builder, i);
+    }
+
+    let t: T = builder.build().unwrap().materialize().unwrap();
+    Ok(t.into())
+}
+
+ordered!(build_ordered1, a);
+ordered!(build_ordered2, a, b);
+ordered!(build_ordered3, a, b, c);
+ordered!(build_ordered4, a, b, c, d);
+ordered!(build_ordered5, a, b, c, d, e);
+ordered!(build_ordered6, a, b, c, d, e, f);
+ordered!(build_ordered7, a, b, c, d, e, f, g);
+ordered!(build_ordered8, a, b, c, d, e, f, g, h);
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -553,5 +635,12 @@ mod test {
         let v = e.eval("x.reflect(\"x\")").unwrap(); // axis -> plane
         let root = ctx.import(&v);
         assert_eq!(root, expected);
+    }
+
+    #[test]
+    fn rect_builder_ordered() {
+        let e = crate::rhai::engine();
+        assert!(e.eval::<Tree>("rectangle([0,0], [1,1])").is_ok());
+        assert!(e.eval::<Tree>("rectangle([0,0], [1,1,1])").is_err());
     }
 }

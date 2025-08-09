@@ -277,7 +277,7 @@ impl Tree {
         let out = match &*self.0 {
             TreeOp::RemapAffine { target, mat: next } => TreeOp::RemapAffine {
                 target: target.clone(),
-                mat: mat * next,
+                mat: next * mat,
             },
             _ => TreeOp::RemapAffine {
                 target: self.0.clone(),
@@ -596,8 +596,8 @@ mod test {
             nalgebra::convert(nalgebra::Scale3::<f64>::new(0.5, 0.5, 0.5));
 
         let s = Tree::x();
-        let s = s.remap_affine(scale);
         let s = s.remap_affine(translate);
+        let s = s.remap_affine(scale);
 
         // Confirm that we didn't stack up RemapAffine nodes
         let TreeOp::RemapAffine { target, .. } = &*s else {
@@ -627,8 +627,8 @@ mod test {
 
         // Swap the order and make sure it still works
         let s = Tree::x();
-        let s = s.remap_affine(translate);
         let s = s.remap_affine(scale);
+        let s = s.remap_affine(translate);
 
         let mut ctx = Context::new();
         let v_ = ctx.import(&s);
