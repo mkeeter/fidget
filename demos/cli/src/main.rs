@@ -528,13 +528,14 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
             depth: settings.depth,
             threads,
             world_to_model,
+            ..Default::default()
         };
         let start = std::time::Instant::now();
-        let octree = fidget::mesh::Octree::build(&shape, settings);
+        let octree = fidget::mesh::Octree::build(&shape, &settings).unwrap();
         octree_time += start.elapsed();
 
         let start = std::time::Instant::now();
-        mesh = octree.walk_dual(settings);
+        mesh = octree.walk_dual();
         mesh_time += start.elapsed();
     }
     (mesh, octree_time, mesh_time)
