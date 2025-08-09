@@ -40,6 +40,13 @@
 - Added ordered constructors to Rhai bindings, e.g. `rectangle([0,0], [1,1])`.
   These are only available if a previous constructor didn't use the same
   function prototype.
+- Added `cancel: CancelToken` to `fidget::mesh::Settings`
+    - `Octree::build` now returns an `Option<..>`, which is `None` if it was
+      cancelled
+- Removed `Settings` from `Octree::walk_dual`, because we aren't actually doing
+  any multithreading
+- Switched various mesh functions to take `Settings` by reference instead of by
+  value, because `CancelToken` is not `Copy`.
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!

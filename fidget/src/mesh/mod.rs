@@ -31,8 +31,8 @@
 //!     depth: 4,
 //!     ..Default::default()
 //! };
-//! let o = Octree::build(&shape, settings);
-//! let mesh = o.walk_dual(settings);
+//! let o = Octree::build(&shape, &settings).unwrap();
+//! let mesh = o.walk_dual();
 //!
 //! // Open a file to write, e.g.
 //! // let mut f = std::fs::File::create("out.stl")?;

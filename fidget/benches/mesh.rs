@@ -31,16 +31,10 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
 
         #[cfg(feature = "jit")]
         group.bench_function(BenchmarkId::new("jit", threads), move |b| {
-            b.iter(|| {
-                let cfg = *cfg;
-                black_box(fidget::mesh::Octree::build(shape_jit, cfg))
-            })
+            b.iter(|| black_box(fidget::mesh::Octree::build(shape_jit, cfg)))
         });
         group.bench_function(BenchmarkId::new("vm", threads), move |b| {
-            b.iter(|| {
-                let cfg = *cfg;
-                black_box(fidget::mesh::Octree::build(shape_vm, cfg))
-            })
+            b.iter(|| black_box(fidget::mesh::Octree::build(shape_vm, cfg)))
         });
     }
 }
@@ -52,33 +46,13 @@ pub fn colonnade_mesh(c: &mut Criterion) {
         depth: 8,
         ..Default::default()
     };
-    let octree = &fidget::mesh::Octree::build(shape_vm, cfg);
+    let octree = &fidget::mesh::Octree::build(shape_vm, &cfg).unwrap();
 
-    let mut group =
-        c.benchmark_group("speed vs threads (colonnade, meshing) (depth 8)");
-
-    for threads in [None, Some(1), Some(4), Some(8)] {
-        let pool = threads.map(|n| {
-            fidget::render::ThreadPool::Custom(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(n)
-                    .build()
-                    .unwrap(),
-            )
+    let mut group = c.benchmark_group("speed (colonnade, meshing) (depth 8)");
+    group
+        .bench_function(BenchmarkId::new("walk_dual", "colonnade"), move |b| {
+            b.iter(|| black_box(octree.walk_dual()))
         });
-        let threads = threads.unwrap_or(0);
-        let cfg = &fidget::mesh::Settings {
-            threads: pool.as_ref(),
-            ..cfg
-        };
-        group.bench_function(
-            BenchmarkId::new("walk_dual", threads),
-            move |b| {
-                let cfg = *cfg;
-                b.iter(|| black_box(octree.walk_dual(cfg)))
-            },
-        );
-    }
 }
 
 criterion_group!(benches, colonnade_octree_thread_sweep, colonnade_mesh);
