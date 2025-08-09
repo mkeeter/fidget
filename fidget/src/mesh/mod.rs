@@ -50,7 +50,7 @@ mod octree;
 mod output;
 mod qef;
 
-use crate::render::{ThreadPool, View3};
+use crate::render::{CancelToken, ThreadPool, View3};
 
 #[doc(hidden)]
 pub mod types;
@@ -77,7 +77,6 @@ impl Mesh {
 }
 
 /// Settings when building an octree and mesh
-#[derive(Copy, Clone)]
 pub struct Settings<'a> {
     /// Depth to recurse in the octree
     pub depth: u8,
@@ -90,6 +89,9 @@ pub struct Settings<'a> {
     /// If this is `None`, then rendering is done in a single thread; otherwise,
     /// the provided pool is used.
     pub threads: Option<&'a ThreadPool>,
+
+    /// Token to cancel rendering
+    pub cancel: CancelToken,
 }
 
 impl Default for Settings<'_> {
@@ -98,6 +100,7 @@ impl Default for Settings<'_> {
             depth: 3,
             world_to_model: View3::default().world_to_model(),
             threads: Some(&ThreadPool::Global),
+            cancel: CancelToken::new(),
         }
     }
 }

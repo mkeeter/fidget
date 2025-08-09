@@ -46,7 +46,7 @@ impl Octree {
     pub fn build_with_vars<F: Function + RenderHints + Clone>(
         shape: &Shape<F>,
         vars: &ShapeVars<f32>,
-        settings: Settings,
+        settings: &Settings,
     ) -> Self {
         // Transform the shape given our world-to-model matrix
         let t = settings.world_to_model;
@@ -75,7 +75,7 @@ impl Octree {
     /// The shape is evaluated on the region specified by `settings.bounds`.
     pub fn build<F: Function + RenderHints + Clone>(
         shape: &Shape<F>,
-        settings: Settings,
+        settings: &Settings,
     ) -> Self {
         Self::build_with_vars(shape, &ShapeVars::new(), settings)
     }
@@ -83,7 +83,7 @@ impl Octree {
     fn build_inner<F: Function + RenderHints + Clone, T: Sync>(
         shape: &Shape<F, T>,
         vars: &ShapeVars<f32>,
-        settings: Settings,
+        settings: &Settings,
     ) -> Self {
         if let Some(threads) = settings.threads {
             Self::build_inner_mt(shape, vars, settings.depth, threads)
@@ -226,7 +226,7 @@ impl Octree {
     }
 
     /// Recursively walks the dual of the octree, building a mesh
-    pub fn walk_dual(&self, _settings: Settings) -> Mesh {
+    pub fn walk_dual(&self, _settings: &Settings) -> Mesh {
         let mut mesh = MeshBuilder::default();
 
         mesh.cell(self, CellIndex::default());
@@ -1056,7 +1056,7 @@ mod test {
         let shape = VmShape::from(cube([-f, f], [-f, 0.3], [-f, 0.6]));
         // This should be a cube with a single edge running through the root
         // node of the octree, with an edge vertex at [0, 0.3, 0.6]
-        let octree = Octree::build(&shape, depth0_single_thread());
+        let octree = Octree::build(&shape, &depth0_single_thread());
         assert_eq!(octree.verts.len(), 5);
         let v = octree.verts[0].pos;
         let expected = nalgebra::Vector3::new(0.0, 0.3, 0.6);
@@ -1106,17 +1106,17 @@ mod test {
 
         // If we only build a depth-0 octree, then it's a leaf without any
         // vertices (since all the corners are empty)
-        let octree = Octree::build(&shape, depth0_single_thread());
+        let octree = Octree::build(&shape, &depth0_single_thread());
         assert!(octree.cells.is_empty()); // root only
         assert_eq!(Cell::Empty, octree.root);
         assert!(octree.verts.is_empty());
 
-        let empty_mesh = octree.walk_dual(depth0_single_thread());
+        let empty_mesh = octree.walk_dual(&depth0_single_thread());
         assert!(empty_mesh.vertices.is_empty());
         assert!(empty_mesh.triangles.is_empty());
 
         // Now, at depth-1, each cell should be a Leaf with one vertex
-        let octree = Octree::build(&shape, depth1_single_thread());
+        let octree = Octree::build(&shape, &depth1_single_thread());
         assert_eq!(octree.cells.len(), 1); // one fanout of 8 cells
         assert_eq!(Cell::Branch { index: 0 }, octree.root);
 
@@ -1132,7 +1132,7 @@ mod test {
             assert_eq!(index % 4, 0);
         }
 
-        let sphere_mesh = octree.walk_dual(depth1_single_thread());
+        let sphere_mesh = octree.walk_dual(&depth1_single_thread());
         assert!(sphere_mesh.vertices.len() > 1);
         assert!(!sphere_mesh.triangles.is_empty());
     }
@@ -1141,8 +1141,8 @@ mod test {
     fn test_sphere_verts() {
         let shape = VmShape::from(sphere([0.0; 3], 0.2));
 
-        let octree = Octree::build(&shape, depth1_single_thread());
-        let sphere_mesh = octree.walk_dual(depth1_single_thread());
+        let octree = Octree::build(&shape, &depth1_single_thread());
+        let sphere_mesh = octree.walk_dual(&depth1_single_thread());
 
         let mut edge_count = 0;
         for v in &sphere_mesh.vertices {
@@ -1183,8 +1183,8 @@ mod test {
                 threads,
                 ..Default::default()
             };
-            let octree = Octree::build(&shape, settings);
-            let sphere_mesh = octree.walk_dual(settings);
+            let octree = Octree::build(&shape, &settings);
+            let sphere_mesh = octree.walk_dual(&settings);
 
             check_for_vertex_dupes(&sphere_mesh).unwrap();
             check_for_edge_matching(&sphere_mesh).unwrap();
@@ -1195,8 +1195,8 @@ mod test {
     fn test_cube_verts() {
         let shape = VmShape::from(cube([-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]));
 
-        let octree = Octree::build(&shape, depth1_single_thread());
-        let mesh = octree.walk_dual(depth1_single_thread());
+        let octree = Octree::build(&shape, &depth1_single_thread());
+        let mesh = octree.walk_dual(&depth1_single_thread());
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
         assert!(!mesh.vertices.is_empty());
         for v in &mesh.vertices {
@@ -1244,7 +1244,7 @@ mod test {
                     let (x, y, z) = Tree::axes();
                     let f = x * dx + y * dy + z + offset;
                     let shape = VmShape::from(f);
-                    let octree = Octree::build(&shape, depth0_single_thread());
+                    let octree = Octree::build(&shape, &depth0_single_thread());
 
                     assert!(octree.cells.is_empty()); // root only
                     let pos = octree.verts[0].pos;
@@ -1288,7 +1288,7 @@ mod test {
                 eval.eval(&tape, corner.x, corner.y, corner.z).unwrap();
             assert!(v < 0.0, "bad corner value: {v}");
 
-            let octree = Octree::build(&shape, depth0_single_thread());
+            let octree = Octree::build(&shape, &depth0_single_thread());
             assert!(octree.cells.is_empty()); // root only
             assert_eq!(octree.verts.len(), 4);
 
@@ -1325,9 +1325,9 @@ mod test {
             threads,
             ..Default::default()
         };
-        let octree = Octree::build(&shape, settings);
+        let octree = Octree::build(&shape, &settings);
 
-        let mesh = octree.walk_dual(settings);
+        let mesh = octree.walk_dual(&settings);
         if mask != 0 && mask != 255 {
             assert!(!mesh.vertices.is_empty());
             assert!(!mesh.triangles.is_empty());
@@ -1358,19 +1358,19 @@ mod test {
     #[test]
     fn test_collapsible() {
         let shape = VmShape::from(sphere([0.0; 3], 0.1));
-        let octree = Octree::build(&shape, depth1_single_thread());
+        let octree = Octree::build(&shape, &depth1_single_thread());
         assert!(octree.collapsible(0).is_none());
 
         // If we have a single corner sphere, then the builder will collapse the
         // branch for us, leaving just a leaf.
         let shape = VmShape::from(sphere([-1.0; 3], 0.1));
-        let octree = Octree::build(&shape, depth1_single_thread());
+        let octree = Octree::build(&shape, &depth1_single_thread());
         assert!(matches!(octree.root, Cell::Leaf { .. }));
 
         // Test with a single thread and a deeper tree, which should still work
         let octree = Octree::build(
             &shape,
-            Settings {
+            &Settings {
                 depth: 4,
                 threads: None,
                 ..Default::default()
@@ -1385,7 +1385,7 @@ mod test {
         // This should also work with multiple threads!
         let octree = Octree::build(
             &shape,
-            Settings {
+            &Settings {
                 depth: 4,
                 threads: Some(&ThreadPool::Global),
                 ..Default::default()
@@ -1398,13 +1398,13 @@ mod test {
         );
 
         let shape = VmShape::from(sphere([-1.0, 0.0, 1.0], 0.1));
-        let octree = Octree::build(&shape, depth1_single_thread());
+        let octree = Octree::build(&shape, &depth1_single_thread());
         assert!(octree.collapsible(0).is_none());
 
         let a = sphere([-1.0; 3], 0.1);
         let b = sphere([1.0; 3], 0.1);
         let shape = VmShape::from(a.min(b));
-        let octree = Octree::build(&shape, depth1_single_thread());
+        let octree = Octree::build(&shape, &depth1_single_thread());
         assert!(octree.collapsible(0).is_none());
     }
 
@@ -1419,7 +1419,7 @@ mod test {
                 threads,
                 ..Default::default()
             };
-            let octree = Octree::build(&shape, settings);
+            let octree = Octree::build(&shape, &settings);
             assert_eq!(
                 octree.root,
                 Cell::Empty,
@@ -1442,8 +1442,8 @@ mod test {
                 threads,
                 ..Default::default()
             };
-            let octree = Octree::build(&tape, settings);
-            let mesh = octree.walk_dual(settings);
+            let octree = Octree::build(&tape, &settings);
+            let mesh = octree.walk_dual(&settings);
             // Note: the model has duplicate vertices!
             if let Err(e) = check_for_edge_matching(&mesh) {
                 panic!(
@@ -1467,8 +1467,8 @@ mod test {
                 threads,
                 ..Default::default()
             };
-            let octree = Octree::build(&tape, settings);
-            let mesh = octree.walk_dual(settings);
+            let octree = Octree::build(&tape, &settings);
+            let mesh = octree.walk_dual(&settings);
             for v in mesh.vertices.iter() {
                 assert!(
                     v.x < 1.0
@@ -1497,8 +1497,8 @@ mod test {
                 threads,
                 ..Default::default()
             };
-            let octree = Octree::build(&tape, settings);
-            let mesh = octree.walk_dual(settings);
+            let octree = Octree::build(&tape, &settings);
+            let mesh = octree.walk_dual(&settings);
             for v in mesh.vertices.iter() {
                 assert!(
                     v.x < 1.0
@@ -1600,7 +1600,7 @@ mod test {
             ..Default::default()
         };
 
-        let octree = Octree::build(&shape, settings).walk_dual(settings);
+        let octree = Octree::build(&shape, &settings).walk_dual(&settings);
         for v in octree.vertices.iter() {
             let n = v.norm();
             assert!(n > 0.7 && n < 0.8, "invalid vertex at {v:?}: {n}");
@@ -1617,9 +1617,10 @@ mod test {
             world_to_model: View3::from_center_and_scale(center, 0.5)
                 .world_to_model(),
             threads: None,
+            ..Default::default()
         };
 
-        let octree = Octree::build(&shape, settings).walk_dual(settings);
+        let octree = Octree::build(&shape, &settings).walk_dual(&settings);
         for v in octree.vertices.iter() {
             let n = (v - center).norm();
             assert!(n > 0.2 && n < 0.3, "invalid vertex at {v:?}: {n}");
@@ -1644,8 +1645,8 @@ mod test {
             for r in [0.5, 0.75] {
                 let mut vars = ShapeVars::new();
                 vars.insert(v.index().unwrap(), r);
-                let octree = Octree::build_with_vars(&shape, &vars, settings)
-                    .walk_dual(settings);
+                let octree = Octree::build_with_vars(&shape, &vars, &settings)
+                    .walk_dual(&settings);
                 for v in octree.vertices.iter() {
                     let n = v.norm();
                     assert!(
