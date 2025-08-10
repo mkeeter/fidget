@@ -144,7 +144,6 @@ fn register_shape<
             .all(|f| f.shape().id != ConstTypeId::of::<Vec<Tree>>())
     {
         engine.register_fn(&name_lower, build_transform::<T>);
-        skip_ordered_builder = true;
     }
     if tree_count == 2 && s.fields.len() == 2 {
         engine.register_fn(&name_lower, build_binary::<T>);
@@ -642,5 +641,11 @@ mod test {
         let e = crate::rhai::engine();
         assert!(e.eval::<Tree>("rectangle([0,0], [1,1])").is_ok());
         assert!(e.eval::<Tree>("rectangle([0,0], [1,1,1])").is_err());
+    }
+
+    #[test]
+    fn extrude_builder_ordered() {
+        let e = crate::rhai::engine();
+        assert!(e.eval::<Tree>("extrude_z(x, 0, 1)").is_ok());
     }
 }
