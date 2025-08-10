@@ -47,6 +47,8 @@
   any multithreading
 - Switched various mesh functions to take `Settings` by reference instead of by
   value, because `CancelToken` is not `Copy`.
+- Make Rhai `vec2(..)` and `vec3(..)` functions idempotent, i.e.
+  `vec2(vec2(..))` now works.
 
 # 0.3.8
 - Bug fix: `Image::height()` was returning width instead!

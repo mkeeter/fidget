@@ -75,6 +75,7 @@ impl CustomType for Vec2 {
         builder
             .with_name("Vec2")
             .on_print(|t| format!("[{}, {}]", t.x, t.y))
+            .with_fn("vec2", |v: Vec2| v) // idempotent
             .with_fn(
                 "vec2",
                 |ctx: rhai::NativeCallContext,
@@ -104,6 +105,7 @@ impl CustomType for Vec3 {
         builder
             .with_name("Vec3")
             .on_print(|t| format!("[{}, {}, {}]", t.x, t.y, t.z))
+            .with_fn("vec3", |v: Vec3| v) // idempotent
             .with_fn(
                 "vec3",
                 |ctx: rhai::NativeCallContext,
