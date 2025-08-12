@@ -1,4 +1,5 @@
 use crate::vm::Choice;
+use std::f32::consts::PI;
 
 /// Stores a range, with conservative calculations to guarantee that it always
 /// contains the actual value.
@@ -401,8 +402,57 @@ impl Interval {
         if self.has_nan() || x.has_nan() {
             f32::NAN.into()
         } else {
-            // TODO optimize this further
-            Interval::new(-std::f32::consts::PI, std::f32::consts::PI)
+            let y = self;
+            // Check whether we span the branch cut
+            if y.lower <= 0.0 && y.upper >= 0.0 && x.lower < 0.0 {
+                Interval::new(-PI, PI)
+            } else {
+                // Otherwise, do quadrant-by-quadrant evaluation
+                let mut lower = f32::INFINITY;
+                let mut upper = -f32::INFINITY;
+                let mut update = |y: f32, x: f32| {
+                    let v = y.atan2(x);
+                    lower = lower.min(v);
+                    upper = upper.max(v);
+                };
+
+                // Quadrant-by-quadrant cases, evaluation, which lets us only
+                // pay for two atan2 evaluations
+                if y.lower >= 0.0 {
+                    if x.lower >= 0.0 {
+                        // Upper right
+                        update(y.upper, x.lower);
+                        update(y.lower, x.upper);
+                    } else if x.upper <= 0.0 {
+                        // Upper left
+                        update(y.lower, x.lower);
+                        update(y.upper, x.upper);
+                    } else {
+                        // Upper both
+                        update(y.lower, x.lower);
+                        update(y.lower, x.upper);
+                    }
+                } else if y.upper <= 0.0 {
+                    if x.lower >= 0.0 {
+                        // Lower right
+                        update(y.lower, x.lower);
+                        update(y.upper, x.upper);
+                    } else if x.upper <= 0.0 {
+                        // Lower left
+                        update(y.upper, x.lower);
+                        update(y.lower, x.upper);
+                    } else {
+                        // Lower both
+                        update(y.upper, x.lower);
+                        update(y.upper, x.upper);
+                    }
+                } else {
+                    // Right both
+                    update(y.lower, x.lower);
+                    update(y.upper, x.lower);
+                }
+                Interval::new(lower, upper)
+            }
         }
     }
 }
