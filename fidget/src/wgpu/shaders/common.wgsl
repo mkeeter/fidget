@@ -16,6 +16,9 @@ struct Config {
     /// Image size, in voxels
     image_size: vec3u,
     _padding3: u32,
+
+    /// Tape data, tightly packed per-tile
+    tape_data: array<u32>,
 }
 
 struct TileListOutput {
@@ -35,3 +38,9 @@ struct TileListInput {
 fn nan_f32() -> f32 {
     return bitcast<f32>(0x7FC00000);
 }
+
+/// Common render configuration and tape data
+@group(0) @binding(0) var<storage, read> config: Config;
+
+/// Tape start position, on a per-tile basis (densely packed)
+@group(0) @binding(1) var<storage, read> tile_tape: array<u32>;

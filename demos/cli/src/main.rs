@@ -313,15 +313,12 @@ fn run3d<
             image_size,
             world_to_model,
         };
-        let s = std::time::Instant::now();
-        let p = ctx.pipelines(shape);
-        info!("Built shape pipelines in {:?}", s.elapsed());
         if settings.n > 1 {
-            ctx.run(&p, cfg); // warm-up
+            ctx.run(&shape, cfg); // warm-up
         }
         start = std::time::Instant::now();
         for _ in 0..settings.n {
-            image = ctx.run(&p, cfg);
+            image = ctx.run(&shape, cfg);
         }
     } else {
         let shape = fidget::shape::Shape::<F>::new(ctx, root).unwrap();

@@ -17,11 +17,7 @@ use fidget::{
     },
 };
 
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-    path::Path,
-};
+use std::{error::Error, path::Path};
 
 mod draw2d;
 mod draw3d;
@@ -75,7 +71,6 @@ where
     let mut timeout_time: Option<std::time::Instant> = None;
 
     let mut wgpu_ctx = fidget::wgpu::render3d::Context::new().unwrap();
-    let mut wgpu_pipelines = HashMap::new();
 
     loop {
         let timeout = if let Some(t) = timeout_time {
@@ -152,28 +147,14 @@ where
                             image_size: voxel_size,
                             world_to_model: canvas.view().world_to_model(),
                         };
-                        let seen = out
-                            .shapes
-                            .iter()
-                            .map(|s| s.tree.as_ptr())
-                            .collect::<HashSet<_>>();
-                        let data = out
-                            .shapes
+                        out.shapes
                             .iter()
                             .map(|s| {
-                                let p = wgpu_pipelines
-                                    .entry(s.tree.as_ptr())
-                                    .or_insert_with(|| {
-                                        let shape = fidget::vm::VmShape::from(
-                                            s.tree.clone(),
-                                        );
-                                        wgpu_ctx.pipelines(shape)
-                                    });
-                                wgpu_ctx.run(p, cfg).take().0
+                                let shape =
+                                    fidget::vm::VmShape::from(s.tree.clone());
+                                wgpu_ctx.run(&shape, cfg).take().0
                             })
-                            .collect();
-                        wgpu_pipelines.retain(|k, _| seen.contains(k));
-                        data
+                            .collect()
                     } else {
                         out.shapes
                             .iter()

@@ -1,11 +1,13 @@
 //! GPU-accelerated 3D rendering
 use crate::{
     Error,
-    compiler::SsaOp,
     eval::Function,
     render::{GeometryBuffer, GeometryPixel, VoxelSize},
     vm::VmShape,
-    wgpu::util::{resize_buffer_with, write_storage_buffer},
+    wgpu::{
+        opcode_constants,
+        util::{resize_buffer_with, write_storage_buffer},
+    },
 };
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
@@ -14,6 +16,7 @@ const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
+const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 
 use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
@@ -71,7 +74,7 @@ struct Config {
     _padding3: u32,
 }
 
-struct IntervalTileContext {
+struct IntervalContext {
     /// Input tiles (64^3)
     tile64_buffers: TileBuffers<64>,
 
@@ -81,125 +84,51 @@ struct IntervalTileContext {
     /// First stage output tiles (4^3)
     tile4_buffers: TileBuffers<4>,
 
+    /// Pipeline for 64^3 -> 16^3 tile evaluation evaluation
+    interval64_pipeline: wgpu::ComputePipeline,
+
+    /// Pipeline for 16^3 -> 4^3 tile evaluation evaluation
+    interval16_pipeline: wgpu::ComputePipeline,
+
     /// Bind group layout
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
-/// Shape-specific render pipelines
-pub struct ShapePipelines {
-    interval_pipeline: wgpu::ComputePipeline,
-    voxel_pipeline: wgpu::ComputePipeline,
-    normals_pipeline: wgpu::ComputePipeline,
-    mat: nalgebra::Matrix4<f32>,
-    axes: [u32; 3],
+/// Returns a shader for interval tile evaluation
+pub fn interval_tiles_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += INTERVAL_TILES_SHADER;
+    shader_code += COMMON_SHADER;
+    shader_code += TAPE_INTERPRETER;
+    shader_code
 }
 
-impl ShapePipelines {
-    fn new(
-        device: &wgpu::Device,
-        shape: &VmShape,
-        interval_ctx: &IntervalTileContext,
-        voxel_ctx: &VoxelContext,
-        normals_ctx: &NormalsContext,
-    ) -> Self {
-        let vars = shape.inner().vars();
-        let axes = shape
-            .axes()
-            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
-
-        let mut shader_code = make_shader(shape, "vec2f", 3, 1);
-        shader_code += INTERVAL_TILES_SHADER;
-        shader_code += COMMON_SHADER;
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&interval_ctx.bind_group_layout],
-                push_constant_ranges: &[],
-            });
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let interval_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("interval_tile"),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("interval_tile_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        let mut shader_code = make_shader(shape, "f32", 3, 1);
-        shader_code += VOXEL_TILES_SHADER;
-        shader_code += COMMON_SHADER;
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&voxel_ctx.bind_group_layout],
-                push_constant_ranges: &[],
-            });
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let voxel_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("voxels"),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("voxel_ray_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        let mut shader_code = make_shader(shape, "vec4f", 3, 1);
-        shader_code += COMMON_SHADER;
-        shader_code += NORMALS_SHADER;
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&normals_ctx.bind_group_layout],
-                push_constant_ranges: &[],
-            });
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let normals_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("normals"),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("normals_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        Self {
-            interval_pipeline,
-            voxel_pipeline,
-            normals_pipeline,
-            mat: shape.transform().unwrap_or(nalgebra::Matrix4::identity()),
-            axes,
-        }
-    }
+/// Returns a shader for interval tile evaluation
+pub fn voxel_tiles_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += VOXEL_TILES_SHADER;
+    shader_code += COMMON_SHADER;
+    shader_code += TAPE_INTERPRETER;
+    shader_code
 }
 
-fn buffer_cfg(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
+/// Returns a shader for interval tile evaluation
+pub fn normals_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += NORMALS_SHADER;
+    shader_code += COMMON_SHADER;
+    shader_code += TAPE_INTERPRETER;
+    shader_code
+}
+
+/// Returns a shader for merging images
+pub fn merge_shader() -> String {
+    MERGE_SHADER.to_owned() + COMMON_SHADER
+}
+
+/// Returns a shader for backfilling tile `zmin` values
+pub fn backfill_shader() -> String {
+    BACKFILL_SHADER.to_owned() + COMMON_SHADER
 }
 
 fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -228,19 +157,21 @@ fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-impl IntervalTileContext {
-    fn new(device: &wgpu::Device) -> Self {
+impl IntervalContext {
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
         // Create bind group layout and bind group
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // tiles_in
-                    buffer_ro(2),  // tile_zmin
-                    buffer_rw(3),  // subtiles_out
-                    buffer_rw(4),  // subtile_zmin
-                    buffer_rw(5),  // count_clear
+                    buffer_ro(0), // tiles_in
+                    buffer_ro(1), // tile_zmin
+                    buffer_rw(2), // subtiles_out
+                    buffer_rw(3), // subtile_zmin
+                    buffer_rw(4), // count_clear
                 ],
             });
 
@@ -248,11 +179,53 @@ impl IntervalTileContext {
         let tile16_buffers = TileBuffers::new(device);
         let tile4_buffers = TileBuffers::new(device);
 
+        let shader_code = interval_tiles_shader();
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    common_bind_group_layout,
+                    &bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+        let interval64_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("interval"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("interval_tile_main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("TILE_SIZE", 64.0), ("SUBTILE_SIZE", 16.0)],
+                    ..Default::default()
+                },
+                cache: None,
+            });
+        let interval16_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("interval"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("interval_tile_main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("TILE_SIZE", 16.0), ("SUBTILE_SIZE", 4.0)],
+                    ..Default::default()
+                },
+                cache: None,
+            });
+
         Self {
             bind_group_layout,
             tile64_buffers,
             tile16_buffers,
             tile4_buffers,
+            interval64_pipeline,
+            interval16_pipeline,
         }
     }
 
@@ -274,10 +247,10 @@ impl IntervalTileContext {
     }
 
     fn run(
-        &mut self,
+        &self,
         active_offset: usize,
         active_count: usize,
-        ctx: &CommonCtx,
+        ctx: &Context,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let bind_group16 = self.create_bind_group(
@@ -287,8 +260,8 @@ impl IntervalTileContext {
             &self.tile16_buffers,
             &self.tile4_buffers.tiles,
         );
-        compute_pass.set_pipeline(&ctx.pipelines.interval_pipeline);
-        compute_pass.set_bind_group(0, &bind_group16, &[]);
+        compute_pass.set_pipeline(&self.interval64_pipeline);
+        compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass.dispatch_workgroups(active_count as u32, 1, 1);
 
         let bind_group4 = self.create_bind_group(
@@ -298,14 +271,15 @@ impl IntervalTileContext {
             &self.tile4_buffers,
             &self.tile64_buffers.tiles, // clear
         );
-        compute_pass.set_bind_group(0, &bind_group4, &[]);
+        compute_pass.set_pipeline(&self.interval16_pipeline);
+        compute_pass.set_bind_group(1, &bind_group4, &[]);
         compute_pass
             .dispatch_workgroups_indirect(&self.tile16_buffers.tiles, 0);
     }
 
     fn create_bind_group<const N: usize, const M: usize>(
         &self,
-        ctx: &CommonCtx,
+        ctx: &Context,
         tile_buffers: &TileBuffers<N>,
         offset_and_count: Option<(usize, usize)>,
         subtile_buffers: &TileBuffers<M>,
@@ -317,10 +291,6 @@ impl IntervalTileContext {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: ctx.config.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
                     resource: if let Some((offset, count)) = offset_and_count {
                         tile_buffers
                             .tiles
@@ -334,19 +304,19 @@ impl IntervalTileContext {
                     },
                 },
                 wgpu::BindGroupEntry {
-                    binding: 2,
+                    binding: 1,
                     resource: tile_buffers.zmin.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 2,
                     resource: subtile_buffers.tiles.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 4,
+                    binding: 3,
                     resource: subtile_buffers.zmin.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 5,
+                    binding: 4,
                     resource: clear.slice(0..16).into(),
                 },
             ],
@@ -359,31 +329,167 @@ impl IntervalTileContext {
 struct VoxelContext {
     /// Bind group layout
     bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Pipeline for interpreted voxel evaluation
+    voxel_pipeline: wgpu::ComputePipeline,
 }
 
 impl VoxelContext {
-    fn new(device: &wgpu::Device) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
         // Create bind group layout and bind group
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // tiles4_in
-                    buffer_ro(2),  // tile4_zmin
-                    buffer_rw(3),  // result
-                    buffer_rw(4),  // count_clear
+                    buffer_ro(0), // tiles4_in
+                    buffer_ro(1), // tile4_zmin
+                    buffer_rw(2), // result
+                    buffer_rw(3), // count_clear
                 ],
             });
 
-        Self { bind_group_layout }
+        let shader_code = voxel_tiles_shader();
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    common_bind_group_layout,
+                    &bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+        let voxel_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("voxels"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("voxel_ray_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        Self {
+            bind_group_layout,
+            voxel_pipeline,
+        }
+    }
+
+    fn run(&self, ctx: &Context, compute_pass: &mut wgpu::ComputePass) {
+        let bind_group =
+            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ctx
+                            .interval_ctx
+                            .tile4_buffers
+                            .tiles
+                            .as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: ctx
+                            .interval_ctx
+                            .tile4_buffers
+                            .zmin
+                            .as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: ctx.buffers.result.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: ctx
+                            .interval_ctx
+                            .tile16_buffers
+                            .tiles
+                            .slice(0..16)
+                            .into(),
+                    },
+                ],
+            });
+
+        compute_pass.set_pipeline(&self.voxel_pipeline);
+        compute_pass.set_bind_group(1, &bind_group, &[]);
+
+        // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
+        // workers in the Z direction.
+        compute_pass.dispatch_workgroups_indirect(
+            &ctx.interval_ctx.tile4_buffers.tiles,
+            0,
+        );
+    }
+}
+
+struct NormalsContext {
+    /// Bind group layout
+    bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Pipeline for normal evaluation
+    normals_pipeline: wgpu::ComputePipeline,
+}
+
+impl NormalsContext {
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        // Create bind group layout and bind group
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_ro(0), // image_heightmap
+                    buffer_rw(1), // image_out
+                ],
+            });
+
+        let shader_code = normals_shader();
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    common_bind_group_layout,
+                    &bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+        let normals_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("normals"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("normals_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        Self {
+            bind_group_layout,
+            normals_pipeline,
+        }
     }
 
     fn run(
-        &mut self,
-        ctx: &CommonCtx,
-        tile4_buffers: &TileBuffers<4>,
-        clear: &wgpu::Buffer,
+        &self,
+        ctx: &Context,
+        image_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let bind_group =
@@ -393,219 +499,24 @@ impl VoxelContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx.config.as_entire_binding(),
+                        resource: ctx.buffers.merged.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: tile4_buffers.tiles.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: tile4_buffers.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: ctx.buf.result.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: clear.slice(0..16).into(),
+                        resource: ctx.buffers.geom.as_entire_binding(),
                     },
                 ],
             });
 
-        compute_pass.set_pipeline(&ctx.pipelines.voxel_pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
-
-        // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
-        // workers in the Z direction.
-        compute_pass.dispatch_workgroups_indirect(&tile4_buffers.tiles, 0);
-    }
-}
-
-struct NormalsContext {
-    /// Bind group layout
-    bind_group_layout: wgpu::BindGroupLayout,
-}
-
-impl NormalsContext {
-    fn new(device: &wgpu::Device) -> Self {
-        // Create bind group layout and bind group
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // image_heightmap
-                    buffer_rw(2),  // image_out
-                ],
-            });
-
-        Self { bind_group_layout }
-    }
-
-    fn run(&mut self, ctx: &CommonCtx, compute_pass: &mut wgpu::ComputePass) {
-        let bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: ctx.config.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: ctx.buf.merged.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: ctx.buf.geom.as_entire_binding(),
-                    },
-                ],
-            });
-
-        compute_pass.set_pipeline(&ctx.pipelines.normals_pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
+        compute_pass.set_pipeline(&self.normals_pipeline);
+        compute_pass.set_bind_group(1, &bind_group, &[]);
 
         compute_pass.dispatch_workgroups(
-            ctx.image_size.width().div_ceil(8),
-            ctx.image_size.height().div_ceil(8),
+            image_size.width().div_ceil(8),
+            image_size.height().div_ceil(8),
             1,
         );
     }
-}
-
-fn format_op(op: SsaOp) -> String {
-    match op {
-        SsaOp::Output(..) => unreachable!(),
-        SsaOp::Input(_, i) => format!("inputs[{i}];"),
-        SsaOp::CopyReg(_, reg) => format!("r{reg};"),
-        SsaOp::NegReg(_, reg) => format!("op_neg(r{reg});"),
-        SsaOp::CopyImm(_, imm) => format!("build_imm({imm});"),
-        SsaOp::AbsReg(_, reg) => format!("op_abs(r{reg});"),
-        SsaOp::RecipReg(_, reg) => format!("op_recip(r{reg});"),
-        SsaOp::SquareReg(_, reg) => format!("op_square(r{reg});"),
-        SsaOp::SqrtReg(_, reg) => format!("op_sqrt(r{reg});"),
-        SsaOp::FloorReg(_, reg) => format!("op_floor(r{reg});"),
-        SsaOp::CeilReg(_, reg) => format!("op_ceil(r{reg});"),
-        SsaOp::RoundReg(_, reg) => format!("op_round(r{reg});"),
-        SsaOp::SinReg(_, reg) => format!("op_sin(r{reg});"),
-        SsaOp::CosReg(_, reg) => format!("op_cos(r{reg});"),
-        SsaOp::TanReg(_, reg) => format!("op_tan(r{reg});"),
-        SsaOp::AsinReg(_, reg) => format!("op_asin(r{reg});"),
-        SsaOp::AcosReg(_, reg) => format!("op_acos(r{reg});"),
-        SsaOp::AtanReg(_, reg) => format!("op_atan(r{reg});"),
-        SsaOp::ExpReg(_, reg) => format!("op_exp(r{reg});"),
-        SsaOp::LnReg(_, reg) => format!("op_ln(r{reg});"),
-        SsaOp::NotReg(_, reg) => format!("op_not(r{reg});"),
-        SsaOp::AddRegImm(_, reg, imm) => {
-            format!("op_add(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::MulRegImm(_, reg, imm) => {
-            format!("op_mul(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::SubRegImm(_, reg, imm) => {
-            format!("op_sub(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::SubImmReg(_, reg, imm) => {
-            format!("op_sub(build_imm({imm}), r{reg});")
-        }
-        SsaOp::DivRegImm(_, reg, imm) => {
-            format!("op_div(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::DivImmReg(_, reg, imm) => {
-            format!("op_div(build_imm({imm}), r{reg});")
-        }
-        SsaOp::MaxRegImm(_, reg, imm) => {
-            format!("op_max(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::MinRegImm(_, reg, imm) => {
-            format!("op_min(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::ModRegImm(_, reg, imm) => {
-            format!("op_mod(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::AtanRegImm(_, reg, imm) => {
-            format!("op_atan(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::CompareRegImm(_, reg, imm) => {
-            format!("op_compare(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::ModImmReg(_, reg, imm) => {
-            format!("op_mod(build_imm({imm}), r{reg});")
-        }
-        SsaOp::AtanImmReg(_, reg, imm) => {
-            format!("op_atan(build_imm({imm}), r{reg});")
-        }
-        SsaOp::CompareImmReg(_, reg, imm) => {
-            format!("op_compare(build_imm({imm}), r{reg});")
-        }
-        SsaOp::AndRegImm(_, reg, imm) => {
-            format!("op_and(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::OrRegImm(_, reg, imm) => {
-            format!("op_or(r{reg}, build_imm({imm}));")
-        }
-        SsaOp::AddRegReg(_, lhs, rhs) => {
-            format!("op_add(r{lhs}, r{rhs});")
-        }
-        SsaOp::SubRegReg(_, lhs, rhs) => {
-            format!("op_sub(r{lhs}, r{rhs});")
-        }
-        SsaOp::MulRegReg(_, lhs, rhs) => {
-            format!("op_mul(r{lhs}, r{rhs});")
-        }
-        SsaOp::DivRegReg(_, lhs, rhs) => {
-            format!("op_div(r{lhs}, r{rhs});")
-        }
-        SsaOp::CompareRegReg(_, lhs, rhs) => {
-            format!("op_compare(r{lhs}, r{rhs});")
-        }
-        SsaOp::AtanRegReg(_, lhs, rhs) => {
-            format!("op_atan2(r{lhs}, r{rhs});")
-        }
-        SsaOp::ModRegReg(_, lhs, rhs) => {
-            format!("op_mod(r{lhs}, r{rhs});")
-        }
-        SsaOp::MinRegReg(_, lhs, rhs) => {
-            format!("op_min(r{lhs}, r{rhs});")
-        }
-        SsaOp::MaxRegReg(_, lhs, rhs) => {
-            format!("op_max(r{lhs}, r{rhs});")
-        }
-        SsaOp::AndRegReg(_, lhs, rhs) => {
-            format!("op_and(r{lhs}, r{rhs});")
-        }
-        SsaOp::OrRegReg(_, lhs, rhs) => {
-            format!("op_or(r{lhs}, r{rhs});")
-        }
-    }
-}
-
-fn make_shader(
-    f: &VmShape,
-    ty: &str,
-    input_count: usize,
-    output_count: usize,
-) -> String {
-    let mut s = format!(
-        "fn run_tape(inputs: array<{ty}, {input_count}>) -> array<{ty}, {output_count}> {{
-    var out: array<{ty}, {output_count}>;
-",
-    );
-    for op in f.inner().data().iter_ssa() {
-        if let SsaOp::Output(reg, i) = op {
-            s += &format!("out[{i}] = r{reg};\nreturn out;\n}}");
-            return s;
-        }
-
-        let out = op.output().expect("opcode must have output");
-        s += &format!("let r{out} = ");
-        s += &format_op(op);
-        s += "\n";
-    }
-    panic!("reached end of tape without an Output");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -616,8 +527,10 @@ pub struct Context {
     queue: wgpu::Queue,
     buffers: DynamicBuffers,
 
-    config: wgpu::Buffer,
-    interval_tile_ctx: IntervalTileContext,
+    config_buf: wgpu::Buffer,
+    bind_group_layout: wgpu::BindGroupLayout,
+
+    interval_ctx: IntervalContext,
     voxel_ctx: VoxelContext,
     normals_ctx: NormalsContext,
     backfill_ctx: BackfillContext,
@@ -827,16 +740,6 @@ impl DynamicBuffers {
     }
 }
 
-#[derive(Copy, Clone)]
-struct CommonCtx<'a> {
-    device: &'a wgpu::Device,
-    config: &'a wgpu::Buffer,
-    buf: &'a DynamicBuffers,
-    pipelines: &'a ShapePipelines,
-    render_size: VoxelSize,
-    image_size: VoxelSize,
-}
-
 impl Context {
     /// Build a new 3D rendering context
     pub fn new() -> Result<Self, Error> {
@@ -856,27 +759,40 @@ impl Context {
                 .map_err(Error::NoDevice)
         })?;
 
-        let config = device.create_buffer(&wgpu::BufferDescriptor {
+        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
             size: std::mem::size_of::<Config>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        // Dummy shape
-        let interval_tile_ctx = IntervalTileContext::new(&device);
-        let voxel_ctx = VoxelContext::new(&device);
-        let normals_ctx = NormalsContext::new(&device);
-        let backfill_ctx = BackfillContext::new(&device);
+        // Create bind group layout and bind group
+        let common_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_ro(0), // config
+                    buffer_ro(1), // tile_tape
+                ],
+            });
+
+        let interval_ctx =
+            IntervalContext::new(&device, &common_bind_group_layout);
+        let voxel_ctx = VoxelContext::new(&device, &common_bind_group_layout);
+        let normals_ctx =
+            NormalsContext::new(&device, &common_bind_group_layout);
+        let backfill_ctx =
+            BackfillContext::new(&device, &common_bind_group_layout);
+        let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
         let buffers = DynamicBuffers::new(&device);
-        let merge_ctx = MergeContext::new(&device);
 
         Ok(Self {
             device,
-            config,
+            config_buf,
             buffers,
             queue,
-            interval_tile_ctx,
+            bind_group_layout: common_bind_group_layout,
+            interval_ctx,
             voxel_ctx,
             normals_ctx,
             backfill_ctx,
@@ -884,30 +800,22 @@ impl Context {
         })
     }
 
-    /// Builds a [`ShapePipelines`] object for the given shape
-    pub fn pipelines(
-        &self,
-        shape: VmShape, // XXX add ShapeVars here
-    ) -> ShapePipelines {
-        ShapePipelines::new(
-            &self.device,
-            &shape,
-            &self.interval_tile_ctx,
-            &self.voxel_ctx,
-            &self.normals_ctx,
-        )
-    }
-
     /// Renders a single image using GPU acceleration
     ///
     /// Returns a heightmap
     pub fn run(
         &mut self,
-        pipelines: &ShapePipelines,
+        shape: &VmShape, // XXX add ShapeVars here
         settings: RenderConfig,
     ) -> GeometryBuffer {
         // Create the 4x4 transform matrix
-        let mat = pipelines.mat * settings.mat();
+        let vars = shape.inner().vars();
+        let bc = shape.to_bytecode();
+        let shape = shape.with_transform(settings.mat());
+        let mat = shape.transform();
+        let axes = shape
+            .axes()
+            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
         let render_size = VoxelSize::new(
             settings.image_size.width().next_multiple_of(64),
             settings.image_size.height().next_multiple_of(64),
@@ -916,7 +824,7 @@ impl Context {
 
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
-            axes: pipelines.axes,
+            axes,
             _padding1: 0u32,
             render_size: [
                 render_size.width(),
@@ -931,14 +839,33 @@ impl Context {
             ],
             _padding3: 0u32,
         };
-        self.queue
-            .write_buffer_with(
-                &self.config,
-                0,
-                (std::mem::size_of_val(&config) as u64).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice(config.as_bytes());
+        let config_buf_len = (std::mem::size_of_val(&config)
+            + bc.as_bytes().len())
+        .next_multiple_of(16);
+        if self.config_buf.size() < config_buf_len as u64 {
+            self.config_buf =
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("config"),
+                    size: config_buf_len as u64,
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+        }
+        {
+            let mut writer = self
+                .queue
+                .write_buffer_with(
+                    &self.config_buf,
+                    0,
+                    (config_buf_len as u64).try_into().unwrap(),
+                )
+                .unwrap();
+            writer[0..std::mem::size_of_val(&config)]
+                .copy_from_slice(config.as_bytes());
+            writer[std::mem::size_of_val(&config)..][..bc.as_bytes().len()]
+                .copy_from_slice(bc.as_bytes());
+        }
 
         // Build the dense tile array of 64^3 tiles, and active tile list
         let nx = render_size.width() / 64;
@@ -956,7 +883,7 @@ impl Context {
 
         self.buffers
             .reset(&self.device, &self.queue, settings.image_size);
-        let active_tile_offsets = self.interval_tile_ctx.reset(
+        let active_tile_offsets = self.interval_ctx.reset(
             &self.device,
             &self.queue,
             active_tiles,
@@ -968,55 +895,51 @@ impl Context {
             &wgpu::CommandEncoderDescriptor { label: None },
         );
 
-        let ctx = CommonCtx {
-            device: &self.device,
-            config: &self.config,
-            buf: &self.buffers,
-            pipelines,
-            render_size,
-            image_size: settings.image_size,
-        };
-
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
                 timestamp_writes: None,
             });
+
+        let bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.config_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        // XXX this is fake for now
+                        resource: self.config_buf.as_entire_binding(),
+                    },
+                ],
+            });
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         for (offset, count) in active_tile_offsets {
-            self.interval_tile_ctx
-                .run(offset, count, &ctx, &mut compute_pass);
-            self.voxel_ctx.run(
-                &ctx,
-                &self.interval_tile_ctx.tile4_buffers, // dispatch list
-                &self.interval_tile_ctx.tile16_buffers.tiles, // to clear
-                &mut compute_pass,
-            );
-            self.backfill_ctx.run(
-                &self.interval_tile_ctx.tile4_buffers.zmin,
-                &self.interval_tile_ctx.tile16_buffers.zmin,
-                &self.interval_tile_ctx.tile64_buffers.zmin,
-                &ctx,
-                &mut compute_pass,
-            );
+            self.interval_ctx
+                .run(offset, count, self, &mut compute_pass);
+            self.voxel_ctx.run(self, &mut compute_pass);
+            self.backfill_ctx
+                .run(self, settings.image_size, &mut compute_pass);
         }
-        self.merge_ctx.run(
-            &self.interval_tile_ctx.tile4_buffers.zmin,
-            &self.interval_tile_ctx.tile16_buffers.zmin,
-            &self.interval_tile_ctx.tile64_buffers.zmin,
-            &ctx,
-            &mut compute_pass,
-        );
-        self.normals_ctx.run(&ctx, &mut compute_pass);
+        self.merge_ctx
+            .run(self, settings.image_size, &mut compute_pass);
+        self.normals_ctx
+            .run(self, settings.image_size, &mut compute_pass);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
         encoder.copy_buffer_to_buffer(
-            &ctx.buf.geom,
+            &self.buffers.geom,
             0,
-            &ctx.buf.image,
+            &self.buffers.image,
             0,
-            ctx.buf.geom.size(),
+            self.buffers.geom.size(),
         );
 
         // Submit the commands and wait for the GPU to complete
@@ -1047,16 +970,18 @@ struct BackfillContext {
 }
 
 impl BackfillContext {
-    fn new(device: &wgpu::Device) -> Self {
-        let shader_code = BACKFILL_SHADER.to_owned() + COMMON_SHADER;
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let shader_code = backfill_shader();
         // Create bind group layout and bind group
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // subtile_zmin
-                    buffer_rw(2),  // count_clear
+                    buffer_ro(0), // subtile_zmin
+                    buffer_rw(1), // count_clear
                 ],
             });
 
@@ -1064,7 +989,10 @@ impl BackfillContext {
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bind_group_layout],
+                bind_group_layouts: &[
+                    common_bind_group_layout,
+                    &bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -1102,37 +1030,39 @@ impl BackfillContext {
     }
 
     fn run(
-        &mut self,
-        tile4_zmin: &wgpu::Buffer,
-        tile16_zmin: &wgpu::Buffer,
-        tile64_zmin: &wgpu::Buffer,
-        ctx: &CommonCtx,
+        &self,
+        ctx: &Context,
+        render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let nx = ctx.render_size.width().div_ceil(64) as usize;
-        let ny = ctx.render_size.width().div_ceil(64) as usize;
+        let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
+        let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
+        let tile64_zmin = &ctx.interval_ctx.tile64_buffers.zmin;
+
+        let nx = render_size.width().div_ceil(64) as usize;
+        let ny = render_size.width().div_ceil(64) as usize;
 
         let bind_group4 =
-            self.create_bind_group(ctx, &ctx.buf.result, tile4_zmin);
+            self.create_bind_group(ctx, &ctx.buffers.result, tile4_zmin);
         compute_pass.set_pipeline(&self.pipeline4);
-        compute_pass.set_bind_group(0, &bind_group4, &[]);
+        compute_pass.set_bind_group(1, &bind_group4, &[]);
         compute_pass.dispatch_workgroups((nx * ny * 16) as u32, 1, 1);
 
         let bind_group16 = self.create_bind_group(ctx, tile4_zmin, tile16_zmin);
         compute_pass.set_pipeline(&self.pipeline16);
-        compute_pass.set_bind_group(0, &bind_group16, &[]);
+        compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass.dispatch_workgroups((ny * ny * 4) as u32, 1, 1);
 
         let bind_group64 =
             self.create_bind_group(ctx, tile16_zmin, tile64_zmin);
         compute_pass.set_pipeline(&self.pipeline64);
-        compute_pass.set_bind_group(0, &bind_group64, &[]);
+        compute_pass.set_bind_group(1, &bind_group64, &[]);
         compute_pass.dispatch_workgroups((ny * ny) as u32, 1, 1);
     }
 
     fn create_bind_group(
         &self,
-        ctx: &CommonCtx,
+        ctx: &Context,
         subtile_zmin: &wgpu::Buffer,
         tile_zmin: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
@@ -1142,14 +1072,10 @@ impl BackfillContext {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: ctx.config.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
                     resource: subtile_zmin.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 2,
+                    binding: 1,
                     resource: tile_zmin.as_entire_binding(),
                 },
             ],
@@ -1163,20 +1089,22 @@ struct MergeContext {
 }
 
 impl MergeContext {
-    fn new(device: &wgpu::Device) -> Self {
-        let shader_code = MERGE_SHADER.to_owned() + COMMON_SHADER;
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let shader_code = merge_shader();
 
         // Create bind group layout and bind group
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_cfg(0), // config
-                    buffer_ro(1),  // tile64_zmin
-                    buffer_ro(2),  // tile16_zmin
-                    buffer_ro(3),  // tile4_zmin
-                    buffer_ro(4),  // result
-                    buffer_rw(5),  // merged
+                    buffer_ro(0), // tile64_zmin
+                    buffer_ro(1), // tile16_zmin
+                    buffer_ro(2), // tile4_zmin
+                    buffer_ro(3), // result
+                    buffer_rw(4), // merged
                 ],
             });
 
@@ -1184,7 +1112,10 @@ impl MergeContext {
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bind_group_layout],
+                bind_group_layouts: &[
+                    common_bind_group_layout,
+                    &bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -1212,13 +1143,15 @@ impl MergeContext {
     }
 
     fn run(
-        &mut self,
-        tile4_zmin: &wgpu::Buffer,
-        tile16_zmin: &wgpu::Buffer,
-        tile64_zmin: &wgpu::Buffer,
-        ctx: &CommonCtx,
+        &self,
+        ctx: &Context,
+        image_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
+        let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
+        let tile64_zmin = &ctx.interval_ctx.tile64_buffers.zmin;
+
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -1226,36 +1159,91 @@ impl MergeContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx.config.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
                         resource: tile64_zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 2,
+                        binding: 1,
                         resource: tile16_zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 3,
+                        binding: 2,
                         resource: tile4_zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: ctx.buf.result.as_entire_binding(),
+                        binding: 3,
+                        resource: ctx.buffers.result.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: ctx.buf.merged.as_entire_binding(),
+                        binding: 4,
+                        resource: ctx.buffers.merged.as_entire_binding(),
                     },
                 ],
             });
         compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
+        compute_pass.set_bind_group(1, &bind_group, &[]);
         compute_pass.dispatch_workgroups(
-            ctx.image_size.width().div_ceil(8),
-            ctx.image_size.width().div_ceil(8),
+            image_size.width().div_ceil(8),
+            image_size.width().div_ceil(8),
             1,
         );
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use heck::ToShoutySnakeCase;
+
+    #[test]
+    fn shader_has_all_ops() {
+        for (op, _) in crate::bytecode::iter_ops() {
+            let op = format!("OP_{}", op.to_shouty_snake_case());
+            assert!(
+                TAPE_INTERPRETER.contains(&op),
+                "interpreter is missing {op}"
+            );
+        }
+    }
+
+    #[test]
+    fn compile_shaders() {
+        let mut v = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        );
+        for (src, desc) in [
+            (interval_tiles_shader(), "interval tiles"),
+            (voxel_tiles_shader(), "voxel tiles"),
+            (normals_shader(), "normals tiles"),
+            (merge_shader(), "merge"),
+            (backfill_shader(), "backfill"),
+        ] {
+            // This isn't the best formatting, but it will at least include the
+            // relevant text.
+            let m = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| {
+                if let Some(i) = e.location(&src) {
+                    let pos = i.offset as usize..(i.offset + i.length) as usize;
+                    panic!(
+                        "shader conpilation failed\n{src}\n{}",
+                        e.emit_to_string_with_path(&src[pos], desc)
+                    );
+                } else {
+                    panic!(
+                        "shader conpilation failed\n{src}\n{}",
+                        e.emit_to_string(desc)
+                    );
+                }
+            });
+            if let Err(e) = v.validate(&m) {
+                let (pos, desc) = e.spans().next().unwrap();
+                panic!(
+                    "shader conpilation failed\n{src}\n{}",
+                    e.emit_to_string_with_path(
+                        &src[pos.to_range().unwrap()],
+                        desc
+                    )
+                );
+            }
+        }
     }
 }

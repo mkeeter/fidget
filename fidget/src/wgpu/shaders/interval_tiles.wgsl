@@ -1,25 +1,29 @@
 // Interval evaluation stage for raymarching shader
+//
+// This must be combined with opcode definitions and the generic interpreter
+// from `tape_interpreter.wgsl`
 
-/// Render configuration and tape data
-@group(0) @binding(0) var<uniform> config: Config;
+/// Per-state IO bindings
+@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
+@group(1) @binding(1) var<storage, read> tile_zmin: array<u32>;
 
-@group(0) @binding(1) var<storage, read> tiles_in: TileListInput;
-@group(0) @binding(2) var<storage, read> tile_zmin: array<u32>;
-
-@group(0) @binding(3) var<storage, read_write> subtiles_out: TileListOutput;
-@group(0) @binding(4) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
+@group(1) @binding(2) var<storage, read_write> subtiles_out: TileListOutput;
+@group(1) @binding(3) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
 
 /// Count to clear (unused in this pass)
-@group(0) @binding(5) var<storage, read_write> count_clear: array<atomic<u32>, 4>;
+@group(1) @binding(4) var<storage, read_write> count_clear: array<atomic<u32>, 4>;
+
+/// Input tile size; one input tile maps to a 4x4x4 workgroup
+override TILE_SIZE: u32;
+
+/// Output tile size, must be TILE_SIZE / 4; one output tile maps to one thread
+override SUBTILE_SIZE: u32;
 
 @compute @workgroup_size(4, 4, 4)
 fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
-    let TILE_SIZE = tiles_in.size;
-    let SUBTILE_SIZE = TILE_SIZE / 4u;
-
     // Reset an unused counter
     atomicStore(&count_clear[local_id.x], 0u);
 
@@ -60,16 +64,22 @@ fn interval_tile_main(
     let ix = vec2f(f32(corner_pos.x), f32(corner_pos.x + SUBTILE_SIZE));
     let iy = vec2f(f32(corner_pos.y), f32(corner_pos.y + SUBTILE_SIZE));
     let iz = vec2f(f32(corner_pos.z), f32(corner_pos.z + SUBTILE_SIZE));
-    var ts = mat4x2f(vec2f(0.0), vec2f(0.0), vec2f(0.0), vec2f(0.0));
+    var ts = array(Value(), Value(), Value(), Value());
     for (var i = 0; i < 4; i++) {
-        ts[i] = op_mul(build_imm(config.mat[0][i]), ix)
-            + op_mul(build_imm(config.mat[1][i]), iy)
-            + op_mul(build_imm(config.mat[2][i]), iz)
-            + build_imm(config.mat[3][i]);
+        ts[i] = op_add(
+            op_add(
+                op_mul(build_imm(config.mat[0][i]), Value(ix)),
+                op_mul(build_imm(config.mat[1][i]), Value(iy)),
+            ),
+            op_add(
+                op_mul(build_imm(config.mat[2][i]), Value(iz)),
+                build_imm(config.mat[3][i]),
+            ),
+        );
     }
 
     // Build up input map
-    var m = array(vec2f(0.0), vec2f(0.0), vec2f(0.0));
+    var m = array(Value(), Value(), Value());
     if (config.axes.x < 3) {
         m[config.axes.x] = op_div(ts[0], ts[3]);
     }
@@ -86,7 +96,7 @@ fn interval_tile_main(
     }
 
     // Do the actual interpreter work
-    let out = run_tape(m)[0];
+    let out = run_tape(0u, m)[0];
 
     if (out[1] < 0.0) {
         // Full, write to subtile_zmin
@@ -109,188 +119,192 @@ fn interval_tile_main(
     }
 }
 
-fn has_nan(i: vec2f) -> bool {
-    return i.x != i.x || i.y != i.y;
+struct Value {
+    v: vec2f,
 }
 
-fn nan_i() -> vec2f {
-    return vec2f(nan_f32());
+fn has_nan(i: Value) -> bool {
+    return i.v.x != i.v.x || i.v.y != i.v.y;
 }
 
-fn op_neg(lhs: vec2f) -> vec2f {
-    return -lhs.yx;
+fn nan_i() -> Value {
+    return Value(vec2f(nan_f32()));
 }
 
-fn op_abs(lhs: vec2f) -> vec2f {
-    if lhs[0] < 0.0 {
-        if lhs[1] > 0.0 {
-            return vec2f(0.0, max(lhs[1], -lhs[0]));
+fn op_neg(lhs: Value) -> Value {
+    return Value(-lhs.v.yx);
+}
+
+fn op_abs(lhs: Value) -> Value {
+    if lhs.v[0] < 0.0 {
+        if lhs.v[1] > 0.0 {
+            return Value(vec2f(0.0, max(lhs.v[1], -lhs.v[0])));
         } else {
-            return vec2f(-lhs[1], -lhs[0]);
+            return Value(vec2f(-lhs.v[1], -lhs.v[0]));
         }
     } else {
         return lhs;
     }
 }
 
-fn op_recip(lhs: vec2f) -> vec2f {
-    if (lhs[0] > 0.0 || lhs[1] < 0.0) {
-        return vec2f(1.0 / lhs[1], 1.0 / lhs[0]);
+fn op_recip(lhs: Value) -> Value {
+    if (lhs.v[0] > 0.0 || lhs.v[1] < 0.0) {
+        return Value(vec2f(1.0 / lhs.v[1], 1.0 / lhs.v[0]));
     } else {
         return nan_i();
     }
 }
 
-fn op_sqrt(lhs: vec2f) -> vec2f {
-    if (lhs[0] >= 0.0) {
-        return sqrt(lhs);
+fn op_sqrt(lhs: Value) -> Value {
+    if (lhs.v[0] >= 0.0) {
+        return Value(sqrt(lhs.v));
     } else {
         return nan_i();
     }
 }
 
-fn op_floor(lhs: vec2f) -> vec2f {
-    return floor(lhs);
+fn op_floor(lhs: Value) -> Value {
+    return Value(floor(lhs.v));
 }
 
-fn op_ceil(lhs: vec2f) -> vec2f {
-    return ceil(lhs);
+fn op_ceil(lhs: Value) -> Value {
+    return Value(ceil(lhs.v));
 }
 
-fn op_round(lhs: vec2f) -> vec2f {
-    return round(lhs);
+fn op_round(lhs: Value) -> Value {
+    return Value(round(lhs.v));
 }
 
-fn op_square(lhs: vec2f) -> vec2f {
-    if (lhs[1] < 0.0) {
-        return vec2f(lhs[1] * lhs[1], lhs[0] * lhs[0]);
-    } else if (lhs[0] > 0.0) {
-        return vec2f(lhs[0] * lhs[0], lhs[1] * lhs[1]);
+fn op_square(lhs: Value) -> Value {
+    if (lhs.v[1] < 0.0) {
+        return Value(vec2f(lhs.v[1] * lhs.v[1], lhs.v[0] * lhs.v[0]));
+    } else if (lhs.v[0] > 0.0) {
+        return Value(vec2f(lhs.v[0] * lhs.v[0], lhs.v[1] * lhs.v[1]));
     } else if (has_nan(lhs)) {
         return nan_i();
     } else {
-        let v = max(abs(lhs[0]), abs(lhs[1]));
-        return vec2f(0.0, v * v);
+        let v = max(abs(lhs.v[0]), abs(lhs.v[1]));
+        return Value(vec2f(0.0, v * v));
     }
 }
 
-fn op_sin(lhs: vec2f) -> vec2f {
+fn op_sin(lhs: Value) -> Value {
     if (has_nan(lhs)) {
         return nan_i();
     } else {
-        return vec2f(-1.0, 1.0);
+        return Value(vec2f(-1.0, 1.0));
     }
 }
 
-fn op_cos(lhs: vec2f) -> vec2f {
+fn op_cos(lhs: Value) -> Value {
     if (has_nan(lhs)) {
         return nan_i();
     } else {
-        return vec2f(-1.0, 1.0);
+        return Value(vec2f(-1.0, 1.0));
     }
 }
 
-fn op_tan(lhs: vec2f) -> vec2f {
-    let size = lhs[1] - lhs[0];
+fn op_tan(lhs: Value) -> Value {
+    let size = lhs.v[1] - lhs.v[0];
     if (size >= 3.14159265f) {
         return nan_i();
     } else {
-        let lower = tan(lhs[0]);
-        let upper = tan(lhs[1]);
+        let lower = tan(lhs.v[0]);
+        let upper = tan(lhs.v[1]);
         if (upper >= lower) {
-            return vec2f(lower, upper);
+            return Value(vec2f(lower, upper));
         } else {
             return nan_i();
         }
     }
 }
 
-fn op_asin(lhs: vec2f) -> vec2f {
-    if (lhs[0] < -1.0 || lhs[1] > 1.0) {
+fn op_asin(lhs: Value) -> Value {
+    if (lhs.v[0] < -1.0 || lhs.v[1] > 1.0) {
         return nan_i();
     } else {
-        return asin(lhs);
+        return Value(asin(lhs.v));
     }
 }
 
-fn op_acos(lhs: vec2f) -> vec2f {
-    if (lhs[0] < -1.0 || lhs[1] > 1.0) {
+fn op_acos(lhs: Value) -> Value {
+    if (lhs.v[0] < -1.0 || lhs.v[1] > 1.0) {
         return nan_i();
     } else {
-        return acos(lhs).yx;
+        return Value(acos(lhs.v).yx);
     }
 }
 
-fn op_atan(lhs: vec2f) -> vec2f {
-    return atan(lhs);
+fn op_atan(lhs: Value) -> Value {
+    return Value(atan(lhs.v));
 }
 
-fn op_exp(lhs: vec2f) -> vec2f {
-    return exp(lhs);
+fn op_exp(lhs: Value) -> Value {
+    return Value(exp(lhs.v));
 }
 
-fn op_log(lhs: vec2f) -> vec2f {
-    if (lhs[0] < 0.0) {
+fn op_log(lhs: Value) -> Value {
+    if (lhs.v[0] < 0.0) {
         return nan_i();
     } else {
-        return log(lhs);
+        return Value(log(lhs.v));
     }
 }
 
-fn op_not(lhs: vec2f) -> vec2f {
+fn op_not(lhs: Value) -> Value {
     if (!contains_i(lhs, 0.0) && !has_nan(lhs)) {
-        return vec2f(0.0);
-    } else if (lhs[0] == 0.0 && lhs[1] == 0.0) {
-        return vec2f(1.0);
+        return Value(vec2f(0.0));
+    } else if (lhs.v[0] == 0.0 && lhs.v[1] == 0.0) {
+        return Value(vec2f(1.0));
     } else {
-        return vec2f(0.0, 1.0);
+        return Value(vec2f(0.0, 1.0));
     }
 }
 
-fn contains_i(i: vec2f, v: f32) -> bool {
-    return (i[0] <= v && v <= i[1]);
+fn contains_i(i: Value, v: f32) -> bool {
+    return (i.v[0] <= v && v <= i.v[1]);
 }
 
-fn op_compare(lhs: vec2f, rhs: vec2f) -> vec2f {
+fn op_compare(lhs: Value, rhs: Value) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
-    } else if (lhs[1] < rhs[0]) {
-        return vec2f(-1.0);
-    } else if (lhs[0] > rhs[1]) {
-        return vec2f(1.0);
-    } else if (lhs[0] == lhs[1] && rhs[0] == rhs[1] && lhs[0] == rhs[0]) {
-        return vec2f(0.0);
+    } else if (lhs.v[1] < rhs.v[0]) {
+        return Value(vec2f(-1.0));
+    } else if (lhs.v[0] > rhs.v[1]) {
+        return Value(vec2f(1.0));
+    } else if (lhs.v[0] == lhs.v[1] && rhs.v[0] == rhs.v[1] && lhs.v[0] == rhs.v[0]) {
+        return Value(vec2f(0.0));
     } else {
-        return vec2f(-1.0, 1.0);
+        return Value(vec2f(-1.0, 1.0));
     }
 }
 
-fn op_and(lhs: vec2f, rhs: vec2f) -> vec2f {
+fn op_and(lhs: Value, rhs: Value) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
-    } else if (lhs[0] == 0.0 && lhs[1] == 0.0) {
-        return vec2f(0.0);
+    } else if (lhs.v[0] == 0.0 && lhs.v[1] == 0.0) {
+        return Value(vec2f(0.0));
     } else if (!contains_i(lhs, 0.0)) {
         return rhs;
     } else {
-        return vec2f(min(rhs[0], 0.0), max(rhs[1], 0.0));
+        return Value(vec2f(min(rhs.v[0], 0.0), max(rhs.v[1], 0.0)));
     }
 }
 
-fn op_or(lhs: vec2f, rhs: vec2f) -> vec2f {
+fn op_or(lhs: Value, rhs: Value) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
     } else if (!contains_i(lhs, 0.0)) {
         return lhs;
-    } else if (lhs[0] == 0.0 && lhs[1] == 0.0) {
+    } else if (lhs.v[0] == 0.0 && lhs.v[1] == 0.0) {
         return rhs;
     } else {
-        return vec2f(min(lhs[0], rhs[0]), max(lhs[0], rhs[0]));
+        return Value(vec2f(min(lhs.v[0], rhs.v[0]), max(lhs.v[0], rhs.v[0])));
     }
 }
 
-fn build_imm(v: f32) -> vec2f {
-    return vec2f(v);
+fn build_imm(v: f32) -> Value {
+    return Value(vec2f(v));
 }
 
 fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
@@ -302,68 +316,68 @@ fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
-fn op_mod(lhs: vec2f, rhs: vec2f) -> vec2f {
+fn op_mod(lhs: Value, rhs: Value) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
-    } else if (rhs[0] == rhs[1] && rhs[0] > 0.0) {
-        let a = lhs[0] / rhs[0];
-        let b = lhs[1] / rhs[0];
+    } else if (rhs.v[0] == rhs.v[1] && rhs.v[0] > 0.0) {
+        let a = lhs.v[0] / rhs.v[0];
+        let b = lhs.v[1] / rhs.v[0];
         if (a != floor(a) && floor(a) == floor(b)) {
-            return vec2f(
-                rem_euclid(lhs[0], rhs[0]),
-                rem_euclid(lhs[1], rhs[0]),
-            );
+            return Value(vec2f(
+                rem_euclid(lhs.v[0], rhs.v[0]),
+                rem_euclid(lhs.v[1], rhs.v[0]),
+            ));
         } else {
-            return vec2f(0.0, max(abs(rhs[0]), abs(rhs[1])));
+            return Value(vec2f(0.0, abs(rhs.v[0])));
         }
     } else {
-        return vec2f(0.0, max(abs(rhs[0]), abs(rhs[1])));
+        return Value(vec2f(0.0, max(abs(rhs.v[0]), abs(rhs.v[1]))));
     }
 }
 
-fn op_add(lhs: vec2f, rhs: vec2f) -> vec2f {
-    return lhs + rhs;
+fn op_add(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v + rhs.v);
 }
 
-fn op_sub(lhs: vec2f, rhs: vec2f) -> vec2f {
-    return lhs - rhs.yx;
+fn op_sub(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v - rhs.v.yx);
 }
 
-fn op_min(lhs: vec2f, rhs: vec2f) -> vec2f {
-    return min(lhs, rhs);
+fn op_min(lhs: Value, rhs: Value) -> Value {
+    return Value(min(lhs.v, rhs.v));
 }
 
-fn op_max(lhs: vec2f, rhs: vec2f) -> vec2f {
-    return max(lhs, rhs);
+fn op_max(lhs: Value, rhs: Value) -> Value {
+    return Value(max(lhs.v, rhs.v));
 }
 
-fn op_mul(lhs: vec2f, rhs: vec2f) -> vec2f {
+fn op_mul(lhs: Value, rhs: Value) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
     }
-    let ab = lhs * rhs;
-    let cd = lhs.yx * rhs;
-    return vec2f(
+    let ab = lhs.v * rhs.v;
+    let cd = lhs.v.yx * rhs.v;
+    return Value(vec2f(
         min(min(ab[0], ab[1]), min(cd[0], cd[1])),
         max(max(ab[0], ab[1]), max(cd[0], cd[1])),
-    );
+    ));
 }
 
-fn op_div(lhs: vec2f, rhs: vec2f) -> vec2f {
+fn op_div(lhs: Value, rhs: Value) -> Value {
     if (has_nan(lhs) || contains_i(rhs, 0.0)) {
         return nan_i();
     }
-    let ab = lhs / rhs;
-    let cd = lhs.yx / rhs;
-    return vec2f(
+    let ab = lhs.v / rhs.v;
+    let cd = lhs.v.yx / rhs.v;
+    return Value(vec2f(
         min(min(ab[0], ab[1]), min(cd[0], cd[1])),
         max(max(ab[0], ab[1]), max(cd[0], cd[1])),
-    );
+    ));
 }
 
-fn op_atan2(lhs: vec2f, rhs: vec2f) -> vec2f {
+fn op_atan2(lhs: Value, rhs: Value) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
     }
-    return vec2f(-3.141592654, 3.141592654);
+    return Value(vec2f(-3.141592654, 3.141592654));
 }

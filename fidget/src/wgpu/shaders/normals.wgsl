@@ -1,7 +1,6 @@
 /// Backfill tile_zmin from subtile_zmin
-@group(0) @binding(0) var<uniform> config: Config;
-@group(0) @binding(1) var<storage, read> image_heightmap: array<u32>;
-@group(0) @binding(2) var<storage, read_write> image_out: array<vec4u>;
+@group(1) @binding(0) var<storage, read> image_heightmap: array<u32>;
+@group(1) @binding(1) var<storage, read_write> image_out: array<vec4u>;
 
 @compute @workgroup_size(8, 8)
 fn normals_main(
@@ -21,19 +20,25 @@ fn normals_main(
     }
 
     // Store gradients with dx, dy, dz in xyz and value in w
-    let gx = vec4f(1.0, 0.0, 0.0, f32(global_id.x));
-    let gy = vec4f(0.0, 1.0, 0.0, f32(global_id.y));
-    let gz = vec4f(0.0, 0.0, 1.0, f32(z));
+    let gx = Value(vec4f(1.0, 0.0, 0.0, f32(global_id.x)));
+    let gy = Value(vec4f(0.0, 1.0, 0.0, f32(global_id.y)));
+    let gz = Value(vec4f(0.0, 0.0, 1.0, f32(z)));
 
-    var ts = mat4x4f(vec4f(0.0), vec4f(0.0), vec4f(0.0), vec4f(0.0));
+    var ts = array(Value(), Value(), Value(), Value());
     for (var i = 0; i < 4; i++) {
-        ts[i] = op_mul(build_imm(config.mat[0][i]), gx)
-            + op_mul(build_imm(config.mat[1][i]), gy)
-            + op_mul(build_imm(config.mat[2][i]), gz)
-            + build_imm(config.mat[3][i]);
+        ts[i] = op_add(
+            op_add(
+                op_mul(build_imm(config.mat[0][i]), gx),
+                op_mul(build_imm(config.mat[1][i]), gy),
+            ),
+            op_add(
+                op_mul(build_imm(config.mat[2][i]), gz),
+                build_imm(config.mat[3][i]),
+            )
+        );
     }
     // Build up input map
-    var m = array(vec4f(0.0), vec4f(0.0), vec4f(0.0));
+    var m = array(Value(), Value(), Value());
     if (config.axes.x < 3) {
         m[config.axes.x] = op_div(ts[0], ts[3]);
     }
@@ -44,7 +49,7 @@ fn normals_main(
         m[config.axes.z] = op_div(ts[2], ts[3]);
     }
 
-    let out = run_tape(m)[0];
+    let out = run_tape(0u, m)[0];
     image_out[pixel_index_xy] = vec4u(
         z,
         bitcast<u32>(out.x),
@@ -53,122 +58,123 @@ fn normals_main(
     );
 }
 
-fn op_neg(lhs: vec4f) -> vec4f {
-    return -lhs;
+struct Value {
+    v: vec4f,
 }
 
-fn op_abs(lhs: vec4f) -> vec4f {
-    if (lhs.w < 0.0) {
-        return -lhs;
+fn op_neg(lhs: Value) -> Value {
+    return Value(-lhs.v);
+}
+
+fn op_abs(lhs: Value) -> Value {
+    if (lhs.v.w < 0.0) {
+        return Value(-lhs.v);
     } else {
         return lhs;
     }
 }
 
-fn op_recip(lhs: vec4f) -> vec4f {
-    let v2 = -lhs.w * lhs.w;
-    return vec4f(
-        lhs.xyz / v2,
-        1.0 / lhs.w,
-    );
+fn op_recip(lhs: Value) -> Value {
+    let v2 = -lhs.v.w * lhs.v.w;
+    return Value(vec4f(lhs.v.xyz / v2, 1.0 / lhs.v.w));
 }
 
-fn op_sqrt(lhs: vec4f) -> vec4f {
-    let v = sqrt(lhs.w);
-    return vec4f(lhs.xyz / (2.0 * v), v);
+fn op_sqrt(lhs: Value) -> Value {
+    let v = sqrt(lhs.v.w);
+    return Value(vec4f(lhs.v.xyz / (2.0 * v), v));
 }
 
-fn op_floor(lhs: vec4f) -> vec4f {
-    return vec4f(0.0, 0.0, 0.0, floor(lhs.w));
+fn op_floor(lhs: Value) -> Value {
+    return Value(vec4f(0.0, 0.0, 0.0, floor(lhs.v.w)));
 }
 
-fn op_ceil(lhs: vec4f) -> vec4f {
-    return vec4f(0.0, 0.0, 0.0, ceil(lhs.w));
+fn op_ceil(lhs: Value) -> Value {
+    return Value(vec4f(0.0, 0.0, 0.0, ceil(lhs.v.w)));
 }
 
-fn op_round(lhs: vec4f) -> vec4f {
-    return vec4f(0.0, 0.0, 0.0, round(lhs.w));
+fn op_round(lhs: Value) -> Value {
+    return Value(vec4f(0.0, 0.0, 0.0, round(lhs.v.w)));
 }
 
-fn op_square(lhs: vec4f) -> vec4f {
+fn op_square(lhs: Value) -> Value {
     return op_mul(lhs, lhs);
 }
 
-fn op_sin(lhs: vec4f) -> vec4f {
-    let c = cos(lhs.w);
-    return vec4f(lhs.xyz * c, sin(lhs.w));
+fn op_sin(lhs: Value) -> Value {
+    let c = cos(lhs.v.w);
+    return Value(vec4f(lhs.v.xyz * c, sin(lhs.v.w)));
 }
 
-fn op_cos(lhs: vec4f) -> vec4f {
-    let s = -sin(lhs.w);
-    return vec4f(lhs.xyz * s, cos(lhs.w));
+fn op_cos(lhs: Value) -> Value {
+    let s = -sin(lhs.v.w);
+    return Value(vec4f(lhs.v.xyz * s, cos(lhs.v.w)));
 }
 
-fn op_tan(lhs: vec4f) -> vec4f {
-    let c = cos(lhs.w);
+fn op_tan(lhs: Value) -> Value {
+    let c = cos(lhs.v.w);
     let c2 = c * c;
-    return vec4f(lhs.xyz / c, tan(lhs.w));
+    return Value(vec4f(lhs.v.xyz / c, tan(lhs.v.w)));
 }
 
-fn op_asin(lhs: vec4f) -> vec4f {
-    let r = sqrt(1.0 - lhs.w * lhs.w);
-    return vec4f(lhs.xyz / r, asin(lhs.w));
+fn op_asin(lhs: Value) -> Value {
+    let r = sqrt(1.0 - lhs.v.w * lhs.v.w);
+    return Value(vec4f(lhs.v.xyz / r, asin(lhs.v.w)));
 }
 
-fn op_acos(lhs: vec4f) -> vec4f {
-    let r = sqrt(1.0 - lhs.w * lhs.w);
-    return vec4f(-lhs.xyz / r, acos(lhs.w));
+fn op_acos(lhs: Value) -> Value {
+    let r = sqrt(1.0 - lhs.v.w * lhs.v.w);
+    return Value(vec4f(-lhs.v.xyz / r, acos(lhs.v.w)));
 }
 
-fn op_atan(lhs: vec4f) -> vec4f {
-    let r = lhs.w * lhs.w + 1.0;
-    return vec4f(lhs.xyz / r, atan(lhs.w));
+fn op_atan(lhs: Value) -> Value {
+    let r = lhs.v.w * lhs.v.w + 1.0;
+    return Value(vec4f(lhs.v.xyz / r, atan(lhs.v.w)));
 }
 
-fn op_exp(lhs: vec4f) -> vec4f {
-    let v = exp(lhs.w);
-    return vec4f(lhs.xyz * v, v);
+fn op_exp(lhs: Value) -> Value {
+    let v = exp(lhs.v.w);
+    return Value(vec4f(lhs.v.xyz * v, v));
 }
 
-fn op_log(lhs: vec4f) -> vec4f {
-    let v = log(lhs.w);
-    return vec4f(lhs.xyz / v, v);
+fn op_log(lhs: Value) -> Value {
+    let v = log(lhs.v.w);
+    return Value(vec4f(lhs.v.xyz / v, v));
 }
 
-fn op_not(lhs: vec4f) -> vec4f {
-    return vec4f(0.0, 0.0, 0.0, f32(lhs.w == 0.0));
+fn op_not(lhs: Value) -> Value {
+    return Value(vec4f(0.0, 0.0, 0.0, f32(lhs.v.w == 0.0)));
 }
 
-fn op_compare(lhs: vec4f, rhs: vec4f) -> vec4f {
-    if (lhs.w != lhs.w || rhs.w != rhs.w) {
-        return vec4f(0.0, 0.0, 0.0, nan_f32());
-    } else if (lhs.w < rhs.w) {
-        return vec4f(0.0, 0.0, 0.0, -1.0);
-    } else if (lhs.w > rhs.w) {
-        return vec4f(0.0, 0.0, 0.0, 1.0);
+fn op_compare(lhs: Value, rhs: Value) -> Value {
+    if (lhs.v.w != lhs.v.w || rhs.v.w != rhs.v.w) {
+        return Value(vec4f(0.0, 0.0, 0.0, nan_f32()));
+    } else if (lhs.v.w < rhs.v.w) {
+        return Value(vec4f(0.0, 0.0, 0.0, -1.0));
+    } else if (lhs.v.w > rhs.v.w) {
+        return Value(vec4f(0.0, 0.0, 0.0, 1.0));
     } else {
-        return vec4f(0.0, 0.0, 0.0, 0.0);
+        return Value(vec4f(0.0, 0.0, 0.0, 0.0));
     }
 }
 
-fn op_and(lhs: vec4f, rhs: vec4f) -> vec4f {
-    if (lhs.w != 0.0) {
+fn op_and(lhs: Value, rhs: Value) -> Value {
+    if (lhs.v.w != 0.0) {
         return lhs;
     } else {
         return rhs;
     }
 }
 
-fn op_or(lhs: vec4f, rhs: vec4f) -> vec4f {
-    if (lhs.w == 0.0) {
+fn op_or(lhs: Value, rhs: Value) -> Value {
+    if (lhs.v.w == 0.0) {
         return lhs;
     } else {
         return rhs;
     }
 }
 
-fn build_imm(v: f32) -> vec4f {
-    return vec4f(0.0, 0.0, 0.0, v);
+fn build_imm(v: f32) -> Value {
+    return Value(vec4f(0.0, 0.0, 0.0, v));
 }
 
 fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
@@ -193,57 +199,57 @@ fn div_euclid(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
-fn op_mod(lhs: vec4f, rhs: vec4f) -> vec4f {
-    let e = div_euclid(lhs.w, rhs.w);
-    return vec4f(
-        lhs.xyz - rhs.xyz * e,
-        rem_euclid(lhs.w, rhs.w)
-    );
+fn op_mod(lhs: Value, rhs: Value) -> Value {
+    let e = div_euclid(lhs.v.w, rhs.v.w);
+    return Value(vec4f(
+        lhs.v.xyz - rhs.v.xyz * e,
+        rem_euclid(lhs.v.w, rhs.v.w)
+    ));
 }
 
-fn op_add(lhs: vec4f, rhs: vec4f) -> vec4f {
-    return lhs + rhs;
+fn op_add(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v + rhs.v);
 }
 
-fn op_sub(lhs: vec4f, rhs: vec4f) -> vec4f {
-    return lhs - rhs;
+fn op_sub(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v - rhs.v);
 }
 
-fn op_min(lhs: vec4f, rhs: vec4f) -> vec4f {
-    if (lhs.w < rhs.w) {
+fn op_min(lhs: Value, rhs: Value) -> Value {
+    if (lhs.v.w < rhs.v.w) {
         return lhs;
     } else {
         return rhs;
     }
 }
 
-fn op_max(lhs: vec4f, rhs: vec4f) -> vec4f {
-    if (lhs.w > rhs.w) {
+fn op_max(lhs: Value, rhs: Value) -> Value {
+    if (lhs.v.w > rhs.v.w) {
         return lhs;
     } else {
         return rhs;
     }
 }
 
-fn op_mul(lhs: vec4f, rhs: vec4f) -> vec4f {
-    return vec4f(
-        lhs.xyz * rhs.w + rhs.xyz * lhs.w,
-        lhs.w * rhs.w
-    );
+fn op_mul(lhs: Value, rhs: Value) -> Value {
+    return Value(vec4f(
+        lhs.v.xyz * rhs.v.w + rhs.v.xyz * lhs.v.w,
+        lhs.v.w * rhs.v.w
+    ));
 }
 
-fn op_div(lhs: vec4f, rhs: vec4f) -> vec4f {
-    let d = rhs.w * rhs.w;
-    return vec4f(
-        (rhs.w * lhs.xyz - lhs.w * rhs.xyz) / d,
-        lhs.w / rhs.w
-    );
+fn op_div(lhs: Value, rhs: Value) -> Value {
+    let d = rhs.v.w * rhs.v.w;
+    return Value(vec4f(
+        (rhs.v.w * lhs.v.xyz - lhs.v.w * rhs.v.xyz) / d,
+        lhs.v.w / rhs.v.w
+    ));
 }
 
-fn op_atan2(lhs: vec4f, rhs: vec4f) -> vec4f {
-    let d = rhs.w * rhs.w + lhs.w * lhs.w;
-    return vec4f(
-        (rhs.w * lhs.xyz - lhs.w * rhs.xyz) / d,
-        atan2(lhs.w, rhs.w)
-    );
+fn op_atan2(lhs: Value, rhs: Value) -> Value {
+    let d = rhs.v.w * rhs.v.w + lhs.v.w * lhs.v.w;
+    return Value(vec4f(
+        (rhs.v.w * lhs.v.xyz - lhs.v.w * rhs.v.xyz) / d,
+        atan2(lhs.v.w, rhs.v.w)
+    ));
 }

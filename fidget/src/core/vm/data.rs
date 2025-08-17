@@ -1,6 +1,7 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
     Error,
+    bytecode::Bytecode,
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
     var::VarMap,
@@ -330,6 +331,11 @@ impl<const N: usize> VmData<N> {
         for a in self.iter_asm() {
             println!("{a:?}");
         }
+    }
+
+    /// Converts the assembly tape into bytecode
+    pub fn to_bytecode(&self) -> Bytecode {
+        self.asm.to_bytecode(N)
     }
 }
 

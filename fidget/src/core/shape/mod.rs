@@ -245,10 +245,12 @@ impl<F: Clone> Shape<F, ()> {
             _marker: std::marker::PhantomData,
         }
     }
+}
 
+impl<F: Clone> Shape<F, Transformed> {
     /// Returns the currently-applied transform matrix
-    pub fn transform(&self) -> Option<Matrix4<f32>> {
-        self.transform
+    pub fn transform(&self) -> Matrix4<f32> {
+        self.transform.unwrap()
     }
 }
 

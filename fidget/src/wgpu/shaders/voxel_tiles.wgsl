@@ -1,16 +1,13 @@
 // VM interpreter for floating-point values, using voxel tiles
 
-/// Render configuration and tape data
-@group(0) @binding(0) var<uniform> config: Config;
-
-@group(0) @binding(1) var<storage, read> tiles_in: TileListInput;
-@group(0) @binding(2) var<storage, read> tile4_zmin: array<u32>;
+@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
+@group(1) @binding(1) var<storage, read> tile4_zmin: array<u32>;
 
 /// Output array, image size
-@group(0) @binding(3) var<storage, read_write> result: array<atomic<u32>>;
+@group(1) @binding(2) var<storage, read_write> result: array<atomic<u32>>;
 
 /// Count to clear (unused in this pass)
-@group(0) @binding(4) var<storage, read_write> count_clear: array<atomic<u32>, 4>;
+@group(1) @binding(3) var<storage, read_write> count_clear: array<atomic<u32>, 4>;
 
 @compute @workgroup_size(4, 4, 4)
 fn voxel_ray_main(
@@ -55,155 +52,163 @@ fn voxel_ray_main(
     }
 
     // Voxel evaluation: start by building up the input map
-    var m = array(0.0, 0.0, 0.0);
+    var m = array(Value(), Value(), Value());
 
     let pos_pixels = vec4f(vec3f(corner_pos), 1.0);
     let pos_model = config.mat * pos_pixels;
 
     if (config.axes.x < 3) {
-        m[config.axes.x] = pos_model.x / pos_model.w;
+        m[config.axes.x] = Value(pos_model.x / pos_model.w);
     }
     if (config.axes.y < 3) {
-        m[config.axes.y] = pos_model.y / pos_model.w;
+        m[config.axes.y] = Value(pos_model.y / pos_model.w);
     }
     if (config.axes.z < 3) {
-        m[config.axes.z] = pos_model.z / pos_model.w;
+        m[config.axes.z] = Value(pos_model.z / pos_model.w);
     }
 
     // Do the actual interpreter work
-    let out = run_tape(m)[0];
+    let out = run_tape(0u, m)[0];
 
     if (out < 0.0) {
         atomicMax(&result[pixel_index_xy], corner_pos.z);
     }
 }
 
-fn build_imm(v: f32) -> f32 {
-    return v;
+struct Value {
+    v: f32,
 }
 
-fn op_abs(lhs: f32) -> f32 {
-    return abs(lhs);
+fn build_imm(imm: f32) -> Value {
+    return Value(imm);
 }
 
-fn op_acos(lhs: f32) -> f32 {
-    return acos(lhs);
+fn op_abs(lhs: Value) -> Value {
+    return Value(abs(lhs.v));
 }
 
-fn op_cos(lhs: f32) -> f32 {
-    return cos(lhs);
+fn op_acos(lhs: Value) -> Value {
+    return Value(acos(lhs.v));
 }
 
-fn op_asin(lhs: f32) -> f32 {
-    return asin(lhs);
+fn op_cos(lhs: Value) -> Value {
+    return Value(cos(lhs.v));
 }
 
-fn op_atan(lhs: f32) -> f32 {
-    return atan(lhs);
+fn op_asin(lhs: Value) -> Value {
+    return Value(asin(lhs.v));
 }
 
-fn op_ceil(lhs: f32) -> f32 {
-    return ceil(lhs);
+fn op_atan(lhs: Value) -> Value {
+    return Value(atan(lhs.v));
 }
 
-fn op_floor(lhs: f32) -> f32 {
-    return floor(lhs);
+fn op_ceil(lhs: Value) -> Value {
+    return Value(ceil(lhs.v));
 }
 
-fn op_log(lhs: f32) -> f32 {
-    return log(lhs);
+fn op_floor(lhs: Value) -> Value {
+    return Value(floor(lhs.v));
 }
 
-fn op_recip(lhs: f32) -> f32 {
-    return 1.0 / lhs;
+fn op_log(lhs: Value) -> Value {
+    return Value(log(lhs.v));
 }
 
-fn op_round(lhs: f32) -> f32 {
-    return round(lhs);
+fn op_recip(lhs: Value) -> Value {
+    return Value(1.0 / lhs.v);
 }
 
-fn op_sin(lhs: f32) -> f32 {
-    return sin(lhs);
+fn op_round(lhs: Value) -> Value {
+    return Value(round(lhs.v));
 }
 
-fn op_tan(lhs: f32) -> f32 {
-    return tan(lhs);
+fn op_sin(lhs: Value) -> Value {
+    return Value(sin(lhs.v));
 }
 
-fn op_exp(lhs: f32) -> f32 {
-    return exp(lhs);
+fn op_tan(lhs: Value) -> Value {
+    return Value(tan(lhs.v));
 }
 
-fn op_add(lhs: f32, rhs: f32) -> f32 {
-    return lhs + rhs;
+fn op_exp(lhs: Value) -> Value {
+    return Value(exp(lhs.v));
 }
 
-fn op_neg(lhs: f32) -> f32 {
-    return -lhs;
+fn op_add(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v + rhs.v);
 }
 
-fn op_sub(lhs: f32, rhs: f32) -> f32 {
-    return lhs - rhs;
+fn op_neg(lhs: Value) -> Value {
+    return Value(-lhs.v);
 }
 
-fn op_mul(lhs: f32, rhs: f32) -> f32 {
-    return lhs * rhs;
+fn op_sub(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v - rhs.v);
 }
 
-fn op_div(lhs: f32, rhs: f32) -> f32 {
-    return lhs / rhs;
+fn op_mul(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v * rhs.v);
 }
 
-fn op_min(lhs: f32, rhs: f32) -> f32 {
-    return min(lhs, rhs);
+fn op_div(lhs: Value, rhs: Value) -> Value {
+    return Value(lhs.v / rhs.v);
 }
 
-fn op_max(lhs: f32, rhs: f32) -> f32 {
-    return max(lhs, rhs);
+fn op_atan2(lhs: Value, rhs: Value) -> Value {
+    return Value(atan2(lhs.v, rhs.v));
 }
 
-fn op_square(lhs: f32) -> f32 {
-    return lhs * lhs;
+fn op_min(lhs: Value, rhs: Value) -> Value {
+    return Value(min(lhs.v, rhs.v));
 }
 
-fn op_sqrt(lhs: f32) -> f32 {
-    return sqrt(lhs);
+fn op_max(lhs: Value, rhs: Value) -> Value {
+    return Value(max(lhs.v, rhs.v));
 }
 
-fn op_compare(lhs: f32, rhs: f32) -> f32 {
-    if (lhs < rhs) {
-        return -1.0;
-    } else if (lhs > rhs) {
-        return 1.0;
-    } else if (lhs == rhs) {
-        return 0.0;
+fn op_square(lhs: Value) -> Value {
+    return Value(lhs.v * lhs.v);
+}
+
+fn op_sqrt(lhs: Value) -> Value {
+    return Value(sqrt(lhs.v));
+}
+
+fn op_compare(lhs: Value, rhs: Value) -> Value {
+    if (lhs.v < rhs.v) {
+        return Value(-1.0);
+    } else if (lhs.v > rhs.v) {
+        return Value(1.0);
+    } else if (lhs.v == rhs.v) {
+        return Value(0.0);
     } else {
-        return nan_f32();
+        return Value(nan_f32());
     }
 }
 
-fn op_and(lhs: f32, rhs: f32) -> f32 {
-    if lhs == 0.0 {
+fn op_and(lhs: Value, rhs: Value) -> Value {
+    if lhs.v == 0.0 {
         return rhs;
     } else {
         return lhs;
     }
 }
 
-fn op_or(lhs: f32, rhs: f32) -> f32 {
-    if lhs != 0.0 {
+fn op_or(lhs: Value, rhs: Value) -> Value {
+    if lhs.v != 0.0 {
         return rhs;
     } else {
         return lhs;
     }
 }
 
-fn op_not(lhs: f32) -> f32 {
-    return f32(lhs != 0.0);
+fn op_not(lhs: Value) -> Value {
+    return Value(f32(lhs.v != 0.0));
 }
 
-fn op_mod(lhs: f32, rhs: f32) -> f32 {
-    var out = lhs % rhs;
-    out -= rhs * min(0.0, floor(out / rhs));
-    return out;
+fn op_mod(lhs: Value, rhs: Value) -> Value {
+    var out = lhs.v % rhs.v;
+    out -= rhs.v * min(0.0, floor(out / rhs.v));
+    return Value(out);
 }

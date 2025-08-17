@@ -1,6 +1,7 @@
 //! Simple virtual machine for shape evaluation
 use crate::{
     Context, Error,
+    bytecode::Bytecode,
     compiler::RegOp,
     context::Node,
     eval::{
@@ -33,6 +34,13 @@ pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
 
 /// Shape that uses the [`VmFunction`] backend for evaluation
 pub type VmShape = Shape<VmFunction>;
+
+impl VmShape {
+    /// Converts the shape to bytecode
+    pub fn to_bytecode(&self) -> Bytecode {
+        self.inner().tape().data().to_bytecode()
+    }
+}
 
 /// Tape storage type which indicates that there's no actual backing storage
 #[derive(Default)]

@@ -30,6 +30,7 @@ zerocopy.workspace = true
 rhai = { workspace = true, optional = true }
 
 # wgpu
+naga = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
 
@@ -63,7 +64,7 @@ jit = ["dep:dynasmrt", "dep:libc"]
 ## [`fidget::rhai`](crate::rhai) module
 rhai = ["dep:rhai"]
 
-wgpu = ["dep:pollster", "dep:wgpu"]
+wgpu = ["dep:pollster", "dep:wgpu", "dep:naga"]
 
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each
