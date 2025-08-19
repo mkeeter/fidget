@@ -123,8 +123,15 @@ struct Value {
     v: vec2f,
 }
 
+fn is_nan(v: f32) -> bool {
+    let u = bitcast<u32>(v);
+    let exponent = (u >> 23u) & 0xFFu;
+    let mantissa = u & 0x7FFFFFu;
+    return (exponent == 0xFFu) && (mantissa != 0u);
+}
+
 fn has_nan(i: Value) -> bool {
-    return i.v.x != i.v.x || i.v.y != i.v.y;
+    return is_nan(i.v.x) || is_nan(i.v.y);
 }
 
 fn nan_i() -> Value {
@@ -344,11 +351,19 @@ fn op_sub(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_min(lhs: Value, rhs: Value) -> Value {
-    return Value(min(lhs.v, rhs.v));
+    if (has_nan(lhs) || has_nan(rhs)) {
+        return nan_i();
+    } else {
+        return Value(min(lhs.v, rhs.v));
+    }
 }
 
 fn op_max(lhs: Value, rhs: Value) -> Value {
-    return Value(max(lhs.v, rhs.v));
+    if (has_nan(lhs) || has_nan(rhs)) {
+        return nan_i();
+    } else {
+        return Value(max(lhs.v, rhs.v));
+    }
 }
 
 fn op_mul(lhs: Value, rhs: Value) -> Value {
