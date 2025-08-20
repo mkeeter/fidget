@@ -4,7 +4,7 @@ fn read_imm(i: ptr<function, u32>) -> Value {
     return build_imm(out);
 }
 
-fn run_tape(start: u32, inputs: array<Value, 3>) -> Value {
+fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) -> Value {
     var i: u32 = start;
     var reg: array<Value, 256>;
     while (true) {
@@ -55,8 +55,8 @@ fn run_tape(start: u32, inputs: array<Value, 3>) -> Value {
             case OP_ATAN_IMM_REG:     { reg[op[1]] = op_atan2(read_imm(&i), reg[op[2]]); }
             case OP_COMPARE_IMM_REG:  { reg[op[1]] = op_compare(read_imm(&i), reg[op[2]]); }
 
-            case OP_MIN_REG_IMM:  { reg[op[1]] = op_min(reg[op[2]], read_imm(&i)); }
-            case OP_MAX_REG_IMM:  { reg[op[1]] = op_max(reg[op[2]], read_imm(&i)); }
+            case OP_MIN_REG_IMM:  { reg[op[1]] = op_min(reg[op[2]], read_imm(&i), stack); }
+            case OP_MAX_REG_IMM:  { reg[op[1]] = op_max(reg[op[2]], read_imm(&i), stack); }
             case OP_AND_REG_IMM:  { reg[op[1]] = op_and(reg[op[2]], read_imm(&i)); }
             case OP_OR_REG_IMM:   { reg[op[1]] = op_or(reg[op[2]], read_imm(&i)); }
 
@@ -65,11 +65,11 @@ fn run_tape(start: u32, inputs: array<Value, 3>) -> Value {
             case OP_DIV_REG_REG:      { reg[op[1]] = op_div(reg[op[2]], reg[op[3]]); }
             case OP_SUB_REG_REG:      { reg[op[1]] = op_sub(reg[op[2]], reg[op[3]]); }
             case OP_COMPARE_REG_REG:  { reg[op[1]] = op_compare(reg[op[2]], reg[op[3]]); }
-            case OP_ATAN_REG_REG:      { reg[op[1]] = op_atan2(reg[op[2]], reg[op[3]]); }
+            case OP_ATAN_REG_REG:     { reg[op[1]] = op_atan2(reg[op[2]], reg[op[3]]); }
             case OP_MOD_REG_REG:      { reg[op[1]] = op_mod(reg[op[2]], reg[op[3]]); }
 
-            case OP_MIN_REG_REG:      { reg[op[1]] = op_min(reg[op[2]], reg[op[3]]); }
-            case OP_MAX_REG_REG:      { reg[op[1]] = op_max(reg[op[2]], reg[op[3]]); }
+            case OP_MIN_REG_REG:      { reg[op[1]] = op_min(reg[op[2]], reg[op[3]], stack); }
+            case OP_MAX_REG_REG:      { reg[op[1]] = op_max(reg[op[2]], reg[op[3]], stack); }
             case OP_AND_REG_REG:      { reg[op[1]] = op_and(reg[op[2]], reg[op[3]]); }
             case OP_OR_REG_REG:       { reg[op[1]] = op_or(reg[op[2]], reg[op[3]]); }
 

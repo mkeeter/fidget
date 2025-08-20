@@ -35,7 +35,7 @@ pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
 /// Shape that uses the [`VmFunction`] backend for evaluation
 pub type VmShape = Shape<VmFunction>;
 
-impl VmShape {
+impl<B> Shape<VmFunction, B> {
     /// Converts the shape to bytecode
     pub fn to_bytecode(&self) -> Bytecode {
         self.inner().tape().data().to_bytecode()
@@ -78,7 +78,7 @@ impl<const N: usize> Tape for GenericVmTape<N> {
 /// A trace captured by a VM evaluation
 ///
 /// This is a thin wrapper around a [`Vec<Choice>`](Choice).
-#[derive(Clone, Default, Eq, PartialEq)]
+#[derive(Clone, Default, Eq, PartialEq, Hash)]
 pub struct VmTrace(Vec<Choice>);
 
 impl VmTrace {

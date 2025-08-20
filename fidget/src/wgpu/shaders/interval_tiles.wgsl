@@ -53,6 +53,13 @@ fn interval_tile_main(
     // Subtile corner position, in voxels
     let corner_pos = subtile_corner * SUBTILE_SIZE;
 
+    // Root tile index, used to pick out tape
+    let corner_pos64 = corner_pos / 64;
+    let index64 = corner_pos64.x
+        + corner_pos64.y * size64.x
+        + corner_pos64.z * size64.x * size64.y;
+    let tape_index = tile_tape[index64];
+
     // Check for Z masking from tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
     if (tile_zmin[tile_index_xy] >= corner_pos.z) {
@@ -96,7 +103,8 @@ fn interval_tile_main(
     }
 
     // Do the actual interpreter work
-    let out = run_tape(0u, m)[0];
+    var stack = Stack();
+    let out = run_tape(tape_index, m, &stack)[0];
 
     if (out[1] < 0.0) {
         // Full, write to subtile_zmin
@@ -350,18 +358,32 @@ fn op_sub(lhs: Value, rhs: Value) -> Value {
     return Value(lhs.v - rhs.v.yx);
 }
 
-fn op_min(lhs: Value, rhs: Value) -> Value {
+fn op_min(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
+    } else if (lhs.v[1] < rhs.v[0]) {
+        stack_push(stack, CHOICE_LEFT);
+        return lhs;
+    } else if (rhs.v[1] < lhs.v[0]) {
+        stack_push(stack, CHOICE_RIGHT);
+        return rhs;
     } else {
+        stack_push(stack, CHOICE_BOTH);
         return Value(min(lhs.v, rhs.v));
     }
 }
 
-fn op_max(lhs: Value, rhs: Value) -> Value {
+fn op_max(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if (has_nan(lhs) || has_nan(rhs)) {
         return nan_i();
+    } else if (lhs.v[0] > rhs.v[1]) {
+        stack_push(stack, CHOICE_LEFT);
+        return lhs;
+    } else if (rhs.v[0] > lhs.v[1]) {
+        stack_push(stack, CHOICE_RIGHT);
+        return rhs;
     } else {
+        stack_push(stack, CHOICE_BOTH);
         return Value(max(lhs.v, rhs.v));
     }
 }

@@ -3,6 +3,7 @@ use crate::{
     Error,
     eval::Function,
     render::{GeometryBuffer, GeometryPixel, VoxelSize},
+    types::Interval,
     vm::VmShape,
     wgpu::{
         opcode_constants,
@@ -12,13 +13,15 @@ use crate::{
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
+const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
+const DUMMY_STACK_SHADER: &str = include_str!("shaders/dummy_stack.wgsl");
 const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// Settings for 3D rendering
@@ -100,6 +103,7 @@ pub fn interval_tiles_shader() -> String {
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
+    shader_code += STACK_SHADER;
     shader_code
 }
 
@@ -109,6 +113,7 @@ pub fn voxel_tiles_shader() -> String {
     shader_code += VOXEL_TILES_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
+    shader_code += DUMMY_STACK_SHADER;
     shader_code
 }
 
@@ -118,6 +123,7 @@ pub fn normals_shader() -> String {
     shader_code += NORMALS_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
+    shader_code += DUMMY_STACK_SHADER;
     shader_code
 }
 
@@ -528,6 +534,7 @@ pub struct Context {
     buffers: DynamicBuffers,
 
     config_buf: wgpu::Buffer,
+    tile_tape_buf: wgpu::Buffer,
     bind_group_layout: wgpu::BindGroupLayout,
 
     interval_ctx: IntervalContext,
@@ -765,6 +772,12 @@ impl Context {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let tile_tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile tape"),
+            size: 1024,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         // Create bind group layout and bind group
         let common_bind_group_layout =
@@ -789,6 +802,7 @@ impl Context {
         Ok(Self {
             device,
             config_buf,
+            tile_tape_buf,
             buffers,
             queue,
             bind_group_layout: common_bind_group_layout,
@@ -811,6 +825,7 @@ impl Context {
         // Create the 4x4 transform matrix
         let vars = shape.inner().vars();
         let bc = shape.to_bytecode();
+        let mut bc_data = bc.data; // TODO check register counts, etc here?
         let shape = shape.with_transform(settings.mat());
         let mat = shape.transform();
         let axes = shape
@@ -839,8 +854,77 @@ impl Context {
             ],
             _padding3: 0u32,
         };
+
+        // Build the dense tile array of 64^3 tiles, and active tile list
+        let nx = render_size.width() / 64;
+        let ny = render_size.height() / 64;
+        let nz = render_size.depth() / 64;
+        let mut tile_tape_starts =
+            vec![0u32; nx as usize * ny as usize * nz as usize];
+        let mut active_tiles: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        let mut eval_i = VmShape::new_interval_eval();
+        let mut workspace = Default::default();
+        let mut trace_to_offset = HashMap::new();
+        let tape_i = shape.interval_tape(Default::default());
+        for z in 0..nz {
+            let iz = Interval::new(z as f32, z as f32 + 1.0) * 64.0;
+            for y in 0..ny {
+                let iy = Interval::new(y as f32, y as f32 + 1.0) * 64.0;
+                for x in 0..nx {
+                    let ix = Interval::new(x as f32, x as f32 + 1.0) * 64.0;
+                    let (r, trace) = eval_i.eval(&tape_i, ix, iy, iz).unwrap();
+                    if r.lower() > 0.0 {
+                        continue;
+                    }
+
+                    let i = x + y * nx + z * nx * ny;
+                    if let Some(t) = trace {
+                        let j = if let Some(prev) = trace_to_offset.get(t) {
+                            *prev
+                        } else {
+                            let next = shape
+                                .simplify(t, Default::default(), &mut workspace)
+                                .unwrap();
+                            let j = bc_data.len();
+                            bc_data.extend(next.to_bytecode().data);
+                            trace_to_offset.insert(t.clone(), j);
+                            j
+                        };
+                        tile_tape_starts[i as usize] = j.try_into().unwrap();
+                    }
+                    // TODO special-case handling of full regions?
+                    active_tiles.entry(z).or_default().push(i);
+                }
+            }
+        }
+
+        let tile_tape_buf_len =
+            (tile_tape_starts.len() * 4).next_multiple_of(16);
+        if self.tile_tape_buf.size() < tile_tape_buf_len as u64 {
+            self.tile_tape_buf =
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("tile tapes"),
+                    size: tile_tape_buf_len as u64,
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+        }
+        {
+            let mut writer = self
+                .queue
+                .write_buffer_with(
+                    &self.tile_tape_buf,
+                    0,
+                    (tile_tape_buf_len as u64).try_into().unwrap(),
+                )
+                .unwrap();
+            writer[..tile_tape_buf_len]
+                .copy_from_slice(tile_tape_starts.as_bytes());
+        }
+
         let config_buf_len = (std::mem::size_of_val(&config)
-            + bc.as_bytes().len())
+            + bc_data.as_bytes().len())
         .next_multiple_of(16);
         if self.config_buf.size() < config_buf_len as u64 {
             self.config_buf =
@@ -863,22 +947,9 @@ impl Context {
                 .unwrap();
             writer[0..std::mem::size_of_val(&config)]
                 .copy_from_slice(config.as_bytes());
-            writer[std::mem::size_of_val(&config)..][..bc.as_bytes().len()]
-                .copy_from_slice(bc.as_bytes());
-        }
-
-        // Build the dense tile array of 64^3 tiles, and active tile list
-        let nx = render_size.width() / 64;
-        let ny = render_size.height() / 64;
-        let nz = render_size.depth() / 64;
-        let mut active_tiles: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        for z in 0..nz {
-            for y in 0..ny {
-                for x in 0..nx {
-                    let i = x + y * nx + z * nx * ny;
-                    active_tiles.entry(z).or_default().push(i);
-                }
-            }
+            writer[std::mem::size_of_val(&config)..]
+                [..bc_data.as_bytes().len()]
+                .copy_from_slice(bc_data.as_bytes());
         }
 
         self.buffers
@@ -912,8 +983,7 @@ impl Context {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        // XXX this is fake for now
-                        resource: self.config_buf.as_entire_binding(),
+                        resource: self.tile_tape_buf.as_entire_binding(),
                     },
                 ],
             });

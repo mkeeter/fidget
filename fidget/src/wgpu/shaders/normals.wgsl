@@ -20,9 +20,16 @@ fn normals_main(
     }
 
     // Store gradients with dx, dy, dz in xyz and value in w
+    let size64 = config.render_size / 64;
     let gx = Value(vec4f(1.0, 0.0, 0.0, f32(global_id.x)));
     let gy = Value(vec4f(0.0, 1.0, 0.0, f32(global_id.y)));
     let gz = Value(vec4f(0.0, 0.0, 1.0, f32(z)));
+
+    let corner_pos64 = vec3u(global_id.xy, z) / 64;
+    let index64 = corner_pos64.x
+        + corner_pos64.y * size64.x
+        + corner_pos64.z * size64.x * size64.y;
+    let tape_index = tile_tape[index64];
 
     var ts = array(Value(), Value(), Value(), Value());
     for (var i = 0; i < 4; i++) {
@@ -49,7 +56,8 @@ fn normals_main(
         m[config.axes.z] = op_div(ts[2], ts[3]);
     }
 
-    let out = run_tape(0u, m)[0];
+    var stack = Stack(); // dummy value
+    let out = run_tape(tape_index, m, &stack)[0];
     image_out[pixel_index_xy] = vec4u(
         z,
         bitcast<u32>(out.x),
@@ -215,7 +223,7 @@ fn op_sub(lhs: Value, rhs: Value) -> Value {
     return Value(lhs.v - rhs.v);
 }
 
-fn op_min(lhs: Value, rhs: Value) -> Value {
+fn op_min(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if (lhs.v.w < rhs.v.w) {
         return lhs;
     } else {
@@ -223,7 +231,7 @@ fn op_min(lhs: Value, rhs: Value) -> Value {
     }
 }
 
-fn op_max(lhs: Value, rhs: Value) -> Value {
+fn op_max(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if (lhs.v.w > rhs.v.w) {
         return lhs;
     } else {
