@@ -9,6 +9,7 @@ const CHOICE_BOTH: u32 = 3;
 struct Stack {
     cur_depth: u32,
     max_depth: u32,
+    has_choice: bool,
     data: array<u32, STACK_SIZE>,
 }
 
@@ -22,6 +23,8 @@ fn stack_push(s: ptr<function, Stack>, v: u32) {
     s.data[word_index] &= ~mask;
     s.data[word_index] |= (v & 3u) << word_offset;
 
+    s.has_choice |= (v == CHOICE_LEFT) || (v == CHOICE_RIGHT);
+
     s.cur_depth += 1u;
     s.max_depth = max(s.max_depth, s.cur_depth);
 }
@@ -33,7 +36,7 @@ fn stack_pop(s: ptr<function, Stack>) -> u32 {
     }
 
     s.cur_depth -= 1u;
-    if (s.cur_depth + STACK_SIZE * 16 == s.max_depth) {
+    if s.cur_depth + STACK_SIZE * 16 == s.max_depth {
         return 0xFFFFFFFFu;
     }
 

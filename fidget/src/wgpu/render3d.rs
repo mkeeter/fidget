@@ -16,6 +16,7 @@ const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
 const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
 const DUMMY_STACK_SHADER: &str = include_str!("shaders/dummy_stack.wgsl");
 const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
+const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
@@ -101,6 +102,7 @@ struct IntervalContext {
 pub fn interval_tiles_shader() -> String {
     let mut shader_code = opcode_constants();
     shader_code += INTERVAL_TILES_SHADER;
+    shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += STACK_SHADER;
@@ -302,7 +304,7 @@ impl IntervalContext {
                             .tiles
                             .slice(
                                 offset as u64 * 4
-                                    ..((offset + count + 5) as u64) * 4,
+                                    ..((offset + count + 4) as u64) * 4,
                             )
                             .into()
                     } else {
@@ -578,7 +580,7 @@ impl<const N: usize> TileBuffers<N> {
             // wg_dispatch: [u32; 3]
             // count: u32,
             // tile_size: u32,
-            5 + nx * ny * nz,
+            4 + nx * ny * nz,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::INDIRECT
                 | wgpu::BufferUsages::COPY_DST

@@ -289,6 +289,10 @@ opcodes!(
         strum::EnumCount,
         strum::IntoStaticStr
     ))]
+    #[strum_discriminants(
+        doc = "Discriminant for [bytecode](`crate::bytecode`)"
+    )]
+    #[strum_discriminants(name(BytecodeOp))]
     pub enum RegOp<u8> {
         // default variants
         /// Read from a memory slot to a register

@@ -8,7 +8,7 @@
 //!
 //! The bytecode format is a list of little-endian `u32` words, representing
 //! tape operations in forward-evaluation order. Each tape operation maps to
-//! either one or two words.
+//! two words.
 //!
 //! ## Register-only operations
 //!
@@ -23,6 +23,8 @@
 //! | 3    | second input register                       |
 //!
 //! Depending on the opcode, the input register bytes may not be used.
+//!
+//! The second word is always `0xFF000000`
 //!
 //! ## Operations with an `f32` immediate
 //!
@@ -55,10 +57,16 @@
 //!
 //! ## Opcode values
 //!
-//! Opcode values are generated automatically from [`RegOpDiscriminants`]
-//! values.
+//! Opcode values are generated automatically from [`BytecodeOp`]
+//! values, which are one-to-one with [`RegOp`] variants.
+//!
+//! ### Special opcodes
+//! Bytecode includes one special operator: `Jump` / `OP_JUMP`, which has an
+//! opcode value of `u8::MAX`.  `OP_JUMP` with an immediate of `u32::MAX`
+//! indicates the end of the bytecode tape; with other immediate values, it can
+//! be used for incremental tape construction.
 
-use crate::compiler::{RegOp, RegOpDiscriminants, RegTape};
+use crate::compiler::{BytecodeOp, RegOp, RegTape};
 use zerocopy::IntoBytes;
 
 /// Serialized bytecode for external evaluation
@@ -97,7 +105,7 @@ impl RegTape {
         let mut reg_count = 0u8;
         let slot_to_reg = |slot| slot as usize + reg_limit + 1;
         for op in self.iter().rev() {
-            let r = RegOpDiscriminants::from(op);
+            let r = BytecodeOp::from(op);
             let mut word = [r as u8, 0xFF, 0xFF, 0xFF];
             let mut imm = None;
             let mut store_reg = |i, r| {
@@ -117,14 +125,14 @@ impl RegTape {
                 {
                     store_reg(1, reg);
                     store_reg(2, u8::try_from(slot_to_reg(slot)).unwrap());
-                    word[0] = RegOpDiscriminants::CopyReg as u8;
+                    word[0] = BytecodeOp::CopyReg as u8;
                 }
                 RegOp::Store(reg, slot)
                     if slot_to_reg(slot) <= u8::MAX as usize =>
                 {
                     store_reg(1, u8::try_from(slot_to_reg(slot)).unwrap());
                     store_reg(2, reg);
-                    word[0] = RegOpDiscriminants::CopyReg as u8;
+                    word[0] = BytecodeOp::CopyReg as u8;
                 }
 
                 RegOp::Load(reg, slot) | RegOp::Store(reg, slot) => {
@@ -196,8 +204,11 @@ impl RegTape {
                 }
             }
             data.push(u32::from_le_bytes(word));
-            data.extend(imm);
+            data.push(imm.unwrap_or(0xFF000000));
         }
+        // Add the final `OP_JUMP 0xFFFF_FFFF`
+        data.push(u32::from_le_bytes([u8::MAX, 0xFF, 0xFF, 0xFF]));
+        data.push(u32::MAX);
 
         let mem_count = self.slot_count().saturating_sub(u8::MAX as usize);
         Bytecode {
@@ -214,8 +225,11 @@ impl RegTape {
 pub fn iter_ops<'a>() -> impl Iterator<Item = (&'a str, u8)> {
     use strum::IntoEnumIterator;
 
-    RegOpDiscriminants::iter().enumerate().map(|(i, op)| {
-        let s: &'static str = op.into();
-        (s, i as u8)
-    })
+    BytecodeOp::iter()
+        .enumerate()
+        .map(|(i, op)| {
+            let s: &'static str = op.into();
+            (s, i as u8)
+        })
+        .chain([("Jump", u8::MAX)])
 }

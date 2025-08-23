@@ -17,7 +17,7 @@ fn backfill_main(
     let size_subtiles = size_tiles * 4u;
 
     let tile_count = size_tiles.x * size_tiles.y;
-    if (global_id.x >= tile_count) {
+    if global_id.x >= tile_count {
         return;
     }
 
@@ -33,14 +33,14 @@ fn backfill_main(
             let subtile_corner = tile_corner * 4u + vec2u(i, j);
             let subtile_index = subtile_corner.x + subtile_corner.y * size_subtiles.x;
             let v = subtile_zmin[subtile_index];
-            if (v != 0) {
+            if v != 0 {
                 new_zmin = min(new_zmin, v);
             } else {
                 all_present = false;
             }
         }
     }
-    if (all_present) {
+    if all_present {
         tile_zmin[tile_id] = new_zmin;
     }
 }

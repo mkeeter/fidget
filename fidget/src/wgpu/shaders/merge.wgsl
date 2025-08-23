@@ -10,8 +10,8 @@ fn merge_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
     // Out of bounds, return
-    if (global_id.x >= config.image_size.x ||
-        global_id.y >= config.image_size.y)
+    if global_id.x >= config.image_size.x ||
+       global_id.y >= config.image_size.y
     {
         return;
     }

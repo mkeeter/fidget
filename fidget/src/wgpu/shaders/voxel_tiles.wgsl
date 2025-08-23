@@ -20,7 +20,7 @@ fn voxel_ray_main(
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
     let active_tile4_index = workgroup_id.x + workgroup_id.y * 32768;
-    if (active_tile4_index >= tiles_in.count) {
+    if active_tile4_index >= tiles_in.count {
         return;
     }
 
@@ -48,37 +48,28 @@ fn voxel_ray_main(
 
     let tile4_index_xy = tx + ty * size4.x;
     let pixel_index_xy = corner_pos.x + corner_pos.y * config.render_size.x;
-    if (tile4_zmin[tile4_index_xy] >= corner_pos.z) {
+    if tile4_zmin[tile4_index_xy] >= corner_pos.z {
         atomicMax(&result[pixel_index_xy], tile4_zmin[tile4_index_xy]);
         return;
     }
 
     // Last chance to bail out
-    if (atomicLoad(&result[pixel_index_xy]) >= u32(corner_pos.z)) {
+    if atomicLoad(&result[pixel_index_xy]) >= u32(corner_pos.z) {
         return;
     }
 
-    // Voxel evaluation: start by building up the input map
-    var m = array(Value(), Value(), Value());
-
-    let pos_pixels = vec4f(vec3f(corner_pos), 1.0);
-    let pos_model = config.mat * pos_pixels;
-
-    if (config.axes.x < 3) {
-        m[config.axes.x] = Value(pos_model.x / pos_model.w);
-    }
-    if (config.axes.y < 3) {
-        m[config.axes.y] = Value(pos_model.y / pos_model.w);
-    }
-    if (config.axes.z < 3) {
-        m[config.axes.z] = Value(pos_model.z / pos_model.w);
-    }
+    // Compute input values
+    let m = transformed_inputs(
+        Value(f32(corner_pos.x)),
+        Value(f32(corner_pos.y)),
+        Value(f32(corner_pos.z)),
+    );
 
     // Do the actual interpreter work
     var stack = Stack(); // dummy value
     let out = run_tape(tape_index, m, &stack)[0];
 
-    if (out < 0.0) {
+    if out < 0.0 {
         atomicMax(&result[pixel_index_xy], corner_pos.z);
     }
 }
@@ -184,11 +175,11 @@ fn op_sqrt(lhs: Value) -> Value {
 }
 
 fn op_compare(lhs: Value, rhs: Value) -> Value {
-    if (lhs.v < rhs.v) {
+    if lhs.v < rhs.v {
         return Value(-1.0);
-    } else if (lhs.v > rhs.v) {
+    } else if lhs.v > rhs.v {
         return Value(1.0);
-    } else if (lhs.v == rhs.v) {
+    } else if lhs.v == rhs.v {
         return Value(0.0);
     } else {
         return Value(nan_f32());

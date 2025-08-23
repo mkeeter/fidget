@@ -24,15 +24,25 @@ struct Config {
 struct TileListOutput {
     wg_size: array<atomic<u32>, 3>,
     count: atomic<u32>,
-    size: u32,
     active_tiles: array<u32>,
 }
 
 struct TileListInput {
     wg_size: array<u32, 3>,
     count: u32,
-    size: u32,
     active_tiles: array<u32>,
+}
+
+struct ListOutput {
+    count: atomic<u32>,
+    size: u32, // do not change this!
+    data: array<u32>,
+}
+
+struct ListInput {
+    count: u32,
+    size: u32,
+    data: array<u32>,
 }
 
 fn nan_f32() -> f32 {

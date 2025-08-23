@@ -7,15 +7,15 @@ fn normals_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
     // Out of bounds, return
-    if (global_id.x >= config.image_size.x ||
-        global_id.y >= config.image_size.y)
+    if global_id.x >= config.image_size.x ||
+        global_id.y >= config.image_size.y
     {
         return;
     }
 
     let pixel_index_xy = global_id.x + global_id.y * config.image_size.x;
     let z = image_heightmap[pixel_index_xy];
-    if (z == 0u) {
+    if z == 0u {
         image_out[pixel_index_xy] = vec4u(0u);
     }
 
@@ -31,30 +31,8 @@ fn normals_main(
         + corner_pos64.z * size64.x * size64.y;
     let tape_index = tile_tape[index64];
 
-    var ts = array(Value(), Value(), Value(), Value());
-    for (var i = 0; i < 4; i++) {
-        ts[i] = op_add(
-            op_add(
-                op_mul(build_imm(config.mat[0][i]), gx),
-                op_mul(build_imm(config.mat[1][i]), gy),
-            ),
-            op_add(
-                op_mul(build_imm(config.mat[2][i]), gz),
-                build_imm(config.mat[3][i]),
-            )
-        );
-    }
-    // Build up input map
-    var m = array(Value(), Value(), Value());
-    if (config.axes.x < 3) {
-        m[config.axes.x] = op_div(ts[0], ts[3]);
-    }
-    if (config.axes.y < 3) {
-        m[config.axes.y] = op_div(ts[1], ts[3]);
-    }
-    if (config.axes.z < 3) {
-        m[config.axes.z] = op_div(ts[2], ts[3]);
-    }
+    // Compute input values
+    let m = transformed_inputs(gx, gy, gz);
 
     var stack = Stack(); // dummy value
     let out = run_tape(tape_index, m, &stack)[0];
@@ -75,7 +53,7 @@ fn op_neg(lhs: Value) -> Value {
 }
 
 fn op_abs(lhs: Value) -> Value {
-    if (lhs.v.w < 0.0) {
+    if lhs.v.w < 0.0 {
         return Value(-lhs.v);
     } else {
         return lhs;
@@ -154,11 +132,11 @@ fn op_not(lhs: Value) -> Value {
 }
 
 fn op_compare(lhs: Value, rhs: Value) -> Value {
-    if (lhs.v.w != lhs.v.w || rhs.v.w != rhs.v.w) {
+    if lhs.v.w != lhs.v.w || rhs.v.w != rhs.v.w {
         return Value(vec4f(0.0, 0.0, 0.0, nan_f32()));
-    } else if (lhs.v.w < rhs.v.w) {
+    } else if lhs.v.w < rhs.v.w {
         return Value(vec4f(0.0, 0.0, 0.0, -1.0));
-    } else if (lhs.v.w > rhs.v.w) {
+    } else if lhs.v.w > rhs.v.w {
         return Value(vec4f(0.0, 0.0, 0.0, 1.0));
     } else {
         return Value(vec4f(0.0, 0.0, 0.0, 0.0));
@@ -166,7 +144,7 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_and(lhs: Value, rhs: Value) -> Value {
-    if (lhs.v.w != 0.0) {
+    if lhs.v.w != 0.0 {
         return lhs;
     } else {
         return rhs;
@@ -174,7 +152,7 @@ fn op_and(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_or(lhs: Value, rhs: Value) -> Value {
-    if (lhs.v.w == 0.0) {
+    if lhs.v.w == 0.0 {
         return lhs;
     } else {
         return rhs;
@@ -187,7 +165,7 @@ fn build_imm(v: f32) -> Value {
 
 fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
     let r = lhs % rhs;
-    if (r < 0.0) {
+    if r < 0.0 {
         return r + abs(rhs);
     } else {
         return r;
@@ -196,8 +174,8 @@ fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
 
 fn div_euclid(lhs: f32, rhs: f32) -> f32 {
     let q = trunc(lhs / rhs);
-    if (lhs % rhs < 0.0) {
-        if (rhs > 0.0) {
+    if lhs % rhs < 0.0 {
+        if rhs > 0.0 {
             return q - 1.0;
         } else {
             return q + 1.0;
@@ -224,7 +202,7 @@ fn op_sub(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_min(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
-    if (lhs.v.w < rhs.v.w) {
+    if lhs.v.w < rhs.v.w {
         return lhs;
     } else {
         return rhs;
@@ -232,7 +210,7 @@ fn op_min(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
 }
 
 fn op_max(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
-    if (lhs.v.w > rhs.v.w) {
+    if lhs.v.w > rhs.v.w {
         return lhs;
     } else {
         return rhs;
