@@ -77,12 +77,17 @@ fn interval_tile_main(
 
     // Do the actual interpreter work
     var stack = Stack();
-    let out = run_tape(tape_index, m, &stack)[0];
+    let out = run_tape(tape_index, m, &stack);
 
-    if out[1] < 0.0 {
+    if !out.valid {
+        return;
+    }
+
+    let v = out.value.v;
+    if v[1] < 0.0 {
         // Full, write to subtile_zmin
         atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE);
-    } else if out[0] > 0.0 {
+    } else if v[0] > 0.0 {
         // Empty, nothing to do here
     } else {
         let offset = atomicAdd(&subtiles_out.count, 1u);

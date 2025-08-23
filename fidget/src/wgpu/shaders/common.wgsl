@@ -11,7 +11,9 @@ struct Config {
 
     /// Render size, in voxels (always a multiple of 64)
     render_size: vec3u,
-    _padding2: u32,
+
+    // Size of each strata in the buffer, in u32 words
+    strata_buffer_size: u32,
 
     /// Image size, in voxels
     image_size: vec3u,

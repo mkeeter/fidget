@@ -3,8 +3,13 @@
 // This must be combined with opcode definitions and the generic interpreter
 // from `tape_interpreter.wgsl`
 
-@group(1) @binding(0) var<storage, read_write> tile_zmin: array<u32>;
+@group(1) @binding(0) var<storage, read_write> tile_zmin: array<atomic<u32>>;
 @group(1) @binding(1) var<storage, read_write> tile_tape_tree: ListOutput;
+
+// This is a set of per-strata `TileListOutput` arrays.  Each one is
+// `config.strata_buffer_size` long (measured in `u32` words), which is large
+// enough to fit every tile.
+@group(1) @binding(2) var<storage, read_write> tiles_out: array<atomic<u32>>;
 
 /// Root tile size
 const TILE_SIZE: u32 = 64;
@@ -16,12 +21,12 @@ fn interval_root_main(
     // Calculate render size in tile units
     let size64 = config.render_size / 64;
 
-    // Reset this tile's position in the tape tree
-    let tile_corner = global_id;
-    let tile_index = tile_corner.x + 
+    let tile_index_xyz = tile_corner.x + 
         tile_corner.y * size64.x +
         tile_corner.z * size64.x * size64.y;
-    tile_tape_tree.data[tile_index] = 0u;
+
+    // Reset this tile's position in the tape tree
+    tile_tape_tree.data[tile_index_xyz] = 0u;
 
     if (tile_corner.x > size64.x ||
         tile_corner.y > size64.y ||
@@ -30,8 +35,8 @@ fn interval_root_main(
         return;
     }
 
-    // Tile corner position, in voxels
-    let corner_pos = tile_corner * TILE_SIZE;
+    // Tile's lower z position, in voxels
+    let corner_z = tile_corner.z * TILE_SIZE;
 
     // Compute transformed interval regions
     let m = interval_inputs(tile_corner, TILE_SIZE);
@@ -40,39 +45,46 @@ fn interval_root_main(
     // first and was unambiguously filled.  This isn't likely, but the check is
     // cheap, so why not?
     let tile_index_xy = tile_corner.x + tile_corner.y * size64.x;
-    if tile_zmin[tile_index_xy] >= corner_pos.z {
+    if tile_zmin[tile_index_xy] >= corner_z {
         return;
     }
 
     // Do the actual interpreter work
     var stack = Stack();
-    let out = run_tape(tape_index, m, &stack)[0];
+    let out = run_tape(0u, m, &stack);
+    if !out.valid {
+        return;
+    }
+    let v = out.value.v;
 
     // If the tile is completely empty, then we're done; we've already written
-    // the tile tape to 0u.
-    if out[0] > 0.0 {
+    // the tile tape to 0u, and there's nothing else to do.
+    if v[0] > 0.0 {
         return;
     }
 
-    if stack.has_choice {
+    var new_tape_start = 0u;
+    if stack.has_choice && out.count > 64u {
         // TODO simplify tape
     }
 
-    if out[1] < 0.0 {
-        // This tile is full
-        atomicMax(&tile_zmin[tile_index_xy], corner_pos.z + TILE_SIZE);
+    tile_tape_tree.data[tile_index_xyz] = new_tape_start;
+
+    if v[1] < 0.0 {
+        // This tile is full; do not push it to the tape list
+        atomicMax(&tile_zmin[tile_index_xy], corner_z + TILE_SIZE);
     } else {
-        let offset = atomicAdd(&subtiles_out.count, 1u);
-        let subtile_index_xyz = subtile_corner.x +
-            (subtile_corner.y * size_subtiles.x) +
-            (subtile_corner.z * size_subtiles.x * size_subtiles.y);
-        subtiles_out.active_tiles[offset] = subtile_index_xyz;
+        // Pick the right `TileListOutput` output
+        let i = config.strata_buffer_size * corner_z;
+
+        let offset = atomicAdd(&tiles_out[i + 3], 1u);
+        atomicStore(&tiles_out[i + 4 + offset], tile_index_xyz);
 
         let count = offset + 1u;
         let wg_dispatch_x = min(count, 32768u);
         let wg_dispatch_y = (count + 32767u) / 32768u;
-        atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
-        atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
-        atomicMax(&subtiles_out.wg_size[2], 1u);
+        atomicMax(&tiles_out[i], wg_dispatch_x);
+        atomicMax(&tiles_out[i + 1], wg_dispatch_y);
+        atomicMax(&tiles_out[i + 2], 1u);
     }
 }

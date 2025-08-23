@@ -16,6 +16,7 @@ const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
 const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
 const DUMMY_STACK_SHADER: &str = include_str!("shaders/dummy_stack.wgsl");
 const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
+const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
 const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
@@ -96,6 +97,17 @@ struct IntervalContext {
 
     /// Bind group layout
     bind_group_layout: wgpu::BindGroupLayout,
+}
+
+/// Returns a shader for interval root tiles
+pub fn interval_root_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += INTERVAL_ROOT_SHADER;
+    shader_code += INTERVAL_OPS_SHADER;
+    shader_code += COMMON_SHADER;
+    shader_code += TAPE_INTERPRETER;
+    shader_code += STACK_SHADER;
+    shader_code
 }
 
 /// Returns a shader for interval tile evaluation
@@ -1284,6 +1296,7 @@ mod test {
             naga::valid::Capabilities::all(),
         );
         for (src, desc) in [
+            (interval_root_shader(), "interval root"),
             (interval_tiles_shader(), "interval tiles"),
             (voxel_tiles_shader(), "voxel tiles"),
             (normals_shader(), "normals tiles"),

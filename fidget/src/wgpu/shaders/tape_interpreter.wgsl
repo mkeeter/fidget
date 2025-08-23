@@ -28,10 +28,19 @@ fn transformed_inputs(ix: Value, iy: Value, iz: Value) -> array<Value, 3> {
     return m;
 }
 
-fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) -> Value {
+struct TapeResult {
+    value: Value,
+    pos: u32,
+    count: u32,
+    valid: bool,
+}
+
+fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) -> TapeResult {
     var i: u32 = start;
+    var count: u32 = 0u;
     var reg: array<Value, 256>;
     while (true) {
+        count += 1;
         let op = unpack4xU8(config.tape_data[i]);
         let imm_u = config.tape_data[i + 1];
         let imm_v = build_imm(bitcast<f32>(imm_u));
@@ -39,7 +48,7 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
         switch op[0] {
             case OP_OUTPUT: {
                 // XXX we're not actually writing to an output slot here
-                return reg[op[1]];
+                return TapeResult(reg[op[1]], i, count, true);
             }
             case OP_INPUT: {
                 reg[op[1]] = inputs[imm_u];
@@ -97,21 +106,21 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
 
             case OP_LOAD, OP_STORE: {
                 // Not implemented!
-                return build_imm(nan_f32());
+                break;
             }
 
             case OP_JUMP: {
                 if imm_u == 0xFFFFFFFF {
-                    return build_imm(nan_f32());
+                    break;
                 } else {
                     // Jump to a new tape position
                     i = imm_u;
                 }
             }
             default: {
-                return build_imm(nan_f32());
+                break;
             }
         }
     }
-    return build_imm(nan_f32()); // unknown opcode
+    return TapeResult(build_imm(nan_f32()), 0, 0, false);
 }

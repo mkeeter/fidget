@@ -35,13 +35,22 @@ fn normals_main(
     let m = transformed_inputs(gx, gy, gz);
 
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_index, m, &stack)[0];
-    image_out[pixel_index_xy] = vec4u(
-        z,
-        bitcast<u32>(out.x),
-        bitcast<u32>(out.y),
-        bitcast<u32>(out.z)
-    );
+    let out = run_tape(tape_index, m, &stack);
+    if out.valid {
+        image_out[pixel_index_xy] = vec4u(
+            z,
+            bitcast<u32>(out.value.v.x),
+            bitcast<u32>(out.value.v.y),
+            bitcast<u32>(out.value.v.z)
+        );
+    } else {
+        image_out[pixel_index_xy] = vec4u(
+            z,
+            bitcast<u32>(1.0),
+            bitcast<u32>(0.0),
+            bitcast<u32>(0.0)
+        );
+    }
 }
 
 struct Value {
