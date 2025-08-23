@@ -12,9 +12,7 @@ pub(crate) fn write_storage_buffer<T: IntoBytes + Immutable>(
         *buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name),
             size,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
     }

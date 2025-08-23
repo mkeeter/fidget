@@ -4,12 +4,12 @@
 // from `tape_interpreter.wgsl`
 
 @group(1) @binding(0) var<storage, read_write> tile_zmin: array<atomic<u32>>;
-@group(1) @binding(1) var<storage, read_write> tile_tape_tree: ListOutput;
 
 // This is a set of per-strata `TileListOutput` arrays.  Each one is
 // `config.strata_buffer_size` long (measured in `u32` words), which is large
-// enough to fit every tile.
-@group(1) @binding(2) var<storage, read_write> tiles_out: array<atomic<u32>>;
+// enough to fit every tile.  We can't represent this directly, so good luck
+// poking the right memory locations by hand!
+@group(1) @binding(1) var<storage, read_write> tiles_out: array<atomic<u32>>;
 
 /// Root tile size
 const TILE_SIZE: u32 = 64;
@@ -26,11 +26,11 @@ fn interval_root_main(
         tile_corner.z * size64.x * size64.y;
 
     // Reset this tile's position in the tape tree
-    tile_tape_tree.data[tile_index_xyz] = 0u;
+    tile_tape[tile_index_xyz] = 0u;
 
-    if (tile_corner.x > size64.x ||
-        tile_corner.y > size64.y ||
-        tile_corner.z > size64.z)
+    if (tile_corner.x >= size64.x ||
+        tile_corner.y >= size64.y ||
+        tile_corner.z >= size64.z)
     {
         return;
     }
@@ -68,18 +68,23 @@ fn interval_root_main(
         // TODO simplify tape
     }
 
-    tile_tape_tree.data[tile_index_xyz] = new_tape_start;
+    tile_tape[tile_index_xyz] = new_tape_start;
 
     if v[1] < 0.0 {
         // This tile is full; do not push it to the tape list
         atomicMax(&tile_zmin[tile_index_xy], corner_z + TILE_SIZE);
     } else {
-        // Pick the right `TileListOutput` output
-        let i = config.strata_buffer_size * corner_z;
+        // Select the active strata, based on Z position
+        let strata_size = strata_size_bytes() / 4; // bytes -> words
+        let i = strata_size * corner_z;
 
+        // `count` is at offset 3 in the struct
         let offset = atomicAdd(&tiles_out[i + 3], 1u);
+
+        // the actual tile index is somewhere past the 4th word
         atomicStore(&tiles_out[i + 4 + offset], tile_index_xyz);
 
+        // write the workgroup sizes to the first 3 words in the `struct`
         let count = offset + 1u;
         let wg_dispatch_x = min(count, 32768u);
         let wg_dispatch_y = (count + 32767u) / 32768u;
@@ -87,4 +92,21 @@ fn interval_root_main(
         atomicMax(&tiles_out[i + 1], wg_dispatch_y);
         atomicMax(&tiles_out[i + 2], 1u);
     }
+}
+
+fn next_multiple_of(a: u32, b: u32) -> u32 {
+    return ((a + (b - 1)) / b) * b;
+}
+
+/// Per-strata offset in the root tiles list
+///
+/// This must be equivalent to `strata_size_bytes` in the Rust code
+fn strata_size_bytes() -> u32 {
+    let nx = config.render_size.x / 64u;
+    let ny = config.render_size.y / 64u;
+
+    // Each strata has a [vec3u, u32] header, adding 4 words
+    let size_words = nx * ny + 4u; 
+    let size_bytes = size_words * 4u;
+    return next_multiple_of(size_bytes, 256);
 }

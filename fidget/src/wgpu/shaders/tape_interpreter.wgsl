@@ -1,3 +1,5 @@
+const OP_JUMP: u32 = 0xFF;
+
 // Transform inputs with `config.mat`
 fn transformed_inputs(ix: Value, iy: Value, iz: Value) -> array<Value, 3> {
     var ts = array(Value(), Value(), Value(), Value());
@@ -110,8 +112,10 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
             }
 
             case OP_JUMP: {
-                if imm_u == 0xFFFFFFFF {
+                if imm_u == 0xFFFFFFFFu {
                     break;
+                } else if imm_u == 0u {
+                    continue;
                 } else {
                     // Jump to a new tape position
                     i = imm_u;

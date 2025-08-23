@@ -7,8 +7,13 @@
 //! [`iter_ops`], which associates opcode integers with their names.
 //!
 //! The bytecode format is a list of little-endian `u32` words, representing
-//! tape operations in forward-evaluation order. Each tape operation maps to
-//! two words.
+//! tape operations in forward-evaluation order. Each operation in the tape maps
+//! to two words.
+//!
+//! The first two words are always `0xFFFF_FFFF 0x0000_0000`, and the last two
+//! words are always `0xFFFF_FFFF 0xFFFF_FFFF`.  Note that this is equivalent to
+//! an operation with opcode `0xFF`, which is used for this and other special
+//! purposes.
 //!
 //! ## Register-only operations
 //!
@@ -59,12 +64,6 @@
 //!
 //! Opcode values are generated automatically from [`BytecodeOp`]
 //! values, which are one-to-one with [`RegOp`] variants.
-//!
-//! ### Special opcodes
-//! Bytecode includes one special operator: `Jump` / `OP_JUMP`, which has an
-//! opcode value of `u8::MAX`.  `OP_JUMP` with an immediate of `u32::MAX`
-//! indicates the end of the bytecode tape; with other immediate values, it can
-//! be used for incremental tape construction.
 
 use crate::compiler::{BytecodeOp, RegOp, RegTape};
 use zerocopy::IntoBytes;
@@ -101,7 +100,8 @@ impl RegTape {
     /// the [`RegOp::Load`] and [`Store`](RegOp::Store) opcodes are replaced
     /// by [`CopyReg`](RegOp::CopyReg).
     pub fn to_bytecode(&self, reg_limit: usize) -> Bytecode {
-        let mut data = vec![];
+        // The initial opcode is `OP_JUMP 0x0000_0000`
+        let mut data = vec![u32::MAX, 0u32];
         let mut reg_count = 0u8;
         let slot_to_reg = |slot| slot as usize + reg_limit + 1;
         for op in self.iter().rev() {
@@ -207,8 +207,7 @@ impl RegTape {
             data.push(imm.unwrap_or(0xFF000000));
         }
         // Add the final `OP_JUMP 0xFFFF_FFFF`
-        data.push(u32::from_le_bytes([u8::MAX, 0xFF, 0xFF, 0xFF]));
-        data.push(u32::MAX);
+        data.extend([u32::MAX, u32::MAX]);
 
         let mem_count = self.slot_count().saturating_sub(u8::MAX as usize);
         Bytecode {
@@ -219,17 +218,14 @@ impl RegTape {
     }
 }
 
-/// Iterates over opcode `(names, value)` tuples
+/// Iterates over opcode `(names, value)` tuples, with names in `CamelCase`
 ///
 /// This is a helper function for defining constants in a VM interpreter
 pub fn iter_ops<'a>() -> impl Iterator<Item = (&'a str, u8)> {
     use strum::IntoEnumIterator;
 
-    BytecodeOp::iter()
-        .enumerate()
-        .map(|(i, op)| {
-            let s: &'static str = op.into();
-            (s, i as u8)
-        })
-        .chain([("Jump", u8::MAX)])
+    BytecodeOp::iter().enumerate().map(|(i, op)| {
+        let s: &'static str = op.into();
+        (s, i as u8)
+    })
 }

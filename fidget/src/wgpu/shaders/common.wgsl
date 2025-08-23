@@ -7,17 +7,21 @@ struct Config {
 
     /// Mapping from X, Y, Z to input indices
     axes: vec3u,
-    _padding1: u32,
+
+    /// Next empty position in `tape_data`
+    tape_data_offset: atomic<u32>,
 
     /// Render size, in voxels (always a multiple of 64)
     render_size: vec3u,
 
-    // Size of each strata in the buffer, in u32 words
-    strata_buffer_size: u32,
+    // Next empty position in `tile_tapes`
+    tile_tapes_offset: atomic<u32>,
 
     /// Image size, in voxels
     image_size: vec3u,
-    _padding3: u32,
+
+    // Length of the `tape_data` array (in `u32` words)
+    tape_data_capacity: u32,
 
     /// Tape data, tightly packed per-tile
     tape_data: array<u32>,
@@ -35,24 +39,12 @@ struct TileListInput {
     active_tiles: array<u32>,
 }
 
-struct ListOutput {
-    count: atomic<u32>,
-    size: u32, // do not change this!
-    data: array<u32>,
-}
-
-struct ListInput {
-    count: u32,
-    size: u32,
-    data: array<u32>,
-}
-
 fn nan_f32() -> f32 {
     return bitcast<f32>(0x7FC00000);
 }
 
 /// Common render configuration and tape data
-@group(0) @binding(0) var<storage, read> config: Config;
+@group(0) @binding(0) var<storage, read_write> config: Config;
 
-/// Tape start position, on a per-tile basis (densely packed)
-@group(0) @binding(1) var<storage, read> tile_tape: array<u32>;
+/// Tape tree (with offset given by config.tile_tapes_offset)
+@group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
