@@ -45,7 +45,8 @@ fn interval_root_main(
     // first and was unambiguously filled.  This isn't likely, but the check is
     // cheap, so why not?
     let tile_index_xy = tile_corner.x + tile_corner.y * size64.x;
-    if tile_zmin[tile_index_xy] >= corner_z {
+    let tz = tile_zmin[tile_index_xy];
+    if tz > 0 && tile_zmin[tile_index_xy] >= corner_z {
         return;
     }
 
@@ -76,7 +77,7 @@ fn interval_root_main(
     } else {
         // Select the active strata, based on Z position
         let strata_size = strata_size_bytes() / 4; // bytes -> words
-        let i = strata_size * corner_z;
+        let i = strata_size * tile_corner.z;
 
         // `count` is at offset 3 in the struct
         let offset = atomicAdd(&tiles_out[i + 3], 1u);
@@ -106,7 +107,7 @@ fn strata_size_bytes() -> u32 {
     let ny = config.render_size.y / 64u;
 
     // Each strata has a [vec3u, u32] header, adding 4 words
-    let size_words = nx * ny + 4u; 
+    let size_words = nx * ny + 4u;
     let size_bytes = size_words * 4u;
     return next_multiple_of(size_bytes, 256);
 }

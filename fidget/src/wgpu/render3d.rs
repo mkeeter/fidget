@@ -274,6 +274,7 @@ impl RootContext {
         let nx = (render_size.width() / 64).div_ceil(4);
         let ny = (render_size.height() / 64).div_ceil(4);
         let nz = (render_size.depth() / 64).div_ceil(4);
+        println!("dispatching root workgroup of {nx}, {ny}, {nz}");
         compute_pass.dispatch_workgroups(nx, ny, nz);
     }
 }
@@ -731,6 +732,10 @@ impl<const N: usize> TileBuffers<N> {
         let nz = render_size.depth() as usize / N;
 
         let strata_size = strata_size_bytes(render_size);
+        println!(
+            "strata size is {strata_size} bytes ({} words)",
+            strata_size / 4
+        );
         let total_size = strata_size * nz;
 
         resize_buffer_with::<u8>(
@@ -1064,8 +1069,10 @@ impl Context {
             self.interval_ctx
                 .run(self, strata, render_size, &mut compute_pass);
             self.voxel_ctx.run(self, &mut compute_pass);
-            self.backfill_ctx
-                .run(self, settings.image_size, &mut compute_pass);
+            /*
+                self.backfill_ctx
+                    .run(self, settings.image_size, &mut compute_pass);
+            */
         }
         self.merge_ctx
             .run(self, settings.image_size, &mut compute_pass);
@@ -1097,7 +1104,43 @@ impl Context {
                 .to_owned();
         self.buffers.image.unmap();
 
+        /*
+        let tiles =
+            self.read_buffer::<u32>(&self.root_ctx.tile64_buffers.tiles);
+        println!("{tiles:x?}");
+        */
+
         GeometryBuffer::build(result, settings.image_size).unwrap()
+    }
+
+    #[allow(unused)]
+    fn read_buffer<T: FromBytes + Immutable + Clone + Copy>(
+        &self,
+        buf: &wgpu::Buffer,
+    ) -> Vec<T> {
+        let scratch = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: buf.size(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("read_buffer"),
+            },
+        );
+        encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = scratch.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device.poll(wgpu::PollType::Wait).unwrap();
+
+        let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+            .unwrap()
+            .to_vec();
+        scratch.unmap();
+        result
     }
 }
 
