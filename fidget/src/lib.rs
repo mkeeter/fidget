@@ -226,7 +226,7 @@
 //! for y in 0..cfg.image_size.height() {
 //!     for x in 0..cfg.image_size.width() {
 //!         if iter.next().unwrap().inside() {
-//!             print!("XX");
+//!             print!("##");
 //!         } else {
 //!             print!("  ");
 //!         }
@@ -235,21 +235,21 @@
 //! }
 //!
 //! // This will print
-//! //           XXXXXXXXXX
-//! //       XXXXXXXXXXXXXXXXXX
-//! //     XXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //     XXXXXXXXXXXXXXXXXXXXXX
-//! //       XXXXXXXXXXXXXXXXXX
-//! //           XXXXXXXXXX
+//! //           ##########
+//! //       ##################
+//! //     ######################
+//! //   ##########################
+//! //   ##########################
+//! // ##############################
+//! // ##############################
+//! // ##############################
+//! // ##############################
+//! // ##############################
+//! //   ##########################
+//! //   ##########################
+//! //     ######################
+//! //       ##################
+//! //           ##########
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
