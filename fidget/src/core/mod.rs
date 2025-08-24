@@ -30,27 +30,27 @@
 //!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let (v, _trace) = eval.eval(&tape, x, y, 0.0)?;
-//!         print!("{}", if v < 0.0 { "XX" } else { "  " });
+//!         print!("{}", if v < 0.0 { "##" } else { "  " });
 //!     }
 //!     println!();
 //! }
 //!
 //! // This will print
-//! //           XXXXXXXXXX
-//! //       XXXXXXXXXXXXXXXXXX
-//! //     XXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
-//! //     XXXXXXXXXXXXXXXXXXXXXX
-//! //       XXXXXXXXXXXXXXXXXX
-//! //           XXXXXXXXXX
+//! //           ##########
+//! //       ##################
+//! //     ######################
+//! //   ##########################
+//! //   ##########################
+//! // ##############################
+//! // ##############################
+//! // ##############################
+//! // ##############################
+//! // ##############################
+//! //   ##########################
+//! //   ##########################
+//! //     ######################
+//! //       ##################
+//! //           ##########
 //! # Ok::<(), fidget::Error>(())
 //! ```
 pub mod context;
