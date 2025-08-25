@@ -274,7 +274,6 @@ impl RootContext {
         let nx = (render_size.width() / 64).div_ceil(4);
         let ny = (render_size.height() / 64).div_ceil(4);
         let nz = (render_size.depth() / 64).div_ceil(4);
-        println!("dispatching root workgroup of {nx}, {ny}, {nz}");
         compute_pass.dispatch_workgroups(nx, ny, nz);
     }
 }
@@ -732,10 +731,6 @@ impl<const N: usize> TileBuffers<N> {
         let nz = render_size.depth() as usize / N;
 
         let strata_size = strata_size_bytes(render_size);
-        println!(
-            "strata size is {strata_size} bytes ({} words)",
-            strata_size / 4
-        );
         let total_size = strata_size * nz;
 
         resize_buffer_with::<u8>(
