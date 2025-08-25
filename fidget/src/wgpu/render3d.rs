@@ -1069,10 +1069,8 @@ impl Context {
             self.interval_ctx
                 .run(self, strata, render_size, &mut compute_pass);
             self.voxel_ctx.run(self, &mut compute_pass);
-            /*
-                self.backfill_ctx
-                    .run(self, settings.image_size, &mut compute_pass);
-            */
+            self.backfill_ctx
+                .run(self, settings.image_size, &mut compute_pass);
         }
         self.merge_ctx
             .run(self, settings.image_size, &mut compute_pass);
@@ -1229,18 +1227,26 @@ impl BackfillContext {
             self.create_bind_group(ctx, &ctx.buffers.result, tile4_zmin);
         compute_pass.set_pipeline(&self.pipeline4);
         compute_pass.set_bind_group(1, &bind_group4, &[]);
-        compute_pass.dispatch_workgroups((nx * ny * 16) as u32, 1, 1);
+        compute_pass.dispatch_workgroups(
+            (nx * ny * 16).div_ceil(64) as u32,
+            1,
+            1,
+        );
 
         let bind_group16 = self.create_bind_group(ctx, tile4_zmin, tile16_zmin);
         compute_pass.set_pipeline(&self.pipeline16);
         compute_pass.set_bind_group(1, &bind_group16, &[]);
-        compute_pass.dispatch_workgroups((ny * ny * 4) as u32, 1, 1);
+        compute_pass.dispatch_workgroups(
+            (nx * ny * 4).div_ceil(64) as u32,
+            1,
+            1,
+        );
 
         let bind_group64 =
             self.create_bind_group(ctx, tile16_zmin, tile64_zmin);
         compute_pass.set_pipeline(&self.pipeline64);
         compute_pass.set_bind_group(1, &bind_group64, &[]);
-        compute_pass.dispatch_workgroups((ny * ny) as u32, 1, 1);
+        compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
     }
 
     fn create_bind_group(
