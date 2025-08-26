@@ -21,6 +21,7 @@ const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
+const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -97,6 +98,7 @@ pub fn interval_root_shader() -> String {
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += STACK_SHADER;
+    shader_code += TAPE_SIMPLIFY;
     shader_code
 }
 
@@ -1384,7 +1386,11 @@ mod test {
             let op = format!("OP_{}", op.to_shouty_snake_case());
             assert!(
                 TAPE_INTERPRETER.contains(&op),
-                "interpreter is missing {op}"
+                "tape interpreter is missing {op}"
+            );
+            assert!(
+                TAPE_SIMPLIFY.contains(&op),
+                "tape simplification is missing {op}"
             );
         }
     }
