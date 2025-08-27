@@ -6,17 +6,11 @@
 /// Output array, image size
 @group(1) @binding(2) var<storage, read_write> result: array<atomic<u32>>;
 
-/// Count to clear (unused in this pass)
-@group(1) @binding(3) var<storage, read_write> count_clear: array<atomic<u32>, 4>;
-
 @compute @workgroup_size(4, 4, 4)
 fn voxel_ray_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
-    // Reset an unused counter
-    atomicStore(&count_clear[local_id.x], 0u);
-
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
     let active_tile4_index = workgroup_id.x + workgroup_id.y * 32768;

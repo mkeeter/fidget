@@ -2,6 +2,9 @@
 @group(1) @binding(0) var<storage, read> subtile_zmin: array<u32>;
 @group(1) @binding(1) var<storage, read_write> tile_zmin: array<u32>;
 
+// Clear tile counters
+@group(1) @binding(2) var<storage, read_write> count_clear: array<u32, 4>;
+
 override TILE_SIZE: u32;
 
 // Dispatch size is one kernel per XY tile, each of which samples a 4x4 region
@@ -9,6 +12,11 @@ override TILE_SIZE: u32;
 fn backfill_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
+    // Reset an unused counter
+    if global_id.x < 4 {
+        count_clear[global_id.x] = 0u;
+    }
+
     let SUBTILE_SIZE = TILE_SIZE / 4u;
 
     // Convert to a size in tile units

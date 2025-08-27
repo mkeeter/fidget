@@ -10,9 +10,6 @@
 @group(1) @binding(2) var<storage, read_write> subtiles_out: TileListOutput;
 @group(1) @binding(3) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
 
-/// Count to clear (unused in this pass)
-@group(1) @binding(4) var<storage, read_write> count_clear: array<atomic<u32>, 4>;
-
 /// Input tile size; one input tile maps to a 4x4x4 workgroup
 override TILE_SIZE: u32;
 
@@ -24,9 +21,6 @@ fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
-    // Reset an unused counter
-    atomicStore(&count_clear[local_id.x], 0u);
-
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.
     let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;

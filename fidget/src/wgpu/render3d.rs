@@ -313,7 +313,6 @@ impl IntervalContext {
                     buffer_ro(1), // tile_zmin
                     buffer_rw(2), // subtiles_out
                     buffer_rw(3), // subtile_zmin
-                    buffer_rw(4), // count_clear
                 ],
             });
 
@@ -417,10 +416,6 @@ impl IntervalContext {
                         binding: 3,
                         resource: self.tile16_buffers.zmin.as_entire_binding(),
                     },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: self.tile4_buffers.tiles.slice(0..16).into(),
-                    },
                 ],
             });
         compute_pass.set_pipeline(&self.interval64_pipeline);
@@ -450,15 +445,6 @@ impl IntervalContext {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: self.tile4_buffers.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: ctx
-                            .root_ctx
-                            .tile64_buffers
-                            .tiles
-                            .slice(offset_bytes..offset_bytes + 16)
-                            .into(),
                     },
                 ],
             });
@@ -492,7 +478,6 @@ impl VoxelContext {
                     buffer_ro(0), // tiles4_in
                     buffer_ro(1), // tile4_zmin
                     buffer_rw(2), // result
-                    buffer_rw(3), // count_clear
                 ],
             });
 
@@ -552,15 +537,6 @@ impl VoxelContext {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: ctx.buffers.result.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: ctx
-                            .interval_ctx
-                            .tile16_buffers
-                            .tiles
-                            .slice(0..16)
-                            .into(),
                     },
                 ],
             });
@@ -1066,8 +1042,12 @@ impl Context {
             self.interval_ctx
                 .run(self, strata, render_size, &mut compute_pass);
             self.voxel_ctx.run(self, &mut compute_pass);
-            self.backfill_ctx
-                .run(self, settings.image_size, &mut compute_pass);
+            self.backfill_ctx.run(
+                self,
+                strata,
+                settings.image_size,
+                &mut compute_pass,
+            );
         }
         self.merge_ctx
             .run(self, settings.image_size, &mut compute_pass);
@@ -1159,7 +1139,8 @@ impl BackfillContext {
                 label: None,
                 entries: &[
                     buffer_ro(0), // subtile_zmin
-                    buffer_rw(1), // count_clear
+                    buffer_rw(1), // tile_zmin
+                    buffer_rw(2), // count_clear
                 ],
             });
 
@@ -1210,9 +1191,12 @@ impl BackfillContext {
     fn run(
         &self,
         ctx: &Context,
+        strata: usize,
         render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
+
         let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
         let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
         let tile64_zmin = &ctx.root_ctx.tile64_buffers.zmin;
@@ -1220,8 +1204,12 @@ impl BackfillContext {
         let nx = render_size.width().div_ceil(64) as usize;
         let ny = render_size.width().div_ceil(64) as usize;
 
-        let bind_group4 =
-            self.create_bind_group(ctx, &ctx.buffers.result, tile4_zmin);
+        let bind_group4 = self.create_bind_group(
+            ctx,
+            &ctx.buffers.result,
+            tile4_zmin,
+            ctx.interval_ctx.tile4_buffers.tiles.as_entire_binding(),
+        );
         compute_pass.set_pipeline(&self.pipeline4);
         compute_pass.set_bind_group(1, &bind_group4, &[]);
         compute_pass.dispatch_workgroups(
@@ -1230,7 +1218,12 @@ impl BackfillContext {
             1,
         );
 
-        let bind_group16 = self.create_bind_group(ctx, tile4_zmin, tile16_zmin);
+        let bind_group16 = self.create_bind_group(
+            ctx,
+            tile4_zmin,
+            tile16_zmin,
+            ctx.interval_ctx.tile16_buffers.tiles.as_entire_binding(),
+        );
         compute_pass.set_pipeline(&self.pipeline16);
         compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass.dispatch_workgroups(
@@ -1239,8 +1232,16 @@ impl BackfillContext {
             1,
         );
 
-        let bind_group64 =
-            self.create_bind_group(ctx, tile16_zmin, tile64_zmin);
+        let bind_group64 = self.create_bind_group(
+            ctx,
+            tile16_zmin,
+            tile64_zmin,
+            ctx.root_ctx
+                .tile64_buffers
+                .tiles
+                .slice(offset_bytes..)
+                .into(),
+        );
         compute_pass.set_pipeline(&self.pipeline64);
         compute_pass.set_bind_group(1, &bind_group64, &[]);
         compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
@@ -1251,6 +1252,7 @@ impl BackfillContext {
         ctx: &Context,
         subtile_zmin: &wgpu::Buffer,
         tile_zmin: &wgpu::Buffer,
+        tile_clear: wgpu::BindingResource,
     ) -> wgpu::BindGroup {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -1263,6 +1265,10 @@ impl BackfillContext {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: tile_zmin.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: tile_clear,
                 },
             ],
         })
