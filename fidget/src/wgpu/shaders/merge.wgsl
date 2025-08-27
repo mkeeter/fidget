@@ -15,6 +15,10 @@ fn merge_main(
     {
         return;
     }
+    let pixel_index = global_id.x + global_id.y * config.image_size.x;
+    if merged[pixel_index] != 0 {
+        return;
+    }
 
     let size64 = config.render_size / 64;
     let size16 = size64 * 4u;
@@ -30,8 +34,7 @@ fn merge_main(
     let index4 = global_id.x / 4 + global_id.y / 4 * size4.x;
     out = max(out, tile4_zmin[index4]);
 
-    let index1 = global_id.x + global_id.y * config.render_size.x;
-    out = max(out, result[index1]);
+    out = max(out, result[pixel_index]);
 
-    merged[global_id.x + global_id.y * config.image_size.x] = out;
+    merged[pixel_index] = out;
 }

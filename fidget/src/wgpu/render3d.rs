@@ -571,8 +571,9 @@ impl NormalsContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0), // image_heightmap
-                    buffer_rw(1), // image_out
+                    buffer_ro(0), // tiles_in
+                    buffer_ro(1), // image_heightmap
+                    buffer_rw(2), // image_out
                 ],
             });
 
@@ -610,9 +611,12 @@ impl NormalsContext {
     fn run(
         &self,
         ctx: &Context,
-        image_size: VoxelSize,
+        strata: usize,
+        render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
+
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -620,10 +624,19 @@ impl NormalsContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx.buffers.merged.as_entire_binding(),
+                        resource: ctx
+                            .root_ctx
+                            .tile64_buffers
+                            .tiles
+                            .slice(offset_bytes..)
+                            .into(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
+                        resource: ctx.buffers.merged.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
                         resource: ctx.buffers.geom.as_entire_binding(),
                     },
                 ],
@@ -632,10 +645,9 @@ impl NormalsContext {
         compute_pass.set_pipeline(&self.normals_pipeline);
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
-        compute_pass.dispatch_workgroups(
-            image_size.width().div_ceil(8),
-            image_size.height().div_ceil(8),
-            1,
+        compute_pass.dispatch_workgroups_indirect(
+            &ctx.root_ctx.tile64_buffers.tiles,
+            offset_bytes as u64,
         );
     }
 }
@@ -1042,6 +1054,16 @@ impl Context {
             self.interval_ctx
                 .run(self, strata, render_size, &mut compute_pass);
             self.voxel_ctx.run(self, &mut compute_pass);
+
+            // It's somewhat overkill to run `merge` after each layer, but it's
+            // also very cheap.
+            self.merge_ctx
+                .run(self, settings.image_size, &mut compute_pass);
+            self.normals_ctx
+                .run(self, strata, render_size, &mut compute_pass);
+
+            // Backfill from smaller tiles to larger tiles, for culling
+            // This step also resets counters for subsequent strata
             self.backfill_ctx.run(
                 self,
                 strata,
@@ -1049,10 +1071,6 @@ impl Context {
                 &mut compute_pass,
             );
         }
-        self.merge_ctx
-            .run(self, settings.image_size, &mut compute_pass);
-        self.normals_ctx
-            .run(self, settings.image_size, &mut compute_pass);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -1239,7 +1257,7 @@ impl BackfillContext {
             ctx.root_ctx
                 .tile64_buffers
                 .tiles
-                .slice(offset_bytes..)
+                .slice(offset_bytes..offset_bytes + 16)
                 .into(),
         );
         compute_pass.set_pipeline(&self.pipeline64);

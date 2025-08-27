@@ -38,8 +38,11 @@ fn interval_tile_main(
     let size_tiles = size64 * (64 / TILE_SIZE);
     let size_subtiles = size_tiles * 4u;
 
-    // Get global tile position, in tile coordinates
-    let t = tiles_in.active_tiles[active_tile_index];
+    // Get global tile position, in tile coordinates.  The top bit indicates
+    // that the tile is filled.
+    let t_raw = tiles_in.active_tiles[active_tile_index];
+    let t_filled = (t_raw & (1 << 31u)) != 0;
+    let t = t_raw & 0x7FFFFFFF;
     let tx = t % size_tiles.x;
     let ty = (t / size_tiles.x) % size_tiles.y;
     let tz = (t / (size_tiles.x * size_tiles.y)) % size_tiles.z;
@@ -51,6 +54,12 @@ fn interval_tile_main(
 
     // Subtile corner position, in voxels
     let corner_pos = subtile_corner * SUBTILE_SIZE;
+
+    // Special handling for uniformly filled tiles
+    if t_filled {
+        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + TILE_SIZE);
+        return;
+    }
 
     // Root tile index, used to pick out tape
     let corner_pos64 = corner_pos / 64;

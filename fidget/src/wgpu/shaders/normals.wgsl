@@ -1,41 +1,55 @@
-/// Backfill tile_zmin from subtile_zmin
-@group(1) @binding(0) var<storage, read> image_heightmap: array<u32>;
-@group(1) @binding(1) var<storage, read_write> image_out: array<vec4u>;
+@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
+@group(1) @binding(1) var<storage, read> image_heightmap: array<u32>;
+@group(1) @binding(2) var<storage, read_write> image_out: array<vec4u>;
 
 @compute @workgroup_size(8, 8)
 fn normals_main(
-    @builtin(global_invocation_id) global_id: vec3u
+    @builtin(workgroup_id) workgroup_id: vec3u,
+    @builtin(local_invocation_id) local_id: vec3u
 ) {
-    // Out of bounds, return
-    if global_id.x >= config.image_size.x ||
-        global_id.y >= config.image_size.y
-    {
+    // Tile index is packed into two words of the workgroup ID, due to dispatch
+    // size limits on any single dimension.
+    let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
+    if active_tile_index >= tiles_in.count {
         return;
     }
 
-    let pixel_index_xy = global_id.x + global_id.y * config.image_size.x;
+    // 64^2 tile position
+    let size64 = config.render_size / 64;
+    let t = tiles_in.active_tiles[active_tile_index];
+    let tx = t % size64.x;
+    let ty = (t / size64.x) % size64.y;
+
+    // Pixel position
+    let px = tx * 64u + (workgroup_id.z % 8) * 8 + local_id.x;
+    let py = ty * 64u + (workgroup_id.z / 8) * 8 + local_id.y;
+    if px >= config.image_size.x || py >= config.image_size.y {
+        return;
+    }
+    let pixel_index_xy = px + py * config.image_size.x;
+
+    // If we've already written this pixel, then return; because evaluation
+    // happens in Z order, it will necessarily supercede the current pixel
+    if image_out[pixel_index_xy][0] != 0 {
+        return;
+    }
+
+    // If this pixel hasn't yet been written in the heightmap, then return
     let z = image_heightmap[pixel_index_xy];
     if z == 0u {
-        image_out[pixel_index_xy] = vec4u(0u);
+        return;
     }
 
     // Store gradients with dx, dy, dz in xyz and value in w
-    let size64 = config.render_size / 64;
-    let gx = Value(vec4f(1.0, 0.0, 0.0, f32(global_id.x)));
-    let gy = Value(vec4f(0.0, 1.0, 0.0, f32(global_id.y)));
+    let gx = Value(vec4f(1.0, 0.0, 0.0, f32(px)));
+    let gy = Value(vec4f(0.0, 1.0, 0.0, f32(py)));
     let gz = Value(vec4f(0.0, 0.0, 1.0, f32(z)));
-
-    let corner_pos64 = vec3u(global_id.xy, z) / 64;
-    let index64 = corner_pos64.x
-        + corner_pos64.y * size64.x
-        + corner_pos64.z * size64.x * size64.y;
-    let tape_index = tile_tape[index64];
 
     // Compute input values
     let m = transformed_inputs(gx, gy, gz);
 
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_index, m, &stack);
+    let out = run_tape(0u, m, &stack);
     if out.valid {
         image_out[pixel_index_xy] = vec4u(
             z,

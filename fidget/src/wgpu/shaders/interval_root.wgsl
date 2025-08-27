@@ -71,28 +71,30 @@ fn interval_root_main(
 
     tile_tape[tile_index_xyz] = new_tape_start;
 
+    // The tile is full, so set the "filled" flag when pushing the tile to the
+    // tape list, which short-circuits evaluation.
+    var filled_bit = 0u;
     if v[1] < 0.0 {
-        // This tile is full; do not push it to the tape list
-        atomicMax(&tile_zmin[tile_index_xy], corner_z + TILE_SIZE);
-    } else {
-        // Select the active strata, based on Z position
-        let strata_size = strata_size_bytes() / 4; // bytes -> words
-        let i = strata_size * tile_corner.z;
-
-        // `count` is at offset 3 in the struct
-        let offset = atomicAdd(&tiles_out[i + 3], 1u);
-
-        // the actual tile index is somewhere past the 4th word
-        atomicStore(&tiles_out[i + 4 + offset], tile_index_xyz);
-
-        // write the workgroup sizes to the first 3 words in the `struct`
-        let count = offset + 1u;
-        let wg_dispatch_x = min(count, 32768u);
-        let wg_dispatch_y = (count + 32767u) / 32768u;
-        atomicMax(&tiles_out[i], wg_dispatch_x);
-        atomicMax(&tiles_out[i + 1], wg_dispatch_y);
-        atomicMax(&tiles_out[i + 2], 1u);
+        filled_bit = 1 << 31u;
     }
+
+    // Select the active strata, based on Z position
+    let strata_size = strata_size_bytes() / 4; // bytes -> words
+    let i = strata_size * tile_corner.z;
+
+    // `count` is at offset 3 in the struct
+    let offset = atomicAdd(&tiles_out[i + 3], 1u);
+
+    // the actual tile index is somewhere past the 4th word
+    atomicStore(&tiles_out[i + 4 + offset], tile_index_xyz | filled_bit);
+
+    // write the workgroup sizes to the first 3 words in the `struct`
+    let count = offset + 1u;
+    let wg_dispatch_x = min(count, 32768u);
+    let wg_dispatch_y = (count + 32767u) / 32768u;
+    atomicMax(&tiles_out[i], wg_dispatch_x);
+    atomicMax(&tiles_out[i + 1], wg_dispatch_y);
+    atomicMax(&tiles_out[i + 2], 1u);
 }
 
 fn next_multiple_of(a: u32, b: u32) -> u32 {
