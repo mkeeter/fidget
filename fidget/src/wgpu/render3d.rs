@@ -309,7 +309,7 @@ impl IntervalContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0), // tiles_in
+                    buffer_rw(0), // tiles_in (rw so we can update wg size)
                     buffer_ro(1), // tile_zmin
                     buffer_rw(2), // subtiles_out
                     buffer_rw(3), // subtile_zmin
