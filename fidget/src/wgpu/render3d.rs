@@ -91,7 +91,7 @@ struct Config {
 }
 
 /// Number of `u32` words in the tape data flexible array
-const TAPE_DATA_CAPACITY: usize = 65536;
+const TAPE_DATA_CAPACITY: usize = 1024 * 1024 * 16; // 16M words, 64 MiB
 
 /// Returns a shader for interval root tiles
 pub fn interval_root_shader() -> String {
@@ -961,6 +961,7 @@ impl Context {
         let ny = render_size.height() as u64 / 64;
         let nz = render_size.depth() as u64 / 64;
 
+        let bytecode_len: u32 = bc.data.len().try_into().unwrap();
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes,
@@ -976,8 +977,8 @@ impl Context {
                 settings.image_size.height(),
                 settings.image_size.depth(),
             ],
-            tape_data_offset: bc.data.len().try_into().unwrap(),
-            root_tape_len: bc.data.len().try_into().unwrap(),
+            tape_data_offset: bytecode_len,
+            root_tape_len: bytecode_len,
         };
 
         {
