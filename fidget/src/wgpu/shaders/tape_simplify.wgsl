@@ -6,11 +6,16 @@ fn alloc() -> u32 {
     return atomicAdd(&config.tape_data_offset, CHUNK_SIZE) + CHUNK_SIZE;
 }
 
+fn dealloc() {
+    atomicSub(&config.tape_data_offset, CHUNK_SIZE);
+}
+
 fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
     var i: u32 = end;
     var live: array<bool, 256>;
     var j = alloc();
     if j > config.tape_data_capacity {
+        dealloc();
         return 0u;
     }
 
@@ -18,11 +23,10 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
         i = i - 2;
         j = j - 2; // reserve space
 
-        let new_op = vec2u(config.tape_data[i], config.tape_data[i + 1]);
-        let op = unpack4xU8(new_op.x);
+        let op = unpack4xU8(config.tape_data[i]);
+        let imm_u = config.tape_data[i + 1];
 
         if op[0] == OP_JUMP {
-            let imm_u = new_op.y;
             if imm_u == 0xFFFFFFFFu {
                 config.tape_data[j] = OP_JUMP;
                 config.tape_data[j + 1] = 0xFFFFFFFFu;
@@ -43,6 +47,7 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
         if j == 0 {
             let nj = alloc() - 2;
             if nj >= config.tape_data_capacity {
+                dealloc();
                 return 0u;
             }
             config.tape_data[j] = OP_JUMP;
@@ -54,11 +59,12 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
 
         if op[0] == OP_OUTPUT {
             live[op[1]] = true;
-        }
-
-        if !live[op[1]] {
+        } else if !live[op[1]] {
             // TODO pop stack
+            j += 2;
             continue;
+        } else {
+            live[op[1]] = false;
         }
 
         switch op[0] {
@@ -66,7 +72,7 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
                 // handled above
             }
             case OP_INPUT, OP_COPY_IMM: {
-                live[op[1]] = false;
+                // Nothing do here, we already marked op[1] as live
             }
             case OP_COPY_REG,
             OP_NEG_REG,
@@ -86,7 +92,6 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
             OP_EXP_REG,
             OP_LN_REG,
             OP_NOT_REG: {
-                live[op[1]] = false;
                 live[op[2]] = true;
             }
 
@@ -102,7 +107,6 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
             OP_MOD_IMM_REG,
             OP_ATAN_IMM_REG,
             OP_COMPARE_IMM_REG: {
-                live[op[1]] = false;
                 live[op[2]] = true;
             }
 
@@ -111,7 +115,6 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
             OP_AND_REG_IMM,
             OP_OR_REG_IMM:   {
                 // TODO handle choices here
-                live[op[1]] = false;
                 live[op[2]] = true;
             }
 
@@ -122,7 +125,6 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
             OP_COMPARE_REG_REG,
             OP_ATAN_REG_REG,
             OP_MOD_REG_REG: {
-                live[op[1]] = false;
                 live[op[2]] = true;
                 live[op[3]] = true;
             }
@@ -132,7 +134,6 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
             OP_AND_REG_REG,
             OP_OR_REG_REG: {
                 // TODO handle choices here
-                live[op[1]] = false;
                 live[op[2]] = true;
                 live[op[3]] = true;
             }
@@ -143,16 +144,16 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
 
             case OP_LOAD, OP_STORE: {
                 // Not implemented!
-                break;
+                return 0u;
             }
             default: {
-                break;
+                return 0u;
             }
         }
 
         // Write the simplified expression back to the new tape
-        config.tape_data[j] = new_op.x;
-        config.tape_data[j + 1] = new_op.y;
+        config.tape_data[j] = pack4xU8(op);
+        config.tape_data[j + 1] = imm_u;
     }
     return 0u; // invalid
 }
