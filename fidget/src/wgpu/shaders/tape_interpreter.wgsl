@@ -42,6 +42,7 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
     var count: u32 = 0u;
     var reg: array<Value, 256>;
 
+    var out = TapeResult(build_imm(nan_f32()), 0, 0, false);
     while (true) {
         count += 1;
         let op = unpack4xU8(config.tape_data[i]);
@@ -50,8 +51,8 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
         i = i + 2;
         switch op[0] {
             case OP_OUTPUT: {
-                // XXX we're not actually writing to an output slot here
-                return TapeResult(reg[op[1]], i, count, true);
+                // XXX we're ignoring the output slot here
+                out = TapeResult(reg[op[1]], i, count, true);
             }
             case OP_INPUT: {
                 reg[op[1]] = inputs[imm_u];
@@ -109,14 +110,15 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
 
             case OP_LOAD, OP_STORE: {
                 // Not implemented!
-                break;
+                return out;
             }
 
             case OP_JUMP: {
                 if imm_u == 0xFFFFFFFFu {
-                    break;
+                    // end of tape, hope someone wrote `out`
+                    return out;
                 } else if imm_u == 0u {
-                    break;
+                    // beginning of tape; keep going!
                     continue;
                 } else {
                     // Jump to a new tape position
@@ -124,9 +126,9 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
                 }
             }
             default: {
-                break;
+                return out;
             }
         }
     }
-    return TapeResult(buld_imm(nan_f32()), 0, 0, false);
+    return out;
 }
