@@ -2,24 +2,28 @@
 const CHUNK_SIZE: u32 = 128;
 
 /// Allocates a new chunk, returning a past-the-end pointer
-fn alloc() -> u32 {
-    return atomicAdd(&config.tape_data_offset, CHUNK_SIZE) + CHUNK_SIZE;
+fn alloc(chunk_size: u32) -> u32 {
+    return atomicAdd(&config.tape_data_offset, chunk_size);
 }
 
-fn dealloc() {
-    atomicSub(&config.tape_data_offset, CHUNK_SIZE);
+fn dealloc(chunk_size: u32) {
+    atomicSub(&config.tape_data_offset, chunk_size);
 }
 
-fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
+fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
     var i: u32 = end;
-    var live: array<bool, 256>;
-    var j = alloc();
+    let chunk_size = min(tape_len * 2, CHUNK_SIZE);
+    var chunk_start = alloc(chunk_size);
+    var j = chunk_start + chunk_size;
     if j > config.tape_data_capacity {
-        dealloc();
+        dealloc(chunk_size);
         return 0u;
     }
 
-    while (true) {
+    var gas = 5000;
+    while (gas > 0) {
+        gas -= 1;
+
         i = i - 2;
         j = j - 2; // reserve space
 
@@ -44,10 +48,11 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
         }
 
         // Allocate a new chunk if needed
-        if j == 0 {
-            let nj = alloc() - 2;
+        if j == chunk_start {
+            chunk_start = alloc(chunk_size);
+            let nj = chunk_start + chunk_size - 2;
             if nj >= config.tape_data_capacity {
-                dealloc();
+                dealloc(chunk_size);
                 return 0u;
             }
             config.tape_data[j] = OP_JUMP;
@@ -57,103 +62,107 @@ fn simplify_tape(end: u32, stack: ptr<function, Stack>) -> u32 {
             j = nj - 2;
         }
 
-        if op[0] == OP_OUTPUT {
-            live[op[1]] = true;
-        } else if !live[op[1]] {
-            // TODO pop stack
-            j += 2;
-            continue;
-        } else {
-            live[op[1]] = false;
-        }
-
-        switch op[0] {
-            case OP_OUTPUT: {
-                // handled above
-            }
-            case OP_INPUT, OP_COPY_IMM: {
-                // Nothing do here, we already marked op[1] as live
-            }
-            case OP_COPY_REG,
-            OP_NEG_REG,
-            OP_ABS_REG,
-            OP_RECIP_REG,
-            OP_SQRT_REG,
-            OP_SQUARE_REG,
-            OP_FLOOR_REG,
-            OP_CEIL_REG,
-            OP_ROUND_REG,
-            OP_SIN_REG,
-            OP_COS_REG,
-            OP_TAN_REG,
-            OP_ASIN_REG,
-            OP_ACOS_REG,
-            OP_ATAN_REG,
-            OP_EXP_REG,
-            OP_LN_REG,
-            OP_NOT_REG: {
-                live[op[2]] = true;
-            }
-
-            case OP_ADD_REG_IMM,
-            OP_MUL_REG_IMM,
-            OP_DIV_REG_IMM,
-            OP_SUB_REG_IMM,
-            OP_MOD_REG_IMM,
-            OP_ATAN_REG_IMM,
-            OP_COMPARE_REG_IMM,
-            OP_DIV_IMM_REG,
-            OP_SUB_IMM_REG,
-            OP_MOD_IMM_REG,
-            OP_ATAN_IMM_REG,
-            OP_COMPARE_IMM_REG: {
-                live[op[2]] = true;
-            }
-
-            case OP_MIN_REG_IMM,
-            OP_MAX_REG_IMM,
-            OP_AND_REG_IMM,
-            OP_OR_REG_IMM:   {
-                // TODO handle choices here
-                live[op[2]] = true;
-            }
-
-            case OP_ADD_REG_REG,
-            OP_MUL_REG_REG,
-            OP_DIV_REG_REG,
-            OP_SUB_REG_REG,
-            OP_COMPARE_REG_REG,
-            OP_ATAN_REG_REG,
-            OP_MOD_REG_REG: {
-                live[op[2]] = true;
-                live[op[3]] = true;
-            }
-
-            case OP_MIN_REG_REG,
-            OP_MAX_REG_REG,
-            OP_AND_REG_REG,
-            OP_OR_REG_REG: {
-                // TODO handle choices here
-                live[op[2]] = true;
-                live[op[3]] = true;
-            }
-
-            case OP_JUMP: {
-                // handled above
-            }
-
-            case OP_LOAD, OP_STORE: {
-                // Not implemented!
-                return 0u;
-            }
-            default: {
-                return 0u;
-            }
-        }
-
         // Write the simplified expression back to the new tape
         config.tape_data[j] = pack4xU8(op);
         config.tape_data[j + 1] = imm_u;
     }
     return 0u; // invalid
 }
+
+/*
+    var live: array<bool, 256>;
+
+    if op[0] == OP_OUTPUT {
+        live[op[1]] = true;
+    } else if !live[op[1]] {
+        // TODO pop stack
+        j += 2;
+        continue;
+    } else {
+        live[op[1]] = false;
+    }
+
+    switch op[0] {
+        case OP_OUTPUT: {
+            // handled above
+        }
+        case OP_INPUT, OP_COPY_IMM: {
+            // Nothing do here, we already marked op[1] as live
+        }
+        case OP_COPY_REG,
+        OP_NEG_REG,
+        OP_ABS_REG,
+        OP_RECIP_REG,
+        OP_SQRT_REG,
+        OP_SQUARE_REG,
+        OP_FLOOR_REG,
+        OP_CEIL_REG,
+        OP_ROUND_REG,
+        OP_SIN_REG,
+        OP_COS_REG,
+        OP_TAN_REG,
+        OP_ASIN_REG,
+        OP_ACOS_REG,
+        OP_ATAN_REG,
+        OP_EXP_REG,
+        OP_LN_REG,
+        OP_NOT_REG: {
+            live[op[2]] = true;
+        }
+
+        case OP_ADD_REG_IMM,
+        OP_MUL_REG_IMM,
+        OP_DIV_REG_IMM,
+        OP_SUB_REG_IMM,
+        OP_MOD_REG_IMM,
+        OP_ATAN_REG_IMM,
+        OP_COMPARE_REG_IMM,
+        OP_DIV_IMM_REG,
+        OP_SUB_IMM_REG,
+        OP_MOD_IMM_REG,
+        OP_ATAN_IMM_REG,
+        OP_COMPARE_IMM_REG: {
+            live[op[2]] = true;
+        }
+
+        case OP_MIN_REG_IMM,
+        OP_MAX_REG_IMM,
+        OP_AND_REG_IMM,
+        OP_OR_REG_IMM:   {
+            // TODO handle choices here
+            live[op[2]] = true;
+        }
+
+        case OP_ADD_REG_REG,
+        OP_MUL_REG_REG,
+        OP_DIV_REG_REG,
+        OP_SUB_REG_REG,
+        OP_COMPARE_REG_REG,
+        OP_ATAN_REG_REG,
+        OP_MOD_REG_REG: {
+            live[op[2]] = true;
+            live[op[3]] = true;
+        }
+
+        case OP_MIN_REG_REG,
+        OP_MAX_REG_REG,
+        OP_AND_REG_REG,
+        OP_OR_REG_REG: {
+            // TODO handle choices here
+            live[op[2]] = true;
+            live[op[3]] = true;
+        }
+
+        case OP_JUMP: {
+            // handled above
+        }
+
+        case OP_LOAD, OP_STORE: {
+            // Not implemented!
+            return 0u;
+        }
+        default: {
+            return 0u;
+        }
+    }
+*/

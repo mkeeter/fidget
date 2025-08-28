@@ -65,8 +65,8 @@ fn interval_root_main(
     }
 
     var new_tape_start = 0u;
-    if stack.has_choice && out.count > 64u {
-        // TODO simplify tape
+    if stack.has_choice {
+        new_tape_start = simplify_tape(out.pos, out.count, &stack);
     }
 
     tile_tape[tile_index_xyz] = new_tape_start;

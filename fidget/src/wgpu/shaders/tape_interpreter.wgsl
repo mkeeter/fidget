@@ -52,7 +52,8 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
         switch op[0] {
             case OP_OUTPUT: {
                 // XXX we're ignoring the output slot here
-                out = TapeResult(reg[op[1]], i, count, true);
+                out.value = reg[op[1]];
+                out.valid = true;
             }
             case OP_INPUT: {
                 reg[op[1]] = inputs[imm_u];
@@ -116,6 +117,8 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
             case OP_JUMP: {
                 if imm_u == 0xFFFFFFFFu {
                     // end of tape, hope someone wrote `out`
+                    out.pos = i;
+                    out.count = count;
                     return out;
                 } else if imm_u == 0u {
                     // beginning of tape; keep going!

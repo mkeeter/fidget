@@ -9,6 +9,7 @@ use crate::{
         util::{resize_buffer_with, write_storage_buffer},
     },
 };
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
@@ -22,8 +23,6 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
-
-use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// Settings for 3D rendering
 #[derive(Copy, Clone)]
@@ -60,7 +59,7 @@ impl RenderConfig {
 /// Doppleganger of the WGSL `struct Config`
 ///
 /// Fields are carefully ordered to require no padding
-#[derive(Debug, IntoBytes, Immutable)]
+#[derive(Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
 #[repr(C)]
 struct Config {
     /// Screen-to-model transform matrix
@@ -1102,6 +1101,32 @@ impl Context {
                 .to_owned();
         self.buffers.image.unmap();
 
+        /*
+        let cfg = self.read_buffer::<u8>(&self.config_buf);
+        let (cfg, rest) = Config::ref_from_prefix(&cfg).unwrap();
+        let rest = <[u32]>::ref_from_bytes(rest).unwrap();
+        println!("{cfg:?}");
+        for i in (0..cfg.tape_data_offset).step_by(2) {
+            if i == cfg.root_tape_len {
+                println!();
+            }
+            let i = i as usize;
+            let f = f32::from_bits(rest[i + 1]);
+            let op = rest[i].as_bytes();
+            let oooop = crate::compiler::BytecodeOp::from_repr(op[0] as usize);
+            println!(
+                "{i:>4} | {:#10x} {:>10}: {:#10x}{}",
+                rest[i],
+                oooop.map(|o| o.into()).unwrap_or(""),
+                rest[i + 1],
+                if f > -100.0 && f < 100.0 && f.abs() > 0.001 {
+                    format!(" ({f})")
+                } else {
+                    String::new()
+                }
+            );
+        }
+        */
         /*
         let tiles =
             self.read_buffer::<u32>(&self.root_ctx.tile64_buffers.tiles);

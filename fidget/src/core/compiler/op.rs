@@ -287,7 +287,8 @@ opcodes!(
     #[strum_discriminants(derive(
         strum::EnumIter,
         strum::EnumCount,
-        strum::IntoStaticStr
+        strum::IntoStaticStr,
+        strum::FromRepr,
     ))]
     #[strum_discriminants(
         doc = "Discriminant for [bytecode](`crate::bytecode`)"
