@@ -57,7 +57,9 @@ fn interval_tile_main(
 
     // Special handling for uniformly filled tiles
     if t_filled {
-        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + TILE_SIZE);
+        // Snap down to the larger tile size
+        let z = (corner_pos.z / TILE_SIZE) * TILE_SIZE;
+        atomicMax(&subtile_zmin[subtile_index_xy], z + TILE_SIZE - 1);
         return;
     }
 
@@ -88,7 +90,7 @@ fn interval_tile_main(
     let v = out.value.v;
     if v[1] < 0.0 {
         // Full, write to subtile_zmin
-        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE);
+        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
     } else if v[0] > 0.0 {
         // Empty, nothing to do here
     } else {
