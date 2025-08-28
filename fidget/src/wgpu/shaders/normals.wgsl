@@ -48,8 +48,9 @@ fn normals_main(
     // Compute input values
     let m = transformed_inputs(gx, gy, gz);
 
+    let tape_start = get_tape_start(vec3u(px, py, z));
     var stack = Stack(); // dummy value
-    let out = run_tape(0u, m, &stack);
+    let out = run_tape(tape_start, m, &stack);
     if out.valid {
         image_out[pixel_index_xy] = vec4u(
             z,

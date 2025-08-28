@@ -33,13 +33,6 @@ fn voxel_ray_main(
     // Subtile corner position, in voxels
     let corner_pos = tile4_corner * 4 + local_id;
 
-    // Root tile index, used to pick out tape
-    let corner_pos64 = corner_pos / 64;
-    let index64 = corner_pos64.x
-        + corner_pos64.y * size64.x
-        + corner_pos64.z * size64.x * size64.y;
-    let tape_index = tile_tape[index64];
-
     let tile4_index_xy = tx + ty * size4.x;
     let pixel_index_xy = corner_pos.x + corner_pos.y * config.render_size.x;
     if tile4_zmin[tile4_index_xy] >= corner_pos.z {
@@ -60,8 +53,9 @@ fn voxel_ray_main(
     );
 
     // Do the actual interpreter work
+    let tape_start = get_tape_start(corner_pos);
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_index, m, &stack);
+    let out = run_tape(tape_start, m, &stack);
 
     if out.valid && out.value.v < 0.0 {
         atomicMax(&result[pixel_index_xy], corner_pos.z);

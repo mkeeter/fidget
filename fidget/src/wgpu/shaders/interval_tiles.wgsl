@@ -61,13 +61,6 @@ fn interval_tile_main(
         return;
     }
 
-    // Root tile index, used to pick out tape
-    let corner_pos64 = corner_pos / 64;
-    let index64 = corner_pos64.x
-        + corner_pos64.y * size64.x
-        + corner_pos64.z * size64.x * size64.y;
-    let tape_index = tile_tape[index64];
-
     // Check for Z masking from tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
     if tile_zmin[tile_index_xy] >= corner_pos.z {
@@ -84,8 +77,9 @@ fn interval_tile_main(
     }
 
     // Do the actual interpreter work
+    let tape_start = get_tape_start(corner_pos);
     var stack = Stack();
-    let out = run_tape(tape_index, m, &stack);
+    let out = run_tape(tape_start, m, &stack);
 
     if !out.valid {
         return;

@@ -53,3 +53,14 @@ fn nan_f32() -> f32 {
 
 /// Tape tree (with offset given by config.tile_tapes_offset)
 @group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
+
+/// For a given position, return the tape start index
+fn get_tape_start(corner_pos: vec3u) -> u32 {
+    let size64 = config.render_size / 64;
+    let corner_pos64 = corner_pos / 64;
+    let index64 = corner_pos64.x
+        + corner_pos64.y * size64.x
+        + corner_pos64.z * size64.x * size64.y;
+    let tape_index = tile_tape[index64];
+    return tape_index; // TODO recursion
+}
