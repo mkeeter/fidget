@@ -85,6 +85,9 @@ struct Config {
 
     /// Number of words in the trailing tape buffer
     tape_data_capacity: u32,
+
+    /// Length of the root tape
+    root_tape_len: u32,
 }
 
 /// Number of `u32` words in the tape data flexible array
@@ -974,6 +977,7 @@ impl Context {
                 settings.image_size.depth(),
             ],
             tape_data_offset: bc.data.len().try_into().unwrap(),
+            root_tape_len: bc.data.len().try_into().unwrap(),
         };
 
         {

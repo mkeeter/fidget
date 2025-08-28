@@ -20,8 +20,13 @@ struct Config {
     /// Image size, in voxels
     image_size: vec3u,
 
-    // Length of the `tape_data` array (in `u32` words)
+    /// Length of the `tape_data` array (in `u32` words)
     tape_data_capacity: u32,
+
+    /// Length of the root tape
+    ///
+    /// `tape_data_offset` should be reset to this value between strata
+    root_tape_len: u32,
 
     /// Tape data, tightly packed per-tile
     tape_data: array<u32>,

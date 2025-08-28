@@ -24,6 +24,12 @@ fn backfill_main(
     let size_tiles = size64 * (64 / TILE_SIZE);
     let size_subtiles = size_tiles * 4u;
 
+    // Reset various counters to prepare for the next strata
+    if TILE_SIZE == 64 && global_id.x == 0u && global_id.y == 0u && global_id.z == 0u {
+        config.tape_data_offset = config.root_tape_len;
+        config.tile_tapes_offset = size64.x * size64.y * size64.z;
+    }
+
     let tile_count = size_tiles.x * size_tiles.y;
     if global_id.x >= tile_count {
         return;
