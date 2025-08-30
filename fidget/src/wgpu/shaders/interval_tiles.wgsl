@@ -56,19 +56,21 @@ fn interval_tile_main(
     // Subtile corner position, in voxels
     let corner_pos = subtile_corner * SUBTILE_SIZE;
 
+    var skip_evaluation = false;
+
     // Special handling for uniformly filled tiles
     if t_filled {
         // Snap down to the larger tile size
         let z = (corner_pos.z / TILE_SIZE) * TILE_SIZE;
         atomicMax(&subtile_zmin[subtile_index_xy], z + TILE_SIZE - 1);
-        return;
+        skip_evaluation = true;
     }
 
     // Check for Z masking from tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
     if tile_zmin[tile_index_xy] >= corner_pos.z {
         atomicMax(&subtile_zmin[subtile_index_xy], tile_zmin[tile_index_xy]);
-        return;
+        skip_evaluation = true;
     }
 
     // Compute transformed interval regions
@@ -76,37 +78,35 @@ fn interval_tile_main(
 
     // Last-minute check to see if anyone filled out this tile
     if atomicLoad(&subtile_zmin[subtile_index_xy]) >= corner_pos.z + SUBTILE_SIZE {
-        return;
+        skip_evaluation = true;
     }
 
-    // Do the actual interpreter work
-    let tape_start = get_tape_start(corner_pos);
-    var stack = Stack();
-    let out = run_tape(tape_start, m, &stack);
+    if !skip_evaluation {
+        // Do the actual interpreter work
+        let tape_start = get_tape_start(corner_pos);
+        var stack = Stack();
+        let out = run_tape(tape_start.index, m, &stack);
 
-    if !out.valid {
-        return;
-    }
+        let v = out.value.v;
+        if v[1] < 0.0 {
+            // Full, write to subtile_zmin
+            atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
+        } else if v[0] > 0.0 {
+            // Empty, nothing to do here
+        } else {
+            let offset = atomicAdd(&subtiles_out.count, 1u);
+            let subtile_index_xyz = subtile_corner.x +
+                (subtile_corner.y * size_subtiles.x) +
+                (subtile_corner.z * size_subtiles.x * size_subtiles.y);
+            subtiles_out.active_tiles[offset] = subtile_index_xyz;
 
-    let v = out.value.v;
-    if v[1] < 0.0 {
-        // Full, write to subtile_zmin
-        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
-    } else if v[0] > 0.0 {
-        // Empty, nothing to do here
-    } else {
-        let offset = atomicAdd(&subtiles_out.count, 1u);
-        let subtile_index_xyz = subtile_corner.x +
-            (subtile_corner.y * size_subtiles.x) +
-            (subtile_corner.z * size_subtiles.x * size_subtiles.y);
-        subtiles_out.active_tiles[offset] = subtile_index_xyz;
-
-        let count = offset + 1u;
-        let wg_dispatch_x = min(count, 32768u);
-        let wg_dispatch_y = (count + 32767u) / 32768u;
-        atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
-        atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
-        atomicMax(&subtiles_out.wg_size[2], 1u);
+            let count = offset + 1u;
+            let wg_dispatch_x = min(count, 32768u);
+            let wg_dispatch_y = (count + 32767u) / 32768u;
+            atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
+            atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
+            atomicMax(&subtiles_out.wg_size[2], 1u);
+        }
     }
 }
 

@@ -112,6 +112,7 @@ pub fn interval_tiles_shader() -> String {
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += STACK_SHADER;
+    shader_code += TAPE_SIMPLIFY;
     shader_code
 }
 
