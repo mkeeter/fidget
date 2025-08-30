@@ -89,11 +89,10 @@ fn interval_tile_main(
         let out = run_tape(tape_start.index, m, &stack);
 
         let v = out.value.v;
-        var do_simplify = false;
         if v[1] < 0.0 {
             // Full, write to subtile_zmin
             atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
-            do_simplify = true;
+            do_alloc = true;
         } else if v[0] > 0.0 {
             // Empty, nothing to do here
         } else {
@@ -109,14 +108,13 @@ fn interval_tile_main(
             atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
             atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
             atomicMax(&subtiles_out.wg_size[2], 1u);
-            do_simplify = true;
+            do_alloc = true;
         }
 
-        if do_simplify && stack.has_choice {
+        if do_alloc && stack.has_choice {
             let next = simplify_tape(out.pos, out.count, &stack);
             if next != 0 {
                 tape_start.index = next;
-                do_alloc = true;
             }
         }
     }
