@@ -131,7 +131,7 @@ fn interval_tile_main(
     // thread (0,0,0) in the workgroup is responsible for allocating memory
     if local_id.x == 0u && local_id.y == 0u && local_id.z == 0u {
         let alloc_addr = atomicAdd(&config.tile_tapes_offset, 64u);
-        tile_tape[tape_start.addr] = alloc_addr & (1u << 31);
+        tile_tape[tape_start.addr] = alloc_addr | (1u << 31);
         atomicStore(&wg_allocate, alloc_addr);
     }
     workgroupBarrier();
