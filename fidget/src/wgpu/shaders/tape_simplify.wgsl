@@ -131,6 +131,11 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                     case CHOICE_LEFT: {
                         op[0] = OP_COPY_REG; // argument is already in op[2]
                         live[op[2]] = true;
+                        // If this is a reassignment, skip it entirely
+                        if op[2] == op[1] {
+                            j += 2;
+                            continue;
+                        }
                     }
                     case CHOICE_RIGHT: {
                         op[0] = OP_COPY_IMM; // argument is already in imm_u
@@ -162,11 +167,19 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                     case CHOICE_LEFT: {
                         op[0] = OP_COPY_REG; // argument is already in op[2]
                         live[op[2]] = true;
+                        if op[2] == op[1] { // skip reassignment
+                            j += 2;
+                            continue;
+                        }
                     }
                     case CHOICE_RIGHT: {
                         op[0] = OP_COPY_REG;
                         live[op[3]] = true;
                         op[2] = op[3];
+                        if op[2] == op[1] { // skip reassignment
+                            j += 2;
+                            continue;
+                        }
                     }
                     default: { // should always be CHOICE_BOTH
                         live[op[2]] = true;

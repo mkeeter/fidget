@@ -51,21 +51,12 @@ fn normals_main(
     let tape_start = get_tape_start(vec3u(px, py, z));
     var stack = Stack(); // dummy value
     let out = run_tape(tape_start.index, m, &stack);
-    if out.valid {
-        image_out[pixel_index_xy] = vec4u(
-            z,
-            bitcast<u32>(out.value.v.x),
-            bitcast<u32>(out.value.v.y),
-            bitcast<u32>(out.value.v.z)
-        );
-    } else {
-        image_out[pixel_index_xy] = vec4u(
-            z,
-            bitcast<u32>(1.0),
-            bitcast<u32>(0.0),
-            bitcast<u32>(0.0)
-        );
-    }
+    image_out[pixel_index_xy] = vec4u(
+        z,
+        bitcast<u32>(out.value.v.x),
+        bitcast<u32>(out.value.v.y),
+        bitcast<u32>(out.value.v.z)
+    );
 }
 
 struct Value {

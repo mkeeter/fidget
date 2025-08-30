@@ -34,7 +34,6 @@ struct TapeResult {
     value: Value,
     pos: u32,
     count: u32,
-    valid: bool,
 }
 
 fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) -> TapeResult {
@@ -42,7 +41,7 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
     var count: u32 = 0u;
     var reg: array<Value, 256>;
 
-    var out = TapeResult(build_imm(nan_f32()), 0, 0, false);
+    var out = TapeResult(build_imm(nan_f32()), 0, 0);
     while count < 16384 { // reasonable timeout
         count += 1;
         let op = unpack4xU8(config.tape_data[i]);
@@ -53,7 +52,6 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
             case OP_OUTPUT: {
                 // XXX we're ignoring the output slot here
                 out.value = reg[op[1]];
-                out.valid = true;
             }
             case OP_INPUT: {
                 reg[op[1]] = inputs[imm_u];

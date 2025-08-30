@@ -53,9 +53,6 @@ fn interval_root_main(
     // Do the actual interpreter work
     var stack = Stack();
     let out = run_tape(0u, m, &stack);
-    if !out.valid {
-        return;
-    }
     let v = out.value.v;
 
     // If the tile is completely empty, then we're done; we've already written
