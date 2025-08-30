@@ -33,7 +33,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                 return j;
             } else {
                 // Jump to a new tape position
-                i = imm_u;
+                i = imm_u + 2;
                 j += 2; // no allocation happened, so unreserve space
                 continue;
             }
