@@ -93,8 +93,8 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
 
             case OP_MIN_REG_IMM:  { reg[op[1]] = op_min(reg[op[2]], imm_v, stack); }
             case OP_MAX_REG_IMM:  { reg[op[1]] = op_max(reg[op[2]], imm_v, stack); }
-            case OP_AND_REG_IMM:  { reg[op[1]] = op_and(reg[op[2]], imm_v); }
-            case OP_OR_REG_IMM:   { reg[op[1]] = op_or(reg[op[2]], imm_v); }
+            case OP_AND_REG_IMM:  { reg[op[1]] = op_and(reg[op[2]], imm_v, stack); }
+            case OP_OR_REG_IMM:   { reg[op[1]] = op_or(reg[op[2]], imm_v, stack); }
 
             case OP_ADD_REG_REG:      { reg[op[1]] = op_add(reg[op[2]], reg[op[3]]); }
             case OP_MUL_REG_REG:      { reg[op[1]] = op_mul(reg[op[2]], reg[op[3]]); }
@@ -106,8 +106,8 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
 
             case OP_MIN_REG_REG:      { reg[op[1]] = op_min(reg[op[2]], reg[op[3]], stack); }
             case OP_MAX_REG_REG:      { reg[op[1]] = op_max(reg[op[2]], reg[op[3]], stack); }
-            case OP_AND_REG_REG:      { reg[op[1]] = op_and(reg[op[2]], reg[op[3]]); }
-            case OP_OR_REG_REG:       { reg[op[1]] = op_or(reg[op[2]], reg[op[3]]); }
+            case OP_AND_REG_REG:      { reg[op[1]] = op_and(reg[op[2]], reg[op[3]], stack); }
+            case OP_OR_REG_REG:       { reg[op[1]] = op_or(reg[op[2]], reg[op[3]], stack); }
 
             case OP_LOAD, OP_STORE: {
                 // Not implemented!

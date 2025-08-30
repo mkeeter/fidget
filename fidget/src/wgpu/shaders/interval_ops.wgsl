@@ -166,26 +166,34 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
     }
 }
 
-fn op_and(lhs: Value, rhs: Value) -> Value {
+fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if has_nan(lhs) || has_nan(rhs) {
+        stack_push(stack, CHOICE_BOTH);
         return nan_i();
     } else if lhs.v[0] == 0.0 && lhs.v[1] == 0.0 {
+        stack_push(stack, CHOICE_LEFT);
         return Value(vec2f(0.0));
     } else if !contains_i(lhs, 0.0) {
+        stack_push(stack, CHOICE_RIGHT);
         return rhs;
     } else {
+        stack_push(stack, CHOICE_BOTH);
         return Value(vec2f(min(rhs.v[0], 0.0), max(rhs.v[1], 0.0)));
     }
 }
 
-fn op_or(lhs: Value, rhs: Value) -> Value {
+fn op_or(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if has_nan(lhs) || has_nan(rhs) {
+        stack_push(stack, CHOICE_BOTH);
         return nan_i();
     } else if !contains_i(lhs, 0.0) {
+        stack_push(stack, CHOICE_LEFT);
         return lhs;
     } else if lhs.v[0] == 0.0 && lhs.v[1] == 0.0 {
+        stack_push(stack, CHOICE_RIGHT);
         return rhs;
     } else {
+        stack_push(stack, CHOICE_BOTH);
         return Value(vec2f(min(lhs.v[0], rhs.v[0]), max(lhs.v[0], rhs.v[0])));
     }
 }
@@ -232,6 +240,7 @@ fn op_sub(lhs: Value, rhs: Value) -> Value {
 
 fn op_min(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if has_nan(lhs) || has_nan(rhs) {
+        stack_push(stack, CHOICE_BOTH);
         return nan_i();
     } else if lhs.v[1] < rhs.v[0] {
         stack_push(stack, CHOICE_LEFT);
@@ -247,6 +256,7 @@ fn op_min(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
 
 fn op_max(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if has_nan(lhs) || has_nan(rhs) {
+        stack_push(stack, CHOICE_BOTH);
         return nan_i();
     } else if lhs.v[0] > rhs.v[1] {
         stack_push(stack, CHOICE_LEFT);

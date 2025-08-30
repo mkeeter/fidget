@@ -167,7 +167,7 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
     }
 }
 
-fn op_and(lhs: Value, rhs: Value) -> Value {
+fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if lhs.v.w != 0.0 {
         return lhs;
     } else {
@@ -175,7 +175,7 @@ fn op_and(lhs: Value, rhs: Value) -> Value {
     }
 }
 
-fn op_or(lhs: Value, rhs: Value) -> Value {
+fn op_or(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if lhs.v.w == 0.0 {
         return lhs;
     } else {
