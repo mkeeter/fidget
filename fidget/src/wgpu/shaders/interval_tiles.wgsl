@@ -82,6 +82,7 @@ fn interval_tile_main(
     }
 
     var tape_start = get_tape_start(corner_pos);
+    var do_alloc = false;
     if !skip_evaluation {
         // Do the actual interpreter work
         var stack = Stack();
@@ -112,10 +113,38 @@ fn interval_tile_main(
         }
 
         if do_simplify && stack.has_choice {
-            tape_start.index = simplify_tape(out.pos, out.count, &stack);
+            let next = simplify_tape(out.pos, out.count, &stack);
+            if next != 0 {
+                tape_start.index = next;
+                do_alloc = true;
+            }
         }
     }
+
+    // Check whether any members of the workgroup allocated a new tape
+    atomicOr(&wg_allocate, u32(do_alloc));
+    workgroupBarrier();
+    if atomicLoad(&wg_allocate) == 0 {
+        return;
+    }
+
+    // thread (0,0,0) in the workgroup is responsible for allocating memory
+    if local_id.x == 0u && local_id.y == 0u && local_id.z == 0u {
+        let alloc_addr = atomicAdd(&config.tile_tapes_offset, 64u);
+        tile_tape[tape_start.addr] = alloc_addr & (1u << 31);
+        atomicStore(&wg_allocate, alloc_addr);
+    }
+    workgroupBarrier();
+
+    // Write our new tape address!
+    let addr = atomicLoad(&wg_allocate)
+        + local_id.x
+        + local_id.y * 4u
+        + local_id.z * 16u;
+    tile_tape[addr] = tape_start.index;
 }
+
+var<workgroup> wg_allocate: atomic<u32>;
 
 /// Allocates a new chunk, returning a past-the-end pointer
 fn alloc(chunk_size: u32) -> u32 {
