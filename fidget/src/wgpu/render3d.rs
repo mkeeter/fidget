@@ -11,6 +11,8 @@ use crate::{
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+const DEBUG_MODE: bool = true;
+
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
 const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
@@ -885,7 +887,13 @@ impl Context {
             size: (std::mem::size_of::<Config>()
                 + TAPE_DATA_CAPACITY * std::mem::size_of::<u32>())
                 as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | if DEBUG_MODE {
+                    wgpu::BufferUsages::COPY_SRC
+                } else {
+                    wgpu::BufferUsages::empty()
+                },
             mapped_at_creation: false,
         });
         let tile_tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1067,8 +1075,13 @@ impl Context {
             self.normals_ctx
                 .run(self, strata, render_size, &mut compute_pass);
 
-            // Backfill from smaller tiles to larger tiles, for culling
-            // This step also resets counters for subsequent strata
+            // Backfill from smaller tiles to larger tiles, for culling. This
+            // step also resets counters for subsequent strata.  We skip this
+            // step if we're in DEBUG_MODE and rendering a single strata,
+            // because we want those buffers to remain un-reset.
+            if DEBUG_MODE && settings.image_size == VoxelSize::from(64) {
+                continue;
+            }
             self.backfill_ctx.run(
                 self,
                 strata,
@@ -1102,38 +1115,39 @@ impl Context {
                 .to_owned();
         self.buffers.image.unmap();
 
-        /*
-        let cfg = self.read_buffer::<u8>(&self.config_buf);
-        let (cfg, rest) = Config::ref_from_prefix(&cfg).unwrap();
-        let rest = <[u32]>::ref_from_bytes(rest).unwrap();
-        println!("{cfg:?}");
-        for i in (0..cfg.tape_data_offset).step_by(2) {
-            if i == cfg.root_tape_len {
-                println!();
-            }
-            let i = i as usize;
-            let f = f32::from_bits(rest[i + 1]);
-            let op = rest[i].as_bytes();
-            let oooop = crate::compiler::BytecodeOp::from_repr(op[0] as usize);
-            println!(
-                "{i:>4} | {:02x?} {:>10}: {}",
-                rest[i].as_bytes(),
-                if op[0] == 0xFF {
-                    "JUMP"
-                } else {
-                    oooop.map(|o| o.into()).unwrap_or("")
-                },
-                if f > -100.0 && f < 100.0 && f.abs() > 0.001 {
-                    format!(" {f}")
-                } else {
-                    format!(" {}", rest[i + 1])
+        if DEBUG_MODE {
+            let cfg = self.read_buffer::<u8>(&self.config_buf);
+            let (cfg, rest) = Config::ref_from_prefix(&cfg).unwrap();
+            let rest = <[u32]>::ref_from_bytes(rest).unwrap();
+            println!("{cfg:?}");
+            for i in (0..cfg.tape_data_offset).step_by(2) {
+                if i == cfg.root_tape_len {
+                    println!();
                 }
-            );
-            if op[0] == 0xFF && rest[i + 1] == u32::MAX {
-                println!();
+                let i = i as usize;
+                let f = f32::from_bits(rest[i + 1]);
+                let op = rest[i].as_bytes();
+                let oooop =
+                    crate::compiler::BytecodeOp::from_repr(op[0] as usize);
+                println!(
+                    "{i:>4} | {:02x?} {:>10}: {}",
+                    rest[i].as_bytes(),
+                    if op[0] == 0xFF {
+                        "JUMP"
+                    } else {
+                        oooop.map(|o| o.into()).unwrap_or("")
+                    },
+                    if f > -100.0 && f < 100.0 && f.abs() > 0.001 {
+                        format!(" {f}")
+                    } else {
+                        format!(" {}", rest[i + 1])
+                    }
+                );
+                if op[0] == 0xFF && rest[i + 1] == u32::MAX {
+                    println!();
+                }
             }
         }
-        */
         /*
         let tiles =
             self.read_buffer::<u32>(&self.root_ctx.tile64_buffers.tiles);
