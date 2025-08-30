@@ -884,9 +884,7 @@ impl Context {
             size: (std::mem::size_of::<Config>()
                 + TAPE_DATA_CAPACITY * std::mem::size_of::<u32>())
                 as u64,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC, // XXX for debug
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let tile_tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1103,6 +1101,7 @@ impl Context {
                 .to_owned();
         self.buffers.image.unmap();
 
+        /*
         let cfg = self.read_buffer::<u8>(&self.config_buf);
         let (cfg, rest) = Config::ref_from_prefix(&cfg).unwrap();
         let rest = <[u32]>::ref_from_bytes(rest).unwrap();
@@ -1133,6 +1132,7 @@ impl Context {
                 println!();
             }
         }
+        */
         /*
         let tiles =
             self.read_buffer::<u32>(&self.root_ctx.tile64_buffers.tiles);
