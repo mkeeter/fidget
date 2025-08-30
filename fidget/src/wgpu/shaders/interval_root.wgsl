@@ -119,9 +119,11 @@ fn strata_size_bytes() -> u32 {
 /// Note that we increment the root tape length, because we want to preserve
 /// these tapes through the reset in `backfill`
 fn alloc(chunk_size: u32) -> u32 {
+    atomicAdd(&config.tape_data_offset, chunk_size);
     return atomicAdd(&config.root_tape_len, chunk_size);
 }
 
 fn dealloc(chunk_size: u32) {
+    atomicSub(&config.tape_data_offset, chunk_size);
     atomicSub(&config.root_tape_len, chunk_size);
 }
