@@ -56,11 +56,38 @@ fn nan_f32() -> f32 {
 
 /// For a given position, return the tape start index
 fn get_tape_start(corner_pos: vec3u) -> u32 {
+    // 64^3 root tile tapes are densely packed
     let size64 = config.render_size / 64;
     let corner_pos64 = corner_pos / 64;
     let index64 = corner_pos64.x
         + corner_pos64.y * size64.x
         + corner_pos64.z * size64.x * size64.y;
-    let tape_index = tile_tape[index64];
-    return tape_index; // TODO recursion
+    let tape_index64 = tile_tape[index64];
+
+    // We use the high bit to indicate a recursive address
+    if (tape_index64 & (1u << 31)) == 0 {
+        return tape_index64;
+    }
+
+    // Otherwise, we have to recurse!  Let's find the relative offset of the
+    // 16^3 tile within the root tile.
+    let corner_pos16 = (corner_pos % 64u) / 16; // 0-3 on each axis
+    let index16 = corner_pos16.x
+        + corner_pos16.y * 4u
+        + corner_pos16.z * 16u;
+
+    // Look up the 16^3 tile tape
+    let tape_index16 = tile_tape[(tape_index64 & 0x7FFFFFFF) + index16];
+    if (tape_index16 & (1u << 31)) == 0 {
+        return tape_index16;
+    }
+
+    // Find the relative offset of the 4^3 tile within the 16^3 tile
+    let corner_pos4 = (corner_pos % 16u) / 4; // 0-3 on each axis
+    let index4 = corner_pos4.x
+        + corner_pos4.y * 4u
+        + corner_pos4.z * 16u;
+
+    // This is the end of the tree!
+    return tile_tape[(tape_index16 & 0x7FFFFFFF) + index4];
 }
