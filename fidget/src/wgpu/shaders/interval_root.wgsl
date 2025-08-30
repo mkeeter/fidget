@@ -113,3 +113,15 @@ fn strata_size_bytes() -> u32 {
     let size_bytes = size_words * 4u;
     return next_multiple_of(size_bytes, 256);
 }
+
+/// Allocates a new chunk, returning a past-the-end pointer
+///
+/// Note that we increment the root tape length, because we want to preserve
+/// these tapes through the reset in `backfill`
+fn alloc(chunk_size: u32) -> u32 {
+    return atomicAdd(&config.root_tape_len, chunk_size);
+}
+
+fn dealloc(chunk_size: u32) {
+    atomicSub(&config.root_tape_len, chunk_size);
+}

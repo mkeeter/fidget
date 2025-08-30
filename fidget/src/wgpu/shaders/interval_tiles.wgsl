@@ -108,3 +108,12 @@ fn interval_tile_main(
         atomicMax(&subtiles_out.wg_size[2], 1u);
     }
 }
+
+/// Allocates a new chunk, returning a past-the-end pointer
+fn alloc(chunk_size: u32) -> u32 {
+    return atomicAdd(&config.tape_data_offset, chunk_size);
+}
+
+fn dealloc(chunk_size: u32) {
+    atomicSub(&config.tape_data_offset, chunk_size);
+}

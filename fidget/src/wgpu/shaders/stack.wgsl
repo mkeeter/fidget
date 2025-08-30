@@ -1,4 +1,4 @@
-const STACK_SIZE: u32 = 8; // number of words in the stack
+const STACK_SIZE: u32 = 8; // number of u32 words in the stack
 
 const CHOICE_LEFT: u32 = 1;
 const CHOICE_RIGHT: u32 = 2;
@@ -26,7 +26,7 @@ fn stack_push(s: ptr<function, Stack>, v: u32) {
     s.has_choice |= (v == CHOICE_LEFT) || (v == CHOICE_RIGHT);
 
     s.cur_depth += 1u;
-    s.max_depth = max(s.max_depth, s.cur_depth);
+    s.max_depth = s.cur_depth;
 }
 
 // Pops a value from the stack, returning 0xFFFFFFFF on underflow

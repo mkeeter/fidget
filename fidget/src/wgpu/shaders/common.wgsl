@@ -23,10 +23,10 @@ struct Config {
     /// Length of the `tape_data` array (in `u32` words)
     tape_data_capacity: u32,
 
-    /// Length of the root tape
+    /// Length of the root tape (plus tile tapes after root tile evaluation)
     ///
     /// `tape_data_offset` should be reset to this value between strata
-    root_tape_len: u32,
+    root_tape_len: atomic<u32>,
 
     /// Tape data, tightly packed per-tile
     tape_data: array<u32>,
