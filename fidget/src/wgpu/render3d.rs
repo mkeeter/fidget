@@ -11,7 +11,7 @@ use crate::{
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-const DEBUG_MODE: bool = true;
+const DEBUG_MODE: bool = false;
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
