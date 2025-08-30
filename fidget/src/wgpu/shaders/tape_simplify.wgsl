@@ -1,5 +1,5 @@
 /// Number of words to allocate for each tape chunk
-const CHUNK_SIZE: u32 = 2048;
+const CHUNK_SIZE: u32 = 128;
 
 fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
     var i: u32 = end;
