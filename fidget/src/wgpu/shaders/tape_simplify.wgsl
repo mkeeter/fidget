@@ -28,7 +28,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         i = i - 2;
         j = j - 2; // reserve space
 
-        let op = unpack4xU8(config.tape_data[i]);
+        var op = unpack4xU8(config.tape_data[i]);
         let imm_u = config.tape_data[i + 1];
 
         if op[0] == OP_JUMP {
@@ -67,8 +67,22 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
             // Mark the input register as live
             live[op[1]] = true;
         } else if !live[op[1]] {
-            // This is a dead node, so we skip it
-            // TODO pop stack
+            // This is a dead node, so we skip it and pop its choice
+            switch op[0] {
+                case OP_MIN_REG_IMM,
+                OP_MAX_REG_IMM,
+                OP_AND_REG_IMM,
+                OP_OR_REG_IMM,
+                OP_MIN_REG_REG,
+                OP_MAX_REG_REG,
+                OP_AND_REG_REG,
+                OP_OR_REG_REG: {
+                    stack_pop(stack);
+                }
+                default: {
+                    // nothing to do here
+                }
+            }
             j += 2; // no allocation happened, so unreserve space
             continue;
         } else {
@@ -122,8 +136,18 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
             OP_MAX_REG_IMM,
             OP_AND_REG_IMM,
             OP_OR_REG_IMM:   {
-                // TODO handle choices here
-                live[op[2]] = true;
+                switch stack_pop(stack) {
+                    case CHOICE_LEFT: {
+                        op[0] = OP_COPY_REG; // argument is already in op[2]
+                        live[op[2]] = true;
+                    }
+                    case CHOICE_RIGHT: {
+                        op[0] = OP_COPY_IMM; // argument is already in imm_u
+                    }
+                    default: { // should always be CHOICE_BOTH
+                        live[op[2]] = true;
+                    }
+                }
             }
 
             // Two input registers
@@ -143,9 +167,21 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
             OP_MAX_REG_REG,
             OP_AND_REG_REG,
             OP_OR_REG_REG: {
-                // TODO handle choices here
-                live[op[2]] = true;
-                live[op[3]] = true;
+                switch stack_pop(stack) {
+                    case CHOICE_LEFT: {
+                        op[0] = OP_COPY_REG; // argument is already in op[2]
+                        live[op[2]] = true;
+                    }
+                    case CHOICE_RIGHT: {
+                        op[0] = OP_COPY_REG;
+                        live[op[3]] = true;
+                        op[2] = op[3];
+                    }
+                    default: { // should always be CHOICE_BOTH
+                        live[op[2]] = true;
+                        live[op[3]] = true;
+                    }
+                }
             }
 
             case OP_JUMP: {
