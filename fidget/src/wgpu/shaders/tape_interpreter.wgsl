@@ -43,7 +43,7 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
     var reg: array<Value, 256>;
 
     var out = TapeResult(build_imm(nan_f32()), 0, 0, false);
-    while (true) {
+    while count < 16384 { // reasonable timeout
         count += 1;
         let op = unpack4xU8(config.tape_data[i]);
         let imm_u = config.tape_data[i + 1];

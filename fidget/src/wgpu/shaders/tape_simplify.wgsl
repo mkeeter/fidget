@@ -20,9 +20,9 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         return 0u;
     }
 
-    var gas = 5000;
-    while (gas > 0) {
-        gas -= 1;
+    var count = 0;
+    while count < 16384 {
+        count += 1; // reasonable timeout
 
         i = i - 2;
         j = j - 2; // reserve space
