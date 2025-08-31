@@ -218,6 +218,8 @@ struct RootContext {
 ///
 /// This must be equivalent to `strata_size_bytes` in the interval root shader
 fn strata_size_bytes(render_size: VoxelSize) -> usize {
+    assert!(render_size.width().is_multiple_of(64));
+    assert!(render_size.height().is_multiple_of(64));
     let nx = (render_size.width() / 64) as usize;
     let ny = (render_size.height() / 64) as usize;
     ((nx * ny + 4) * std::mem::size_of::<u32>()).next_multiple_of(256)
@@ -1100,15 +1102,11 @@ impl Context {
             // step also resets counters for subsequent strata.  We skip this
             // step if we're in DEBUG_MODE and rendering a single strata,
             // because we want those buffers to remain un-reset.
-            if DEBUG_MODE && settings.image_size == VoxelSize::from(64) {
+            if DEBUG_MODE && render_size.depth() == 64 {
                 continue;
             }
-            self.backfill_ctx.run(
-                self,
-                strata,
-                settings.image_size,
-                &mut compute_pass,
-            );
+            self.backfill_ctx
+                .run(self, strata, render_size, &mut compute_pass);
         }
         drop(compute_pass);
 

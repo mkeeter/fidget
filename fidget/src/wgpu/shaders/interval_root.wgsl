@@ -21,13 +21,6 @@ fn interval_root_main(
     // Calculate render size in tile units
     let size64 = config.render_size / 64;
 
-    let tile_index_xyz = tile_corner.x + 
-        tile_corner.y * size64.x +
-        tile_corner.z * size64.x * size64.y;
-
-    // Reset this tile's position in the tape tree
-    tile_tape[tile_index_xyz] = 0u;
-
     if (tile_corner.x >= size64.x ||
         tile_corner.y >= size64.y ||
         tile_corner.z >= size64.z)
@@ -35,20 +28,18 @@ fn interval_root_main(
         return;
     }
 
+    let tile_index_xyz = tile_corner.x +
+        tile_corner.y * size64.x +
+        tile_corner.z * size64.x * size64.y;
+
+    // Reset this tile's position in the tape tree
+    tile_tape[tile_index_xyz] = 0u;
+
     // Tile's lower z position, in voxels
     let corner_z = tile_corner.z * TILE_SIZE;
 
     // Compute transformed interval regions
     let m = interval_inputs(tile_corner, TILE_SIZE);
-
-    // Check for Z masking from tile, in case one of the other tiles finished
-    // first and was unambiguously filled.  This isn't likely, but the check is
-    // cheap, so why not?
-    let tile_index_xy = tile_corner.x + tile_corner.y * size64.x;
-    let tz = tile_zmin[tile_index_xy];
-    if tz > 0 && tile_zmin[tile_index_xy] >= corner_z {
-        return;
-    }
 
     // Do the actual interpreter work
     var stack = Stack();
