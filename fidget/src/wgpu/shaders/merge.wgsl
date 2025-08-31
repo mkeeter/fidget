@@ -34,7 +34,7 @@ fn merge_main(
     let index4 = global_id.x / 4 + global_id.y / 4 * size4.x;
     out = max(out, tile4_zmin[index4]);
 
-    out = max(out, result[pixel_index]);
+    out = max(out, result[global_id.x + global_id.y * config.render_size.x]);
 
     merged[pixel_index] = out;
 }
