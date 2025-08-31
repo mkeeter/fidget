@@ -4,10 +4,7 @@ use crate::{
     eval::Function,
     render::{GeometryBuffer, GeometryPixel, VoxelSize},
     vm::VmShape,
-    wgpu::{
-        opcode_constants,
-        util::{resize_buffer_with, write_storage_buffer},
-    },
+    wgpu::{opcode_constants, util::resize_buffer_with},
 };
 use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -277,13 +274,8 @@ impl RootContext {
         }
     }
 
-    fn reset(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        render_size: VoxelSize,
-    ) {
-        self.tile64_buffers.reset_root(device, queue, render_size)
+    fn reset(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
+        self.tile64_buffers.reset_root(device, render_size)
     }
 
     fn run(
@@ -416,14 +408,9 @@ impl IntervalContext {
         }
     }
 
-    fn reset(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        render_size: VoxelSize,
-    ) {
-        self.tile16_buffers.reset(device, queue, render_size);
-        self.tile4_buffers.reset(device, queue, render_size);
+    fn reset(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
+        self.tile16_buffers.reset(device, render_size);
+        self.tile4_buffers.reset(device, render_size);
     }
 
     fn run(
@@ -735,7 +722,6 @@ pub struct Context {
 struct TileBuffers<const N: usize> {
     tiles: wgpu::Buffer,
     zmin: wgpu::Buffer,
-    zmin_scratch: Vec<u32>,
 }
 
 impl<const N: usize> TileBuffers<N> {
@@ -743,17 +729,11 @@ impl<const N: usize> TileBuffers<N> {
         Self {
             tiles: scratch_buffer(device),
             zmin: scratch_buffer(device),
-            zmin_scratch: vec![],
         }
     }
 
     /// Reset buffers, allocating room for densely packed tiles
-    fn reset(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        render_size: VoxelSize,
-    ) {
+    fn reset(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
         let nx = render_size.width() as usize / N;
         let ny = render_size.height() as usize / N;
         let nz = 64 / N;
@@ -767,16 +747,11 @@ impl<const N: usize> TileBuffers<N> {
             4 + nx * ny * nz,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
-        self.reset_zmin(device, queue, render_size);
+        self.reset_zmin(device, render_size);
     }
 
     /// Reset a root tiles buffer, which stores strata-packed tile lists
-    fn reset_root(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        render_size: VoxelSize,
-    ) {
+    fn reset_root(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
         assert_eq!(N, 64);
         let nz = render_size.depth() as usize / N;
 
@@ -793,27 +768,19 @@ impl<const N: usize> TileBuffers<N> {
             total_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
-        self.reset_zmin(device, queue, render_size);
+        self.reset_zmin(device, render_size);
     }
 
-    fn reset_zmin(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        render_size: VoxelSize,
-    ) {
+    fn reset_zmin(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
         // zero out the zmin buffer
         let nx = render_size.width() as usize / N;
         let ny = render_size.height() as usize / N;
-        if self.zmin_scratch.len() != nx * ny {
-            self.zmin_scratch.resize(nx * ny, 0u32);
-        }
-        write_storage_buffer(
+        resize_buffer_with::<u32>(
             device,
-            queue,
             &mut self.zmin,
             &format!("tile{N}_zmin"),
-            &self.zmin_scratch,
+            nx * ny,
+            wgpu::BufferUsages::STORAGE,
         );
     }
 }
@@ -826,7 +793,6 @@ struct DynamicBuffers {
     ///
     /// (dynamic size, implicit from image size in config)
     result: wgpu::Buffer,
-    result_scratch: Vec<u32>,
 
     /// Combined result buffer, at the target image size
     ///
@@ -859,16 +825,10 @@ impl DynamicBuffers {
             image: scratch_buffer(device),
             merged: scratch_buffer(device),
             geom: scratch_buffer(device),
-            result_scratch: vec![],
         }
     }
 
-    fn reset(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        image_size: VoxelSize,
-    ) {
+    fn reset(&mut self, device: &wgpu::Device, image_size: VoxelSize) {
         let nx = image_size.width().next_multiple_of(64) as usize;
         let ny = image_size.height().next_multiple_of(64) as usize;
         let render_pixels = nx * ny;
@@ -877,19 +837,8 @@ impl DynamicBuffers {
             &mut self.result,
             "result",
             render_pixels,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE,
         );
-        if render_pixels != self.result_scratch.len() {
-            self.result_scratch.resize(render_pixels, 0u32);
-        }
-        queue
-            .write_buffer_with(
-                &self.result,
-                0,
-                (render_pixels as u64 * 4).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice(self.result_scratch.as_bytes());
 
         let image_pixels =
             image_size.width() as usize * image_size.height() as usize;
@@ -898,19 +847,8 @@ impl DynamicBuffers {
             &mut self.merged,
             "merged",
             image_pixels,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         );
-        queue
-            .write_buffer_with(
-                &self.merged,
-                0,
-                (image_pixels as u64 * 4).try_into().unwrap(),
-            )
-            .unwrap()
-            .copy_from_slice(self.result_scratch[..image_pixels].as_bytes());
-
         resize_buffer_with::<GeometryPixel>(
             device,
             &mut self.geom,
@@ -1093,11 +1031,9 @@ impl Context {
                 });
         }
 
-        self.buffers
-            .reset(&self.device, &self.queue, settings.image_size);
-        self.root_ctx.reset(&self.device, &self.queue, render_size);
-        self.interval_ctx
-            .reset(&self.device, &self.queue, render_size);
+        self.buffers.reset(&self.device, settings.image_size);
+        self.root_ctx.reset(&self.device, render_size);
+        self.interval_ctx.reset(&self.device, render_size);
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = self.device.create_command_encoder(
@@ -1552,9 +1488,12 @@ impl ClearContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_rw(0), // voxel_result
-                    buffer_rw(1), // voxel_merged
-                    buffer_rw(2), // geom
+                    buffer_rw(0), // tile64_zmin
+                    buffer_rw(1), // tile16_zmin
+                    buffer_rw(2), // tile4_zmin
+                    buffer_rw(3), // voxel_result
+                    buffer_rw(4), // voxel_merged
+                    buffer_rw(5), // geom
                 ],
             });
 
@@ -1601,6 +1540,9 @@ impl ClearContext {
         let result = &ctx.buffers.result;
         let merged = &ctx.buffers.merged;
         let geom = &ctx.buffers.geom;
+        let tile64_zmin = &ctx.root_ctx.tile64_buffers.zmin;
+        let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
+        let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
 
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1609,14 +1551,26 @@ impl ClearContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: result.as_entire_binding(),
+                        resource: tile64_zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: merged.as_entire_binding(),
+                        resource: tile16_zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
+                        resource: tile4_zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: result.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: merged.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
                         resource: geom.as_entire_binding(),
                     },
                 ],
@@ -1664,6 +1618,7 @@ mod test {
             (normals_shader(16), "normals tiles"),
             (merge_shader(), "merge"),
             (backfill_shader(), "backfill"),
+            (clear_shader(), "clear"),
         ] {
             // This isn't the best formatting, but it will at least include the
             // relevant text.
