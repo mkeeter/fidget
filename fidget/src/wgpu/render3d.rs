@@ -23,6 +23,7 @@ const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
 const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
+const CLEAR_SHADER: &str = include_str!("shaders/clear.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
@@ -146,6 +147,11 @@ pub fn normals_shader(reg_count: u8) -> String {
 /// Returns a shader for merging images
 pub fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER
+}
+
+/// Returns a shader for clearing images
+pub fn clear_shader() -> String {
+    CLEAR_SHADER.to_owned() + COMMON_SHADER
 }
 
 /// Returns a shader for backfilling tile `zmin` values
@@ -723,6 +729,7 @@ pub struct Context {
     normals_ctx: NormalsContext,
     backfill_ctx: BackfillContext,
     merge_ctx: MergeContext,
+    clear_ctx: ClearContext,
 }
 
 struct TileBuffers<const N: usize> {
@@ -886,7 +893,6 @@ impl DynamicBuffers {
 
         let image_pixels =
             image_size.width() as usize * image_size.height() as usize;
-        println!("image pixels: {image_pixels} ({image_size:?})");
         resize_buffer_with::<u32>(
             device,
             &mut self.merged,
@@ -982,6 +988,7 @@ impl Context {
         let backfill_ctx =
             BackfillContext::new(&device, &common_bind_group_layout);
         let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
+        let clear_ctx = ClearContext::new(&device, &common_bind_group_layout);
         let buffers = DynamicBuffers::new(&device);
 
         Ok(Self {
@@ -997,6 +1004,7 @@ impl Context {
             normals_ctx,
             backfill_ctx,
             merge_ctx,
+            clear_ctx,
         })
     }
 
@@ -1121,6 +1129,10 @@ impl Context {
         compute_pass.set_bind_group(0, &bind_group, &[]);
         let reg_count = bc.reg_count;
 
+        // Initial image clearing pass
+        self.clear_ctx
+            .run(self, settings.image_size, &mut compute_pass);
+
         // Populate root tiles
         self.root_ctx
             .run(self, reg_count, render_size, &mut compute_pass);
@@ -1171,11 +1183,6 @@ impl Context {
             &self.buffers.image,
             0,
             self.buffers.geom.size(),
-        );
-        println!(
-            "geom buffer size: {} ({} pixels)",
-            self.buffers.geom.size(),
-            self.buffers.geom.size() / 16
         );
 
         // Submit the commands and wait for the GPU to complete
@@ -1515,6 +1522,102 @@ impl MergeContext {
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: ctx.buffers.merged.as_entire_binding(),
+                    },
+                ],
+            });
+        compute_pass.set_pipeline(&self.pipeline);
+        compute_pass.set_bind_group(1, &bind_group, &[]);
+        compute_pass.dispatch_workgroups(
+            image_size.width().div_ceil(8),
+            image_size.width().div_ceil(8),
+            1,
+        );
+    }
+}
+
+struct ClearContext {
+    bind_group_layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::ComputePipeline,
+}
+
+impl ClearContext {
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let shader_code = clear_shader();
+
+        // Create bind group layout and bind group
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_rw(0), // voxel_result
+                    buffer_rw(1), // voxel_merged
+                    buffer_rw(2), // geom
+                ],
+            });
+
+        // Create the compute pipeline
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    common_bind_group_layout,
+                    &bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        // Compile the shader
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+
+        let pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("clear"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("clear_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        Self {
+            pipeline,
+            bind_group_layout,
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &Context,
+        image_size: VoxelSize,
+        compute_pass: &mut wgpu::ComputePass,
+    ) {
+        let result = &ctx.buffers.result;
+        let merged = &ctx.buffers.merged;
+        let geom = &ctx.buffers.geom;
+
+        let bind_group =
+            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: result.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: merged.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: geom.as_entire_binding(),
                     },
                 ],
             });
