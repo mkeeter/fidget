@@ -78,7 +78,7 @@ impl<const N: usize> Tape for GenericVmTape<N> {
 /// A trace captured by a VM evaluation
 ///
 /// This is a thin wrapper around a [`Vec<Choice>`](Choice).
-#[derive(Clone, Default, Eq, PartialEq, Hash)]
+#[derive(Clone, Default, Eq, PartialEq)]
 pub struct VmTrace(Vec<Choice>);
 
 impl VmTrace {

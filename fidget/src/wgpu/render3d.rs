@@ -1463,7 +1463,7 @@ impl MergeContext {
         compute_pass.set_bind_group(1, &bind_group, &[]);
         compute_pass.dispatch_workgroups(
             image_size.width().div_ceil(8),
-            image_size.width().div_ceil(8),
+            image_size.height().div_ceil(8),
             1,
         );
     }
@@ -1577,7 +1577,7 @@ impl ClearContext {
         compute_pass.set_bind_group(1, &bind_group, &[]);
         compute_pass.dispatch_workgroups(
             image_size.width().div_ceil(8),
-            image_size.width().div_ceil(8),
+            image_size.height().div_ceil(8),
             1,
         );
     }
