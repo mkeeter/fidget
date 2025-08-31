@@ -9,6 +9,7 @@ use crate::{
         util::{resize_buffer_with, write_storage_buffer},
     },
 };
+use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const DEBUG_MODE: bool = false;
@@ -95,8 +96,9 @@ struct Config {
 const TAPE_DATA_CAPACITY: usize = 1024 * 1024 * 16; // 16M words, 64 MiB
 
 /// Returns a shader for interval root tiles
-pub fn interval_root_shader() -> String {
+pub fn interval_root_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
+    shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_ROOT_SHADER;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
@@ -107,8 +109,9 @@ pub fn interval_root_shader() -> String {
 }
 
 /// Returns a shader for interval tile evaluation
-pub fn interval_tiles_shader() -> String {
+pub fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
+    shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
@@ -119,8 +122,9 @@ pub fn interval_tiles_shader() -> String {
 }
 
 /// Returns a shader for interval tile evaluation
-pub fn voxel_tiles_shader() -> String {
+pub fn voxel_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
+    shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
@@ -129,8 +133,9 @@ pub fn voxel_tiles_shader() -> String {
 }
 
 /// Returns a shader for interval tile evaluation
-pub fn normals_shader() -> String {
+pub fn normals_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
+    shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
@@ -176,12 +181,31 @@ fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+struct RegPipeline(BTreeMap<u8, wgpu::ComputePipeline>);
+
+impl RegPipeline {
+    fn build<F: Fn(u8) -> wgpu::ComputePipeline>(builder: F) -> Self {
+        let mut out = BTreeMap::new();
+        for reg_count in [8, 16, 32, 64, 128, 192, 255] {
+            out.insert(reg_count, builder(reg_count));
+        }
+        Self(out)
+    }
+
+    /// Returns the pipeline with sufficient registers to render `reg_count`
+    fn get(&self, reg_count: u8) -> &wgpu::ComputePipeline {
+        let (r, v) = self.0.range(reg_count..).next().unwrap();
+        assert!(*r >= reg_count);
+        v
+    }
+}
+
 struct RootContext {
     /// Input tiles (64^3)
     tile64_buffers: TileBuffers<64>,
 
-    /// Pipeline for 64^3 tile evaluation
-    root_pipeline: wgpu::ComputePipeline,
+    /// Pipelines for 64^3 tile evaluation
+    root_pipeline: RegPipeline,
 
     /// Bind group layout
     bind_group_layout: wgpu::BindGroupLayout,
@@ -213,30 +237,32 @@ impl RootContext {
 
         let tile64_buffers = TileBuffers::new(device);
 
-        let shader_code = interval_root_shader();
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let root_pipeline =
+        let root_pipeline = RegPipeline::build(|reg_count| {
+            let shader_code = interval_root_shader(reg_count);
+            let pipeline_layout = device.create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[
+                        common_bind_group_layout,
+                        &bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                },
+            );
+            let shader_module =
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("interval root"),
+                label: Some(&format!("interval root ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("interval_root_main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            })
+        });
 
         Self {
             bind_group_layout,
@@ -257,6 +283,7 @@ impl RootContext {
     fn run(
         &self,
         ctx: &Context,
+        reg_count: u8,
         render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
@@ -276,7 +303,7 @@ impl RootContext {
                 ],
             });
 
-        compute_pass.set_pipeline(&self.root_pipeline);
+        compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group, &[]);
         let nx = (render_size.width() / 64).div_ceil(4);
         let ny = (render_size.height() / 64).div_ceil(4);
@@ -295,10 +322,10 @@ struct IntervalContext {
     tile4_buffers: TileBuffers<4>,
 
     /// Pipeline for 64^3 -> 16^3 tile evaluation evaluation
-    interval64_pipeline: wgpu::ComputePipeline,
+    interval64_pipeline: RegPipeline,
 
     /// Pipeline for 16^3 -> 4^3 tile evaluation evaluation
-    interval16_pipeline: wgpu::ComputePipeline,
+    interval16_pipeline: RegPipeline,
 
     /// Bind group layout
     bind_group_layout: wgpu::BindGroupLayout,
@@ -324,7 +351,6 @@ impl IntervalContext {
         let tile16_buffers = TileBuffers::new(device);
         let tile4_buffers = TileBuffers::new(device);
 
-        let shader_code = interval_tiles_shader();
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
@@ -334,14 +360,16 @@ impl IntervalContext {
                 ],
                 push_constant_ranges: &[],
             });
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let interval64_pipeline =
+
+        let interval64_pipeline = RegPipeline::build(|reg_count| {
+            let shader_code = interval_tiles_shader(reg_count);
+            let shader_module =
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("interval"),
+                label: Some(&format!("interval64 ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("interval_tile_main"),
@@ -350,10 +378,18 @@ impl IntervalContext {
                     ..Default::default()
                 },
                 cache: None,
-            });
-        let interval16_pipeline =
+            })
+        });
+
+        let interval16_pipeline = RegPipeline::build(|reg_count| {
+            let shader_code = interval_tiles_shader(reg_count);
+            let shader_module =
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("interval"),
+                label: Some(&format!("interval16 ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("interval_tile_main"),
@@ -362,7 +398,8 @@ impl IntervalContext {
                     ..Default::default()
                 },
                 cache: None,
-            });
+            })
+        });
 
         Self {
             bind_group_layout,
@@ -387,6 +424,7 @@ impl IntervalContext {
         &self,
         ctx: &Context,
         strata: usize,
+        reg_count: u8,
         render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
@@ -423,7 +461,7 @@ impl IntervalContext {
                     },
                 ],
             });
-        compute_pass.set_pipeline(&self.interval64_pipeline);
+        compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass.dispatch_workgroups_indirect(
             &ctx.root_ctx.tile64_buffers.tiles,
@@ -453,7 +491,7 @@ impl IntervalContext {
                     },
                 ],
             });
-        compute_pass.set_pipeline(&self.interval16_pipeline);
+        compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group4, &[]);
         compute_pass
             .dispatch_workgroups_indirect(&self.tile16_buffers.tiles, 0);
@@ -467,7 +505,7 @@ struct VoxelContext {
     bind_group_layout: wgpu::BindGroupLayout,
 
     /// Pipeline for interpreted voxel evaluation
-    voxel_pipeline: wgpu::ComputePipeline,
+    voxel_pipeline: RegPipeline,
 }
 
 impl VoxelContext {
@@ -486,30 +524,32 @@ impl VoxelContext {
                 ],
             });
 
-        let shader_code = voxel_tiles_shader();
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let voxel_pipeline =
+        let voxel_pipeline = RegPipeline::build(|reg_count| {
+            let shader_code = voxel_tiles_shader(reg_count);
+            let pipeline_layout = device.create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[
+                        common_bind_group_layout,
+                        &bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                },
+            );
+            let shader_module =
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("voxels"),
+                label: Some(&format!("voxels ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("voxel_ray_main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            })
+        });
 
         Self {
             bind_group_layout,
@@ -517,7 +557,12 @@ impl VoxelContext {
         }
     }
 
-    fn run(&self, ctx: &Context, compute_pass: &mut wgpu::ComputePass) {
+    fn run(
+        &self,
+        ctx: &Context,
+        reg_count: u8,
+        compute_pass: &mut wgpu::ComputePass,
+    ) {
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -546,7 +591,7 @@ impl VoxelContext {
                 ],
             });
 
-        compute_pass.set_pipeline(&self.voxel_pipeline);
+        compute_pass.set_pipeline(self.voxel_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
@@ -563,7 +608,7 @@ struct NormalsContext {
     bind_group_layout: wgpu::BindGroupLayout,
 
     /// Pipeline for normal evaluation
-    normals_pipeline: wgpu::ComputePipeline,
+    normals_pipeline: RegPipeline,
 }
 
 impl NormalsContext {
@@ -582,30 +627,32 @@ impl NormalsContext {
                 ],
             });
 
-        let shader_code = normals_shader();
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let normals_pipeline =
+        let normals_pipeline = RegPipeline::build(|reg_count| {
+            let shader_code = normals_shader(reg_count);
+            let pipeline_layout = device.create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[
+                        common_bind_group_layout,
+                        &bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                },
+            );
+            let shader_module =
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("normals"),
+                label: Some(&format!("normals ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("normals_main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            })
+        });
 
         Self {
             bind_group_layout,
@@ -617,6 +664,7 @@ impl NormalsContext {
         &self,
         ctx: &Context,
         strata: usize,
+        reg_count: u8,
         render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
@@ -647,7 +695,7 @@ impl NormalsContext {
                 ],
             });
 
-        compute_pass.set_pipeline(&self.normals_pipeline);
+        compute_pass.set_pipeline(self.normals_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
         compute_pass.dispatch_workgroups_indirect(
@@ -838,13 +886,25 @@ impl DynamicBuffers {
 
         let image_pixels =
             image_size.width() as usize * image_size.height() as usize;
+        println!("image pixels: {image_pixels} ({image_size:?})");
         resize_buffer_with::<u32>(
             device,
             &mut self.merged,
             "merged",
             image_pixels,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
+        queue
+            .write_buffer_with(
+                &self.merged,
+                0,
+                (image_pixels as u64 * 4).try_into().unwrap(),
+            )
+            .unwrap()
+            .copy_from_slice(self.result_scratch[..image_pixels].as_bytes());
+
         resize_buffer_with::<GeometryPixel>(
             device,
             &mut self.geom,
@@ -1025,7 +1085,8 @@ impl Context {
                 });
         }
 
-        self.buffers.reset(&self.device, &self.queue, render_size);
+        self.buffers
+            .reset(&self.device, &self.queue, settings.image_size);
         self.root_ctx.reset(&self.device, &self.queue, render_size);
         self.interval_ctx
             .reset(&self.device, &self.queue, render_size);
@@ -1058,22 +1119,34 @@ impl Context {
                 ],
             });
         compute_pass.set_bind_group(0, &bind_group, &[]);
+        let reg_count = bc.reg_count;
 
         // Populate root tiles
-        self.root_ctx.run(self, render_size, &mut compute_pass);
+        self.root_ctx
+            .run(self, reg_count, render_size, &mut compute_pass);
 
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         for strata in (0..render_size.depth() as usize / 64).rev() {
-            self.interval_ctx
-                .run(self, strata, render_size, &mut compute_pass);
-            self.voxel_ctx.run(self, &mut compute_pass);
+            self.interval_ctx.run(
+                self,
+                strata,
+                reg_count,
+                render_size,
+                &mut compute_pass,
+            );
+            self.voxel_ctx.run(self, reg_count, &mut compute_pass);
 
             // It's somewhat overkill to run `merge` after each layer, but it's
             // also very cheap.
             self.merge_ctx
                 .run(self, settings.image_size, &mut compute_pass);
-            self.normals_ctx
-                .run(self, strata, render_size, &mut compute_pass);
+            self.normals_ctx.run(
+                self,
+                strata,
+                reg_count,
+                render_size,
+                &mut compute_pass,
+            );
 
             // Backfill from smaller tiles to larger tiles, for culling. This
             // step also resets counters for subsequent strata.  We skip this
@@ -1098,6 +1171,11 @@ impl Context {
             &self.buffers.image,
             0,
             self.buffers.geom.size(),
+        );
+        println!(
+            "geom buffer size: {} ({} pixels)",
+            self.buffers.geom.size(),
+            self.buffers.geom.size() / 16
         );
 
         // Submit the commands and wait for the GPU to complete
@@ -1477,10 +1555,10 @@ mod test {
             naga::valid::Capabilities::all(),
         );
         for (src, desc) in [
-            (interval_root_shader(), "interval root"),
-            (interval_tiles_shader(), "interval tiles"),
-            (voxel_tiles_shader(), "voxel tiles"),
-            (normals_shader(), "normals tiles"),
+            (interval_root_shader(16), "interval root"),
+            (interval_tiles_shader(16), "interval tiles"),
+            (voxel_tiles_shader(16), "voxel tiles"),
+            (normals_shader(16), "normals tiles"),
             (merge_shader(), "merge"),
             (backfill_shader(), "backfill"),
         ] {

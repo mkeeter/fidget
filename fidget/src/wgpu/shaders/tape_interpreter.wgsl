@@ -39,7 +39,7 @@ struct TapeResult {
 fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) -> TapeResult {
     var i: u32 = start;
     var count: u32 = 0u;
-    var reg: array<Value, 256>;
+    var reg: array<Value, REG_COUNT>;
 
     var out = TapeResult(build_imm(nan_f32()), 0, 0);
     while count < 16384 { // reasonable timeout

@@ -308,7 +308,9 @@ fn run3d<
     let start;
     if settings.wgpu {
         let shape = fidget::vm::VmShape::new(ctx, root).unwrap();
+        let wgpu_start = std::time::Instant::now();
         let mut ctx = fidget::wgpu::render3d::Context::new().unwrap();
+        info!("Built WGPU context in {:?}", wgpu_start.elapsed());
         let cfg = fidget::wgpu::render3d::RenderConfig {
             image_size,
             world_to_model,
