@@ -1,4 +1,4 @@
-# 0.3.9 (unreleased)
+# 0.3.9
 - Fix panic in tape construction if a multi-output expression has a constant as
   an output.
 - Add `Function::can_simplify` to check whether a `Function` can _ever_ be
