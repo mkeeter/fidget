@@ -105,7 +105,7 @@ impl Interval {
         let (pi_lower, pi_upper) = (PI.next_down(), PI);
         let x2 = 2.0 * self.lower;
         let lower_quadrant = if self.lower.abs() <= pi_lower {
-             if x2 < -pi_lower {
+            if x2 < -pi_lower {
                 2
             } else if x2 < 0.0 {
                 3

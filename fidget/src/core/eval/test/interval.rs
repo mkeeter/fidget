@@ -200,7 +200,7 @@ where
         let mut eval = F::new_interval_eval();
         assert_eq!(
             eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
-            [-1.0, 1.0].into()
+            [0.0, 1.0_f32.sin()].into()
         );
 
         let y = ctx.y();
@@ -213,7 +213,7 @@ where
 
         assert_eq!(
             eval.eval(&tape, &vs([0.0, 3.0], [0.0, 0.0])).unwrap().0[0],
-            [-1.0, 4.0].into()
+            [0.0, 3.0].into()
         );
     }
 
