@@ -1,5 +1,6 @@
 use crate::vm::Choice;
 use std::f32::consts::PI;
+use std::f32::consts::TAU;
 
 /// Stores a range, with conservative calculations to guarantee that it always
 /// contains the actual value.
@@ -91,28 +92,141 @@ impl Interval {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
     }
+    /// computes the trigonometric quadrants occupied by the bounds of the interval
+    #[inline]
+    fn quadrants(self) -> (u8, u8) {
+        // std::f32::consts::PI == 3.141592741...
+        //       PI.next_down() == 3.141592502...
+        //         pi.next_up() == 3.141592979...
+        //   actual value of pi == 3.141592653...
+        //
+        // So the std library constant is an UPPER bound on the value of pi,
+        // and the value returned by next_down() is a LOWER bound.
+        let (pi_lower, pi_upper) = (PI.next_down(), PI);
+        let x2 = 2.0 * self.lower;
+        let lower_quadrant = if self.lower.abs() <= pi_lower {
+            if x2 <= -pi_upper {
+                2
+            } else if x2 < -pi_lower {
+                2
+            } else if x2 < 0.0 {
+                3
+            } else if x2 <= pi_lower {
+                0
+            } else if x2 < pi_upper {
+                0
+            } else {
+                1
+            }
+        } else {
+            (((x2 / PI).floor() as u32) % 4) as u8
+        };
+        let y2 = 2.0 * self.upper;
+        let upper_quadrant = if self.lower.abs() <= pi_lower {
+            if y2 <= -pi_upper {
+                2
+            } else if y2 < -pi_lower {
+                3
+            } else if y2 < 0.0 {
+                3
+            } else if y2 <= pi_lower {
+                0
+            } else if y2 < pi_upper {
+                1
+            } else {
+                1
+            }
+        } else {
+            (((y2 / PI).floor() as u32) % 4) as u8
+        };
+        (lower_quadrant, upper_quadrant)
+    }
     /// Computes the sine of the interval
-    ///
-    /// Right now, this always returns the maximum range of `[-1, 1]`
     #[inline]
     pub fn sin(self) -> Self {
         if self.has_nan() {
             f32::NAN.into()
-        } else {
-            // TODO: make this smarter
+        } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
+        } else {
+            let (lower_quadrant, upper_quadrant) = self.quadrants();
+            let d = self.width();
+            if lower_quadrant == upper_quadrant {
+                if d >= PI {
+                    Interval::new(-1.0, 1.0)
+                } else if (lower_quadrant == 1) || (lower_quadrant == 2) {
+                    Interval::new(self.upper.sin(), self.lower.sin()) // decreasing
+                } else {
+                    Interval::new(self.lower.sin(), self.upper.sin())
+                }
+            } else if lower_quadrant == 3 && upper_quadrant == 0 {
+                if d >= PI {
+                    Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                } else {
+                    Interval::new(self.lower.sin(), self.upper.sin()) // increasing
+                }
+            } else if lower_quadrant == 1 && upper_quadrant == 2 {
+                if d >= PI {
+                    Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                } else {
+                    Interval::new(self.upper.sin(), self.lower.sin()) // decreasing
+                }
+            } else if (lower_quadrant == 0 || lower_quadrant == 3)
+                && (upper_quadrant == 1 || upper_quadrant == 2)
+            {
+                Interval::new(self.lower.sin().min(self.upper.sin()), 1.0)
+            } else if (lower_quadrant == 1 || lower_quadrant == 2)
+                && (upper_quadrant == 3 || upper_quadrant == 0)
+            {
+                Interval::new(-1.0, self.lower.sin().max(self.upper.sin()))
+            } else {
+                // (lower_quadrant == 0 && upper_quadrant == 3) || (lower_quadrant == 2 && upper_quadrant == 1)
+                Interval::new(-1.0, 1.0)
+            }
         }
     }
     /// Computes the cosine of the interval
-    ///
-    /// Right now, this always returns the maximum range of `[-1, 1]`
     #[inline]
     pub fn cos(self) -> Self {
         if self.has_nan() {
             f32::NAN.into()
-        } else {
-            // TODO: make this smarter
+        } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
+        } else {
+            let (lower_quadrant, upper_quadrant) = self.quadrants();
+            let d = self.width();
+            if lower_quadrant == upper_quadrant {
+                if d >= PI {
+                    Interval::new(-1.0, 1.0) // diameter >= 2*PI
+                } else if (lower_quadrant == 2) || (lower_quadrant == 3) {
+                    Interval::new(self.lower.cos(), self.upper.cos()) // increasing
+                } else {
+                    Interval::new(self.upper.cos(), self.lower.cos())
+                }
+            } else if lower_quadrant == 2 && upper_quadrant == 3 {
+                if d >= PI {
+                    Interval::new(-1.0, 1.0) // diameter >= 2*PI
+                } else {
+                    Interval::new(self.lower.cos(), self.upper.cos())
+                }
+            } else if lower_quadrant == 0 && upper_quadrant == 1 {
+                if d >= PI {
+                    Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                } else {
+                    Interval::new(self.upper.cos(), self.lower.cos())
+                }
+            } else if (lower_quadrant == 2 || lower_quadrant == 3)
+                && (upper_quadrant == 0 || upper_quadrant == 1)
+            {
+                Interval::new(self.lower.cos().min(self.upper.cos()), 1.0)
+            } else if (lower_quadrant == 0 || lower_quadrant == 1)
+                && (upper_quadrant == 2 || upper_quadrant == 3)
+            {
+                Interval::new(-1.0, self.lower.cos().max(self.upper.cos()))
+            } else {
+                // (lower_quadrant == 3 && upper_quadrant == 2) || (lower_quadrant == 1 && upper_quadrant == 0)
+                Interval::new(-1.0, 1.0)
+            }
         }
     }
     /// Computes the tangent of the interval
