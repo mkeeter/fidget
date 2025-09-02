@@ -92,47 +92,6 @@ impl Interval {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
     }
-    /// computes the trigonometric quadrants occupied by the bounds of the interval
-    #[inline]
-    fn quadrants(self) -> (u8, u8) {
-        // std::f32::consts::PI == 3.141592741...
-        //       PI.next_down() == 3.141592502...
-        //         PI.next_up() == 3.141592979...
-        //   actual value of pi == 3.141592653...
-        //
-        // So the std library constant is an UPPER bound on the value of pi,
-        // and the value returned by next_down() is a LOWER bound.
-        let (pi_lower, pi_upper) = (PI.next_down(), PI);
-        let x2 = 2.0 * self.lower;
-        let lower_quadrant = if self.lower.abs() <= pi_lower {
-            if x2 < -pi_lower {
-                2
-            } else if x2 < 0.0 {
-                3
-            } else if x2 < pi_upper {
-                0
-            } else {
-                1
-            }
-        } else {
-            (x2 / PI).floor().rem_euclid(4.0) as u8
-        };
-        let y2 = 2.0 * self.upper;
-        let upper_quadrant = if self.upper.abs() <= pi_lower {
-            if y2 <= -pi_upper {
-                2
-            } else if y2 < 0.0 {
-                3
-            } else if y2 <= pi_lower {
-                0
-            } else {
-                1
-            }
-        } else {
-            (y2 / PI).floor().rem_euclid(4.0) as u8
-        };
-        (lower_quadrant, upper_quadrant)
-    }
     /// Computes the sine of the interval
     #[inline]
     pub fn sin(self) -> Self {
@@ -141,7 +100,10 @@ impl Interval {
         } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
         } else {
-            let (lower_quadrant, upper_quadrant) = self.quadrants();
+            let lower_quadrant =
+                (self.lower * 2.0 / PI).floor().rem_euclid(4.0) as u8;
+            let upper_quadrant =
+                (self.upper * 2.0 / PI).floor().rem_euclid(4.0) as u8;
             let d = self.width();
             if lower_quadrant == upper_quadrant {
                 if d >= PI {
@@ -185,7 +147,10 @@ impl Interval {
         } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
         } else {
-            let (lower_quadrant, upper_quadrant) = self.quadrants();
+            let lower_quadrant =
+                (self.lower * 2.0 / PI).floor().rem_euclid(4.0) as u8;
+            let upper_quadrant =
+                (self.upper * 2.0 / PI).floor().rem_euclid(4.0) as u8;
             let d = self.width();
             if lower_quadrant == upper_quadrant {
                 if d >= PI {
