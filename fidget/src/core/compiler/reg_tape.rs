@@ -62,7 +62,7 @@ impl RegTape {
     /// This is the opposite of evaluation order; it will visit the root of the
     /// tree first, and end at the leaves.
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, RegOp> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &RegOp> {
         self.into_iter()
     }
     #[inline]

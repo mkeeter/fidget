@@ -266,7 +266,7 @@ impl SsaTape {
     /// Iterates over clauses in the tape in reverse-evaluation order
     ///
     /// The root (output) of the tape will be first in the iterator
-    pub fn iter(&self) -> impl Iterator<Item = &SsaOp> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &SsaOp> {
         self.tape.iter()
     }
 
