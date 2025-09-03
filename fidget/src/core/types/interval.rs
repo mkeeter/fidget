@@ -92,6 +92,18 @@ impl Interval {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
     }
+
+    /// Returns the quadrant for trigonometric functions
+    fn quadrant(angle: f32) -> Quadrant {
+        match (angle * 2.0 / PI).floor().rem_euclid(4.0) as u8 {
+            0 => Quadrant::Q0,
+            1 => Quadrant::Q1,
+            2 => Quadrant::Q2,
+            3 => Quadrant::Q3,
+            _ => unreachable!(),
+        }
+    }
+
     /// Computes the sine of the interval
     #[inline]
     pub fn sin(self) -> Self {
@@ -100,42 +112,45 @@ impl Interval {
         } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
         } else {
-            let lower_quadrant =
-                (self.lower * 2.0 / PI).floor().rem_euclid(4.0) as u8;
-            let upper_quadrant =
-                (self.upper * 2.0 / PI).floor().rem_euclid(4.0) as u8;
+            use Quadrant::*;
+            let lower_quadrant = Self::quadrant(self.lower);
+            let upper_quadrant = Self::quadrant(self.upper);
             let d = self.width();
-            if lower_quadrant == upper_quadrant {
-                if d >= PI {
+            match (lower_quadrant, upper_quadrant) {
+                (Q0, Q0) | (Q1, Q1) | (Q2, Q2) | (Q3, Q3) if d >= PI => {
                     Interval::new(-1.0, 1.0)
-                } else if (lower_quadrant == 1) || (lower_quadrant == 2) {
-                    Interval::new(self.upper.sin(), self.lower.sin()) // decreasing
-                } else {
+                }
+                (Q1, Q1) | (Q2, Q2) => {
+                    // decreasing quadrant
+                    Interval::new(self.upper.sin(), self.lower.sin())
+                }
+                (Q0, Q0) | (Q3, Q3) => {
+                    // increasing quadrant
                     Interval::new(self.lower.sin(), self.upper.sin())
                 }
-            } else if lower_quadrant == 3 && upper_quadrant == 0 {
-                if d >= PI {
-                    Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
-                } else {
-                    Interval::new(self.lower.sin(), self.upper.sin()) // increasing
+                (Q3, Q0) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                    } else {
+                        // increasing
+                        Interval::new(self.lower.sin(), self.upper.sin())
+                    }
                 }
-            } else if lower_quadrant == 1 && upper_quadrant == 2 {
-                if d >= PI {
-                    Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
-                } else {
-                    Interval::new(self.upper.sin(), self.lower.sin()) // decreasing
+                (Q1, Q2) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                    } else {
+                        // decreasing
+                        Interval::new(self.upper.sin(), self.lower.sin())
+                    }
                 }
-            } else if (lower_quadrant == 0 || lower_quadrant == 3)
-                && (upper_quadrant == 1 || upper_quadrant == 2)
-            {
-                Interval::new(self.lower.sin().min(self.upper.sin()), 1.0)
-            } else if (lower_quadrant == 1 || lower_quadrant == 2)
-                && (upper_quadrant == 3 || upper_quadrant == 0)
-            {
-                Interval::new(-1.0, self.lower.sin().max(self.upper.sin()))
-            } else {
-                // (lower_quadrant == 0 && upper_quadrant == 3) || (lower_quadrant == 2 && upper_quadrant == 1)
-                Interval::new(-1.0, 1.0)
+                (Q0 | Q3, Q1 | Q2) => {
+                    Interval::new(self.lower.sin().min(self.upper.sin()), 1.0)
+                }
+                (Q1 | Q2, Q3 | Q0) => {
+                    Interval::new(-1.0, self.lower.sin().max(self.upper.sin()))
+                }
+                (Q0, Q3) | (Q2, Q1) => Interval::new(-1.0, 1.0),
             }
         }
     }
@@ -147,42 +162,43 @@ impl Interval {
         } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
         } else {
-            let lower_quadrant =
-                (self.lower * 2.0 / PI).floor().rem_euclid(4.0) as u8;
-            let upper_quadrant =
-                (self.upper * 2.0 / PI).floor().rem_euclid(4.0) as u8;
+            let lower_quadrant = Self::quadrant(self.lower);
+            let upper_quadrant = Self::quadrant(self.upper);
             let d = self.width();
-            if lower_quadrant == upper_quadrant {
-                if d >= PI {
-                    Interval::new(-1.0, 1.0) // diameter >= 2*PI
-                } else if (lower_quadrant == 2) || (lower_quadrant == 3) {
-                    Interval::new(self.lower.cos(), self.upper.cos()) // increasing
-                } else {
-                    Interval::new(self.upper.cos(), self.lower.cos())
+            use Quadrant::*;
+            match (lower_quadrant, upper_quadrant) {
+                (Q0, Q0) | (Q1, Q1) | (Q2, Q2) | (Q3, Q3) if d >= PI => {
+                    Interval::new(-1.0, 1.0)
                 }
-            } else if lower_quadrant == 2 && upper_quadrant == 3 {
-                if d >= PI {
-                    Interval::new(-1.0, 1.0) // diameter >= 2*PI
-                } else {
+                (Q2, Q2) | (Q3, Q3) => {
+                    // increasing quadrant
                     Interval::new(self.lower.cos(), self.upper.cos())
                 }
-            } else if lower_quadrant == 0 && upper_quadrant == 1 {
-                if d >= PI {
-                    Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
-                } else {
+                (Q0, Q0) | (Q1, Q1) => {
+                    // decreasing quadrant
                     Interval::new(self.upper.cos(), self.lower.cos())
                 }
-            } else if (lower_quadrant == 2 || lower_quadrant == 3)
-                && (upper_quadrant == 0 || upper_quadrant == 1)
-            {
-                Interval::new(self.lower.cos().min(self.upper.cos()), 1.0)
-            } else if (lower_quadrant == 0 || lower_quadrant == 1)
-                && (upper_quadrant == 2 || upper_quadrant == 3)
-            {
-                Interval::new(-1.0, self.lower.cos().max(self.upper.cos()))
-            } else {
-                // (lower_quadrant == 3 && upper_quadrant == 2) || (lower_quadrant == 1 && upper_quadrant == 0)
-                Interval::new(-1.0, 1.0)
+                (Q2, Q3) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 2*PI
+                    } else {
+                        Interval::new(self.lower.cos(), self.upper.cos())
+                    }
+                }
+                (Q0, Q1) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                    } else {
+                        Interval::new(self.upper.cos(), self.lower.cos())
+                    }
+                }
+                (Q2 | Q3, Q0 | Q1) => {
+                    Interval::new(self.lower.cos().min(self.upper.cos()), 1.0)
+                }
+                (Q0 | Q1, Q2 | Q3) => {
+                    Interval::new(-1.0, self.lower.cos().max(self.upper.cos()))
+                }
+                (Q3, Q2) | (Q1, Q0) => Interval::new(-1.0, 1.0),
             }
         }
     }
@@ -642,6 +658,15 @@ impl std::ops::Neg for Interval {
     fn neg(self) -> Self {
         Interval::new(-self.upper, -self.lower)
     }
+}
+
+/// Private helper type for trig functions
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum Quadrant {
+    Q0,
+    Q1,
+    Q2,
+    Q3,
 }
 
 #[cfg(test)]
