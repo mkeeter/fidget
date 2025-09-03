@@ -1,5 +1,6 @@
 use crate::vm::Choice;
 use std::f32::consts::PI;
+use std::f32::consts::TAU;
 
 /// Stores a range, with conservative calculations to guarantee that it always
 /// contains the actual value.
@@ -91,28 +92,114 @@ impl Interval {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
     }
+
+    /// Returns the quadrant for trigonometric functions
+    fn quadrant(angle: f32) -> Quadrant {
+        match (angle * 2.0 / PI).floor().rem_euclid(4.0) as u8 {
+            0 => Quadrant::Q0,
+            1 => Quadrant::Q1,
+            2 => Quadrant::Q2,
+            3 => Quadrant::Q3,
+            _ => unreachable!(),
+        }
+    }
+
     /// Computes the sine of the interval
-    ///
-    /// Right now, this always returns the maximum range of `[-1, 1]`
     #[inline]
     pub fn sin(self) -> Self {
         if self.has_nan() {
             f32::NAN.into()
-        } else {
-            // TODO: make this smarter
+        } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
+        } else {
+            use Quadrant::*;
+            let lower_quadrant = Self::quadrant(self.lower);
+            let upper_quadrant = Self::quadrant(self.upper);
+            let d = self.width();
+            match (lower_quadrant, upper_quadrant) {
+                (Q0, Q0) | (Q1, Q1) | (Q2, Q2) | (Q3, Q3) if d >= PI => {
+                    Interval::new(-1.0, 1.0)
+                }
+                (Q1, Q1) | (Q2, Q2) => {
+                    // decreasing quadrant
+                    Interval::new(self.upper.sin(), self.lower.sin())
+                }
+                (Q0, Q0) | (Q3, Q3) => {
+                    // increasing quadrant
+                    Interval::new(self.lower.sin(), self.upper.sin())
+                }
+                (Q3, Q0) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                    } else {
+                        // increasing
+                        Interval::new(self.lower.sin(), self.upper.sin())
+                    }
+                }
+                (Q1, Q2) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                    } else {
+                        // decreasing
+                        Interval::new(self.upper.sin(), self.lower.sin())
+                    }
+                }
+                (Q0 | Q3, Q1 | Q2) => {
+                    Interval::new(self.lower.sin().min(self.upper.sin()), 1.0)
+                }
+                (Q1 | Q2, Q3 | Q0) => {
+                    Interval::new(-1.0, self.lower.sin().max(self.upper.sin()))
+                }
+                (Q0, Q3) | (Q2, Q1) => Interval::new(-1.0, 1.0),
+            }
         }
     }
     /// Computes the cosine of the interval
-    ///
-    /// Right now, this always returns the maximum range of `[-1, 1]`
     #[inline]
     pub fn cos(self) -> Self {
         if self.has_nan() {
             f32::NAN.into()
-        } else {
-            // TODO: make this smarter
+        } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
+        } else {
+            let lower_quadrant = Self::quadrant(self.lower);
+            let upper_quadrant = Self::quadrant(self.upper);
+            let d = self.width();
+            use Quadrant::*;
+            match (lower_quadrant, upper_quadrant) {
+                (Q0, Q0) | (Q1, Q1) | (Q2, Q2) | (Q3, Q3) if d >= PI => {
+                    Interval::new(-1.0, 1.0)
+                }
+                (Q2, Q2) | (Q3, Q3) => {
+                    // increasing quadrant
+                    Interval::new(self.lower.cos(), self.upper.cos())
+                }
+                (Q0, Q0) | (Q1, Q1) => {
+                    // decreasing quadrant
+                    Interval::new(self.upper.cos(), self.lower.cos())
+                }
+                (Q2, Q3) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 2*PI
+                    } else {
+                        Interval::new(self.lower.cos(), self.upper.cos())
+                    }
+                }
+                (Q0, Q1) => {
+                    if d >= PI {
+                        Interval::new(-1.0, 1.0) // diameter >= 3*PI/2
+                    } else {
+                        Interval::new(self.upper.cos(), self.lower.cos())
+                    }
+                }
+                (Q2 | Q3, Q0 | Q1) => {
+                    Interval::new(self.lower.cos().min(self.upper.cos()), 1.0)
+                }
+                (Q0 | Q1, Q2 | Q3) => {
+                    Interval::new(-1.0, self.lower.cos().max(self.upper.cos()))
+                }
+                (Q3, Q2) | (Q1, Q0) => Interval::new(-1.0, 1.0),
+            }
         }
     }
     /// Computes the tangent of the interval
@@ -571,6 +658,15 @@ impl std::ops::Neg for Interval {
     fn neg(self) -> Self {
         Interval::new(-self.upper, -self.lower)
     }
+}
+
+/// Private helper type for trig functions
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum Quadrant {
+    Q0,
+    Q1,
+    Q2,
+    Q3,
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 # 0.3.10 (unreleased)
 - Return `DoubleEndedIterator` from `RegTape::iter()` and `SsaTape::iter()`,
   making it easier to iterate in reverse order.
+- Tighter interval bounds on `sin` and `cos` (thanks @alexneufeld)
 
 # 0.3.9
 - Fix panic in tape construction if a multi-output expression has a constant as
