@@ -1,13 +1,9 @@
 use crate::{
-    Error,
-    jit::{
-        Assembler, AssemblerData, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT,
-        IMM_REG, OFFSET, REGISTER_LIMIT, interval::IntervalAssembler,
-        mmap::Mmap, reg,
-    },
-    types::Interval,
+    Assembler, AssemblerData, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG,
+    OFFSET, REGISTER_LIMIT, interval::IntervalAssembler, mmap::Mmap, reg,
 };
-use dynasmrt::{DynasmApi, dynasm};
+use dynasmrt::{DynasmApi, DynasmError, dynasm};
+use fidget_core::types::Interval;
 
 /// Implementation for the interval assembler on `aarch64`
 ///
@@ -765,7 +761,7 @@ impl Assembler for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, DynasmError> {
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Restore callee-saved registers

@@ -19,18 +19,15 @@ fn next(axis: usize) -> usize {
     out
 }
 
-fn main() {
-    // The build script stands alone; ignore other changes (e.g. edits to
-    // benchmarks in the benches subfolder).
-    println!("cargo:rerun-if-changed=build.rs");
-    build_mdc_table().unwrap();
-}
-
 /// Builds a table for Manifold Dual Contouring connectivity.
 ///
 /// This is roughly equivalent to Figure 5 in Nielson's Dual Marching Cubes
 /// (2004), but worked out automatically by clustering cell corners.
-fn build_mdc_table() -> Result<(), std::io::Error> {
+fn main() -> Result<(), std::io::Error> {
+    // The build script stands alone; ignore other changes (e.g. edits to
+    // benchmarks in the benches subfolder).
+    println!("cargo:rerun-if-changed=build.rs");
+
     // vert_table will contain 256 entries.  Each entry contains some number of
     // vertices, which each contain some number of edges (as `(u8, u8)` tuples,
     // from inside corner to outside corner)

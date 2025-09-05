@@ -283,3 +283,6 @@ pub use fidget_rhai as rhai;
 
 #[cfg(feature = "mesh")]
 pub use fidget_mesh as mesh;
+
+#[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
+pub use fidget_jit as jit;

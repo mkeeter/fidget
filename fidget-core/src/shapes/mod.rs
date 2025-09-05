@@ -12,8 +12,8 @@
 //! entire shape library, use [`ShapeVisitor`] and [`visit_shapes`].
 //!
 //! For an example of binding shapes into a dynamic language, look at the
-//! implementation of [`fidget::rhai::shapes`](crate::rhai::shapes)
-//! (specifically the internal `register_shape` function).
+//! implementation of `fidget_rhai::shapes` (specifically the internal
+//! `register_shape` function).
 use crate::context::Tree;
 use facet::Facet;
 

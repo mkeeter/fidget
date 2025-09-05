@@ -1438,6 +1438,7 @@ dependencies = [
  "criterion",
  "document-features",
  "fidget-core",
+ "fidget-jit",
  "fidget-mesh",
  "fidget-rhai",
  "rayon",
@@ -1467,12 +1468,10 @@ version = "0.4.0"
 dependencies = [
  "approx",
  "arrayvec",
- "dynasmrt",
  "enum-map",
  "facet",
  "getrandom 0.2.16",
  "getrandom 0.3.3",
- "libc",
  "nalgebra",
  "ordered-float 5.0.0",
  "rand 0.9.2",
@@ -1485,6 +1484,17 @@ dependencies = [
  "windows 0.61.3",
  "workspace-hack",
  "zerocopy",
+]
+
+[[package]]
+name = "fidget-jit"
+version = "0.4.0"
+dependencies = [
+ "arrayvec",
+ "dynasmrt",
+ "fidget-core",
+ "libc",
+ "static_assertions",
 ]
 
 [[package]]

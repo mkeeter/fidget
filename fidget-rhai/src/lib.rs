@@ -29,9 +29,8 @@
 //!
 //! # Trees
 //! The basic type for math expressions is a `Tree`, which is equivalent to
-//! [`fidget_core::context::Tree`](fidget_core::context::Tree).  Trees are
-//! typically built from `(x, y, z)` primitives, which can be constructed with
-//! the `axes()` function:
+//! [`fidget_core::context::Tree`].  Trees are typically built from `(x, y, z)`
+//! primitives, which can be constructed with the `axes()` function:
 //!
 //! ```
 //! # fidget_rhai::engine().run("

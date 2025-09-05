@@ -1,12 +1,13 @@
 [package]
 name = "fidget-rhai"
-version = "0.4.0"
-edition = "2024"
-license = "MPL-2.0"
-repository = "https://github.com/mkeeter/fidget"
 description = "Rhai script evaluation for complex closed-form implicit surfaces"
-authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
 readme = "../README.md"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]

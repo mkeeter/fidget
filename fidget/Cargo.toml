@@ -1,18 +1,20 @@
 [package]
 name = "fidget"
-version = "0.4.0"
-edition = "2024"
-license = "MPL-2.0"
-repository = "https://github.com/mkeeter/fidget"
 description = "Infrastructure for complex closed-form implicit surfaces"
-authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
 readme = "../README.md"
-rust-version = "1.87"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 fidget-core = { path = "../fidget-core", version = "=0.4.0" }
 fidget-rhai = { path = "../fidget-rhai", version = "=0.4.0", optional = true }
 fidget-mesh = { path = "../fidget-mesh", version = "=0.4.0", optional = true }
+fidget-jit =  { path = "../fidget-jit",  version = "=0.4.0", optional = true }
 
 rhai = { workspace = true, optional = true }
 document-features.workspace = true
@@ -26,13 +28,13 @@ default = ["jit", "rhai", "mesh"]
 ## disable the feature on specific platforms
 ## ([Cargo issue](https://github.com/rust-lang/cargo/issues/1197));
 ## users will have to disable it manually via `default-features = false`.
-jit = ["fidget-core/jit"]
+jit = ["fidget-jit"]
 
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
 ## [`fidget::rhai`](crate::rhai) module
 rhai = ["fidget-rhai", "dep:rhai"]
 
-## Enable meshing in the [`fidget::mesh`] module
+## Enable meshing in the [`fidget::mesh`](crate::mesh) module
 mesh = ["fidget-mesh"]
 
 [[bench]]

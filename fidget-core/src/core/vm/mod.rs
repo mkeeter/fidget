@@ -103,14 +103,14 @@ impl Trace for VmTrace {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "eval-tests"))]
 impl From<Vec<Choice>> for VmTrace {
     fn from(v: Vec<Choice>) -> Self {
         Self(v)
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "eval-tests"))]
 impl AsRef<[Choice]> for VmTrace {
     fn as_ref(&self) -> &[Choice] {
         &self.0

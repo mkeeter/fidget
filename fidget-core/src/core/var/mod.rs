@@ -148,10 +148,8 @@ impl VarMap {
         };
     }
 
-    pub(crate) fn check_tracing_arguments<T>(
-        &self,
-        vars: &[T],
-    ) -> Result<(), Error> {
+    /// Checks whether tracing arguments are valid
+    pub fn check_tracing_arguments<T>(&self, vars: &[T]) -> Result<(), Error> {
         if vars.len() < self.len() {
             // It's okay to be passed extra vars, because expressions may have
             // been simplified.
@@ -161,7 +159,8 @@ impl VarMap {
         }
     }
 
-    pub(crate) fn check_bulk_arguments<T, V: std::ops::Deref<Target = [T]>>(
+    /// Check whether bulk arguments are valid
+    pub fn check_bulk_arguments<T, V: std::ops::Deref<Target = [T]>>(
         &self,
         vars: &[V],
     ) -> Result<(), Error> {

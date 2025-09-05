@@ -1,7 +1,5 @@
-use crate::{
-    jit::{AssemblerData, SimdSize},
-    types::Grad,
-};
+use crate::{AssemblerData, SimdSize};
+use fidget_core::types::Grad;
 
 /// Assembler for automatic differentiation / gradient evaluation
 pub struct GradSliceAssembler(pub(crate) AssemblerData<Grad>);

@@ -5,6 +5,7 @@ pub mod interval;
 pub mod point;
 
 // Internal-only tests
+#[cfg(test)] // not enabled for eval-tests
 mod symbolic_deriv;
 
 use crate::{

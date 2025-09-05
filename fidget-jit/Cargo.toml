@@ -1,6 +1,6 @@
 [package]
-name = "fidget-mesh"
-description = "Meshing of complex closed-form implicit surfaces"
+name = "fidget-jit"
+description = "Native JIT compiler for complex closed-form implicit surfaces"
 readme = "../README.md"
 
 version.workspace = true
@@ -14,7 +14,9 @@ rust-version.workspace = true
 fidget-core = { path = "../fidget-core", version = "=0.4.0" }
 
 arrayvec.workspace = true
-nalgebra.workspace = true
-ordered-float.workspace = true
-rayon.workspace = true
+dynasmrt.workspace = true
+libc.workspace = true
 static_assertions.workspace = true
+
+[dev-dependencies]
+fidget-core = { path = "../fidget-core", version = "=0.4.0", features= ["eval-tests"] }

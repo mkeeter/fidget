@@ -80,11 +80,6 @@ pub enum Error {
     /// Tile size list must not be empty
     #[error("tile size list must not be empty")]
     EmptyTileSizes,
-
-    #[cfg(feature = "jit")]
-    /// Dynasm error; see inner code for details
-    #[error("dynasm error")]
-    DynasmError(#[from] dynasmrt::DynasmError),
 }
 
 #[cfg(feature = "rhai")]

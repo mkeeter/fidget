@@ -433,7 +433,7 @@ impl Interval {
     }
 
     /// Checks that the two values are roughly equal, panicking otherwise
-    #[cfg(test)]
+    #[cfg(any(test, feature = "eval-tests"))]
     pub(crate) fn compare_eq(&self, other: Self) {
         let d = (self.lower - other.lower)
             .abs()

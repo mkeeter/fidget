@@ -8,6 +8,3 @@ pub mod gui;
 pub mod render;
 pub mod shapes;
 pub mod solver;
-
-#[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
-pub mod jit;

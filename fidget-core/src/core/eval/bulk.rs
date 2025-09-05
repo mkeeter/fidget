@@ -62,7 +62,10 @@ pub struct BulkOutput<'a, T> {
 }
 
 impl<'a, T> BulkOutput<'a, T> {
-    pub(crate) fn new(data: &'a Vec<Vec<T>>, len: usize) -> Self {
+    /// Builds a new output handle
+    ///
+    /// Within each array in `data`, only the first `len` values are valid
+    pub fn new(data: &'a Vec<Vec<T>>, len: usize) -> Self {
         Self { data, len }
     }
 

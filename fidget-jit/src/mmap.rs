@@ -201,7 +201,7 @@ impl Drop for Mmap {
     }
 }
 
-use crate::jit::WritePermit;
+use crate::WritePermit;
 
 pub struct MmapWriter {
     mmap: Mmap,

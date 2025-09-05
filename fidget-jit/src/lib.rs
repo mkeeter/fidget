@@ -7,8 +7,8 @@
 //! use fidget_core::{
 //!     context::Tree,
 //!     shape::EzShape,
-//!     jit::JitShape,
 //! };
+//! use fidget_jit::JitShape;
 //!
 //! let tree = Tree::x() + Tree::y();
 //! let shape = JitShape::from(tree);
@@ -23,7 +23,8 @@
 //! # Ok::<(), fidget_core::Error>(())
 //! ```
 
-use crate::{
+use crate::mmap::{Mmap, MmapWriter};
+use fidget_core::{
     Error,
     compiler::RegOp,
     context::{Context, Node},
@@ -31,7 +32,6 @@ use crate::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
         TracingEvaluator,
     },
-    jit::mmap::{Mmap, MmapWriter},
     render::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
@@ -279,7 +279,7 @@ trait Assembler {
     fn load_imm(&mut self, imm: f32) -> u8;
 
     /// Finalize the assembly code, returning a memory-mapped region
-    fn finalize(self) -> Result<Mmap, Error>;
+    fn finalize(self) -> Result<Mmap, DynasmError>;
 }
 
 /// Trait defining SIMD width
@@ -373,7 +373,7 @@ impl<T> AssemblerData<T> {
         }
     }
 
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, DynasmError> {
         // Fix up the stack
         if self.mem_offset < 4096 {
             dynasm!(self.ops
@@ -624,7 +624,7 @@ impl MmapAssembler {
     /// Applies all local relocations, clearing the `local_relocs` array
     ///
     /// This should be called after any function which uses local labels.
-    fn commit_local(&mut self) -> Result<(), Error> {
+    fn commit_local(&mut self) -> Result<(), DynasmError> {
         let baseaddr = self.mmap.as_ptr() as usize;
 
         for (loc, label) in self.local_relocs.take() {
@@ -634,15 +634,14 @@ impl MmapAssembler {
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
                     TargetKind::Local("oh no"),
-                )
-                .into());
+                ));
             }
         }
         self.local_labels = [None; 26];
         Ok(())
     }
 
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, DynasmError> {
         self.commit_local()?;
 
         let baseaddr = self.mmap.as_ptr() as usize;
@@ -653,8 +652,7 @@ impl MmapAssembler {
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
                     TargetKind::Global("oh no"),
-                )
-                .into());
+                ));
             }
         }
 
@@ -1344,18 +1342,18 @@ impl BulkEvaluator for JitGradSliceEval {
     }
 }
 
-/// A [`Shape`](crate::shape::Shape) which uses the JIT evaluator
-pub type JitShape = crate::shape::Shape<JitFunction>;
+/// A [`Shape`](fidget_core::shape::Shape) which uses the JIT evaluator
+pub type JitShape = fidget_core::shape::Shape<JitFunction>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_slice_tests!(JitFunction);
-    crate::interval_tests!(JitFunction);
-    crate::float_slice_tests!(JitFunction);
-    crate::point_tests!(JitFunction);
+    fidget_core::grad_slice_tests!(JitFunction);
+    fidget_core::interval_tests!(JitFunction);
+    fidget_core::float_slice_tests!(JitFunction);
+    fidget_core::point_tests!(JitFunction);
 
     #[test]
     fn test_mmap_expansion() {
