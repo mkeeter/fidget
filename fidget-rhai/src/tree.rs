@@ -1,7 +1,7 @@
 //! Rhai bindings for the Fidget [`Tree`] type
-use crate::{
+use crate::FromDynamic;
+use fidget_core::{
     context::{Tree, TreeOp},
-    rhai::FromDynamic,
     var::Var,
 };
 use rhai::{EvalAltResult, NativeCallContext};
@@ -17,7 +17,7 @@ impl FromDynamic for Tree {
         } else if let Ok(v) = f64::from_dynamic(ctx, d.clone(), None) {
             Ok(Tree::constant(v))
         } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, d.clone(), None) {
-            Ok(crate::shapes::Union { input: v }.into())
+            Ok(fidget_core::shapes::Union { input: v }.into())
         } else {
             Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
                 "tree".to_string(),
@@ -48,34 +48,33 @@ impl FromDynamic for Vec<Tree> {
     }
 }
 
-impl rhai::CustomType for Tree {
-    fn build(mut builder: rhai::TypeBuilder<Self>) {
-        builder
-            .with_name("Tree")
-            .on_print(|t| {
-                match &**t {
-                    TreeOp::Input(Var::X) => "x",
-                    TreeOp::Input(Var::Y) => "y",
-                    TreeOp::Input(Var::Z) => "z",
-                    _ => "Tree(..)",
-                }
-                .to_owned()
-            })
-            .with_fn("remap", remap_xyz)
-            .with_fn("remap", remap_xy);
-    }
+fn register_tree(engine: &mut rhai::Engine) {
+    engine
+        .register_type_with_name::<Tree>("Tree")
+        .register_fn("to_string", |t: &mut Tree| {
+            match &**t {
+                TreeOp::Input(Var::X) => "x",
+                TreeOp::Input(Var::Y) => "y",
+                TreeOp::Input(Var::Z) => "z",
+                _ => "Tree(..)",
+            }
+            .to_owned()
+        })
+        .register_fn("remap", remap_xyz)
+        .register_fn("remap", remap_xy);
 }
 
 /// Installs the [`Tree`] type into a Rhai engine, with various overloads
 ///
 /// Also installs `axes() -> {x, y, z}`
 pub fn register(engine: &mut rhai::Engine) {
-    engine.build_type::<Tree>();
+    register_tree(engine);
     engine.register_fn("axes", || {
+        use fidget_core::context::Tree;
         let mut out = rhai::Map::new();
-        out.insert("x".into(), rhai::Dynamic::from(crate::context::Tree::x()));
-        out.insert("y".into(), rhai::Dynamic::from(crate::context::Tree::y()));
-        out.insert("z".into(), rhai::Dynamic::from(crate::context::Tree::z()));
+        out.insert("x".into(), rhai::Dynamic::from(Tree::x()));
+        out.insert("y".into(), rhai::Dynamic::from(Tree::y()));
+        out.insert("z".into(), rhai::Dynamic::from(Tree::z()));
         out
     });
 

@@ -1,11 +1,17 @@
 [workspace]
 resolver = "2"
 members = [
+    # Fidget crates
     "fidget",
     "fidget-core",
+    "fidget-rhai",
+
+    # Non-WASM demos
     "demos/constraints",
     "demos/cli",
     "demos/viewer",
+
+    # `cargo hakari` package
     "workspace-hack",
 ]
 exclude = ["demos/web-editor/crate"]

@@ -390,11 +390,7 @@ impl Value {
     ///
     /// # Panics
     /// If the currently-selected builder field does not match our type
-    pub(crate) fn put<'facet>(
-        self,
-        builder: &mut facet::Partial<'facet>,
-        i: usize,
-    ) {
+    pub fn put<'facet>(self, builder: &mut facet::Partial<'facet>, i: usize) {
         match self {
             Value::Float(v) => builder.set_nth_field(i, v),
             Value::Vec2(v) => builder.set_nth_field(i, v),
@@ -518,17 +514,4 @@ pub unsafe fn eval_default_fn<T>(
     unsafe { f(ptr) };
     // SAFETY: `v` is initialized by `f`
     unsafe { v.assume_init() }
-}
-
-/// Checks whether `T`'s fields are all [`Type`]-compatible.
-pub(crate) fn validate<T: Facet<'static>>() -> facet::StructType {
-    let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty else {
-        panic!("must be a struct-shaped type");
-    };
-    for f in s.fields {
-        if Type::try_from(f.shape().id).is_err() {
-            panic!("unknown type: {}", f.shape());
-        }
-    }
-    s
 }

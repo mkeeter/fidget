@@ -1,14 +1,14 @@
-//! Tools for using [`fidget::shapes`](crate::shapes) in Rhai
-use crate::{
+//! Tools for using [`fidget::shapes`](fidget_core::shapes) in Rhai
+use crate::FromDynamic;
+use facet::{ConstTypeId, Facet};
+use fidget_core::{
     context::Tree,
-    rhai::FromDynamic,
     shapes::{
         ShapeVisitor,
-        types::{Plane, Type, Value, Vec3, validate},
+        types::{Plane, Type, Value, Vec3},
         visit_shapes,
     },
 };
-use facet::{ConstTypeId, Facet};
 use rhai::{EvalAltResult, NativeCallContext};
 use strum::IntoDiscriminant;
 
@@ -28,35 +28,29 @@ pub fn register(engine: &mut rhai::Engine) {
     visit_shapes(&mut v);
 }
 
-impl Type {
-    /// Build a [`Value`] from a dynamic value and tag hint
-    ///
-    /// The resulting type is guaranteed to match the tag.
-    fn into_type(
-        self,
-        ctx: &NativeCallContext,
-        v: rhai::Dynamic,
-        default: Option<Value>,
-    ) -> Result<Value, Box<EvalAltResult>> {
-        let default = default.as_ref();
-        let out = match self {
-            Type::Float => {
-                from_dynamic_with_hint(ctx, v, default, Value::Float)?
-            }
-            Type::Vec2 => from_dynamic_with_hint(ctx, v, default, Value::Vec2)?,
-            Type::Vec3 => from_dynamic_with_hint(ctx, v, default, Value::Vec3)?,
-            Type::Vec4 => from_dynamic_with_hint(ctx, v, default, Value::Vec4)?,
-            Type::Tree => from_dynamic_with_hint(ctx, v, default, Value::Tree)?,
-            Type::Axis => from_dynamic_with_hint(ctx, v, default, Value::Axis)?,
-            Type::Plane => {
-                from_dynamic_with_hint(ctx, v, default, Value::Plane)?
-            }
-            Type::VecTree => {
-                from_dynamic_with_hint(ctx, v, default, Value::VecTree)?
-            }
-        };
-        Ok(out)
-    }
+/// Build a [`Value`] from a dynamic value and tag hint
+///
+/// The resulting type is guaranteed to match the tag.
+fn build_tagged_value(
+    tag: Type,
+    ctx: &NativeCallContext,
+    v: rhai::Dynamic,
+    default: Option<Value>,
+) -> Result<Value, Box<EvalAltResult>> {
+    let default = default.as_ref();
+    let out = match tag {
+        Type::Float => from_dynamic_with_hint(ctx, v, default, Value::Float)?,
+        Type::Vec2 => from_dynamic_with_hint(ctx, v, default, Value::Vec2)?,
+        Type::Vec3 => from_dynamic_with_hint(ctx, v, default, Value::Vec3)?,
+        Type::Vec4 => from_dynamic_with_hint(ctx, v, default, Value::Vec4)?,
+        Type::Tree => from_dynamic_with_hint(ctx, v, default, Value::Tree)?,
+        Type::Axis => from_dynamic_with_hint(ctx, v, default, Value::Axis)?,
+        Type::Plane => from_dynamic_with_hint(ctx, v, default, Value::Plane)?,
+        Type::VecTree => {
+            from_dynamic_with_hint(ctx, v, default, Value::VecTree)?
+        }
+    };
+    Ok(out)
 }
 
 fn from_dynamic_with_hint<T: FromDynamic>(
@@ -71,47 +65,45 @@ where
     <_>::from_dynamic(ctx, v, default.and_then(|d| d.try_into().ok())).map(b)
 }
 
-impl Value {
-    /// Converts an arbitrary [`rhai::Dynamic`] value into a [`Value`]
-    fn from_dynamic(
-        ctx: &NativeCallContext,
-        v: rhai::Dynamic,
-        default: Option<Value>,
-    ) -> Result<Value, Box<EvalAltResult>> {
-        // This chain is ordered to prevent implicit conversions, e.g. we check
-        // `Vec<Tree>` before `Tree` becaues Tree::from_dynamic` will
-        // automatically collapse a `[Tree]` list.
-        let default = default.as_ref();
-        from_dynamic_with_hint(ctx, v.clone(), default, Value::Float)
-            .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec2)
-            })
-            .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec3)
-            })
-            .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec4)
-            })
-            .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default, Value::VecTree)
-            })
-            .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default, Value::Tree)
-            })
-            .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default, Value::Axis)
-            })
-            .or_else(|_| {
-                from_dynamic_with_hint(ctx, v.clone(), default, Value::Plane)
-            })
-            .map_err(|_| {
-                Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
-                    "any Type-compatible value".to_string(),
-                    v.type_name().to_string(),
-                    ctx.position(),
-                ))
-            })
-    }
+/// Converts an arbitrary [`rhai::Dynamic`] value into a [`Value`]
+fn value_from_dynamic(
+    ctx: &NativeCallContext,
+    v: rhai::Dynamic,
+    default: Option<Value>,
+) -> Result<Value, Box<EvalAltResult>> {
+    // This chain is ordered to prevent implicit conversions, e.g. we check
+    // `Vec<Tree>` before `Tree` becaues Tree::from_dynamic` will
+    // automatically collapse a `[Tree]` list.
+    let default = default.as_ref();
+    from_dynamic_with_hint(ctx, v.clone(), default, Value::Float)
+        .or_else(|_| {
+            from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec2)
+        })
+        .or_else(|_| {
+            from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec3)
+        })
+        .or_else(|_| {
+            from_dynamic_with_hint(ctx, v.clone(), default, Value::Vec4)
+        })
+        .or_else(|_| {
+            from_dynamic_with_hint(ctx, v.clone(), default, Value::VecTree)
+        })
+        .or_else(|_| {
+            from_dynamic_with_hint(ctx, v.clone(), default, Value::Tree)
+        })
+        .or_else(|_| {
+            from_dynamic_with_hint(ctx, v.clone(), default, Value::Axis)
+        })
+        .or_else(|_| {
+            from_dynamic_with_hint(ctx, v.clone(), default, Value::Plane)
+        })
+        .map_err(|_| {
+            Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
+                "any Type-compatible value".to_string(),
+                v.type_name().to_string(),
+                ctx.position(),
+            ))
+        })
 }
 
 /// Register a shape-building type into a Rhai runtime
@@ -120,7 +112,10 @@ fn register_shape<
 >(
     engine: &mut rhai::Engine,
 ) {
-    let s = validate::<T>(); // panic if the type is invalid
+    let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty else {
+        // checked by unit test elsewhere
+        panic!("must be a struct-shaped type");
+    };
 
     use heck::ToSnakeCase;
 
@@ -247,7 +242,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
             .vtable
             .default_fn
             .map(|df| unsafe { tag.build_from_default_fn(df) });
-        let v = tag.into_type(&ctx, v, d)?;
+        let v = build_tagged_value(tag, &ctx, v, d)?;
         v.put(&mut builder, i);
     }
 
@@ -317,7 +312,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
             .default_fn
             .map(|df| unsafe { tag.build_from_default_fn(df) });
         let v = if let Some(v) = m.get(f.name).cloned() {
-            tag.into_type(&ctx, v, d)?
+            build_tagged_value(tag, &ctx, v, d)?
         } else if let Some(v) = d {
             v
         } else {
@@ -399,7 +394,7 @@ macro_rules! unique {
             #[allow(unused_mut, reason = "0-item constructor")]
             let mut vs = enum_map::EnumMap::<Type, Option<Value>>::default();
             $(
-                let v = Value::from_dynamic(&ctx, $v.clone(), None)?;
+                let v = value_from_dynamic(&ctx, $v.clone(), None)?;
                 let tag = v.discriminant();
                 vs[tag] = Some(v);
             )*
@@ -507,7 +502,7 @@ macro_rules! ordered {
         ) -> Result<Tree, Box<EvalAltResult>> {
             let mut vs = vec![];
             $(
-                let v = Value::from_dynamic(&ctx, $v.clone(), None)?;
+                let v = value_from_dynamic(&ctx, $v.clone(), None)?;
                 vs.push(v);
             )*
 
@@ -560,14 +555,13 @@ ordered!(build_ordered8, a, b, c, d, e, f, g, h);
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::shapes::{types::Vec2, *};
-    use crate::{Context, context::Op, var::Var};
+    use fidget_core::{Context, context::Op, shapes::*, var::Var};
 
     #[test]
     fn circle_builder() {
         let mut e = rhai::Engine::new();
         register_shape::<Circle>(&mut e);
-        e.build_type::<Vec2>();
+        crate::types::register(&mut e);
         assert!(
             e.eval::<Tree>("circle(#{ center: vec2(1, 2), radius: 3 })")
                 .is_ok()
@@ -595,7 +589,7 @@ mod test {
     fn circle_builder_default() {
         let mut e = rhai::Engine::new();
         register_shape::<Circle>(&mut e);
-        e.build_type::<Vec2>();
+        crate::types::register(&mut e);
         assert!(e.eval::<Tree>("circle(#{ center: vec2(1, 2)})").is_ok());
         assert!(e.eval::<Tree>("circle(#{ radius: 1})").is_ok());
 
@@ -608,7 +602,7 @@ mod test {
     #[test]
     fn scale_and_move_defaults() {
         // Move should default to 0 on the Z axis
-        let e = crate::rhai::engine();
+        let e = crate::engine();
         let mut ctx = Context::new();
         let v = e.eval("z.move([1, 1])").unwrap();
         let root = ctx.import(&v);
@@ -622,7 +616,7 @@ mod test {
 
     #[test]
     fn string_to_plane() {
-        let e = crate::rhai::engine();
+        let e = crate::engine();
         let v = e.eval("x.reflect(\"yz\")").unwrap(); // plane
         let mut ctx = Context::new();
         let root = ctx.import(&v);
@@ -638,14 +632,14 @@ mod test {
 
     #[test]
     fn rect_builder_ordered() {
-        let e = crate::rhai::engine();
+        let e = crate::engine();
         assert!(e.eval::<Tree>("rectangle([0,0], [1,1])").is_ok());
         assert!(e.eval::<Tree>("rectangle([0,0], [1,1,1])").is_err());
     }
 
     #[test]
     fn extrude_builder_ordered() {
-        let e = crate::rhai::engine();
+        let e = crate::engine();
         assert!(e.eval::<Tree>("extrude_z(x, 0, 1)").is_ok());
     }
 }

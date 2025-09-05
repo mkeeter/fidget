@@ -81,16 +81,6 @@ pub enum Error {
     #[error("tile size list must not be empty")]
     EmptyTileSizes,
 
-    /// Rhai error; see inner code for details
-    #[cfg(feature = "rhai")]
-    #[error("Rhai parse error")]
-    RhaiParseError(#[from] rhai::ParseError),
-
-    /// Rhai error; see inner code for details
-    #[cfg(feature = "rhai")]
-    #[error("Rhai evaluation error")]
-    RhaiEvalError(#[from] rhai::EvalAltResult),
-
     #[cfg(feature = "jit")]
     /// Dynasm error; see inner code for details
     #[error("dynasm error")]

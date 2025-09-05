@@ -674,4 +674,28 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn validate_shapes() {
+        struct Visitor;
+        impl ShapeVisitor for Visitor {
+            fn visit<
+                T: Facet<'static> + Clone + Send + Sync + Into<Tree> + 'static,
+            >(
+                &mut self,
+            ) {
+                let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty
+                else {
+                    panic!("must be a struct-shaped type");
+                };
+                for f in s.fields {
+                    if types::Type::try_from(f.shape().id).is_err() {
+                        panic!("unknown type: {}", f.shape());
+                    }
+                }
+            }
+        }
+        let mut v = Visitor;
+        visit_shapes(&mut v);
+    }
 }

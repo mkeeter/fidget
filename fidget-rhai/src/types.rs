@@ -1,11 +1,11 @@
 //! Rhai bindings for Fidget's 2D and 3D vector types
-use crate::{
+use crate::FromDynamic;
+use fidget_core::{
     context::{Tree, TreeOp},
-    rhai::FromDynamic,
     shapes::types::{Axis, Plane, Vec2, Vec3, Vec4},
     var::Var,
 };
-use rhai::{CustomType, EvalAltResult, TypeBuilder};
+use rhai::EvalAltResult;
 
 macro_rules! register_all {
     ($engine:ident, $ty:ident) => {
@@ -61,76 +61,74 @@ macro_rules! register_unary {
 
 /// Installs common types (from [`fidget::shapes`](crate::shapes)) into the engine
 pub fn register(engine: &mut rhai::Engine) {
-    engine.build_type::<Vec2>();
-    engine.build_type::<Vec3>();
+    register_vec2(engine);
+    register_vec3(engine);
     register_all!(engine, Vec2);
     register_all!(engine, Vec3);
 
-    engine.build_type::<Axis>();
-    engine.build_type::<Plane>();
+    register_axis(engine);
+    register_plane(engine);
 }
 
-impl CustomType for Vec2 {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder
-            .with_name("Vec2")
-            .on_print(|t| format!("[{}, {}]", t.x, t.y))
-            .with_fn("vec2", |v: Vec2| v) // idempotent
-            .with_fn(
-                "vec2",
-                |ctx: rhai::NativeCallContext,
-                 x: rhai::Dynamic,
-                 y: rhai::Dynamic|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    let x = f64::from_dynamic(&ctx, x, None)?;
-                    let y = f64::from_dynamic(&ctx, y, None)?;
-                    Ok(Self { x, y })
-                },
-            )
-            .with_fn(
-                "vec2",
-                |ctx: rhai::NativeCallContext,
-                 array: rhai::Array|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    Vec2::from_rhai_array(&ctx, array)
-                },
-            )
-            .with_get_set("x", |v: &mut Self| v.x, |v: &mut Self, x| v.x = x)
-            .with_get_set("y", |v: &mut Self| v.y, |v: &mut Self, y| v.y = y);
-    }
+fn register_vec2(engine: &mut rhai::Engine) {
+    engine
+        .register_type_with_name::<Vec2>("Vec2")
+        .register_fn("to_string", |t: &mut Vec2| format!("[{}, {}]", t.x, t.y))
+        .register_fn("vec2", |v: Vec2| v) // idempotent
+        .register_fn(
+            "vec2",
+            |ctx: rhai::NativeCallContext,
+             x: rhai::Dynamic,
+             y: rhai::Dynamic|
+             -> Result<Vec2, Box<EvalAltResult>> {
+                let x = f64::from_dynamic(&ctx, x, None)?;
+                let y = f64::from_dynamic(&ctx, y, None)?;
+                Ok(Vec2 { x, y })
+            },
+        )
+        .register_fn(
+            "vec2",
+            |ctx: rhai::NativeCallContext,
+             array: rhai::Array|
+             -> Result<Vec2, Box<EvalAltResult>> {
+                vec2_from_rhai_array(&ctx, array)
+            },
+        )
+        .register_get_set("x", |v: &mut Vec2| v.x, |v: &mut Vec2, x| v.x = x)
+        .register_get_set("y", |v: &mut Vec2| v.y, |v: &mut Vec2, y| v.y = y);
 }
 
-impl CustomType for Vec3 {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder
-            .with_name("Vec3")
-            .on_print(|t| format!("[{}, {}, {}]", t.x, t.y, t.z))
-            .with_fn("vec3", |v: Vec3| v) // idempotent
-            .with_fn(
-                "vec3",
-                |ctx: rhai::NativeCallContext,
-                 x: rhai::Dynamic,
-                 y: rhai::Dynamic,
-                 z: rhai::Dynamic|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    let x = f64::from_dynamic(&ctx, x, None)?;
-                    let y = f64::from_dynamic(&ctx, y, None)?;
-                    let z = f64::from_dynamic(&ctx, z, None)?;
-                    Ok(Self { x, y, z })
-                },
-            )
-            .with_fn(
-                "vec3",
-                |ctx: rhai::NativeCallContext,
-                 array: rhai::Array|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    Vec3::from_rhai_array(&ctx, array, None)
-                },
-            )
-            .with_get_set("x", |v: &mut Self| v.x, |v: &mut Self, x| v.x = x)
-            .with_get_set("y", |v: &mut Self| v.y, |v: &mut Self, y| v.y = y)
-            .with_get_set("z", |v: &mut Self| v.z, |v: &mut Self, z| v.z = z);
-    }
+fn register_vec3(engine: &mut rhai::Engine) {
+    engine
+        .register_type_with_name::<Vec3>("Vec3")
+        .register_fn("to_string", |t: &mut Vec3| {
+            format!("[{}, {}, {}]", t.x, t.y, t.z)
+        })
+        .register_fn("vec3", |v: Vec3| v) // idempotent
+        .register_fn(
+            "vec3",
+            |ctx: rhai::NativeCallContext,
+             x: rhai::Dynamic,
+             y: rhai::Dynamic,
+             z: rhai::Dynamic|
+             -> Result<Vec3, Box<EvalAltResult>> {
+                let x = f64::from_dynamic(&ctx, x, None)?;
+                let y = f64::from_dynamic(&ctx, y, None)?;
+                let z = f64::from_dynamic(&ctx, z, None)?;
+                Ok(Vec3 { x, y, z })
+            },
+        )
+        .register_fn(
+            "vec3",
+            |ctx: rhai::NativeCallContext,
+             array: rhai::Array|
+             -> Result<Vec3, Box<EvalAltResult>> {
+                vec3_from_rhai_array(&ctx, array, None)
+            },
+        )
+        .register_get_set("x", |v: &mut Vec3| v.x, |v: &mut Vec3, x| v.x = x)
+        .register_get_set("y", |v: &mut Vec3| v.y, |v: &mut Vec3, y| v.y = y)
+        .register_get_set("z", |v: &mut Vec3| v.z, |v: &mut Vec3, z| v.z = z);
 }
 
 impl FromDynamic for Vec2 {
@@ -149,29 +147,27 @@ impl FromDynamic for Vec2 {
                     ctx.position(),
                 )
             })?;
-            Self::from_rhai_array(ctx, array)
+            vec2_from_rhai_array(ctx, array)
         }
     }
 }
 
-impl Vec2 {
-    fn from_rhai_array(
-        ctx: &rhai::NativeCallContext,
-        array: rhai::Array,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        match array.len() {
-            2 => {
-                let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-                let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
-                Ok(Vec2 { x, y })
-            }
-            n => Err(EvalAltResult::ErrorMismatchDataType(
-                "[float; 2]".to_string(),
-                format!("[dynamic; {n}]"),
-                ctx.position(),
-            )
-            .into()),
+fn vec2_from_rhai_array(
+    ctx: &rhai::NativeCallContext,
+    array: rhai::Array,
+) -> Result<Vec2, Box<EvalAltResult>> {
+    match array.len() {
+        2 => {
+            let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+            let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+            Ok(Vec2 { x, y })
         }
+        n => Err(EvalAltResult::ErrorMismatchDataType(
+            "[float; 2]".to_string(),
+            format!("[dynamic; {n}]"),
+            ctx.position(),
+        )
+        .into()),
     }
 }
 
@@ -197,37 +193,35 @@ impl FromDynamic for Vec3 {
                     ctx.position(),
                 )
             })?;
-            Self::from_rhai_array(ctx, array, default)
+            vec3_from_rhai_array(ctx, array, default)
         }
     }
 }
 
-impl Vec3 {
-    fn from_rhai_array(
-        ctx: &rhai::NativeCallContext,
-        array: rhai::Array,
-        default: Option<&Vec3>,
-    ) -> Result<Self, Box<EvalAltResult>> {
-        match array.len() {
-            2 => {
-                let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-                let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
-                let z = default.map(|d| d.z).unwrap_or(0.0);
-                Ok(Vec3 { x, y, z })
-            }
-            3 => {
-                let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-                let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
-                let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
-                Ok(Vec3 { x, y, z })
-            }
-            n => Err(EvalAltResult::ErrorMismatchDataType(
-                "[float; 3]".to_string(),
-                format!("[dynamic; {n}]"),
-                ctx.position(),
-            )
-            .into()),
+fn vec3_from_rhai_array(
+    ctx: &rhai::NativeCallContext,
+    array: rhai::Array,
+    default: Option<&Vec3>,
+) -> Result<Vec3, Box<EvalAltResult>> {
+    match array.len() {
+        2 => {
+            let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+            let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+            let z = default.map(|d| d.z).unwrap_or(0.0);
+            Ok(Vec3 { x, y, z })
         }
+        3 => {
+            let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
+            let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+            let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
+            Ok(Vec3 { x, y, z })
+        }
+        n => Err(EvalAltResult::ErrorMismatchDataType(
+            "[float; 3]".to_string(),
+            format!("[dynamic; {n}]"),
+            ctx.position(),
+        )
+        .into()),
     }
 }
 
@@ -332,20 +326,18 @@ fn print_axis(t: Axis) -> String {
     }
 }
 
-impl CustomType for Axis {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder
-            .with_name("Axis")
-            .on_print(|t| print_axis(*t))
-            .with_fn(
-                "axis",
-                |ctx: rhai::NativeCallContext,
-                 v: rhai::Dynamic|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    Axis::from_dynamic(&ctx, v, None)
-                },
-            );
-    }
+fn register_axis(engine: &mut rhai::Engine) {
+    engine
+        .register_type_with_name::<Axis>("Axis")
+        .register_fn("to_string", |t: &mut Axis| print_axis(*t))
+        .register_fn(
+            "axis",
+            |ctx: rhai::NativeCallContext,
+             v: rhai::Dynamic|
+             -> Result<Axis, Box<EvalAltResult>> {
+                Axis::from_dynamic(&ctx, v, None)
+            },
+        );
 }
 
 impl FromDynamic for Plane {
@@ -380,48 +372,46 @@ impl FromDynamic for Plane {
     }
 }
 
-impl CustomType for Plane {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder
-            .with_name("Plane")
-            .on_print(|t| {
-                if t == &Plane::XY {
-                    "plane(\"xy\")".to_owned()
-                } else if t == &Plane::YZ {
-                    "plane(\"yz\")".to_owned()
-                } else if t == &Plane::ZX {
-                    "plane(\"zx\")".to_owned()
+fn register_plane(engine: &mut rhai::Engine) {
+    engine
+        .register_type_with_name::<Plane>("Plane")
+        .register_fn("to_string", |t: &mut Plane| {
+            if t == &Plane::XY {
+                "plane(\"xy\")".to_owned()
+            } else if t == &Plane::YZ {
+                "plane(\"yz\")".to_owned()
+            } else if t == &Plane::ZX {
+                "plane(\"zx\")".to_owned()
+            } else {
+                let ax = print_axis(t.axis);
+                if t.offset == 0.0 {
+                    format!("plane({ax})")
                 } else {
-                    let ax = print_axis(t.axis);
-                    if t.offset == 0.0 {
-                        format!("plane({ax})")
-                    } else {
-                        format!("plane({ax}, {})", t.offset)
-                    }
+                    format!("plane({ax}, {})", t.offset)
                 }
-            })
-            .with_fn(
-                "plane",
-                |ctx: rhai::NativeCallContext,
-                 v: rhai::Dynamic|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    Plane::from_dynamic(&ctx, v, None)
-                },
-            )
-            .with_fn(
-                "plane",
-                |ctx: rhai::NativeCallContext,
-                 v: rhai::Dynamic,
-                 offset: f64|
-                 -> Result<Self, Box<EvalAltResult>> {
-                    let plane = Plane::from_dynamic(&ctx, v, None)?;
-                    Ok(Self {
-                        axis: plane.axis,
-                        offset,
-                    })
-                },
-            );
-    }
+            }
+        })
+        .register_fn(
+            "plane",
+            |ctx: rhai::NativeCallContext,
+             v: rhai::Dynamic|
+             -> Result<Plane, Box<EvalAltResult>> {
+                Plane::from_dynamic(&ctx, v, None)
+            },
+        )
+        .register_fn(
+            "plane",
+            |ctx: rhai::NativeCallContext,
+             v: rhai::Dynamic,
+             offset: f64|
+             -> Result<Plane, Box<EvalAltResult>> {
+                let plane = Plane::from_dynamic(&ctx, v, None)?;
+                Ok(Plane {
+                    axis: plane.axis,
+                    offset,
+                })
+            },
+        );
 }
 
 #[cfg(test)]

@@ -12,10 +12,8 @@ rust-version = "1.87"
 [dependencies]
 arrayvec.workspace = true
 bimap.workspace = true
-document-features.workspace = true
 enum-map.workspace = true
 facet.workspace = true
-heck.workspace = true
 nalgebra.workspace = true
 ordered-float.workspace = true
 rand.workspace = true
@@ -25,8 +23,6 @@ static_assertions.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 zerocopy.workspace = true
-
-rhai = { workspace = true, optional = true }
 
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
@@ -44,7 +40,7 @@ getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
 rhai = { workspace = true, optional = true, features = ["wasm-bindgen"] }
 
 [features]
-default = ["jit", "rhai"]
+default = ["jit"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -53,10 +49,6 @@ default = ["jit", "rhai"]
 ## ([Cargo issue](https://github.com/rust-lang/cargo/issues/1197));
 ## users will have to disable it manually via `default-features = false`.
 jit = ["dep:dynasmrt", "dep:libc"]
-
-## Enable [Rhai](https://rhai.rs/) bindings, in the
-## [`fidget::rhai`](crate::rhai) module
-rhai = ["dep:rhai"]
 
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each

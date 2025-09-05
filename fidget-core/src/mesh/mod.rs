@@ -15,7 +15,7 @@
 //!
 //! The resulting [`Mesh`] objects can be written out as STL files.
 //!
-//! Here's a full example:
+//! Here's a full example, meshing a sphere:
 //!
 //! ```
 //! use fidget_core::{
@@ -24,8 +24,10 @@
 //!     vm::VmShape
 //! };
 //!
-//! let tree: Tree = fidget_core::rhai::engine()
-//!     .eval("sphere(#{ center: [0, 0, 0], radius: 0.6 })")?;
+//! let radius_squared = Tree::x().square()
+//!     + Tree::y().square()
+//!     + Tree::z().square();
+//! let tree: Tree = radius_squared.sqrt() - 0.6;
 //! let shape = VmShape::from(tree);
 //! let settings = Settings {
 //!     depth: 4,

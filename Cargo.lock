@@ -1442,8 +1442,11 @@ name = "fidget"
 version = "0.4.0"
 dependencies = [
  "criterion",
+ "document-features",
  "fidget-core",
+ "fidget-rhai",
  "rayon",
+ "rhai",
 ]
 
 [[package]]
@@ -1470,13 +1473,11 @@ dependencies = [
  "approx",
  "arrayvec",
  "bimap",
- "document-features",
  "dynasmrt",
  "enum-map",
  "facet",
  "getrandom 0.2.16",
  "getrandom 0.3.3",
- "heck",
  "libc",
  "nalgebra",
  "ordered-float 5.0.0",
@@ -1490,6 +1491,18 @@ dependencies = [
  "windows 0.61.3",
  "workspace-hack",
  "zerocopy",
+]
+
+[[package]]
+name = "fidget-rhai"
+version = "0.4.0"
+dependencies = [
+ "enum-map",
+ "facet",
+ "fidget-core",
+ "heck",
+ "rhai",
+ "strum 0.27.2",
 ]
 
 [[package]]

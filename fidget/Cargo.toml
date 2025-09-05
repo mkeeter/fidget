@@ -11,6 +11,10 @@ rust-version = "1.87"
 
 [dependencies]
 fidget-core = { path = "../fidget-core", version = "=0.4.0" }
+fidget-rhai = { path = "../fidget-rhai", version = "=0.4.0", optional = true }
+
+rhai = { workspace = true, optional = true }
+document-features.workspace = true
 
 [features]
 default = ["jit", "rhai"]
@@ -25,7 +29,7 @@ jit = ["fidget-core/jit"]
 
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
 ## [`fidget::rhai`](crate::rhai) module
-rhai = ["fidget-core/rhai"]
+rhai = ["fidget-rhai", "dep:rhai"]
 
 [[bench]]
 name = "render"
