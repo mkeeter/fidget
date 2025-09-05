@@ -1,6 +1,6 @@
 //! Dual contouring implementation
 
-use crate::mesh::{
+use crate::{
     Octree,
     builder::MeshBuilder,
     cell::{Cell, CellIndex},

@@ -1,5 +1,5 @@
 //! Data types used in the octree
-use crate::types::Interval;
+use fidget_core::types::Interval;
 
 use super::{
     codegen::CELL_TO_EDGE_TO_VERT,

@@ -1444,6 +1444,7 @@ dependencies = [
  "criterion",
  "document-features",
  "fidget-core",
+ "fidget-mesh",
  "fidget-rhai",
  "rayon",
  "rhai",
@@ -1491,6 +1492,18 @@ dependencies = [
  "windows 0.61.3",
  "workspace-hack",
  "zerocopy",
+]
+
+[[package]]
+name = "fidget-mesh"
+version = "0.4.0"
+dependencies = [
+ "arrayvec",
+ "fidget-core",
+ "nalgebra",
+ "ordered-float 5.0.0",
+ "rayon",
+ "static_assertions",
 ]
 
 [[package]]

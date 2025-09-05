@@ -7,7 +7,7 @@ impl Mesh {
     pub fn write_stl<F: std::io::Write>(
         &self,
         out: &mut F,
-    ) -> Result<(), crate::Error> {
+    ) -> std::io::Result<()> {
         // We're going to do many small writes and will typically be writing to
         // a file, so using a `BufWriter` saves excessive syscalls.
         let mut out = BufWriter::new(out);

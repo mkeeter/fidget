@@ -20,9 +20,9 @@
 //! ```
 //! use fidget_core::{
 //!     context::Tree,
-//!     mesh::{Octree, Settings},
 //!     vm::VmShape
 //! };
+//! use fidget_mesh::{Octree, Settings};
 //!
 //! let radius_squared = Tree::x().square()
 //!     + Tree::y().square()
@@ -40,7 +40,7 @@
 //! // let mut f = std::fs::File::create("out.stl")?;
 //! # let mut f = vec![];
 //! mesh.write_stl(&mut f)?;
-//! # Ok::<(), fidget_core::Error>(())
+//! # Ok::<(), std::io::Error>(())
 //! ```
 
 mod builder;
@@ -52,7 +52,7 @@ mod octree;
 mod output;
 mod qef;
 
-use crate::render::{CancelToken, ThreadPool, View3};
+use fidget_core::render::{CancelToken, ThreadPool, View3};
 
 #[doc(hidden)]
 pub mod types;

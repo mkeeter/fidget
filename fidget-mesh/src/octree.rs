@@ -9,7 +9,7 @@ use super::{
     qef::QuadraticErrorSolver,
     types::{Axis, CellMask, Corner, Edge},
 };
-use crate::{
+use fidget_core::{
     eval::Function,
     render::{CancelToken, RenderHandle, RenderHints, ThreadPool},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
@@ -553,9 +553,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             .eval_interval
             .eval_v(
                 eval.i_tape(&mut self.tape_storage),
-                cell.bounds[crate::mesh::types::X],
-                cell.bounds[crate::mesh::types::Y],
-                cell.bounds[crate::mesh::types::Z],
+                cell.bounds[crate::types::X],
+                cell.bounds[crate::types::Y],
+                cell.bounds[crate::types::Z],
                 vars,
             )
             .unwrap();
@@ -1033,9 +1033,9 @@ impl LeafHermiteData {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        context::Tree,
-        mesh::types::{Edge, X, Y, Z},
+    use crate::types::{Edge, X, Y, Z};
+    use fidget_core::{
+        context::{Context, Tree},
         render::ThreadPool,
         render::View3,
         shape::EzShape,
@@ -1464,9 +1464,8 @@ mod test {
 
     #[test]
     fn test_colonnade_manifold() {
-        const COLONNADE: &str = include_str!("../../../models/colonnade.vm");
-        let (ctx, root) =
-            crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
+        const COLONNADE: &str = include_str!("../../models/colonnade.vm");
+        let (ctx, root) = Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
 
         for threads in [None, Some(&ThreadPool::Global)] {
@@ -1489,9 +1488,8 @@ mod test {
 
     #[test]
     fn colonnade_bounds() {
-        const COLONNADE: &str = include_str!("../../../models/colonnade.vm");
-        let (ctx, root) =
-            crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
+        const COLONNADE: &str = include_str!("../../models/colonnade.vm");
+        let (ctx, root) = Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
 
         for threads in [None, Some(&ThreadPool::Global)] {
@@ -1519,9 +1517,8 @@ mod test {
 
     #[test]
     fn bear_bounds() {
-        const COLONNADE: &str = include_str!("../../../models/bear.vm");
-        let (ctx, root) =
-            crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
+        const COLONNADE: &str = include_str!("../../models/bear.vm");
+        let (ctx, root) = Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
 
         for threads in [None, Some(&ThreadPool::Global)] {

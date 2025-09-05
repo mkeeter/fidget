@@ -16,7 +16,7 @@ impl<const D: usize> Axis<D> {
     /// Builds a new axis
     ///
     /// ```
-    /// # use fidget_core::mesh::types::Axis;
+    /// # use fidget_mesh::types::Axis;
     /// const X: Axis<3> = Axis::new(1);
     /// const Y: Axis<3> = Axis::new(2);
     /// const Z: Axis<3> = Axis::new(4);
@@ -26,13 +26,13 @@ impl<const D: usize> Axis<D> {
     /// If the input does not have exactly 1 set bit
     ///
     /// ```compile_fail
-    /// # use fidget_core::mesh::types::Axis;
+    /// # use fidget_mesh::types::Axis;
     /// const A: Axis = Axis::new(0b11);
     /// ```
     ///
     /// If the input has a bit set that's outside the valid range
     /// ```compile_fail
-    /// # use fidget_core::mesh::types::Axis;
+    /// # use fidget_mesh::types::Axis;
     /// const A: Axis<3> = Axis::new(0b1000);
     /// ```
     pub const fn new(i: u8) -> Self {
@@ -178,7 +178,7 @@ impl DirectedEdge {
     /// If the start and end aren't the same
     ///
     /// ```compile_fail
-    /// # use fidget_core::mesh::types::{Corner, DirectedEdge};
+    /// # use fidget_mesh::types::{Corner, DirectedEdge};
     /// const START: Corner = Corner::new(0);
     /// const E: DirectedEdge = DirectedEdge::new(START, START);
     /// ```
@@ -187,7 +187,7 @@ impl DirectedEdge {
     /// there are no diagonal edges in a cube):
     ///
     /// ```compile_fail
-    /// # use fidget_core::mesh::types::{Corner, DirectedEdge};
+    /// # use fidget_mesh::types::{Corner, DirectedEdge};
     /// const START: Corner = Corner::new(0);
     /// const END: Corner = Corner::new(0b111);
     /// const E: DirectedEdge = DirectedEdge::new(START, END);
@@ -290,7 +290,7 @@ impl<const D: usize> CellMask<D> {
     /// bits are set.
     ///
     /// ```should_panic
-    /// # use fidget_core::mesh::types::{CellMask};
+    /// # use fidget_mesh::types::CellMask;
     /// let m = CellMask::<2>::new(0b11111111);
     /// ```
     pub const fn new(i: u8) -> Self {

@@ -1,10 +1,10 @@
 [package]
-name = "fidget-rhai"
+name = "fidget-mesh"
 version = "0.4.0"
 edition = "2024"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
-description = "Rhai script evaluation for complex closed-form implicit surfaces"
+description = "Meshing of complex closed-form implicit surfaces"
 authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
 readme = "../README.md"
 rust-version.workspace = true
@@ -12,8 +12,8 @@ rust-version.workspace = true
 [dependencies]
 fidget-core = { path = "../fidget-core", version = "=0.4.0" }
 
-enum-map.workspace = true
-facet.workspace = true
-rhai.workspace = true
-strum.workspace = true
-heck.workspace = true
+arrayvec.workspace = true
+nalgebra.workspace = true
+ordered-float.workspace = true
+rayon.workspace = true
+static_assertions.workspace = true

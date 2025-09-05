@@ -280,3 +280,6 @@ pub use fidget_core::*;
 
 #[cfg(feature = "rhai")]
 pub use fidget_rhai as rhai;
+
+#[cfg(feature = "mesh")]
+pub use fidget_mesh as mesh;

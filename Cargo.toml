@@ -16,6 +16,9 @@ members = [
 ]
 exclude = ["demos/web-editor/crate"]
 
+[workspace.package]
+rust-version = "1.87"
+
 [profile.release]
 debug = true
 overflow-checks = true

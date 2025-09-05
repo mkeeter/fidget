@@ -5,7 +5,6 @@ pub use crate::core::*;
 mod error;
 pub use error::Error;
 pub mod gui;
-pub mod mesh;
 pub mod render;
 pub mod shapes;
 pub mod solver;

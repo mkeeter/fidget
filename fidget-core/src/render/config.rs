@@ -57,7 +57,7 @@ impl CancelToken {
     }
 
     /// Check if the token is cancelled
-    pub(crate) fn is_cancelled(&self) -> bool {
+    pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
 

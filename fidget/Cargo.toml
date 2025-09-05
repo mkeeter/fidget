@@ -12,12 +12,13 @@ rust-version = "1.87"
 [dependencies]
 fidget-core = { path = "../fidget-core", version = "=0.4.0" }
 fidget-rhai = { path = "../fidget-rhai", version = "=0.4.0", optional = true }
+fidget-mesh = { path = "../fidget-mesh", version = "=0.4.0", optional = true }
 
 rhai = { workspace = true, optional = true }
 document-features.workspace = true
 
 [features]
-default = ["jit", "rhai"]
+default = ["jit", "rhai", "mesh"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -30,6 +31,9 @@ jit = ["fidget-core/jit"]
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
 ## [`fidget::rhai`](crate::rhai) module
 rhai = ["fidget-rhai", "dep:rhai"]
+
+## Enable meshing in the [`fidget::mesh`] module
+mesh = ["fidget-mesh"]
 
 [[bench]]
 name = "render"
