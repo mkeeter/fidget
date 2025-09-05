@@ -18,13 +18,13 @@
 //! Here's a full example:
 //!
 //! ```
-//! use fidget::{
+//! use fidget_core::{
 //!     context::Tree,
 //!     mesh::{Octree, Settings},
 //!     vm::VmShape
 //! };
 //!
-//! let tree: Tree = fidget::rhai::engine()
+//! let tree: Tree = fidget_core::rhai::engine()
 //!     .eval("sphere(#{ center: [0, 0, 0], radius: 0.6 })")?;
 //! let shape = VmShape::from(tree);
 //! let settings = Settings {
@@ -38,7 +38,7 @@
 //! // let mut f = std::fs::File::create("out.stl")?;
 //! # let mut f = vec![];
 //! mesh.write_stl(&mut f)?;
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), fidget_core::Error>(())
 //! ```
 
 mod builder;

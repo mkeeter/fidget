@@ -1,7 +1,7 @@
 //! Data structures for shape evaluation
 //!
 //! Types in this module are typically thin (generic) wrappers around objects
-//! that implement traits in [`fidget::eval`](crate::eval).  The wrapper types
+//! that implement traits in [`fidget_core::eval`](crate::eval).  The wrapper types
 //! are specialized to operate on `x, y, z` arguments, rather than taking
 //! arbitrary numbers of variables.
 //!
@@ -10,9 +10,9 @@
 //! transform matrix).
 //!
 //! ```rust
-//! use fidget::vm::VmShape;
-//! use fidget::context::Context;
-//! use fidget::shape::EzShape;
+//! use fidget_core::vm::VmShape;
+//! use fidget_core::context::Context;
+//! use fidget_core::shape::EzShape;
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
@@ -23,7 +23,7 @@
 //! let tape = shape.ez_point_tape();
 //! let (value, _trace) = eval.eval(&tape, 0.25, 0.0, 0.0)?;
 //! assert_eq!(value, 0.25);
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), fidget_core::Error>(())
 //! ```
 
 use crate::{

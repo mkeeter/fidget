@@ -4,7 +4,7 @@
 //! which is a [`Function`] that uses JIT evaluation.
 //!
 //! ```
-//! use fidget::{
+//! use fidget_core::{
 //!     context::Tree,
 //!     shape::EzShape,
 //!     jit::JitShape,
@@ -20,7 +20,7 @@
 //! // This calls directly into that machine code!
 //! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0)?;
 //! assert_eq!(r, 0.1 + 0.3);
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), fidget_core::Error>(())
 //! ```
 
 use crate::{

@@ -1,7 +1,7 @@
 //! Core infrastructure for evaluating complex closed-form implicit surfaces.
 //!
 //! ```
-//! use fidget::{
+//! use fidget_core::{
 //!     context::Context,
 //!     shape::EzShape,
 //!     vm::VmShape
@@ -51,7 +51,7 @@
 //! //     ######################
 //! //       ##################
 //! //           ##########
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), fidget_core::Error>(())
 //! ```
 pub mod context;
 pub use context::Context;

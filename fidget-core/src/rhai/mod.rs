@@ -29,12 +29,12 @@
 //!
 //! # Trees
 //! The basic type for math expressions is a `Tree`, which is equivalent to
-//! [`fidget::context::Tree`](crate::context::Tree).  Trees are typically built
+//! [`fidget_core::context::Tree`](crate::context::Tree).  Trees are typically built
 //! from `(x, y, z)` primitives, which can be constructed with the `axes()`
 //! function:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! let xyz = axes();
 //! xyz.x + xyz.y
 //! # ").unwrap();
@@ -48,7 +48,7 @@
 //! in expressions:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! // Use PI for angular calculations
 //! let angle = PI / 4.0;
 //! let radius = 2.0;
@@ -75,7 +75,7 @@
 //! # Shapes
 //! In Rhai scripts, shapes can be constructed using object map notation:
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! circle(#{ center: vec2(1.0, 2.0), radius: 3.0 })
 //! # ").unwrap();
 //! ```
@@ -97,7 +97,7 @@
 //!       into a `vec3` with a default `z` value.  This default value is
 //!       shape-specific, e.g. it will be 0 for a position and 1 for a scale.
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! // array -> vec2
 //! let c = circle(#{ center: [1, 2], radius: 3 });
 //!
@@ -115,7 +115,7 @@
 //! may be omitted from the map:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! let c = circle(#{ center: [1, 2] }); // radius = 1
 //! let s = sphere(#{ radius: 3 }); // center = [0, 0, 0]
 //! # ").unwrap();
@@ -126,7 +126,7 @@
 //! directly; order doesn't matter, because the type is unambiguous.
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! // array -> vec2
 //! let c1 = circle([1, 2], 3);
 //! let c2 = circle(3, [1, 2]); // order doesn't matter!
@@ -136,7 +136,7 @@
 //! In addition, fields with default values may be skipped:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! // array -> vec2
 //! let c1 = circle([1, 2]); // radius = 1
 //! let c2 = circle(); // center = [0, 0], radius = 1
@@ -147,7 +147,7 @@
 //! default value:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! // array -> vec2 -> vec3
 //! let c1 = sphere([1, 1], 4); // z = 0
 //! # ").unwrap();
@@ -159,7 +159,7 @@
 //! first (unnamed) argument, followed by an object map of remaining parameters.
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! let c = circle(#{ center: [1, 2], radius: 3 });
 //! move(c, #{ offset: [1, 1] });
 //! # ").unwrap();
@@ -169,7 +169,7 @@
 //! chain, which is more ergonomic for a string of transforms:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! circle(#{ center: [1, 2], radius: 3 })
 //!     .move(#{ offset: [1, 1] });
 //! # ").unwrap();
@@ -178,7 +178,7 @@
 //! A transform which only take a single argument may skip the object map:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! circle(#{ center: [1, 2], radius: 3 })
 //!     .move([1, 1]);
 //! # ").unwrap();
@@ -188,7 +188,7 @@
 //! Shapes which take two trees can be called with two (unnamed) arguments:
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! let a = circle(#{ center: [0, 0], radius: 1 });
 //! let b = circle(#{ center: [1, 0], radius: 0.5 });
 //! difference(a, b);
@@ -200,7 +200,7 @@
 //! trees or individual tree arguments (up to an 8-tuple).
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! let a = circle(#{ center: [1, 1], radius: 3 });
 //! let b = circle(#{ center: [2, 2], radius: 3 });
 //! let c = circle(#{ center: [3, 3], radius: 3 });
@@ -215,7 +215,7 @@
 //! automatically reduced with a union operation.
 //!
 //! ```
-//! # fidget::rhai::engine().run("
+//! # fidget_core::rhai::engine().run("
 //! [
 //!     circle(#{ center: [0, 0], radius: 3 }),
 //!     circle(#{ center: [2, 2], radius: 3 }),

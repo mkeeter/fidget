@@ -389,7 +389,7 @@ impl Interval {
     /// Splits the interval at the midpoint
     ///
     /// ```
-    /// # use fidget::types::Interval;
+    /// # use fidget_core::types::Interval;
     /// let a = Interval::new(0.0, 1.0);
     /// let (lo, hi) = a.split();
     /// assert_eq!(lo, Interval::new(0.0, 0.5));
@@ -407,7 +407,7 @@ impl Interval {
     /// Linear interpolation from `lower` to `upper`
     ///
     /// ```
-    /// # use fidget::types::Interval;
+    /// # use fidget_core::types::Interval;
     /// let a = Interval::new(0.0, 2.0);
     /// assert_eq!(a.lerp(0.5), 1.0);
     /// assert_eq!(a.lerp(0.75), 1.5);
@@ -421,7 +421,7 @@ impl Interval {
     /// Calculates the width of the interval
     ///
     /// ```
-    /// # use fidget::types::Interval;
+    /// # use fidget_core::types::Interval;
     /// let a = Interval::new(2.0, 3.0);
     /// assert_eq!(a.width(), 1.0);
     /// let b = Interval::new(2.0, 5.0);

@@ -61,7 +61,7 @@ impl Context {
     /// All [`Node`] handles from this context are invalidated.
     ///
     /// ```
-    /// # use fidget::context::Context;
+    /// # use fidget_core::context::Context;
     /// let mut ctx = Context::new();
     /// let x = ctx.x();
     /// ctx.clear();
@@ -74,7 +74,7 @@ impl Context {
     /// Returns the number of [`Op`] nodes in the context
     ///
     /// ```
-    /// # use fidget::context::Context;
+    /// # use fidget_core::context::Context;
     /// let mut ctx = Context::new();
     /// let x = ctx.x();
     /// assert_eq!(ctx.len(), 1);
@@ -139,7 +139,7 @@ impl Context {
     // Primitives
     /// Constructs or finds a [`Var::X`] node
     /// ```
-    /// # use fidget::context::Context;
+    /// # use fidget_core::context::Context;
     /// let mut ctx = Context::new();
     /// let x = ctx.x();
     /// let v = ctx.eval_xyz(x, 1.0, 0.0, 0.0).unwrap();
@@ -164,7 +164,7 @@ impl Context {
     /// To make an anonymous variable, call this function with [`Var::new()`]:
     ///
     /// ```
-    /// # use fidget::{context::Context, var::Var};
+    /// # use fidget_core::{context::Context, var::Var};
     /// # use std::collections::HashMap;
     /// let mut ctx = Context::new();
     /// let v1 = ctx.var(Var::new());
@@ -187,7 +187,7 @@ impl Context {
 
     /// Returns a node representing the given constant value.
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let v = ctx.constant(3.0);
     /// assert_eq!(ctx.eval_xyz(v, 0.0, 0.0, 0.0).unwrap(), 3.0);
     /// ```
@@ -258,7 +258,7 @@ impl Context {
 
     /// Builds an addition node
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.add(x, 1.0).unwrap();
     /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
@@ -285,7 +285,7 @@ impl Context {
 
     /// Builds an multiplication node
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.mul(x, 5.0).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -313,7 +313,7 @@ impl Context {
 
     /// Builds an `min` node
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.min(x, 5.0).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -334,7 +334,7 @@ impl Context {
     }
     /// Builds an `max` node
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.max(x, 5.0).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -363,7 +363,7 @@ impl Context {
     /// - If the left-hand argument is zero, simplify to just that argument
     /// - If the left-hand argument is non-zero, simplify to the other argument
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.and(x, y).unwrap();
@@ -397,7 +397,7 @@ impl Context {
     ///
     /// This node can be simplified using a tracing evaluator.
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.or(x, y).unwrap();
@@ -442,7 +442,7 @@ impl Context {
 
     /// Builds a unary negation node
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.neg(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -455,7 +455,7 @@ impl Context {
 
     /// Builds a reciprocal node
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.recip(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -468,7 +468,7 @@ impl Context {
 
     /// Builds a node which calculates the absolute value of its input
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.abs(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -483,7 +483,7 @@ impl Context {
 
     /// Builds a node which calculates the square root of its input
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.sqrt(x).unwrap();
     /// let v = ctx.eval_xyz(op, 4.0, 0.0, 0.0).unwrap();
@@ -496,7 +496,7 @@ impl Context {
 
     /// Builds a node which calculates the sine of its input (in radians)
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.sin(x).unwrap();
     /// let v = ctx.eval_xyz(op, std::f64::consts::PI / 2.0, 0.0, 0.0).unwrap();
@@ -553,7 +553,7 @@ impl Context {
     // Derived functions
     /// Builds a node which squares its input
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.square(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -566,7 +566,7 @@ impl Context {
 
     /// Builds a node which takes the floor of its input
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.floor(x).unwrap();
     /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
@@ -579,7 +579,7 @@ impl Context {
 
     /// Builds a node which takes the ceiling of its input
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.ceil(x).unwrap();
     /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
@@ -592,7 +592,7 @@ impl Context {
 
     /// Builds a node which rounds its input to the nearest integer
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.round(x).unwrap();
     /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
@@ -609,7 +609,7 @@ impl Context {
 
     /// Builds a node which performs subtraction.
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.sub(x, y).unwrap();
@@ -633,7 +633,7 @@ impl Context {
 
     /// Builds a node which performs division.
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.div(x, y).unwrap();
@@ -657,7 +657,7 @@ impl Context {
 
     /// Builds a node which computes `atan2(y, x)`
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.atan2(y, x).unwrap();
@@ -680,7 +680,7 @@ impl Context {
     /// The result is -1 if `a < b`, +1 if `a > b`, 0 if `a == b`, and `NaN` if
     /// either side is `NaN`.
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.compare(x, 1.0).unwrap();
     /// let v = ctx.eval_xyz(op, 0.0, 0.0, 0.0).unwrap();
@@ -703,7 +703,7 @@ impl Context {
     /// Builds a node that is 1 if `lhs < rhs` and 0 otherwise
     ///
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.less_than(x, y).unwrap();
@@ -728,7 +728,7 @@ impl Context {
     /// Builds a node that is 1 if `lhs <= rhs` and 0 otherwise
     ///
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.less_than_or_equal(x, y).unwrap();
@@ -767,7 +767,7 @@ impl Context {
     ///
     /// The result is `a` if `condition != 0`, else the result is `b`.
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let z = ctx.z();
@@ -802,7 +802,7 @@ impl Context {
     /// [`Shape`](crate::shape::Shape) and using its evaluators instead.
     ///
     /// ```
-    /// # let mut ctx = fidget::context::Context::new();
+    /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let z = ctx.z();
@@ -919,7 +919,7 @@ impl Context {
     /// Parses a flat text representation of a math tree. For example, the
     /// circle `(- (+ (square x) (square y)) 1)` can be parsed from
     /// ```
-    /// # use fidget::context::Context;
+    /// # use fidget_core::context::Context;
     /// let txt = "
     /// ## This is a comment!
     /// 0x600000b90000 var-x
@@ -1550,13 +1550,13 @@ impl Context {
 ///
 /// This trait allows you to write
 /// ```
-/// # let mut ctx = fidget::context::Context::new();
+/// # let mut ctx = fidget_core::context::Context::new();
 /// let x = ctx.x();
 /// let sum = ctx.add(x, 1.0).unwrap();
 /// ```
 /// instead of the more verbose
 /// ```
-/// # let mut ctx = fidget::context::Context::new();
+/// # let mut ctx = fidget_core::context::Context::new();
 /// let x = ctx.x();
 /// let num = ctx.constant(1.0);
 /// let sum = ctx.add(x, num).unwrap();

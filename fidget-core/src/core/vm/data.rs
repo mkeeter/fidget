@@ -38,7 +38,7 @@ use std::sync::Arc;
 ///
 /// We can peek at the internals and see this register-allocated tape:
 /// ```
-/// use fidget::{
+/// use fidget_core::{
 ///     compiler::RegOp,
 ///     context::{Context, Tree},
 ///     vm::VmData,
@@ -56,7 +56,7 @@ use std::sync::Arc;
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
-/// # Ok::<(), fidget::Error>(())
+/// # Ok::<(), fidget_core::Error>(())
 /// ```
 ///
 /// Despite this peek at its internals, users are unlikely to touch `VmData`

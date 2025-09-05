@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "fidget",
+    "fidget-core",
     "demos/constraints",
     "demos/cli",
     "demos/viewer",
