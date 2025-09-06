@@ -6,6 +6,7 @@ members = [
     "fidget-core",
     "fidget-jit",
     "fidget-mesh",
+    "fidget-raster",
     "fidget-rhai",
     "fidget-shapes",
     "fidget-solver",

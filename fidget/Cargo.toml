@@ -16,13 +16,14 @@ fidget-rhai = { path = "../fidget-rhai", version = "=0.4.0", optional = true }
 fidget-mesh = { path = "../fidget-mesh", version = "=0.4.0", optional = true }
 fidget-jit =  { path = "../fidget-jit",  version = "=0.4.0", optional = true }
 fidget-solver =  { path = "../fidget-solver",  version = "=0.4.0", optional = true }
+fidget-raster =  { path = "../fidget-raster",  version = "=0.4.0", optional = true }
 
 rhai = { workspace = true, optional = true }
 document-features.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
-default = ["jit", "rhai", "mesh", "solver"]
+default = ["jit", "rhai", "mesh", "solver", "raster"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -41,6 +42,9 @@ mesh = ["fidget-mesh"]
 
 ## Enables constraint solving in the [`fidget::solver`](crate::solver) module
 solver = ["fidget-solver"]
+
+## Enables image rendering in the [`fidget::raster`](crate::raster) module
+raster = ["fidget-raster"]
 
 [[bench]]
 name = "render"

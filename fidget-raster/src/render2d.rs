@@ -1,11 +1,11 @@
 //! 2D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
+    Image, RenderConfig, RenderWorker, TileSizesRef,
+    config::{ImageRenderConfig, Tile},
+};
+use fidget_core::{
     eval::Function,
-    render::{
-        Image, RenderConfig, RenderWorker, TileSizesRef,
-        config::{ImageRenderConfig, Tile},
-    },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
 };
@@ -332,7 +332,9 @@ pub fn render<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Context, render::ImageSize, shape::Shape, vm::VmFunction};
+    use fidget_core::{
+        Context, render::ImageSize, shape::Shape, vm::VmFunction,
+    };
 
     const HI: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../models/hi.vm"));

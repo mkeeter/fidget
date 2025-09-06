@@ -209,7 +209,8 @@
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     render::{ImageSize, ImageRenderConfig},
+//!     render::ImageSize,
+//!     raster::ImageRenderConfig,
 //!     vm::VmShape,
 //! };
 //!
@@ -286,6 +287,9 @@ pub use fidget_mesh as mesh;
 
 #[cfg(feature = "solver")]
 pub use fidget_solver as solver;
+
+#[cfg(feature = "raster")]
+pub use fidget_raster as raster;
 
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub use fidget_jit as jit;

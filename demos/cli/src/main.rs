@@ -285,7 +285,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         None => Some(fidget::render::ThreadPool::Global),
     };
     let threads = threads.as_ref();
-    let cfg = fidget::render::VoxelRenderConfig {
+    let cfg = fidget::raster::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
         threads,
@@ -309,7 +309,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     let out = match mode {
         RenderMode3D::Normals { denoise } => {
             let image = if denoise {
-                fidget::render::effects::denoise_normals(&image, threads)
+                fidget::raster::effects::denoise_normals(&image, threads)
             } else {
                 image
             };
@@ -327,12 +327,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
         RenderMode3D::Shaded { ssao, denoise } => {
             let image = if denoise {
-                fidget::render::effects::denoise_normals(&image, threads)
+                fidget::raster::effects::denoise_normals(&image, threads)
             } else {
                 image
             };
             let color =
-                fidget::render::effects::apply_shading(&image, ssao, threads);
+                fidget::raster::effects::apply_shading(&image, ssao, threads);
             image
                 .into_iter()
                 .zip(color)
@@ -347,11 +347,11 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
         RenderMode3D::RawOcclusion { denoise } => {
             let image = if denoise {
-                fidget::render::effects::denoise_normals(&image, threads)
+                fidget::raster::effects::denoise_normals(&image, threads)
             } else {
                 image
             };
-            let ssao = fidget::render::effects::compute_ssao(&image, threads);
+            let ssao = fidget::raster::effects::compute_ssao(&image, threads);
             ssao.into_iter()
                 .flat_map(|p| {
                     if p.is_nan() {
@@ -365,12 +365,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             let image = if denoise {
-                fidget::render::effects::denoise_normals(&image, threads)
+                fidget::raster::effects::denoise_normals(&image, threads)
             } else {
                 image
             };
-            let ssao = fidget::render::effects::compute_ssao(&image, threads);
-            let blurred = fidget::render::effects::blur_ssao(&ssao, threads);
+            let ssao = fidget::raster::effects::compute_ssao(&image, threads);
+            let blurred = fidget::raster::effects::blur_ssao(&ssao, threads);
             blurred
                 .into_iter()
                 .flat_map(|p| {
@@ -447,7 +447,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             )),
             None => Some(fidget::render::ThreadPool::Global),
         };
-        let cfg = fidget::render::ImageRenderConfig {
+        let cfg = fidget::raster::ImageRenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
             threads: threads.as_ref(),
@@ -455,12 +455,12 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             world_to_model,
             ..Default::default()
         };
-        let mut image = fidget::render::Image::default();
+        let mut image = fidget::raster::Image::default();
         match mode {
             RenderMode2D::Mono => {
                 for _ in 0..settings.n {
                     let tmp = cfg.run::<_>(shape.clone()).unwrap();
-                    image = fidget::render::effects::to_rgba_bitmap(
+                    image = fidget::raster::effects::to_rgba_bitmap(
                         tmp,
                         false,
                         cfg.threads,
@@ -470,7 +470,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             RenderMode2D::Sdf => {
                 for _ in 0..settings.n {
                     let tmp = cfg.run(shape.clone()).unwrap();
-                    image = fidget::render::effects::to_rgba_distance(
+                    image = fidget::raster::effects::to_rgba_distance(
                         tmp,
                         cfg.threads,
                     );
@@ -479,7 +479,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             RenderMode2D::Debug => {
                 for _ in 0..settings.n {
                     let tmp = cfg.run::<_>(shape.clone()).unwrap();
-                    image = fidget::render::effects::to_debug_bitmap(
+                    image = fidget::raster::effects::to_debug_bitmap(
                         tmp,
                         cfg.threads,
                     );

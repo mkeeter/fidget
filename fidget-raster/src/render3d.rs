@@ -1,12 +1,12 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
+    GeometryBuffer, GeometryPixel, RenderConfig, RenderWorker, TileSizesRef,
+    VoxelSize,
+    config::{Tile, VoxelRenderConfig},
+};
+use fidget_core::{
     eval::Function,
-    render::{
-        GeometryBuffer, GeometryPixel, RenderConfig, RenderWorker,
-        TileSizesRef, VoxelSize,
-        config::{Tile, VoxelRenderConfig},
-    },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
@@ -385,7 +385,7 @@ pub fn render<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Context, render::VoxelSize, vm::VmShape};
+    use fidget_core::{Context, render::VoxelSize, vm::VmShape};
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
