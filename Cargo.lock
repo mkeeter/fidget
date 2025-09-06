@@ -1445,6 +1445,7 @@ dependencies = [
  "nalgebra",
  "rayon",
  "rhai",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1495,6 +1496,7 @@ dependencies = [
  "fidget-core",
  "libc",
  "static_assertions",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1507,6 +1509,7 @@ dependencies = [
  "ordered-float 5.0.0",
  "rayon",
  "static_assertions",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1520,6 +1523,7 @@ dependencies = [
  "heck",
  "rhai",
  "strum 0.27.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1532,6 +1536,7 @@ dependencies = [
  "nalgebra",
  "strum 0.27.2",
  "thiserror 2.0.12",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1542,6 +1547,7 @@ dependencies = [
  "fidget-core",
  "nalgebra",
  "rand 0.9.2",
+ "workspace-hack",
 ]
 
 [[package]]

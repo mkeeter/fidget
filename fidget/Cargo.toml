@@ -19,6 +19,7 @@ fidget-solver =  { path = "../fidget-solver",  version = "=0.4.0", optional = tr
 
 rhai = { workspace = true, optional = true }
 document-features.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 default = ["jit", "rhai", "mesh", "solver"]
@@ -57,6 +58,6 @@ harness = false
 bench = false
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion.workspace = true
 rayon.workspace = true
 nalgebra.workspace = true

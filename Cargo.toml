@@ -50,6 +50,7 @@ approx = "0.5.1"
 arrayvec = "0.7"
 bincode = "1.3"
 clap = { version = "4", features = ["derive"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 crossbeam-channel = "0.5"
 document-features = "0.2"
 dynasmrt = "3.0"
