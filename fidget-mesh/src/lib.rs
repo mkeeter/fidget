@@ -52,10 +52,7 @@ mod octree;
 mod output;
 mod qef;
 
-use fidget_core::{
-    gui::View3,
-    render::{CancelToken, ThreadPool},
-};
+use fidget_core::render::{CancelToken, ThreadPool};
 
 #[doc(hidden)]
 pub mod types;
@@ -103,7 +100,7 @@ impl Default for Settings<'_> {
     fn default() -> Self {
         Self {
             depth: 3,
-            world_to_model: View3::default().world_to_model(),
+            world_to_model: nalgebra::Matrix4::identity(),
             threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
         }

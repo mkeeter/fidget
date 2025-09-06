@@ -11,8 +11,7 @@ use nalgebra::Point2;
 use notify::{Event, EventKind, Watcher};
 
 use fidget::{
-    gui::{Canvas2, Canvas3, CursorState, DragMode},
-    gui::{View2, View3},
+    gui::{Canvas2, Canvas3, CursorState, DragMode, View2, View3},
     raster::{GeometryPixel, ImageRenderConfig, VoxelRenderConfig},
 };
 

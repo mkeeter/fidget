@@ -11,19 +11,20 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-fidget-core = { path = "../fidget-core", version = "=0.4.0" }
-fidget-rhai = { path = "../fidget-rhai", version = "=0.4.0", optional = true }
-fidget-mesh = { path = "../fidget-mesh", version = "=0.4.0", optional = true }
-fidget-jit =  { path = "../fidget-jit",  version = "=0.4.0", optional = true }
-fidget-solver =  { path = "../fidget-solver",  version = "=0.4.0", optional = true }
-fidget-raster =  { path = "../fidget-raster",  version = "=0.4.0", optional = true }
+fidget-core   = { path = "../fidget-core",   version = "=0.4.0" }
+fidget-gui    = { path = "../fidget-gui",    version = "=0.4.0", optional = true }
+fidget-jit    = { path = "../fidget-jit",    version = "=0.4.0", optional = true }
+fidget-mesh   = { path = "../fidget-mesh",   version = "=0.4.0", optional = true }
+fidget-raster = { path = "../fidget-raster", version = "=0.4.0", optional = true }
+fidget-rhai   = { path = "../fidget-rhai",   version = "=0.4.0", optional = true }
+fidget-solver = { path = "../fidget-solver", version = "=0.4.0", optional = true }
 
 rhai = { workspace = true, optional = true }
 document-features.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
-default = ["jit", "rhai", "mesh", "solver", "raster"]
+default = ["jit", "rhai", "mesh", "solver", "raster", "gui"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -45,6 +46,9 @@ solver = ["fidget-solver"]
 
 ## Enables image rendering in the [`fidget::raster`](crate::raster) module
 raster = ["fidget-raster"]
+
+## Enables GUI abstractions in the [`fidget::gui`](crate::gui) module
+gui = ["fidget-gui"]
 
 [[bench]]
 name = "render"

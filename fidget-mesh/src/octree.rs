@@ -1036,13 +1036,11 @@ mod test {
     use crate::types::{Edge, X, Y, Z};
     use fidget_core::{
         context::{Context, Tree},
-        gui::View3,
         render::ThreadPool,
         shape::EzShape,
         var::Var,
         vm::VmShape,
     };
-    use nalgebra::Vector3;
     use std::collections::BTreeMap;
 
     fn depth0_single_thread() -> Settings<'static> {
@@ -1634,26 +1632,6 @@ mod test {
         for v in octree.vertices.iter() {
             let n = v.norm();
             assert!(n > 0.7 && n < 0.8, "invalid vertex at {v:?}: {n}");
-        }
-    }
-
-    #[test]
-    fn test_octree_camera() {
-        let shape = VmShape::from(sphere([1.0; 3], 0.25));
-
-        let center = Vector3::new(1.0, 1.0, 1.0);
-        let settings = Settings {
-            depth: 4,
-            world_to_model: View3::from_center_and_scale(center, 0.5)
-                .world_to_model(),
-            threads: None,
-            ..Default::default()
-        };
-
-        let octree = Octree::build(&shape, &settings).unwrap().walk_dual();
-        for v in octree.vertices.iter() {
-            let n = (v - center).norm();
-            assert!(n > 0.2 && n < 0.3, "invalid vertex at {v:?}: {n}");
         }
     }
 

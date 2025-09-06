@@ -8,6 +8,7 @@ use fidget::{
     shape::{Shape, ShapeVars},
     var::Var,
 };
+use nalgebra::Point2;
 
 const HI: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../models/hi.vm"));
@@ -418,3 +419,53 @@ render_tests!(vm3, fidget::vm::GenericVmFunction<3>);
 
 #[cfg(feature = "jit")]
 render_tests!(jit, fidget::jit::JitFunction);
+
+/// Test generating `world_to_model` matrices from a `View2`
+#[test]
+fn test_camera_render_config() {
+    let config = ImageRenderConfig {
+        image_size: ImageSize::from(512),
+        world_to_model: View2::from_center_and_scale(
+            nalgebra::Vector2::new(0.5, 0.5),
+            0.5,
+        )
+        .world_to_model(),
+        ..Default::default()
+    };
+    let mat = config.mat();
+    assert_eq!(
+        mat.transform_point(&Point2::new(0.0, -1.0)),
+        Point2::new(0.0, 1.0)
+    );
+    assert_eq!(
+        mat.transform_point(&Point2::new(512.0, -1.0)),
+        Point2::new(1.0, 1.0)
+    );
+    assert_eq!(
+        mat.transform_point(&Point2::new(512.0, 511.0)),
+        Point2::new(1.0, 0.0)
+    );
+
+    let config = ImageRenderConfig {
+        image_size: ImageSize::from(512),
+        world_to_model: View2::from_center_and_scale(
+            nalgebra::Vector2::new(0.5, 0.5),
+            0.25,
+        )
+        .world_to_model(),
+        ..Default::default()
+    };
+    let mat = config.mat();
+    assert_eq!(
+        mat.transform_point(&Point2::new(0.0, -1.0)),
+        Point2::new(0.25, 0.75)
+    );
+    assert_eq!(
+        mat.transform_point(&Point2::new(512.0, -1.0)),
+        Point2::new(0.75, 0.75)
+    );
+    assert_eq!(
+        mat.transform_point(&Point2::new(512.0, 511.0)),
+        Point2::new(0.75, 0.25)
+    );
+}

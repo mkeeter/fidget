@@ -4,6 +4,7 @@ members = [
     # Fidget crates
     "fidget",
     "fidget-core",
+    "fidget-gui",
     "fidget-jit",
     "fidget-mesh",
     "fidget-raster",

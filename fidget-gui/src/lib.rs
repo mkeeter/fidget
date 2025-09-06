@@ -1,5 +1,5 @@
 //! Platform-independent GUI abstractions
-use crate::render::{ImageSize, VoxelSize};
+use fidget_core::render::{ImageSize, VoxelSize};
 use nalgebra::{
     Const, DefaultAllocator, DimNameAdd, DimNameSum, Matrix3, Matrix4, OMatrix,
     OPoint, OVector, Point2, Point3, U1, Vector2, Vector3,
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```
 /// # use nalgebra::{Vector2, Point2};
-/// # use fidget_core::gui::{View2};
+/// # use fidget_gui::{View2};
 /// let view = View2::from_center_and_scale(Vector2::new(5.0, 5.0), 1.0);
 ///
 /// //   -------d-------

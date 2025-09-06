@@ -291,5 +291,8 @@ pub use fidget_solver as solver;
 #[cfg(feature = "raster")]
 pub use fidget_raster as raster;
 
+#[cfg(feature = "gui")]
+pub use fidget_gui as gui;
+
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub use fidget_jit as jit;
