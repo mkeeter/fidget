@@ -203,7 +203,7 @@
 //!
 //! # Rasterization
 //! Fidget implements both 2D and 3D rasterization of implicit surfaces,
-//! implemented in the [`fidget::render` module](render).
+//! implemented in the [`fidget::raster` module](raster).
 //!
 //! Here's a quick example:
 //! ```

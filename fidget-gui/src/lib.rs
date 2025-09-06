@@ -48,7 +48,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 ///
 /// See also
-/// [`RegionSize::screen_to_world`](crate::render::RegionSize::screen_to_world),
+/// [`RegionSize::screen_to_world`](fidget_core::render::RegionSize::screen_to_world),
 /// which converts from screen to world coordinates.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct View2 {

@@ -1,4 +1,4 @@
-//! Tools for using [`fidget::shapes`](fidget_core::shapes) in Rhai
+//! Tools for using [`fidget::shapes`](fidget_shapes) in Rhai
 use crate::FromDynamic;
 use facet::{ConstTypeId, Facet};
 use fidget_core::context::Tree;
