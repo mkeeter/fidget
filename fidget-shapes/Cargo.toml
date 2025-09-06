@@ -1,6 +1,6 @@
 [package]
-name = "fidget-rhai"
-description = "Rhai script evaluation for complex closed-form implicit surfaces"
+name = "fidget-shapes"
+description = "Shapes and transforms for use with Fidget"
 readme = "../README.md"
 
 version.workspace = true
@@ -11,11 +11,10 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-fidget-core   = { path = "../fidget-core",   version = "=0.4.0" }
-fidget-shapes = { path = "../fidget-shapes", version = "=0.4.0" }
+fidget-core = { path = "../fidget-core", version = "=0.4.0" }
 
 enum-map.workspace = true
 facet.workspace = true
-rhai.workspace = true
+nalgebra.workspace = true
 strum.workspace = true
-heck.workspace = true
+thiserror.workspace = true

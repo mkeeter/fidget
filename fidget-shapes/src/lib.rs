@@ -14,8 +14,8 @@
 //! For an example of binding shapes into a dynamic language, look at the
 //! implementation of `fidget_rhai::shapes` (specifically the internal
 //! `register_shape` function).
-use crate::context::Tree;
 use facet::Facet;
+use fidget_core::context::Tree;
 
 pub mod types;
 use types::{Axis, Plane, Vec2, Vec3};
@@ -619,7 +619,7 @@ pub fn visit_shapes<V: ShapeVisitor>(visitor: &mut V) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Context;
+    use fidget_core::Context;
 
     #[test]
     fn circle_docstring() {

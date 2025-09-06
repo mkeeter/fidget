@@ -1469,7 +1469,6 @@ name = "fidget-core"
 version = "0.4.0"
 dependencies = [
  "arrayvec",
- "enum-map",
  "facet",
  "getrandom 0.2.16",
  "getrandom 0.3.3",
@@ -1517,9 +1516,22 @@ dependencies = [
  "enum-map",
  "facet",
  "fidget-core",
+ "fidget-shapes",
  "heck",
  "rhai",
  "strum 0.27.2",
+]
+
+[[package]]
+name = "fidget-shapes"
+version = "0.4.0"
+dependencies = [
+ "enum-map",
+ "facet",
+ "fidget-core",
+ "nalgebra",
+ "strum 0.27.2",
+ "thiserror 2.0.12",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@
 use facet::{ConstTypeId, Facet};
 use strum::IntoDiscriminant;
 
-use crate::context::Tree;
+use fidget_core::context::Tree;
 
 /// Error type for type construction
 #[derive(thiserror::Error, Debug)]
@@ -408,7 +408,7 @@ impl Value {
 macro_rules! try_from_type {
     ($ty:ty, $name:ident) => {
         impl<'a> TryFrom<&'a Value> for &'a $ty {
-            type Error = $crate::shapes::types::Error;
+            type Error = $crate::types::Error;
             fn try_from(v: &'a Value) -> Result<&'a $ty, Self::Error> {
                 if let Value::$name(f) = v {
                     Ok(f)

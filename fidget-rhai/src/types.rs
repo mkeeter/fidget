@@ -2,9 +2,9 @@
 use crate::FromDynamic;
 use fidget_core::{
     context::{Tree, TreeOp},
-    shapes::types::{Axis, Plane, Vec2, Vec3, Vec4},
     var::Var,
 };
+use fidget_shapes::types::{Axis, Plane, Vec2, Vec3, Vec4};
 use rhai::EvalAltResult;
 
 macro_rules! register_all {

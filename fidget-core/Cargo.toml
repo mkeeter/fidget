@@ -12,7 +12,6 @@ rust-version.workspace = true
 
 [dependencies]
 arrayvec.workspace = true
-enum-map.workspace = true
 facet.workspace = true
 nalgebra.workspace = true
 ordered-float.workspace = true

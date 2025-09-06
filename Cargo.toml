@@ -4,9 +4,10 @@ members = [
     # Fidget crates
     "fidget",
     "fidget-core",
-    "fidget-rhai",
-    "fidget-mesh",
     "fidget-jit",
+    "fidget-mesh",
+    "fidget-rhai",
+    "fidget-shapes",
     "fidget-solver",
 
     # Non-WASM demos

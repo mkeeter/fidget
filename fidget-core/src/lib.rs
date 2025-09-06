@@ -6,4 +6,3 @@ mod error;
 pub use error::Error;
 pub mod gui;
 pub mod render;
-pub mod shapes;

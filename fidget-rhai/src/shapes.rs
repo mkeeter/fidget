@@ -1,13 +1,11 @@
 //! Tools for using [`fidget::shapes`](fidget_core::shapes) in Rhai
 use crate::FromDynamic;
 use facet::{ConstTypeId, Facet};
-use fidget_core::{
-    context::Tree,
-    shapes::{
-        ShapeVisitor,
-        types::{Plane, Type, Value, Vec3},
-        visit_shapes,
-    },
+use fidget_core::context::Tree;
+use fidget_shapes::{
+    ShapeVisitor,
+    types::{Plane, Type, Value, Vec3},
+    visit_shapes,
 };
 use rhai::{EvalAltResult, NativeCallContext};
 use strum::IntoDiscriminant;
@@ -555,7 +553,8 @@ ordered!(build_ordered8, a, b, c, d, e, f, g, h);
 #[cfg(test)]
 mod test {
     use super::*;
-    use fidget_core::{Context, context::Op, shapes::*, var::Var};
+    use fidget_core::{Context, context::Op, var::Var};
+    use fidget_shapes::*;
 
     #[test]
     fn circle_builder() {

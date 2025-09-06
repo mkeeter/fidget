@@ -17,7 +17,7 @@ impl FromDynamic for Tree {
         } else if let Ok(v) = f64::from_dynamic(ctx, d.clone(), None) {
             Ok(Tree::constant(v))
         } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, d.clone(), None) {
-            Ok(fidget_core::shapes::Union { input: v }.into())
+            Ok(fidget_shapes::Union { input: v }.into())
         } else {
             Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
                 "tree".to_string(),
