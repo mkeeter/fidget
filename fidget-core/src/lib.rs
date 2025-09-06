@@ -5,4 +5,3 @@ pub use crate::core::*;
 mod error;
 pub use error::Error;
 pub mod gui;
-pub mod render;

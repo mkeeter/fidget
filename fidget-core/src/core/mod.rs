@@ -58,6 +58,7 @@ pub use context::Context;
 
 pub mod compiler;
 pub mod eval;
+pub mod render;
 pub mod shape;
 pub mod types;
 pub mod var;
