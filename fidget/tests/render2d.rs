@@ -2,7 +2,8 @@
 use fidget::{
     Context,
     eval::{Function, MathFunction},
-    render::{ImageRenderConfig, ImageSize, View2},
+    gui::View2,
+    render::{ImageRenderConfig, ImageSize},
     shape::{Shape, ShapeVars},
     var::Var,
 };

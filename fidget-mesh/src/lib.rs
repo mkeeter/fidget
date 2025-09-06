@@ -52,7 +52,10 @@ mod octree;
 mod output;
 mod qef;
 
-use fidget_core::render::{CancelToken, ThreadPool, View3};
+use fidget_core::{
+    gui::View3,
+    render::{CancelToken, ThreadPool},
+};
 
 #[doc(hidden)]
 pub mod types;

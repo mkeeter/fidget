@@ -1036,8 +1036,8 @@ mod test {
     use crate::types::{Edge, X, Y, Z};
     use fidget_core::{
         context::{Context, Tree},
+        gui::View3,
         render::ThreadPool,
-        render::View3,
         shape::EzShape,
         var::Var,
         vm::VmShape,

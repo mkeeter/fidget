@@ -1,8 +1,9 @@
 use crate::{
     eval::Function,
+    gui::{View2, View3},
     render::{
         DistancePixel, GeometryBuffer, Image, ImageSize, RenderConfig,
-        TileSizes, TileSizesRef, View2, View3, VoxelSize,
+        TileSizes, TileSizesRef, VoxelSize,
     },
     shape::{Shape, ShapeVars},
 };

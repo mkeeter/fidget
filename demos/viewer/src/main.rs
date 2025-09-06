@@ -12,9 +12,8 @@ use notify::{Event, EventKind, Watcher};
 
 use fidget::{
     gui::{Canvas2, Canvas3, CursorState, DragMode},
-    render::{
-        GeometryPixel, ImageRenderConfig, View2, View3, VoxelRenderConfig,
-    },
+    gui::{View2, View3},
+    render::{GeometryPixel, ImageRenderConfig, VoxelRenderConfig},
 };
 
 use std::{error::Error, path::Path};

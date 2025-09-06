@@ -2,7 +2,8 @@
 use fidget::{
     context::Tree,
     eval::{Function, MathFunction},
-    render::{View3, VoxelRenderConfig, VoxelSize},
+    gui::View3,
+    render::{VoxelRenderConfig, VoxelSize},
     shape::{Shape, ShapeVars},
     var::Var,
 };

@@ -17,7 +17,6 @@ mod config;
 mod region;
 mod render2d;
 mod render3d;
-mod view;
 
 use config::Tile;
 pub use config::{
@@ -25,7 +24,6 @@ pub use config::{
 };
 pub use region::{ImageSize, RegionSize, VoxelSize};
 pub use render2d::DistancePixel;
-pub use view::{RotateHandle, TranslateHandle, View2, View3};
 
 use render2d::render as render2d;
 use render3d::render as render3d;
