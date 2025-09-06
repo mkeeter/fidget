@@ -1441,6 +1441,8 @@ dependencies = [
  "fidget-jit",
  "fidget-mesh",
  "fidget-rhai",
+ "fidget-solver",
+ "nalgebra",
  "rayon",
  "rhai",
 ]
@@ -1466,7 +1468,6 @@ dependencies = [
 name = "fidget-core"
 version = "0.4.0"
 dependencies = [
- "approx",
  "arrayvec",
  "enum-map",
  "facet",
@@ -1519,6 +1520,16 @@ dependencies = [
  "heck",
  "rhai",
  "strum 0.27.2",
+]
+
+[[package]]
+name = "fidget-solver"
+version = "0.4.0"
+dependencies = [
+ "approx",
+ "fidget-core",
+ "nalgebra",
+ "rand 0.9.2",
 ]
 
 [[package]]

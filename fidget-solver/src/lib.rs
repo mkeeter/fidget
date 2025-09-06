@@ -1,5 +1,5 @@
 //! Solver for systems of equations expressed as sets of [Function] objects
-use crate::{
+use fidget_core::{
     Error,
     eval::{BulkEvaluator, Function, Tape, TracingEvaluator},
     types::Grad,
@@ -47,10 +47,7 @@ struct Solver<'a, F: Function> {
 }
 
 impl<'a, F: Function> Solver<'a, F> {
-    fn new(
-        eqs: &'a [F],
-        vars: &'a HashMap<Var, Parameter>,
-    ) -> Result<Self, Error> {
+    fn new(eqs: &'a [F], vars: &'a HashMap<Var, Parameter>) -> Self {
         // Build our per-constraint
         let grad_tapes = eqs
             .iter()
@@ -81,7 +78,7 @@ impl<'a, F: Function> Solver<'a, F> {
             ];
         let input_point = vec![0f32; vars.len()];
 
-        Ok(Self {
+        Self {
             vars,
             grad_tapes,
             point_tapes,
@@ -91,7 +88,7 @@ impl<'a, F: Function> Solver<'a, F> {
 
             input_grad,
             input_point,
-        })
+        }
     }
 
     /// Computes the Jacobian into `cur`
@@ -203,7 +200,7 @@ pub fn solve<F: Function>(
         }
     }
 
-    let mut solver = Solver::new(eqs, vars)?;
+    let mut solver = Solver::new(eqs, vars);
 
     // Build an array of current values for each free variable
     let mut cur = vec![0f32; solver.grad_index.len()];
@@ -289,12 +286,12 @@ pub fn solve<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
+    use approx::{assert_relative_eq, relative_eq};
+    use fidget_core::{
         context::{Context, Tree},
         eval::MathFunction,
         vm::VmFunction,
     };
-    use approx::{assert_relative_eq, relative_eq};
 
     #[test]
     fn basic_solver() {

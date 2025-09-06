@@ -15,12 +15,13 @@ fidget-core = { path = "../fidget-core", version = "=0.4.0" }
 fidget-rhai = { path = "../fidget-rhai", version = "=0.4.0", optional = true }
 fidget-mesh = { path = "../fidget-mesh", version = "=0.4.0", optional = true }
 fidget-jit =  { path = "../fidget-jit",  version = "=0.4.0", optional = true }
+fidget-solver =  { path = "../fidget-solver",  version = "=0.4.0", optional = true }
 
 rhai = { workspace = true, optional = true }
 document-features.workspace = true
 
 [features]
-default = ["jit", "rhai", "mesh"]
+default = ["jit", "rhai", "mesh", "solver"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -36,6 +37,9 @@ rhai = ["fidget-rhai", "dep:rhai"]
 
 ## Enable meshing in the [`fidget::mesh`](crate::mesh) module
 mesh = ["fidget-mesh"]
+
+## Enables constraint solving in the [`fidget::solver`](crate::solver) module
+solver = ["fidget-solver"]
 
 [[bench]]
 name = "render"
@@ -55,3 +59,4 @@ bench = false
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 rayon.workspace = true
+nalgebra.workspace = true

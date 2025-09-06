@@ -385,14 +385,7 @@ pub fn render<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        Context,
-        context::Tree,
-        eval::MathFunction,
-        render::{View3, VoxelSize},
-        var::Var,
-        vm::VmShape,
-    };
+    use crate::{Context, render::VoxelSize, vm::VmShape};
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
@@ -408,95 +401,6 @@ mod test {
         let image = cfg.run(shape).unwrap();
         assert_eq!(image.len(), 128 * 128);
     }
-
-    fn sphere_var<F: Function + MathFunction>() {
-        let (x, y, z) = Tree::axes();
-        let v = Var::new();
-        let c = Tree::from(v);
-        let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
-        let shape = Shape::<F>::from(sphere);
-
-        let size = 32;
-        for scale in [1.0, 0.5] {
-            let cfg = VoxelRenderConfig {
-                image_size: VoxelSize::from(size),
-                world_to_model: View3::from_center_and_scale(
-                    Vector3::zeros(),
-                    scale,
-                )
-                .world_to_model(),
-                ..Default::default()
-            };
-            let m = cfg.image_size.screen_to_world();
-
-            for r in [0.5, 0.75] {
-                let mut vars = ShapeVars::new();
-                vars.insert(v.index().unwrap(), r);
-                let image =
-                    cfg.run_with_vars::<_>(shape.clone(), &vars).unwrap();
-
-                // Handwavey calculation: ±1 split into `size` voxels, max error
-                // of two voxels (top to bottom), and dividing for `scale` for
-                // bonus corrections.
-                let epsilon = 2.0 / size as f32 / scale * 2.0;
-                for (i, p) in image.iter().enumerate() {
-                    let p = p.depth;
-                    if p == size {
-                        // Skip saturated voxels
-                        continue;
-                    }
-                    let size = size as i32;
-                    let i = i as i32;
-                    let x = (i % size) as f32;
-                    let y = (i / size) as f32;
-                    let z = p as f32;
-                    let pos = m
-                        .transform_point(&nalgebra::Point3::new(x, y, z))
-                        * scale;
-                    if p == 0 {
-                        let v = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
-                        assert!(
-                            v + epsilon > r,
-                            "got z = 0 inside the sphere ({x}, {y}, {z}); \
-                             radius is {v}"
-                        );
-                    } else {
-                        let v = (pos.x.powi(2) + pos.y.powi(2) + pos.z.powi(2))
-                            .sqrt();
-                        let err = (r - v).abs();
-                        assert!(
-                            err < epsilon,
-                            "too much error {err} at ({x}, {y}, {z}) ({pos}) \
-                             (scale = {scale}); radius is {v}, expected {r}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    macro_rules! render_tests {
-        ($i:ident) => {
-            mod $i {
-                use super::*;
-                #[test]
-                fn vm() {
-                    $i::<$crate::vm::VmFunction>();
-                }
-                #[test]
-                fn vm3() {
-                    $i::<$crate::vm::GenericVmFunction<3>>();
-                }
-                #[cfg(feature = "jit")]
-                #[test]
-                fn jit() {
-                    $i::<$crate::jit::JitFunction>();
-                }
-            }
-        };
-    }
-
-    render_tests!(sphere_var);
 
     #[test]
     fn cancel_render() {

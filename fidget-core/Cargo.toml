@@ -40,6 +40,3 @@ rhai = { workspace = true, optional = true, features = ["wasm-bindgen"] }
 ## unit-test them.  When enabled, the crate exports a set of macros to test each
 ## evaluator type, e.g. `float_slice_tests!(...)`.
 eval-tests = []
-
-[dev-dependencies]
-approx = "0.5.1"
