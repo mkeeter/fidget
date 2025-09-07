@@ -1,4 +1,4 @@
-# 0.4.0 (unreleased)
+# 0.4.0
 ## Splitting into multiple crates
 The focus of this release is splitting `fidget` into a set of smaller crates,
 for improved compile times and modularity.  This brings a clean build of
