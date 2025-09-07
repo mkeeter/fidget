@@ -1433,10 +1433,11 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "criterion",
  "document-features",
+ "fidget-bytecode",
  "fidget-core",
  "fidget-gui",
  "fidget-jit",
@@ -1447,6 +1448,16 @@ dependencies = [
  "nalgebra",
  "rayon",
  "workspace-hack",
+]
+
+[[package]]
+name = "fidget-bytecode"
+version = "0.4.1"
+dependencies = [
+ "fidget-core",
+ "strum 0.27.2",
+ "workspace-hack",
+ "zerocopy",
 ]
 
 [[package]]
@@ -1478,6 +1489,7 @@ dependencies = [
  "rand 0.9.2",
  "rayon",
  "serde",
+ "strum 0.27.2",
  "thiserror 2.0.12",
  "workspace-hack",
 ]

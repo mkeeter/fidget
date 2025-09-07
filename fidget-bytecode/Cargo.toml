@@ -1,8 +1,8 @@
 [package]
-name = "fidget-shapes"
-description = "Shapes and transforms for use with Fidget"
+name = "fidget-bytecode"
+description = "Bytecode representation for Fidget expression tapes"
 readme = "README.md"
-version = "0.4.0"
+version = "0.4.1"
 
 edition.workspace = true
 license.workspace = true
@@ -14,8 +14,5 @@ rust-version.workspace = true
 fidget-core.workspace = true
 workspace-hack.workspace = true
 
-enum-map.workspace = true
-facet.workspace = true
-nalgebra.workspace = true
 strum.workspace = true
-thiserror.workspace = true
+zerocopy.workspace = true

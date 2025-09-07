@@ -42,6 +42,7 @@
 //! mesh.write_stl(&mut f)?;
 //! # Ok::<(), std::io::Error>(())
 //! ```
+#![warn(missing_docs)]
 
 mod builder;
 mod cell;

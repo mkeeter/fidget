@@ -222,6 +222,8 @@
 //! .move(#{ offset: [1, 1] });
 //! # ").unwrap();
 //! ```
+#![warn(missing_docs)]
+
 pub mod constants;
 pub mod shapes;
 pub mod tree;

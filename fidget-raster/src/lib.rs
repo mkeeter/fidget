@@ -2,6 +2,7 @@
 //!
 //! To render something, build a configuration object then call its `run`
 //! function, e.g. [`ImageRenderConfig::run`] and [`VoxelRenderConfig::run`].
+#![warn(missing_docs)]
 use crate::config::Tile;
 use fidget_core::{
     eval::Function,

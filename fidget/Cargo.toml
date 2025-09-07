@@ -2,8 +2,8 @@
 name = "fidget"
 description = "Infrastructure for complex closed-form implicit surfaces"
 readme = "../README.md"
+version = "0.4.1"
 
-version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,12 +11,14 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-fidget-core   = { workspace = true }
-fidget-gui    = { workspace = true, optional = true }
-fidget-mesh   = { workspace = true, optional = true }
-fidget-raster = { workspace = true, optional = true }
-fidget-rhai   = { workspace = true, optional = true }
-fidget-solver = { workspace = true, optional = true }
+fidget-core     = { workspace = true }
+
+fidget-bytecode = { workspace = true, optional = true }
+fidget-gui      = { workspace = true, optional = true }
+fidget-mesh     = { workspace = true, optional = true }
+fidget-raster   = { workspace = true, optional = true }
+fidget-rhai     = { workspace = true, optional = true }
+fidget-solver   = { workspace = true, optional = true }
 
 document-features.workspace = true
 workspace-hack.workspace = true
@@ -25,7 +27,15 @@ workspace-hack.workspace = true
 fidget-jit = { workspace = true, optional = true }
 
 [features]
-default = ["jit", "rhai", "mesh", "solver", "raster", "gui"]
+default = [
+    "bytecode",
+    "gui",
+    "jit",
+    "mesh",
+    "raster",
+    "rhai",
+    "solver",
+]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -41,6 +51,9 @@ mesh = ["dep:fidget-mesh"]
 
 ## Enables constraint solving in the [`fidget::solver`](crate::solver) module
 solver = ["dep:fidget-solver"]
+
+## Enables bytecode generation in the [`fidget::bytecode`](crate::bytecode) module
+bytecode = ["dep:fidget-bytecode"]
 
 ## Enables image rendering in the [`fidget::raster`](crate::raster) module
 raster = ["dep:fidget-raster"]

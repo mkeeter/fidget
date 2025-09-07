@@ -4,6 +4,7 @@ members = [
     # Fidget crates
     "fidget",
     "fidget-core",
+    "fidget-bytecode",
     "fidget-gui",
     "fidget-jit",
     "fidget-mesh",
@@ -24,7 +25,6 @@ exclude = ["demos/web-editor/crate"]
 
 [workspace.package]
 rust-version = "1.87"
-version = "0.4.0"
 edition = "2024"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
@@ -72,7 +72,7 @@ rayon = "1.10"
 rhai = { version = "=1.21.0", features = ["sync"] } # pinned due to rhai#1001
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
@@ -80,13 +80,14 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Memo
 zerocopy = { version = "0.8", features = ["derive"] }
 
 # Local crates
-fidget.path = "fidget"
-fidget-core    = { path = "fidget-core",    version = "=0.4.0" }
-fidget-gui     = { path = "fidget-gui",     version = "=0.4.0" }
-fidget-jit     = { path = "fidget-jit",     version = "=0.4.0" }
-fidget-mesh    = { path = "fidget-mesh",    version = "=0.4.0" }
-fidget-raster  = { path = "fidget-raster",  version = "=0.4.0" }
-fidget-rhai    = { path = "fidget-rhai",    version = "=0.4.0" }
-fidget-shapes  = { path = "fidget-shapes",  version = "=0.4.0" }
-fidget-solver  = { path = "fidget-solver",  version = "=0.4.0" }
-workspace-hack = { path = "workspace-hack", version = "0.1" }
+fidget.path     = "fidget"
+fidget-core     = { path = "fidget-core",     version = "=0.4.0" }
+fidget-bytecode = { path = "fidget-bytecode", version = "=0.4.1" }
+fidget-gui      = { path = "fidget-gui",      version = "=0.4.0" }
+fidget-jit      = { path = "fidget-jit",      version = "=0.4.0" }
+fidget-mesh     = { path = "fidget-mesh",     version = "=0.4.0" }
+fidget-raster   = { path = "fidget-raster",   version = "=0.4.0" }
+fidget-rhai     = { path = "fidget-rhai",     version = "=0.4.0" }
+fidget-shapes   = { path = "fidget-shapes",   version = "=0.4.0" }
+fidget-solver   = { path = "fidget-solver",   version = "=0.4.0" }
+workspace-hack  = { path = "workspace-hack",  version = "0.1" }

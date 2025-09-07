@@ -14,6 +14,7 @@
 //! For an example of binding shapes into a dynamic language, look at the
 //! implementation of `fidget_rhai::shapes` (specifically the internal
 //! `register_shape` function).
+#![warn(missing_docs)]
 use facet::Facet;
 use fidget_core::context::Tree;
 

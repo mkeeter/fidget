@@ -1,4 +1,5 @@
 //! Solver for systems of equations expressed as sets of [Function] objects
+#![warn(missing_docs)]
 use fidget_core::{
     Error,
     eval::{BulkEvaluator, Function, Tape, TracingEvaluator},

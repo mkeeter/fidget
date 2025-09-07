@@ -2,8 +2,8 @@
 name = "fidget-jit"
 description = "Native JIT compiler for Fidget"
 readme = "README.md"
+version = "0.4.0"
 
-version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
