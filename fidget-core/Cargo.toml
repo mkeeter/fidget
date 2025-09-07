@@ -1,0 +1,33 @@
+[package]
+name = "fidget-core"
+description = "Core infrastructure for Fidget"
+readme = "README.md"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+facet.workspace = true
+nalgebra.workspace = true
+ordered-float.workspace = true
+rand.workspace = true
+rayon.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Feature unification hacks to get webassembly working
+getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
+
+[features]
+## Enable `eval-tests` if you're writing your own evaluators and want to
+## unit-test them.  When enabled, the crate exports a set of macros to test each
+## evaluator type, e.g. `float_slice_tests!(...)`.
+eval-tests = []

@@ -1,0 +1,25 @@
+[package]
+name = "fidget-rhai"
+description = "Rhai script evaluation for complex closed-form implicit surfaces"
+readme = "README.md"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+fidget-core   = { path = "../fidget-core",   version = "=0.4.0" }
+fidget-shapes = { path = "../fidget-shapes", version = "=0.4.0" }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+enum-map.workspace = true
+facet.workspace = true
+rhai.workspace = true
+strum.workspace = true
+heck.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rhai = { workspace = true, features = ["wasm-bindgen"] }

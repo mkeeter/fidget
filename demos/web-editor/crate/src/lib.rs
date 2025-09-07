@@ -1,10 +1,8 @@
 use fidget::{
     context::{Context, Tree},
-    gui::{Canvas2, Canvas3, DragMode},
-    render::{
-        CancelToken, GeometryBuffer, ImageRenderConfig, ImageSize, ThreadPool,
-        TileSizes, View2, View3, VoxelRenderConfig, VoxelSize,
-    },
+    gui::{Canvas2, Canvas3, DragMode, View2, View3},
+    raster::{GeometryBuffer, ImageRenderConfig, VoxelRenderConfig},
+    render::{CancelToken, ImageSize, ThreadPool, TileSizes, VoxelSize},
     var::Var,
     vm::{VmData, VmShape},
 };
@@ -72,7 +70,7 @@ pub fn render_2d(
 
         let tmp = cfg.run(shape)?;
         let out =
-            fidget::render::effects::to_rgba_bitmap(tmp, false, cfg.threads);
+            fidget::raster::effects::to_rgba_bitmap(tmp, false, cfg.threads);
         Some(out.into_iter().flatten().collect())
     }
     inner(shape.0, image_size, camera.0, cancel.0)

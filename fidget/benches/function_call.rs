@@ -1,7 +1,7 @@
 use criterion::{
     BenchmarkId, Criterion, black_box, criterion_group, criterion_main,
 };
-use fidget::{
+use fidget_core::{
     context::{Context, Node},
     eval::{Function, MathFunction},
     shape::{EzShape, Shape},

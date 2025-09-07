@@ -1,71 +1,52 @@
 [package]
 name = "fidget"
-version = "0.3.10"
-edition = "2024"
-license = "MPL-2.0"
-repository = "https://github.com/mkeeter/fidget"
 description = "Infrastructure for complex closed-form implicit surfaces"
-authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
 readme = "../README.md"
-rust-version = "1.87"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-arrayvec.workspace = true
-bimap.workspace = true
+fidget-core   = { path = "../fidget-core",   version = "=0.4.0" }
+fidget-gui    = { path = "../fidget-gui",    version = "=0.4.0", optional = true }
+fidget-mesh   = { path = "../fidget-mesh",   version = "=0.4.0", optional = true }
+fidget-raster = { path = "../fidget-raster", version = "=0.4.0", optional = true }
+fidget-rhai   = { path = "../fidget-rhai",   version = "=0.4.0", optional = true }
+fidget-solver = { path = "../fidget-solver", version = "=0.4.0", optional = true }
+
 document-features.workspace = true
-enum-map.workspace = true
-facet.workspace = true
-heck.workspace = true
-nalgebra.workspace = true
-ordered-float.workspace = true
-rand.workspace = true
-rayon.workspace = true
-serde.workspace = true
-static_assertions.workspace = true
-strum.workspace = true
-thiserror.workspace = true
-zerocopy.workspace = true
-
-rhai = { workspace = true, optional = true }
-
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-# JIT
-dynasmrt = { workspace = true, optional = true }
-libc = { workspace = true, optional = true }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows.workspace = true
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# Feature unification hacks to get webassembly working
-getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
-getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
-rhai = { workspace = true, optional = true, features = ["wasm-bindgen"] }
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+fidget-jit = { path = "../fidget-jit", version = "=0.4.0", optional = true }
 
 [features]
-default = ["jit", "rhai"]
+default = ["jit", "rhai", "mesh", "solver", "raster", "gui"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
-## Windows (i.e. all supported platforms except WebAssembly).  There's no way to
-## disable the feature on specific platforms
-## ([Cargo issue](https://github.com/rust-lang/cargo/issues/1197));
-## users will have to disable it manually via `default-features = false`.
-jit = ["dep:dynasmrt", "dep:libc"]
+## Windows (i.e. all supported platforms except WebAssembly).
+jit = ["dep:fidget-jit"]
 
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
 ## [`fidget::rhai`](crate::rhai) module
-rhai = ["dep:rhai"]
+rhai = ["dep:fidget-rhai"]
 
-## Enable `eval-tests` if you're writing your own evaluators and want to
-## unit-test them.  When enabled, the crate exports a set of macros to test each
-## evaluator type, e.g. `float_slice_tests!(...)`.
-eval-tests = []
+## Enable meshing in the [`fidget::mesh`](crate::mesh) module
+mesh = ["dep:fidget-mesh"]
 
-[dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-approx = "0.5.1"
+## Enables constraint solving in the [`fidget::solver`](crate::solver) module
+solver = ["dep:fidget-solver"]
+
+## Enables image rendering in the [`fidget::raster`](crate::raster) module
+raster = ["dep:fidget-raster"]
+
+## Enables GUI abstractions in the [`fidget::gui`](crate::gui) module
+gui = ["dep:fidget-gui"]
 
 [[bench]]
 name = "render"
@@ -81,3 +62,8 @@ harness = false
 
 [lib]
 bench = false
+
+[dev-dependencies]
+criterion.workspace = true
+rayon.workspace = true
+nalgebra.workspace = true

@@ -101,12 +101,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
 
 [[package]]
-name = "bimap"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -300,9 +294,9 @@ dependencies = [
 
 [[package]]
 name = "dynasm"
-version = "3.0.1"
+version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "697c04882d6b25c9eb2583d2737bea1947a28c9d7544dddec76d85e6e1545c92"
+checksum = "7f7d4c414c94bc830797115b8e5f434d58e7e80cb42ba88508c14bc6ea270625"
 dependencies = [
  "bitflags 2.9.3",
  "byteorder",
@@ -315,9 +309,9 @@ dependencies = [
 
 [[package]]
 name = "dynasmrt"
-version = "3.0.1"
+version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1718a074cf8317b3509228d7ea9a99d7014b17483109d701c733699065fe5e35"
+checksum = "602f7458a3859195fb840e6e0cce5f4330dd9dfbfece0edaf31fe427af346f55"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -426,30 +420,119 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.3.10"
+version = "0.4.0"
 dependencies = [
- "arrayvec",
- "bimap",
  "document-features",
- "dynasmrt",
- "enum-map",
+ "fidget-core",
+ "fidget-gui",
+ "fidget-jit",
+ "fidget-mesh",
+ "fidget-raster",
+ "fidget-rhai",
+ "fidget-solver",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-core"
+version = "0.4.0"
+dependencies = [
  "facet",
  "getrandom 0.2.14",
  "getrandom 0.3.1",
- "heck",
- "libc",
  "nalgebra",
  "ordered-float",
  "rand",
  "rayon",
- "rhai",
  "serde",
- "static_assertions",
- "strum",
  "thiserror",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-gui"
+version = "0.4.0"
+dependencies = [
+ "fidget-core",
+ "nalgebra",
+ "serde",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-jit"
+version = "0.4.0"
+dependencies = [
+ "arrayvec",
+ "dynasmrt",
+ "fidget-core",
+ "libc",
+ "static_assertions",
  "windows",
  "workspace-hack",
+]
+
+[[package]]
+name = "fidget-mesh"
+version = "0.4.0"
+dependencies = [
+ "arrayvec",
+ "fidget-core",
+ "nalgebra",
+ "ordered-float",
+ "rayon",
+ "static_assertions",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-raster"
+version = "0.4.0"
+dependencies = [
+ "fidget-core",
+ "nalgebra",
+ "ordered-float",
+ "rand",
+ "rayon",
+ "workspace-hack",
  "zerocopy 0.8.21",
+]
+
+[[package]]
+name = "fidget-rhai"
+version = "0.4.0"
+dependencies = [
+ "enum-map",
+ "facet",
+ "fidget-core",
+ "fidget-shapes",
+ "heck",
+ "rhai",
+ "strum",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-shapes"
+version = "0.4.0"
+dependencies = [
+ "enum-map",
+ "facet",
+ "fidget-core",
+ "nalgebra",
+ "strum",
+ "thiserror",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-solver"
+version = "0.4.0"
+dependencies = [
+ "fidget-core",
+ "nalgebra",
+ "rand",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -653,9 +736,9 @@ checksum = "7a46645bbd70538861a90d0f26c31537cdf1e44aae99a794fb75a664b70951bc"
 
 [[package]]
 name = "instant"
-version = "0.1.12"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a5bbe824c507c5da5956355e86a746d82e0e1464f65d862cc5e71da70e94b2c"
+checksum = "e0242819d153cba4b4b05a5a8f2a7e9bbf97b6055b2a002b395c96b5ff3c0222"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -721,9 +804,9 @@ checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
 
 [[package]]
 name = "memmap2"
-version = "0.9.5"
+version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3f7eed9d3848f8b98834af67102b720745c4ec028fcd0aa0239277e7de374f"
+checksum = "843a98750cd611cc2965a8213b53b43e715f13c37a9e096c6408e69990961db7"
 dependencies = [
  "libc",
 ]
@@ -1039,9 +1122,9 @@ dependencies = [
 
 [[package]]
 name = "rhai_codegen"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59aecf17969c04b9c0c5d21f6bc9da9fec9dd4980e64d1871443a476589d8c86"
+checksum = "a5a11a05ee1ce44058fa3d5961d05194fdbe3ad6b40f904af764d81b86450e6b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1110,9 +1193,9 @@ checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 
 [[package]]
 name = "smallvec"
-version = "1.13.2"
+version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
+checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "smartstring"
@@ -1178,9 +1261,9 @@ dependencies = [
 
 [[package]]
 name = "thin-vec"
-version = "0.2.13"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a38c90d48152c236a3ab59271da4f4ae63d678c5d7ad6b7714d7cb9760be5e4b"
+checksum = "144f754d318415ac792f9d69fc87abbbfc043ce2ef041c60f16ad828f638717d"
 
 [[package]]
 name = "thiserror"

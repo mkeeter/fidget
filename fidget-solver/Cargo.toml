@@ -1,0 +1,21 @@
+[package]
+name = "fidget-solver"
+description = "Constraint solver using Fidget as a backend"
+readme = "README.md"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+fidget-core = { path = "../fidget-core", version = "=0.4.0" }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+rand.workspace = true
+nalgebra.workspace = true
+
+[dev-dependencies]
+approx.workspace = true

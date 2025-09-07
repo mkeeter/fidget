@@ -11,10 +11,8 @@ use nalgebra::Point2;
 use notify::{Event, EventKind, Watcher};
 
 use fidget::{
-    gui::{Canvas2, Canvas3, CursorState, DragMode},
-    render::{
-        GeometryPixel, ImageRenderConfig, View2, View3, VoxelRenderConfig,
-    },
+    gui::{Canvas2, Canvas3, CursorState, DragMode, View2, View3},
+    raster::{GeometryPixel, ImageRenderConfig, VoxelRenderConfig},
 };
 
 use std::{error::Error, path::Path};
@@ -191,12 +189,12 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
         Mode2D::Sdf => {
             let tmp = config.run(shape).unwrap();
-            fidget::render::effects::to_rgba_distance(tmp, config.threads)
+            fidget::raster::effects::to_rgba_distance(tmp, config.threads)
         }
 
         Mode2D::Debug => {
             let tmp = config.run(shape).unwrap();
-            fidget::render::effects::to_debug_bitmap(tmp, config.threads)
+            fidget::raster::effects::to_debug_bitmap(tmp, config.threads)
         }
     };
     let (data, _) = out.take();

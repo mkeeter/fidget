@@ -59,10 +59,9 @@
 //!
 //! ```
 //! # use fidget::context::Context;
-//! let t = fidget::rhai::engine().eval("x + y")?;
+//! let t = fidget::rhai::engine().eval("x + y").unwrap();
 //! let mut ctx = Context::new();
 //! let sum = ctx.import(&t);
-//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! # Evaluation
@@ -203,13 +202,14 @@
 //!
 //! # Rasterization
 //! Fidget implements both 2D and 3D rasterization of implicit surfaces,
-//! implemented in the [`fidget::render` module](render).
+//! implemented in the [`fidget::raster` module](raster).
 //!
 //! Here's a quick example:
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     render::{ImageSize, ImageRenderConfig},
+//!     render::ImageSize,
+//!     raster::ImageRenderConfig,
 //!     vm::VmShape,
 //! };
 //!
@@ -271,25 +271,39 @@
 //! [the `getrandom` docs](https://docs.rs/getrandom/latest/getrandom/#webassembly-support)
 //! for more details on why this is necessary.
 //!
+//! # Crate organization
+//! The Fidget crate is a thin wrapper about multiple smaller crates, for
+//! improved compilation speed and modulatiry.
+//!
+//! With no features enabled, the `fidget` crate simply re-exports everything
+//! from [`fidget_core`].  Fine-grained features add other modules (listed
+//! below); each top-level module in `fidget` is implemented in a standalone
+//! crate.
+//!
+//! This organization is an implementation detail; users should just depend on
+//! `fidget` and not worry too much about it.
+//!
 //! # Feature flags
 #![doc = document_features::document_features!()]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs)]
 
-// Re-export everything from fidget::core into the top-level namespace
-mod core;
-pub use crate::core::*;
-
-mod error;
-pub use error::Error;
-pub mod gui;
-pub mod mesh;
-pub mod render;
-pub mod shapes;
-pub mod solver;
+pub use fidget_core::*;
 
 #[cfg(feature = "rhai")]
-pub mod rhai;
+pub use fidget_rhai as rhai;
+
+#[cfg(feature = "mesh")]
+pub use fidget_mesh as mesh;
+
+#[cfg(feature = "solver")]
+pub use fidget_solver as solver;
+
+#[cfg(feature = "raster")]
+pub use fidget_raster as raster;
+
+#[cfg(feature = "gui")]
+pub use fidget_gui as gui;
 
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
-pub mod jit;
+pub use fidget_jit as jit;

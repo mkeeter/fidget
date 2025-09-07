@@ -14,4 +14,4 @@ nalgebra = "0.34"
 wasm-bindgen = "0.2.100"
 wasm-bindgen-rayon = "1.3"
 
-fidget.path = "../../../fidget"
+fidget = { path = "../../../fidget" }

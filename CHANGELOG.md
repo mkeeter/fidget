@@ -1,4 +1,23 @@
-# 0.3.10 (unreleased)
+# 0.4.0
+## Splitting into multiple crates
+The focus of this release is splitting `fidget` into a set of smaller crates,
+for improved compile times and modularity.  This brings a clean build of
+`fidget` (`time cargo build --release -pfidget`) down from 76 to 45 seconds on
+my laptop, a significant improvement!
+
+For the most part, this should be transparent: each smaller crate is re-exported
+by the `fidget` root crate.  However, a few things got moved around to improve
+modularity:
+
+- Image (bitmap and heightmap) rendering is moved from `fidget::render` to a
+  separate `fidget::raster` module.  Anything which was used by both image and
+  mesh rendering remains in `fidget::render`.
+- `View2` and `View3` have moved to `fidget::gui`
+
+The helper crates can be enabled with fine-grained features on the root `fidget`
+crate, for use cases where a smaller `fidget` is helpful.
+
+## Other changes
 - Return `DoubleEndedIterator` from `RegTape::iter()` and `SsaTape::iter()`,
   making it easier to iterate in reverse order.
 - Tighter interval bounds on `sin` and `cos` (thanks @alexneufeld)
