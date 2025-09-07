@@ -53,6 +53,8 @@
 //! //           ##########
 //! # Ok::<(), fidget_core::Error>(())
 //! ```
+#![warn(missing_docs)]
+
 pub mod context;
 pub use context::Context;
 

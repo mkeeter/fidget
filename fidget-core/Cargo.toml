@@ -2,8 +2,8 @@
 name = "fidget-core"
 description = "Core infrastructure for Fidget"
 readme = "README.md"
+version = "0.4.0"
 
-version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -17,6 +17,7 @@ ordered-float.workspace = true
 rand.workspace = true
 rayon.workspace = true
 serde.workspace = true
+strum.workspace = true
 thiserror.workspace = true
 
 workspace-hack.workspace = true

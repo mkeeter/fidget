@@ -1,3 +1,7 @@
+# 0.4.1
+- Add `fidget-bytecode` crate (exported as `fidget::bytecode`), which is a
+  binary representation of register instruction tapes.
+
 # 0.4.0
 ## Splitting into multiple crates
 The focus of this release is splitting `fidget` into a set of smaller crates,

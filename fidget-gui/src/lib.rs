@@ -1,4 +1,5 @@
 //! Platform-independent GUI abstractions
+#![warn(missing_docs)]
 use fidget_core::render::{ImageSize, VoxelSize};
 use nalgebra::{
     Const, DefaultAllocator, DimNameAdd, DimNameSum, Matrix3, Matrix4, OMatrix,
