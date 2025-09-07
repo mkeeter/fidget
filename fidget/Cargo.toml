@@ -13,7 +13,6 @@ rust-version.workspace = true
 [dependencies]
 fidget-core   = { path = "../fidget-core",   version = "=0.4.0" }
 fidget-gui    = { path = "../fidget-gui",    version = "=0.4.0", optional = true }
-fidget-jit    = { path = "../fidget-jit",    version = "=0.4.0", optional = true }
 fidget-mesh   = { path = "../fidget-mesh",   version = "=0.4.0", optional = true }
 fidget-raster = { path = "../fidget-raster", version = "=0.4.0", optional = true }
 fidget-rhai   = { path = "../fidget-rhai",   version = "=0.4.0", optional = true }
@@ -23,15 +22,15 @@ rhai = { workspace = true, optional = true }
 document-features.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+fidget-jit = { path = "../fidget-jit", version = "=0.4.0", optional = true }
+
 [features]
 default = ["jit", "rhai", "mesh", "solver", "raster", "gui"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
-## Windows (i.e. all supported platforms except WebAssembly).  There's no way to
-## disable the feature on specific platforms
-## ([Cargo issue](https://github.com/rust-lang/cargo/issues/1197));
-## users will have to disable it manually via `default-features = false`.
+## Windows (i.e. all supported platforms except WebAssembly).
 jit = ["fidget-jit"]
 
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
