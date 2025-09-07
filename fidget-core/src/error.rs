@@ -81,10 +81,3 @@ pub enum Error {
     #[error("tile size list must not be empty")]
     EmptyTileSizes,
 }
-
-#[cfg(feature = "rhai")]
-impl From<Box<rhai::EvalAltResult>> for Error {
-    fn from(e: Box<rhai::EvalAltResult>) -> Self {
-        Error::RhaiEvalError(*e)
-    }
-}
