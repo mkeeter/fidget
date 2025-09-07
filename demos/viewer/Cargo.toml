@@ -16,8 +16,8 @@ notify.workspace = true
 rhai.workspace = true
 zerocopy.workspace = true
 
-fidget.path = "../../fidget"
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+fidget.workspace = true
+workspace-hack.workspace = true
 
 [features]
 default = ["jit"]

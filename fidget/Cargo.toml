@@ -11,18 +11,18 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-fidget-core   = { path = "../fidget-core",   version = "=0.4.0" }
-fidget-gui    = { path = "../fidget-gui",    version = "=0.4.0", optional = true }
-fidget-mesh   = { path = "../fidget-mesh",   version = "=0.4.0", optional = true }
-fidget-raster = { path = "../fidget-raster", version = "=0.4.0", optional = true }
-fidget-rhai   = { path = "../fidget-rhai",   version = "=0.4.0", optional = true }
-fidget-solver = { path = "../fidget-solver", version = "=0.4.0", optional = true }
+fidget-core   = { workspace = true }
+fidget-gui    = { workspace = true, optional = true }
+fidget-mesh   = { workspace = true, optional = true }
+fidget-raster = { workspace = true, optional = true }
+fidget-rhai   = { workspace = true, optional = true }
+fidget-solver = { workspace = true, optional = true }
 
 document-features.workspace = true
-workspace-hack = { version = "0.1", path = "../workspace-hack" }
+workspace-hack.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-fidget-jit = { path = "../fidget-jit", version = "=0.4.0", optional = true }
+fidget-jit = { workspace = true, optional = true }
 
 [features]
 default = ["jit", "rhai", "mesh", "solver", "raster", "gui"]

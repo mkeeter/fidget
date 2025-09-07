@@ -19,7 +19,7 @@ rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
-workspace-hack = { version = "0.1", path = "../workspace-hack" }
+workspace-hack.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Feature unification hacks to get webassembly working
