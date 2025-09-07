@@ -430,7 +430,6 @@ dependencies = [
  "fidget-raster",
  "fidget-rhai",
  "fidget-solver",
- "rhai",
  "workspace-hack",
 ]
 
@@ -438,7 +437,6 @@ dependencies = [
 name = "fidget-core"
 version = "0.4.0"
 dependencies = [
- "arrayvec",
  "facet",
  "getrandom 0.2.14",
  "getrandom 0.3.1",
@@ -447,11 +445,8 @@ dependencies = [
  "rand",
  "rayon",
  "serde",
- "static_assertions",
- "strum",
  "thiserror",
  "workspace-hack",
- "zerocopy 0.8.21",
 ]
 
 [[package]]

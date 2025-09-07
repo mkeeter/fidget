@@ -18,7 +18,6 @@ fidget-raster = { path = "../fidget-raster", version = "=0.4.0", optional = true
 fidget-rhai   = { path = "../fidget-rhai",   version = "=0.4.0", optional = true }
 fidget-solver = { path = "../fidget-solver", version = "=0.4.0", optional = true }
 
-rhai = { workspace = true, optional = true }
 document-features.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
@@ -31,23 +30,23 @@ default = ["jit", "rhai", "mesh", "solver", "raster", "gui"]
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
 ## Windows (i.e. all supported platforms except WebAssembly).
-jit = ["fidget-jit"]
+jit = ["dep:fidget-jit"]
 
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
 ## [`fidget::rhai`](crate::rhai) module
-rhai = ["fidget-rhai", "dep:rhai"]
+rhai = ["dep:fidget-rhai"]
 
 ## Enable meshing in the [`fidget::mesh`](crate::mesh) module
-mesh = ["fidget-mesh"]
+mesh = ["dep:fidget-mesh"]
 
 ## Enables constraint solving in the [`fidget::solver`](crate::solver) module
-solver = ["fidget-solver"]
+solver = ["dep:fidget-solver"]
 
 ## Enables image rendering in the [`fidget::raster`](crate::raster) module
-raster = ["fidget-raster"]
+raster = ["dep:fidget-raster"]
 
 ## Enables GUI abstractions in the [`fidget::gui`](crate::gui) module
-gui = ["fidget-gui"]
+gui = ["dep:fidget-gui"]
 
 [[bench]]
 name = "render"

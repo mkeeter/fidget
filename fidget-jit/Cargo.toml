@@ -16,8 +16,10 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 arrayvec.workspace = true
 dynasmrt.workspace = true
-libc.workspace = true
 static_assertions.workspace = true
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+libc.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows.workspace = true
