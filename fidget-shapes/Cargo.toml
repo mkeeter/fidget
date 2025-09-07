@@ -11,8 +11,8 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-fidget-core = { path = "../fidget-core", version = "=0.4.0" }
-workspace-hack = { version = "0.1", path = "../workspace-hack" }
+fidget-core.workspace = true
+workspace-hack.workspace = true
 
 enum-map.workspace = true
 facet.workspace = true

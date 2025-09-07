@@ -9,8 +9,8 @@ anyhow.workspace = true
 eframe.workspace = true
 log.workspace = true
 
-fidget.path = "../../fidget"
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+fidget.workspace = true
+workspace-hack.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger.workspace = true
