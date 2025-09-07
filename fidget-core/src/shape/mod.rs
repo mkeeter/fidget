@@ -448,6 +448,7 @@ where
     ///
     /// If the tape has other variables, [`eval_v`](Self::eval_v) should be
     /// called instead (and this function will return an error.
+    #[inline]
     pub fn eval<F: Into<E::Data> + Copy>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -462,6 +463,7 @@ where
     /// Tracing evaluation of a single sample
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
+    #[inline]
     pub fn eval_v<F: Into<E::Data> + Copy, V: Into<E::Data> + Copy>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -542,6 +544,7 @@ where
     /// instead (and this function will return an error).
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
+    #[inline]
     pub fn eval(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -554,6 +557,7 @@ where
     }
 
     /// Helper function to do common setup
+    #[inline]
     fn setup<V>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -627,6 +631,7 @@ where
     ///
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
+    #[inline]
     pub fn eval_vs<
         V: std::ops::Deref<Target = [G]>,
         G: Into<E::Data> + Copy,
@@ -674,6 +679,7 @@ where
     /// position in the `x`, `y,` `z` slices.
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
+    #[inline]
     pub fn eval_v<G: Into<E::Data> + Copy>(
         &mut self,
         tape: &ShapeTape<E::Tape>,

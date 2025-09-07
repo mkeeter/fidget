@@ -1111,6 +1111,7 @@ impl TracingEvaluator for JitIntervalEval {
     type Trace = VmTrace;
     type TapeStorage = Mmap;
 
+    #[inline]
     fn eval(
         &mut self,
         tape: &Self::Tape,
@@ -1130,6 +1131,7 @@ impl TracingEvaluator for JitPointEval {
     type Trace = VmTrace;
     type TapeStorage = Mmap;
 
+    #[inline]
     fn eval(
         &mut self,
         tape: &Self::Tape,
@@ -1314,6 +1316,7 @@ impl BulkEvaluator for JitFloatSliceEval {
     type Tape = JitBulkFn<Self::Data>;
     type TapeStorage = Mmap;
 
+    #[inline]
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
@@ -1332,6 +1335,7 @@ impl BulkEvaluator for JitGradSliceEval {
     type Tape = JitBulkFn<Self::Data>;
     type TapeStorage = Mmap;
 
+    #[inline]
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,

@@ -303,6 +303,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
     type Trace = VmTrace;
     type TapeStorage = EmptyTapeStorage;
 
+    #[inline]
     fn eval(
         &mut self,
         tape: &Self::Tape,
@@ -535,6 +536,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
     type Trace = VmTrace;
     type TapeStorage = EmptyTapeStorage;
 
+    #[inline]
     fn eval(
         &mut self,
         tape: &Self::Tape,
@@ -861,6 +863,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
     type Tape = GenericVmTape<N>;
     type TapeStorage = EmptyTapeStorage;
 
+    #[inline]
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
@@ -1174,6 +1177,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
     type Tape = GenericVmTape<N>;
     type TapeStorage = EmptyTapeStorage;
 
+    #[inline]
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
