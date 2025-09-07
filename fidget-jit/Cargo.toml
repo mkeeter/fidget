@@ -1,7 +1,7 @@
 [package]
 name = "fidget-jit"
-description = "Native JIT compiler for complex closed-form implicit surfaces"
-readme = "../README.md"
+description = "Native JIT compiler for Fidget"
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true

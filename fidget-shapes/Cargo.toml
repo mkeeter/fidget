@@ -1,7 +1,7 @@
 [package]
 name = "fidget-shapes"
 description = "Shapes and transforms for use with Fidget"
-readme = "../README.md"
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true

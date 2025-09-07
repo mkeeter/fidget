@@ -1,7 +1,7 @@
 [package]
 name = "fidget-solver"
 description = "Constraint solver using Fidget as a backend"
-readme = "../README.md"
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true

@@ -1,7 +1,7 @@
 [package]
 name = "fidget-mesh"
 description = "Meshing of complex closed-form implicit surfaces"
-readme = "../README.md"
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true

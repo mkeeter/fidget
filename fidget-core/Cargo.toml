@@ -1,7 +1,7 @@
 [package]
 name = "fidget-core"
-description = "Infrastructure for complex closed-form implicit surfaces"
-readme = "../README.md"
+description = "Core infrastructure for Fidget"
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true
@@ -32,7 +32,6 @@ windows.workspace = true
 # Feature unification hacks to get webassembly working
 getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
-rhai = { workspace = true, optional = true, features = ["wasm-bindgen"] }
 
 [features]
 ## Enable `eval-tests` if you're writing your own evaluators and want to

@@ -1479,7 +1479,6 @@ dependencies = [
  "ordered-float 5.0.0",
  "rand 0.9.2",
  "rayon",
- "rhai",
  "serde",
  "static_assertions",
  "strum 0.27.2",
