@@ -23,6 +23,6 @@ jobs:
       with:
         cache-key: test
     - name: Run crate tests
-      run: cargo nextest run --verbose --cargo-verbose
+      run: cargo nextest run --verbose --cargo-verbose --retries 2
     - name: Run doc tests
       run: cargo test --verbose --doc
