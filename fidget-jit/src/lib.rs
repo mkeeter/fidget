@@ -910,22 +910,27 @@ impl Function for JitFunction {
     type FloatSliceEval = JitFloatSliceEval;
     type GradSliceEval = JitGradSliceEval;
 
+    #[inline]
     fn point_tape(&self, storage: Mmap) -> JitTracingFn<f32> {
         self.tracing_tape::<point::PointAssembler>(storage)
     }
 
+    #[inline]
     fn interval_tape(&self, storage: Mmap) -> JitTracingFn<Interval> {
         self.tracing_tape::<interval::IntervalAssembler>(storage)
     }
 
+    #[inline]
     fn float_slice_tape(&self, storage: Mmap) -> JitBulkFn<f32> {
         self.bulk_tape::<float_slice::FloatSliceAssembler>(storage)
     }
 
+    #[inline]
     fn grad_slice_tape(&self, storage: Mmap) -> JitBulkFn<Grad> {
         self.bulk_tape::<grad_slice::GradSliceAssembler>(storage)
     }
 
+    #[inline]
     fn simplify(
         &self,
         trace: &Self::Trace,
@@ -935,18 +940,22 @@ impl Function for JitFunction {
         self.0.simplify(trace, storage, workspace).map(JitFunction)
     }
 
+    #[inline]
     fn recycle(self) -> Option<Self::Storage> {
         self.0.recycle()
     }
 
+    #[inline]
     fn size(&self) -> usize {
         self.0.size()
     }
 
+    #[inline]
     fn vars(&self) -> &VarMap {
         self.0.vars()
     }
 
+    #[inline]
     fn can_simplify(&self) -> bool {
         self.0.choice_count() > 0
     }

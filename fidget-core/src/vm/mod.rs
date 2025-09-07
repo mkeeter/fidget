@@ -180,22 +180,32 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     type TapeStorage = EmptyTapeStorage;
 
     type FloatSliceEval = VmFloatSliceEval<N>;
+    type GradSliceEval = VmGradSliceEval<N>;
+    type PointEval = VmPointEval<N>;
+    type IntervalEval = VmIntervalEval<N>;
+    type Trace = VmTrace;
+
+    #[inline]
     fn float_slice_tape(&self, _storage: EmptyTapeStorage) -> GenericVmTape<N> {
         self.tape()
     }
-    type GradSliceEval = VmGradSliceEval<N>;
+
+    #[inline]
     fn grad_slice_tape(&self, _storage: EmptyTapeStorage) -> GenericVmTape<N> {
         self.tape()
     }
-    type PointEval = VmPointEval<N>;
+
+    #[inline]
     fn point_tape(&self, _storage: EmptyTapeStorage) -> GenericVmTape<N> {
         self.tape()
     }
-    type IntervalEval = VmIntervalEval<N>;
+
+    #[inline]
     fn interval_tape(&self, _storage: EmptyTapeStorage) -> GenericVmTape<N> {
         self.tape()
     }
-    type Trace = VmTrace;
+
+    #[inline]
     fn simplify(
         &self,
         trace: &Self::Trace,
@@ -205,18 +215,22 @@ impl<const N: usize> Function for GenericVmFunction<N> {
         self.simplify_with(trace, storage, workspace)
     }
 
+    #[inline]
     fn recycle(self) -> Option<Self::Storage> {
         GenericVmFunction::recycle(self)
     }
 
+    #[inline]
     fn size(&self) -> usize {
         GenericVmFunction::size(self)
     }
 
+    #[inline]
     fn vars(&self) -> &VarMap {
         &self.0.vars
     }
 
+    #[inline]
     fn can_simplify(&self) -> bool {
         self.0.choice_count() > 0
     }

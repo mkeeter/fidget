@@ -115,6 +115,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
     }
 
     /// Returns an evaluation tape for a point evaluator
+    #[inline]
     pub fn point_tape(
         &self,
         storage: F::TapeStorage,
@@ -130,6 +131,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
     }
 
     /// Returns an evaluation tape for a interval evaluator
+    #[inline]
     pub fn interval_tape(
         &self,
         storage: F::TapeStorage,
@@ -145,6 +147,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
     }
 
     /// Returns an evaluation tape for a float slice evaluator
+    #[inline]
     pub fn float_slice_tape(
         &self,
         storage: F::TapeStorage,
@@ -160,6 +163,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
     }
 
     /// Returns an evaluation tape for a gradient slice evaluator
+    #[inline]
     pub fn grad_slice_tape(
         &self,
         storage: F::TapeStorage,
@@ -175,6 +179,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
     }
 
     /// Computes a simplified tape using the given trace, and reusing storage
+    #[inline]
     pub fn simplify(
         &self,
         trace: &F::Trace,
@@ -197,6 +202,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
     ///
     /// This may fail, because shapes are `Clone` and are often implemented
     /// using an `Arc` around a heavier data structure.
+    #[inline]
     pub fn recycle(self) -> Option<F::Storage> {
         self.f.recycle()
     }
@@ -205,6 +211,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
     ///
     /// This is underspecified and only used for unit testing; for tape-based
     /// shapes, it's typically the length of the tape,
+    #[inline]
     pub fn size(&self) -> usize {
         self.f.size()
     }

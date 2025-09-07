@@ -28,6 +28,7 @@ pub struct RenderHandle<F: Function, T = ()> {
 }
 
 impl<F: Function, T> Clone for RenderHandle<F, T> {
+    #[inline]
     fn clone(&self) -> Self {
         Self {
             shape: self.shape.clone(),
@@ -54,6 +55,7 @@ impl<F: Function, T> RenderHandle<F, T> {
     }
 
     /// Returns a tape for tracing interval evaluation
+    #[inline]
     pub fn i_tape(
         &mut self,
         storage: &mut Vec<F::TapeStorage>,
@@ -64,6 +66,7 @@ impl<F: Function, T> RenderHandle<F, T> {
     }
 
     /// Returns a tape for bulk float evaluation
+    #[inline]
     pub fn f_tape(
         &mut self,
         storage: &mut Vec<F::TapeStorage>,
@@ -75,6 +78,7 @@ impl<F: Function, T> RenderHandle<F, T> {
     }
 
     /// Returns a tape for bulk gradient evaluation
+    #[inline]
     pub fn g_tape(
         &mut self,
         storage: &mut Vec<F::TapeStorage>,
@@ -89,6 +93,7 @@ impl<F: Function, T> RenderHandle<F, T> {
     ///
     /// As an internal optimization, this may reuse a previous simplification if
     /// the trace matches.
+    #[inline]
     pub fn simplify(
         &mut self,
         trace: &F::Trace,
@@ -146,6 +151,7 @@ impl<F: Function, T> RenderHandle<F, T> {
     }
 
     /// Recycles the entire handle into the given storage vectors
+    #[inline]
     pub fn recycle(
         mut self,
         shape_storage: &mut Vec<F::Storage>,
