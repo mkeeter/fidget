@@ -343,7 +343,7 @@ impl<T> AssemblerData<T> {
         );
     }
 
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, DynasmError> {
         dynasm!(self.ops
             ; add rsp, self.mem_offset as i32
             ; pop rbp

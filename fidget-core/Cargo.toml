@@ -25,9 +25,6 @@ zerocopy.workspace = true
 
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-[target.'cfg(target_os = "windows")'.dependencies]
-windows.workspace = true
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Feature unification hacks to get webassembly working
 getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

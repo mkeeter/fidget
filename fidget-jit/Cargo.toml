@@ -19,5 +19,8 @@ dynasmrt.workspace = true
 libc.workspace = true
 static_assertions.workspace = true
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows.workspace = true
+
 [dev-dependencies]
 fidget-core = { path = "../fidget-core", version = "=0.4.0", features= ["eval-tests"] }

@@ -1,12 +1,9 @@
 use crate::{
-    Error,
-    jit::{
-        Assembler, AssemblerData, IMM_REG, OFFSET, REGISTER_LIMIT,
-        grad_slice::GradSliceAssembler, mmap::Mmap, reg,
-    },
-    types::Grad,
+    Assembler, AssemblerData, IMM_REG, OFFSET, REGISTER_LIMIT,
+    grad_slice::GradSliceAssembler, mmap::Mmap, reg,
 };
-use dynasmrt::{DynasmApi, DynasmLabelApi, dynasm};
+use dynasmrt::{DynasmApi, DynasmError, DynasmLabelApi, dynasm};
+use fidget_core::types::Grad;
 
 /// Implementation for the gradient slice assembler on `x86_64`
 ///
@@ -474,7 +471,7 @@ impl Assembler for GradSliceAssembler {
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, DynasmError> {
         dynasm!(self.0.ops
             ; sub rdx, 1 // we process one element at a time
             ; add rcx, 16 // input is array is Grad (f32 x 4)

@@ -1,8 +1,8 @@
-use crate::jit::{
-    Assembler, AssemblerData, Error, IMM_REG, OFFSET, REGISTER_LIMIT,
+use crate::{
+    Assembler, AssemblerData, IMM_REG, OFFSET, REGISTER_LIMIT,
     float_slice::FloatSliceAssembler, mmap::Mmap, reg,
 };
-use dynasmrt::{DynasmApi, DynasmLabelApi, dynasm};
+use dynasmrt::{DynasmApi, DynasmError, DynasmLabelApi, dynasm};
 
 pub const SIMD_WIDTH: usize = 8;
 
@@ -375,7 +375,7 @@ impl Assembler for FloatSliceAssembler {
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, DynasmError> {
         dynasm!(self.0.ops
             ; sub rdx, 8
             ; add rcx, 32
