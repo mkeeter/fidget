@@ -59,10 +59,9 @@
 //!
 //! ```
 //! # use fidget::context::Context;
-//! let t = fidget::rhai::engine().eval("x + y")?;
+//! let t = fidget::rhai::engine().eval("x + y").unwrap();
 //! let mut ctx = Context::new();
 //! let sum = ctx.import(&t);
-//! # Ok::<(), Box<rhai::EvalAltResult>>(())
 //! ```
 //!
 //! # Evaluation
