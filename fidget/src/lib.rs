@@ -271,6 +271,18 @@
 //! [the `getrandom` docs](https://docs.rs/getrandom/latest/getrandom/#webassembly-support)
 //! for more details on why this is necessary.
 //!
+//! # Crate organization
+//! The Fidget crate is a thin wrapper about multiple smaller crates, for
+//! improved compilation speed and modulatiry.
+//!
+//! With no features enabled, the `fidget` crate simply re-exports everything
+//! from [`fidget_core`].  Fine-grained features add other modules (listed
+//! below); each top-level module in `fidget` is implemented in a standalone
+//! crate.
+//!
+//! This organization is an implementation detail; users should just depend on
+//! `fidget` and not worry too much about it.
+//!
 //! # Feature flags
 #![doc = document_features::document_features!()]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
