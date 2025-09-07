@@ -1,4 +1,5 @@
 `fidget-shapes` declares a standard set of shapes and transforms.
+
 It is typically used through the [`fidget`](https://crates.io/crate/fidget)
 crate, which imports it under the `shapes` namespace
 

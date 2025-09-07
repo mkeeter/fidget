@@ -1,4 +1,5 @@
 `fidget-solver` implements a simple constraint solver.
+
 It is typically used through the [`fidget`](https://crates.io/crate/fidget)
 crate, which imports it under the `solver` namespace
 
