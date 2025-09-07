@@ -18,12 +18,11 @@ jobs:
     timeout-minutes: 15
     steps:
     - uses: actions/checkout@v4
+    - uses: taiki-e/install-action@nextest
     - uses: ./.github/actions/rust-cache
       with:
         cache-key: test
-    - name: Build tests
-      run: cargo test --verbose --no-run
     - name: Run crate tests
-      run: cargo test --verbose --lib
+      run: cargo nextest run --verbose --cargo-verbose
     - name: Run doc tests
       run: cargo test --verbose --doc
