@@ -22,4 +22,4 @@ strum.workspace = true
 heck.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-rhai = { workspace = true, optional = true, features = ["wasm-bindgen"] }
+rhai = { workspace = true, features = ["wasm-bindgen"] }
