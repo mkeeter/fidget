@@ -2,7 +2,7 @@
 name = "fidget-solver"
 description = "Constraint solver using Fidget as a backend"
 readme = "README.md"
-version = "0.4.0"
+version = "0.4.1"
 
 edition.workspace = true
 license.workspace = true

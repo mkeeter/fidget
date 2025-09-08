@@ -254,6 +254,13 @@ impl<F: Clone> Shape<F, ()> {
     }
 }
 
+impl<F: Clone> Shape<F, Transformed> {
+    /// Returns the currently-applied transform matrix
+    pub fn transform(&self) -> Matrix4<f32> {
+        self.transform.unwrap()
+    }
+}
+
 /// Variables bound to values for shape evaluation
 ///
 /// Note that this cannot store `X`, `Y`, `Z` variables (which are passed in as
