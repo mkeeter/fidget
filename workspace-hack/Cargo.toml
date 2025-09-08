@@ -17,16 +17,21 @@ edition = "2024"
 [dependencies]
 ahash = { version = "0.8", default-features = false, features = ["compile-time-rng", "no-rng", "runtime-rng", "std"] }
 approx = { version = "0.5" }
+arrayvec = { version = "0.7" }
 bytemuck = { version = "1", default-features = false, features = ["derive", "extern_crate_alloc", "min_const_generics"] }
 clap = { version = "4", features = ["derive"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
-num-traits = { version = "0.2", features = ["i128"] }
+half = { version = "2", default-features = false, features = ["num-traits"] }
+log = { version = "0.4", default-features = false, features = ["std"] }
+num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1", default-features = false, features = ["portable-atomic", "std"] }
+raw-window-handle = { version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
+smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
 [build-dependencies]
@@ -40,12 +45,12 @@ ahash = { version = "0.8" }
 anstream = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
-fastrand = { version = "2" }
-half = { version = "2", default-features = false, features = ["num-traits"] }
+fastrand = { version = "2", features = ["js"] }
+futures-core = { version = "0.3" }
+hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
-num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 once_cell = { version = "1" }
 phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
@@ -54,7 +59,7 @@ syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "vis
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
-fastrand = { version = "2" }
+fastrand = { version = "2", features = ["js"] }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
@@ -67,10 +72,10 @@ syn = { version = "2", default-features = false, features = ["fold", "visit", "v
 [target.aarch64-apple-darwin.dependencies]
 anstream = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
-half = { version = "2", features = ["num-traits"] }
+core-foundation = { version = "0.10" }
+half = { version = "2" }
 image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
 libc = { version = "0.2" }
-num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -82,12 +87,12 @@ ahash = { version = "0.8" }
 anstream = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
-fastrand = { version = "2" }
-half = { version = "2", default-features = false, features = ["num-traits"] }
+fastrand = { version = "2", features = ["js"] }
+futures-core = { version = "0.3" }
+hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
-num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 once_cell = { version = "1" }
 phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
@@ -96,7 +101,7 @@ syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "vis
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
-fastrand = { version = "2" }
+fastrand = { version = "2", features = ["js"] }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }

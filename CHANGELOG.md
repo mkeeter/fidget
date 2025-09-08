@@ -10,6 +10,8 @@
       now all generate `BytecodeOp::Sub` (using the reserved register as needed
       for immediates).
 - Add `PartialEq` for `GeometryPixel`
+- Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
+    - This is even more experimental than the rest of Fidget!
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
