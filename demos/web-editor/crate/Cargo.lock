@@ -622,6 +622,7 @@ dependencies = [
  "ordered-float",
  "rand",
  "rayon",
+ "thiserror",
  "workspace-hack",
  "zerocopy",
 ]
