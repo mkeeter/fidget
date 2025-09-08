@@ -16,7 +16,7 @@ notify.workspace = true
 rhai.workspace = true
 zerocopy.workspace = true
 
-fidget.workspace = true
+fidget = { workspace = true, default-features = true }
 workspace-hack.workspace = true
 
 [features]
