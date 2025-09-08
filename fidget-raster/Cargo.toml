@@ -18,4 +18,5 @@ nalgebra.workspace = true
 ordered-float.workspace = true
 rand.workspace = true
 rayon.workspace = true
+thiserror.workspace = true
 zerocopy.workspace = true
