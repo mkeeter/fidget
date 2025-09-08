@@ -1444,6 +1444,7 @@ dependencies = [
  "fidget-mesh",
  "fidget-raster",
  "fidget-rhai",
+ "fidget-shapes",
  "fidget-solver",
  "nalgebra",
  "rayon",

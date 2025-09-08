@@ -299,6 +299,9 @@ pub use fidget_bytecode as bytecode;
 #[cfg(feature = "mesh")]
 pub use fidget_mesh as mesh;
 
+#[cfg(feature = "shapes")]
+pub use fidget_shapes as shapes;
+
 #[cfg(feature = "solver")]
 pub use fidget_solver as solver;
 
