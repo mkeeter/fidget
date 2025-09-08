@@ -62,6 +62,9 @@ ranging from CLI to GUI to web app.
   (instead of [Rhai](https://rhai.rs))
 - [`alexneufeld/fidgetpy`](https://github.com/alexneufeld/fidgetpy): Python
   bindings and high-level API
+- [Halfspace](https://github.com/mkeeter/halfspace) is an IDE for solid modeling using distance fields
+- [The Concavum Customizer](https://github.com/julianschuler/concavum-customizer)
+  is an interactive customizer for a parametric split keyboard
 
 ## Support matrix
 At the moment, Fidget supports a limited number of platforms:
