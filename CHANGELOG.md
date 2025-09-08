@@ -3,6 +3,7 @@
   binary representation of register instruction tapes.
 - Restore `fidget::shapes` module, which was extracted to `fidget-shapes` but
   accidentally not added to the top-level crate.
+- Add `Shape::<F, Transformed>::transform()` to get the transform from a shape.
 
 # 0.4.0
 ## Splitting into multiple crates
