@@ -1,4 +1,8 @@
-# 0.4.3 (unpublished)
+# 0.4.4 (unpublished)
+- Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
+    - This is even more experimental than the rest of Fidget!
+
+# 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
   thanks [@Wulfsta](https://github.com/Wulfsta)
 - Bumped many dependencies
