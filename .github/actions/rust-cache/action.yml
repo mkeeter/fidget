@@ -19,4 +19,8 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ inputs.cache-key }}
+          demos/web-editor/crate/target
+        key: ${{ runner.os }}-${{ inputs.cache-key }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.cache-key }}-
+          ${{ runner.os }}-
