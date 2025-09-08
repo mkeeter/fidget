@@ -16,6 +16,8 @@
       code using `anyhow` (or similar) may not need to change
 - Fix a bug in bulk evaluator argument checks where mismatched slices could be
   allowed under some circumstances
+- Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
+    - This is even more experimental than the rest of Fidget!
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
