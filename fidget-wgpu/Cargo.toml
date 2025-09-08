@@ -1,8 +1,8 @@
 [package]
-name = "fidget-raster"
-description = "Bitmap and heightmap rendering for Fidget"
+name = "fidget-wgpu"
+description = "WGPU backend for Fidget"
 readme = "README.md"
-version = "0.4.2"
+version = "0.4.1"
 
 edition.workspace = true
 license.workspace = true
@@ -12,11 +12,15 @@ rust-version.workspace = true
 
 [dependencies]
 fidget-core.workspace = true
+fidget-raster.workspace = true
+fidget-bytecode.workspace = true
 workspace-hack.workspace = true
 
+heck.workspace = true
+naga.workspace = true
 nalgebra.workspace = true
-ordered-float.workspace = true
-rand.workspace = true
-rayon.workspace = true
+pollster.workspace = true
+strum.workspace = true
 thiserror.workspace = true
+wgpu.workspace = true
 zerocopy.workspace = true

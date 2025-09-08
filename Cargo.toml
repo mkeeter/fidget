@@ -12,6 +12,7 @@ members = [
     "fidget-rhai",
     "fidget-shapes",
     "fidget-solver",
+    "fidget-wgpu",
 
     # Non-WASM demos
     "demos/constraints",
@@ -64,9 +65,11 @@ heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 log = "0.4"
+naga = { version = "26.0.0", features = ["wgsl-in"] }
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 notify = "8.0"
 ordered-float = "5"
+pollster = "0.4.0"
 rand = "0.9"
 rayon = "1.10"
 rhai = { version = "1.23.4", features = ["sync"] }
@@ -77,6 +80,7 @@ strum_macros = { version = "0.27.2" } # see fidget#371
 thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+wgpu = "27.0.0"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Memory"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 
@@ -91,4 +95,5 @@ fidget-raster   = { path = "fidget-raster",   version = "=0.4.2" }
 fidget-rhai     = { path = "fidget-rhai",     version = "=0.4.1" }
 fidget-shapes   = { path = "fidget-shapes",   version = "=0.4.1" }
 fidget-solver   = { path = "fidget-solver",   version = "=0.4.1" }
+fidget-wgpu     = { path = "fidget-wgpu",     version = "=0.4.3" }
 workspace-hack  = { path = "workspace-hack",  version = "0.1" }

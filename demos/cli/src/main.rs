@@ -50,6 +50,10 @@ enum Command {
         #[clap(long, value_enum, default_value_t = RenderMode3DArg::Heightmap)]
         mode: RenderMode3DArg,
 
+        /// Render on the GPU
+        #[clap(long)]
+        wgpu: bool,
+
         /// Rotation about the Y axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
         pitch: f32,
@@ -266,19 +270,8 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
-    mode: RenderMode3D,
-) -> Vec<u8> {
-    let threads = match settings.threads {
-        Some(n) if n.get() == 1 => None,
-        Some(n) => Some(fidget::render::ThreadPool::Custom(
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(n.get())
-                .build()
-                .unwrap(),
-        )),
-        None => Some(fidget::render::ThreadPool::Global),
-    };
-    let threads = threads.as_ref();
+    threads: Option<&fidget::render::ThreadPool>,
+) -> fidget::raster::GeometryBuffer {
     let cfg = fidget::raster::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
@@ -298,7 +291,37 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         settings.n,
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
+    image
+}
 
+fn run3d_wgpu(
+    shape: fidget::vm::VmShape,
+    world_to_model: nalgebra::Matrix4<f32>,
+    settings: &ImageSettings,
+) -> Result<fidget::raster::GeometryBuffer> {
+    let mut ctx = fidget::wgpu::render3d::Context::new()?;
+    let cfg = fidget::wgpu::render3d::RenderConfig {
+        image_size: fidget::render::VoxelSize::from(settings.size),
+        world_to_model,
+    };
+    let mut image = Default::default();
+    let start = std::time::Instant::now();
+    for _ in 0..settings.n {
+        image = ctx.run(&shape, cfg);
+    }
+    info!(
+        "Rendered {}x at {:?} ms/frame",
+        settings.n,
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
+    );
+    Ok(image)
+}
+
+fn postprocess3d(
+    image: fidget::raster::GeometryBuffer,
+    mode: RenderMode3D,
+    threads: Option<&fidget::render::ThreadPool>,
+) -> Vec<u8> {
     let start = std::time::Instant::now();
     let out = match mode {
         RenderMode3D::Normals { denoise } => {
@@ -657,6 +680,7 @@ fn main() -> Result<()> {
             isometric,
             pitch,
             zflatten,
+            wgpu,
             yaw,
             roll,
             center,
@@ -729,19 +753,40 @@ fn main() -> Result<()> {
                 * camera.to_homogeneous()
                 * zflatten.to_homogeneous();
 
-            let buffer = match settings.eval {
+            let threads = match settings.threads {
+                Some(n) if n.get() == 1 => None,
+                Some(n) => Some(fidget::render::ThreadPool::Custom(
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(n.get())
+                        .build()
+                        .unwrap(),
+                )),
+                None => Some(fidget::render::ThreadPool::Global),
+            };
+
+            let image = if wgpu {
                 #[cfg(feature = "jit")]
-                EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, t, &settings, mode)
+                if matches!(settings.eval, EvalMode::Jit) {
+                    bail!("can't combine --wgpu and --jit");
                 }
-                EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, t, &settings, mode)
+                let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                run3d_wgpu(shape, t, &settings)?
+            } else {
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run3d(shape, t, &settings, threads.as_ref())
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run3d(shape, t, &settings, threads.as_ref())
+                    }
                 }
             };
+            let buffer = postprocess3d(image, mode, threads.as_ref());
 
             if let Some(out) = settings.out {
                 info!("Writing image to {out:?}");

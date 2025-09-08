@@ -325,6 +325,23 @@ impl<P, S: ImageSizeLike> Image<P, S> {
         );
         row * self.width() + col
     }
+
+    /// Builds an image from its components
+    ///
+    /// Returns an error if `data` does not match the number of pixels in `size`
+    pub fn build(data: Vec<P>, size: S) -> Result<Self, Error> {
+        let expected = size.width() as usize * size.height() as usize;
+        let actual = data.len();
+        if expected != actual {
+            return Err(Error::BadPixelCount {
+                expected,
+                actual,
+                width: size.width(),
+                height: size.height(),
+            });
+        }
+        Ok(Self { data, size })
+    }
 }
 
 impl<P, S> Image<P, S> {
@@ -458,3 +475,23 @@ impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
 
 /// Three-channel color image
 pub type ColorImage = Image<[u8; 3]>;
+
+/// Error type for type construction
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    /// Bad pixel count when building image from data
+    #[error(
+        "bad pixel count: expected {expected} ({width} x {height}), \
+         got {actual}"
+    )]
+    BadPixelCount {
+        /// Expected pixel count from size
+        expected: usize,
+        /// Actual pixel count in data
+        actual: usize,
+        /// Expected width
+        width: u32,
+        /// Expected height
+        height: u32,
+    },
+}
