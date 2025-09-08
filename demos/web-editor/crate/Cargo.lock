@@ -430,6 +430,7 @@ dependencies = [
  "fidget-mesh",
  "fidget-raster",
  "fidget-rhai",
+ "fidget-shapes",
  "fidget-solver",
  "workspace-hack",
 ]

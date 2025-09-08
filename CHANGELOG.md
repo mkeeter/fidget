@@ -1,6 +1,8 @@
 # 0.4.1
 - Add `fidget-bytecode` crate (exported as `fidget::bytecode`), which is a
   binary representation of register instruction tapes.
+- Restore `fidget::shapes` module, which was extracted to `fidget-shapes` but
+  accidentally not added to the top-level crate.
 
 # 0.4.0
 ## Splitting into multiple crates

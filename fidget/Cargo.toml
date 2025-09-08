@@ -18,6 +18,7 @@ fidget-gui      = { workspace = true, optional = true }
 fidget-mesh     = { workspace = true, optional = true }
 fidget-raster   = { workspace = true, optional = true }
 fidget-rhai     = { workspace = true, optional = true }
+fidget-shapes   = { workspace = true, optional = true }
 fidget-solver   = { workspace = true, optional = true }
 
 document-features.workspace = true
@@ -34,6 +35,7 @@ default = [
     "mesh",
     "raster",
     "rhai",
+    "shapes",
     "solver",
 ]
 
@@ -51,6 +53,9 @@ mesh = ["dep:fidget-mesh"]
 
 ## Enables constraint solving in the [`fidget::solver`](crate::solver) module
 solver = ["dep:fidget-solver"]
+
+## Enables a library of standard shapes and transforms in the [`fidget::shapes`](crate::shapes) module
+shapes = ["dep:fidget-shapes"]
 
 ## Enables bytecode generation in the [`fidget::bytecode`](crate::bytecode) module
 bytecode = ["dep:fidget-bytecode"]
