@@ -73,6 +73,7 @@ rhai = { version = "=1.21.0", features = ["sync"] } # pinned due to rhai#1001
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
 strum = { version = "0.27.2", features = ["derive"] }
+strum_macros = { version = "0.27.2" } # see fidget#371
 thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
