@@ -22,7 +22,7 @@ impl FromDynamic for Tree {
             Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
                 "tree".to_string(),
                 d.type_name().to_string(),
-                ctx.position(),
+                ctx.call_position(),
             )))
         }
     }
@@ -42,7 +42,7 @@ impl FromDynamic for Vec<Tree> {
             Err(Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
                 "Vec<tree>".to_string(),
                 d.type_name().to_string(),
-                ctx.position(),
+                ctx.call_position(),
             )))
         }
     }

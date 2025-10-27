@@ -144,7 +144,7 @@ impl FromDynamic for Vec2 {
                 EvalAltResult::ErrorMismatchDataType(
                     "array".to_string(),
                     ty.to_string(),
-                    ctx.position(),
+                    ctx.call_position(),
                 )
             })?;
             vec2_from_rhai_array(ctx, array)
@@ -165,7 +165,7 @@ fn vec2_from_rhai_array(
         n => Err(EvalAltResult::ErrorMismatchDataType(
             "[float; 2]".to_string(),
             format!("[dynamic; {n}]"),
-            ctx.position(),
+            ctx.call_position(),
         )
         .into()),
     }
@@ -190,7 +190,7 @@ impl FromDynamic for Vec3 {
                 EvalAltResult::ErrorMismatchDataType(
                     "array".to_string(),
                     ty.to_string(),
-                    ctx.position(),
+                    ctx.call_position(),
                 )
             })?;
             vec3_from_rhai_array(ctx, array, default)
@@ -219,7 +219,7 @@ fn vec3_from_rhai_array(
         n => Err(EvalAltResult::ErrorMismatchDataType(
             "[float; 3]".to_string(),
             format!("[dynamic; {n}]"),
-            ctx.position(),
+            ctx.call_position(),
         )
         .into()),
     }
@@ -238,7 +238,7 @@ impl FromDynamic for Vec4 {
                 EvalAltResult::ErrorMismatchDataType(
                     "array".to_string(),
                     ty.to_string(),
-                    ctx.position(),
+                    ctx.call_position(),
                 )
             })?;
             match array.len() {
@@ -252,7 +252,7 @@ impl FromDynamic for Vec4 {
                 n => Err(EvalAltResult::ErrorMismatchDataType(
                     "[float; 4]".to_string(),
                     format!("[dynamic; {n}]"),
-                    ctx.position(),
+                    ctx.call_position(),
                 )
                 .into()),
             }
@@ -273,7 +273,7 @@ impl FromDynamic for Axis {
                 Box::new(EvalAltResult::ErrorMismatchDataType(
                     format!("conversion failed: {e}"),
                     "vec3 with reasonable length".to_string(),
-                    ctx.position(),
+                    ctx.call_position(),
                 ))
             })?;
             Some(v)
@@ -306,7 +306,7 @@ impl FromDynamic for Axis {
             EvalAltResult::ErrorMismatchDataType(
                 "vec3 or [float; 3]".to_string(),
                 d.type_name().to_owned(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into()
         })
@@ -365,7 +365,7 @@ impl FromDynamic for Plane {
             EvalAltResult::ErrorMismatchDataType(
                 "axis or plane name".to_owned(),
                 d.type_name().to_owned(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into()
         })

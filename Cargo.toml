@@ -69,7 +69,7 @@ notify = "8.0"
 ordered-float = "5"
 rand = "0.9"
 rayon = "1.10"
-rhai = { version = "=1.21.0", features = ["sync"] } # pinned due to rhai#1001
+rhai = { version = "1.23.4", features = ["sync"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
 strum = { version = "0.27.2", features = ["derive"] }
