@@ -196,7 +196,7 @@ impl TileSizes {
         for i in 1..sizes.len() {
             if sizes[i - 1] <= sizes[i] {
                 return Err(Error::BadTileOrder(sizes[i - 1], sizes[i]));
-            } else if sizes[i - 1] % sizes[i] != 0 {
+            } else if !sizes[i - 1].is_multiple_of(sizes[i]) {
                 return Err(Error::BadTileSize(sizes[i - 1], sizes[i]));
             }
         }

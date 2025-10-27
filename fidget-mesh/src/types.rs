@@ -255,6 +255,7 @@ impl Edge {
             _ => unreachable!("invalid edge index"),
         };
 
+        #[allow(clippy::manual_is_multiple_of)]
         let u = u * ((self.0 % 4) % 2 != 0);
         let v = v * ((self.0 % 4) / 2 != 0);
 
