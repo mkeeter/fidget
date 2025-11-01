@@ -509,7 +509,7 @@ pub unsafe fn eval_default_fn<T>(
     f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
 ) -> T {
     let mut v = std::mem::MaybeUninit::<T>::uninit();
-    let ptr = facet::PtrUninit::new(&mut v);
+    let ptr = facet::PtrUninit::new((&mut v).into());
     // SAFETY: `f` must be a builder for type `T`
     unsafe { f(ptr) };
     // SAFETY: `v` is initialized by `f`

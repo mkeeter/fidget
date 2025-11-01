@@ -620,6 +620,7 @@ pub fn visit_shapes<V: ShapeVisitor>(visitor: &mut V) {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::types::eval_default_fn;
     use fidget_core::Context;
 
     #[test]
@@ -664,9 +665,7 @@ mod test {
                 let Some(f) = f.vtable.default_fn else {
                     panic!()
                 };
-                let mut v = std::mem::MaybeUninit::<Vec3>::uninit();
-                let ptr = facet::PtrUninit::new(&mut v);
-                let v: Vec3 = unsafe { *f(ptr).as_ptr() };
+                let v: Vec3 = unsafe { eval_default_fn(f) };
                 assert_eq!(v.x, 1.0);
                 assert_eq!(v.y, 1.0);
                 assert_eq!(v.z, 1.0);
