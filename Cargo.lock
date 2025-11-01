@@ -5118,7 +5118,7 @@ dependencies = [
  "either",
  "getrandom 0.2.16",
  "getrandom 0.3.4",
- "hashbrown 0.15.5",
+ "half",
  "image",
  "libc",
  "log",
@@ -5130,6 +5130,7 @@ dependencies = [
  "regex",
  "regex-automata",
  "serde",
+ "serde_core",
  "syn",
  "zerocopy",
 ]

@@ -23,14 +23,15 @@ clap_builder = { version = "4", default-features = false, features = ["color", "
 either = { version = "1", default-features = false, features = ["use_std"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 num-traits = { version = "0.2", features = ["i128"] }
-once_cell = { version = "1", features = ["portable-atomic"] }
+once_cell = { version = "1", default-features = false, features = ["portable-atomic", "std"] }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
 [build-dependencies]
-once_cell = { version = "1", features = ["portable-atomic"] }
+once_cell = { version = "1", default-features = false, features = ["portable-atomic", "std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 syn = { version = "2", features = ["extra-traits", "full"] }
@@ -41,31 +42,35 @@ anstream = { version = "0.6" }
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "min_const_generics"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
+once_cell = { version = "1" }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
+once_cell = { version = "1" }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 syn = { version = "2", default-features = false, features = ["fold", "visit", "visit-mut"] }
 
 [target.aarch64-apple-darwin.dependencies]
 anstream = { version = "0.6" }
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
+half = { version = "2" }
 image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
 libc = { version = "0.2" }
+once_cell = { version = "1" }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 libc = { version = "0.2" }
-serde = { version = "1", features = ["alloc", "derive", "rc"] }
+once_cell = { version = "1" }
+serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 syn = { version = "2", default-features = false, features = ["fold", "visit"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
@@ -74,19 +79,20 @@ anstream = { version = "0.6" }
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "min_const_generics"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
+once_cell = { version = "1" }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
+once_cell = { version = "1" }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 syn = { version = "2", default-features = false, features = ["fold", "visit", "visit-mut"] }
 
 ### END HAKARI SECTION
