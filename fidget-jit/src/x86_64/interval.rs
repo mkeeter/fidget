@@ -46,6 +46,7 @@ use fidget_core::types::Interval;
 const STACK_SIZE_UPPER: usize = 0x20; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0x60; // Positions relative to `rsp`
 
+#[expect(clippy::useless_conversion)]
 impl Assembler for IntervalAssembler {
     type Data = Interval;
 
@@ -780,6 +781,7 @@ impl Assembler for IntervalAssembler {
     }
 }
 
+#[expect(clippy::useless_conversion)]
 impl IntervalAssembler {
     fn ensure_callee_regs_saved(&mut self) {
         // Back up a few callee-saved registers that we're about to use

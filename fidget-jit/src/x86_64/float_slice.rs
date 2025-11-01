@@ -56,6 +56,7 @@ pub const SIMD_WIDTH: usize = 8;
 const STACK_SIZE_UPPER: usize = 0x28; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0x220; // Positions relative to `rsp`
 
+#[expect(clippy::useless_conversion)]
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
 
@@ -388,6 +389,7 @@ impl Assembler for FloatSliceAssembler {
     }
 }
 
+#[expect(clippy::useless_conversion)]
 impl FloatSliceAssembler {
     fn call_fn_unary(
         &mut self,
