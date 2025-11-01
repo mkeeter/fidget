@@ -75,7 +75,7 @@ use dynasmrt::{DynasmApi, DynasmError, dynasm};
 /// ```
 const STACK_SIZE: u32 = 0xb0;
 
-#[allow(clippy::unnecessary_cast)] // dynasm-rs#106
+#[expect(clippy::useless_conversion)]
 impl Assembler for PointAssembler {
     type Data = f32;
 
@@ -435,18 +435,18 @@ impl Assembler for PointAssembler {
         if imm_u32 & 0xFFFF == 0 {
             dynasm!(self.0.ops
                 ; movz w9, imm_u32 >> 16, lsl 16
-                ; fmov S(IMM_REG as u32), w9
+                ; fmov S(IMM_REG), w9
             );
         } else if imm_u32 & 0xFFFF_0000 == 0 {
             dynasm!(self.0.ops
                 ; movz w9, imm_u32 & 0xFFFF
-                ; fmov S(IMM_REG as u32), w9
+                ; fmov S(IMM_REG), w9
             );
         } else {
             dynasm!(self.0.ops
                 ; movz w9, imm_u32 >> 16, lsl 16
                 ; movk w9, imm_u32 & 0xFFFF
-                ; fmov S(IMM_REG as u32), w9
+                ; fmov S(IMM_REG), w9
             );
         }
         IMM_REG.wrapping_sub(OFFSET)
@@ -475,6 +475,7 @@ impl Assembler for PointAssembler {
     }
 }
 
+#[expect(clippy::useless_conversion)]
 impl PointAssembler {
     fn ensure_callee_regs_saved(&mut self) {
         if !self.0.saved_callee_regs {

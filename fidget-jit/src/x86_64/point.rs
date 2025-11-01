@@ -45,6 +45,7 @@ use dynasmrt::{DynasmApi, DynasmError, DynasmLabelApi, dynasm};
 const STACK_SIZE_UPPER: usize = 0x20; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0x30; // Positions relative to `rsp`
 
+#[expect(clippy::useless_conversion)]
 impl Assembler for PointAssembler {
     type Data = f32;
 
@@ -419,6 +420,7 @@ impl Assembler for PointAssembler {
     }
 }
 
+#[expect(clippy::useless_conversion)]
 impl PointAssembler {
     fn ensure_callee_regs_saved(&mut self) {
         // Back up a few callee-saved registers that we're about to use

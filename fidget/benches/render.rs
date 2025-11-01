@@ -1,7 +1,6 @@
-use criterion::{
-    BenchmarkId, Criterion, black_box, criterion_group, criterion_main,
-};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fidget::render::{ImageSize, RenderHints, ThreadPool};
+use std::hint::black_box;
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 

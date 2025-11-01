@@ -321,7 +321,7 @@ impl FromDynamic for f64 {
                 rhai::EvalAltResult::ErrorMismatchDataType(
                     "float".to_string(),
                     ty.to_string(),
-                    ctx.position(),
+                    ctx.call_position(),
                 )
                 .into()
             })

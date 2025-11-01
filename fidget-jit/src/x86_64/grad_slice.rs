@@ -47,6 +47,7 @@ use fidget_core::types::Grad;
 const STACK_SIZE_UPPER: usize = 0x20; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0xc0; // Positions relative to `rsp`
 
+#[expect(clippy::useless_conversion)]
 impl Assembler for GradSliceAssembler {
     type Data = Grad;
 
@@ -484,6 +485,7 @@ impl Assembler for GradSliceAssembler {
     }
 }
 
+#[expect(clippy::useless_conversion)]
 impl GradSliceAssembler {
     fn call_fn_unary(
         &mut self,

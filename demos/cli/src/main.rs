@@ -47,7 +47,7 @@ enum Command {
         settings: ImageSettings,
 
         /// Render mode
-        #[clap(long, value_enum, default_value_t)]
+        #[clap(long, value_enum, default_value_t = RenderMode3DArg::Heightmap)]
         mode: RenderMode3DArg,
 
         /// Rotation about the Y axis (in degrees)
@@ -121,12 +121,6 @@ enum RenderMode3D {
     RawOcclusion { denoise: bool },
     /// Blurred SSAO occlusion, for debugging
     BlurredOcclusion { denoise: bool },
-}
-
-impl Default for RenderMode3DArg {
-    fn default() -> Self {
-        Self::Heightmap
-    }
 }
 
 #[derive(ValueEnum, Default, Clone)]

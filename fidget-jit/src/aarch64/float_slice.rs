@@ -83,7 +83,7 @@ pub const SIMD_WIDTH: usize = 4;
 /// ```
 const STACK_SIZE: u32 = 0x230;
 
-#[allow(clippy::unnecessary_cast)] // dynasm-rs#106
+#[expect(clippy::useless_conversion)]
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
 
@@ -406,18 +406,18 @@ impl Assembler for FloatSliceAssembler {
         if imm_u32 & 0xFFFF == 0 {
             dynasm!(self.0.ops
                 ; movz w9, imm_u32 >> 16, lsl 16
-                ; dup V(IMM_REG as u32).s4, w9
+                ; dup V(IMM_REG).s4, w9
             );
         } else if imm_u32 & 0xFFFF_0000 == 0 {
             dynasm!(self.0.ops
                 ; movz w9, imm_u32 & 0xFFFF
-                ; dup V(IMM_REG as u32).s4, w9
+                ; dup V(IMM_REG).s4, w9
             );
         } else {
             dynasm!(self.0.ops
                 ; movz w9, imm_u32 >> 16, lsl 16
                 ; movk w9, imm_u32 & 0xFFFF
-                ; dup V(IMM_REG as u32).s4, w9
+                ; dup V(IMM_REG).s4, w9
             );
         }
         IMM_REG.wrapping_sub(OFFSET)
@@ -460,6 +460,7 @@ impl Assembler for FloatSliceAssembler {
     }
 }
 
+#[expect(clippy::useless_conversion)]
 impl FloatSliceAssembler {
     fn call_fn_unary(
         &mut self,

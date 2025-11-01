@@ -99,7 +99,7 @@ fn value_from_dynamic(
             Box::new(rhai::EvalAltResult::ErrorMismatchDataType(
                 "any Type-compatible value".to_string(),
                 v.type_name().to_string(),
-                ctx.position(),
+                ctx.call_position(),
             ))
         })
 }
@@ -232,7 +232,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
             return Err(EvalAltResult::ErrorRuntime(
                 format!("field {} must be provided for {}", f.name, T::SHAPE)
                     .into(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into());
         };
@@ -249,7 +249,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
         if !shape.fields.iter().any(|p| p.name == k.as_str()) {
             return Err(EvalAltResult::ErrorRuntime(
                 format!("field {k} is not present in {}", T::SHAPE).into(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into());
         }
@@ -317,7 +317,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
             return Err(EvalAltResult::ErrorRuntime(
                 format!("field {} must be provided for {}", f.name, T::SHAPE)
                     .into(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into());
         };
@@ -330,7 +330,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
         if !shape.fields.iter().any(|p| p.name == k.as_str()) {
             return Err(EvalAltResult::ErrorRuntime(
                 format!("field {k} is not present in {}", T::SHAPE).into(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into());
         }
@@ -456,7 +456,7 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
         } else {
             return Err(EvalAltResult::ErrorRuntime(
                 format!("missing argument of type {}", f.shape()).into(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into());
         };
@@ -466,7 +466,7 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
     if let Some((k, _v)) = vs.iter().find(|(_k, v)| v.is_some()) {
         return Err(EvalAltResult::ErrorRuntime(
             format!("shape does not have an argument of type {k:?}").into(),
-            ctx.position(),
+            ctx.call_position(),
         )
         .into());
     }
@@ -527,7 +527,7 @@ fn from_value_list<T: Facet<'static> + Into<Tree>>(
             return Err(EvalAltResult::ErrorMismatchDataType(
                 expected_tag.to_string(),
                 actual_tag.to_string(),
-                ctx.position(),
+                ctx.call_position(),
             )
             .into());
         }

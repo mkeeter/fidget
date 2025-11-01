@@ -87,14 +87,6 @@ const OFFSET: u8 = arch::OFFSET;
 /// arguments).
 const IMM_REG: u8 = arch::IMM_REG;
 
-/// Type for a register index in `dynasm` code
-#[cfg(target_arch = "aarch64")]
-type RegIndex = u32;
-
-/// Type for a register index in `dynasm` code
-#[cfg(target_arch = "x86_64")]
-type RegIndex = u8;
-
 /// Converts from a tape-local register to a hardware register
 ///
 /// Tape-local registers are in the range `0..REGISTER_LIMIT`, while ARM
@@ -103,8 +95,8 @@ type RegIndex = u8;
 /// This uses `wrapping_add` to support immediates, which are loaded into a
 /// register below [`OFFSET`] (which is "negative" from the perspective of this
 /// function).
-fn reg(r: u8) -> RegIndex {
-    let out = r.wrapping_add(OFFSET) as RegIndex;
+fn reg(r: u8) -> u8 {
+    let out = r.wrapping_add(OFFSET);
     assert!(out < 32);
     out
 }

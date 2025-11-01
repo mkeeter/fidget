@@ -1,11 +1,10 @@
-use criterion::{
-    BenchmarkId, Criterion, black_box, criterion_group, criterion_main,
-};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fidget_core::{
     context::{Context, Node},
     eval::{Function, MathFunction},
     shape::{EzShape, Shape},
 };
+use std::hint::black_box;
 
 pub fn run_bench<F: Function + MathFunction>(
     c: &mut Criterion,

@@ -1,6 +1,5 @@
-use criterion::{
-    BenchmarkId, Criterion, black_box, criterion_group, criterion_main,
-};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 
 const COLONNADE: &str = include_str!("../../models/colonnade.vm");
 
