@@ -51,7 +51,7 @@ struct RenderConfig {
     max_depth: u32,
 }
 
-@group(0) @binding(0) var t_geometry: texture_2d<u32>;
+@group(0) @binding(0) var t_geometry: texture_2d<f32>;
 @group(0) @binding(1) var s_geometry: sampler;
 @group(0) @binding(2) var<uniform> config: RenderConfig;
 
@@ -67,14 +67,14 @@ fn fs_main(@location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let depth = texel.x;
 
     // If depth is 0, this pixel is transparent
-    if (depth == 0u) {
+    if (depth == 0.0) {
         discard;
     }
 
     // Extract normal (stored as bits in texel.yzw)
-    let normal_x = bitcast<f32>(texel.y);
-    let normal_y = bitcast<f32>(texel.z);
-    let normal_z = bitcast<f32>(texel.w);
+    let normal_x = texel.y;
+    let normal_y = texel.z;
+    let normal_z = texel.w;
     let normal = vec3<f32>(normal_x, normal_y, normal_z);
 
     if (config.render_mode == 0u) {

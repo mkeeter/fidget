@@ -23,7 +23,7 @@ pub fn denoise_normals(
     out.apply_effect(
         |x, y| {
             let depth = image[(y, x)].depth;
-            let normal = if depth > 0 {
+            let normal = if depth > 0.0 {
                 denoise_pixel(image, x, y, radius)
             } else {
                 [0.0; 3]
@@ -55,7 +55,7 @@ pub fn apply_shading(
     let mut out = ColorImage::new(ImageSize::new(size.width(), size.height()));
     out.apply_effect(
         |x, y| {
-            if image[(y, x)].depth > 0 {
+            if image[(y, x)].depth > 0.0 {
                 shade_pixel(image, ssao.as_ref(), x, y)
             } else {
                 [0u8; 3]
@@ -82,7 +82,7 @@ pub fn compute_ssao(
         Image::<f32>::new(ImageSize::new(size.width(), size.height()));
     out.apply_effect(
         |x, y| {
-            if image[(y, x)].depth > 0 {
+            if image[(y, x)].depth > 0.0 {
                 compute_pixel_ssao(image, x, y, &ssao_kernel, &ssao_noise)
             } else {
                 f32::NAN
@@ -167,7 +167,7 @@ fn compute_pixel_ssao(
         depth: d,
     } = image[pos];
 
-    if d == 0 {
+    if d == 0.0 {
         return f32::NAN;
     }
 
@@ -210,7 +210,7 @@ fn compute_pixel_ssao(
         {
             image[(py as usize, px as usize)].depth
         } else {
-            0
+            0.0
         };
 
         let actual_z = (((actual_h as f32) / image.depth() as f32) - 0.5) * 2.0;
@@ -258,7 +258,7 @@ fn denoise_pixel(
                     && (ty as usize) < image.height()
                 {
                     let pos = (ty as usize, tx as usize);
-                    if image[pos].depth != 0 {
+                    if image[pos].depth != 0.0 {
                         let n = image[pos].normal;
                         sum += Vector3::new(n[0], n[1], n[2]);
                         count += 1;
@@ -281,7 +281,7 @@ fn denoise_pixel(
                     && (ty as usize) < image.height()
                 {
                     let pos = (ty as usize, tx as usize);
-                    if image[pos].depth != 0 {
+                    if image[pos].depth != 0.0 {
                         let n = image[pos].normal;
                         score += Vector3::new(n[0], n[1], n[2]).dot(&mean);
                     }

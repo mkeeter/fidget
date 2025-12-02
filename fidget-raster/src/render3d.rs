@@ -133,7 +133,7 @@ impl<F: Function> Worker<'_, F> {
     ) -> bool {
         // Early exit if every single pixel is filled
         let tile_size = self.tile_sizes[depth];
-        let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
+        let fill_z = (tile.corner[2] + tile_size + 1) as f32;
         if (0..tile_size).all(|y| {
             let i = self.tile_row_offset(tile, y);
             (0..tile_size).all(|x| self.out[i + x].depth >= fill_z)
@@ -223,7 +223,7 @@ impl<F: Function> Worker<'_, F> {
             let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(i, j)));
 
             // Skip pixels which are behind the image
-            let zmax = (tile.corner[2] + tile_size).try_into().unwrap();
+            let zmax = (tile.corner[2] + tile_size) as f32;
             if self.out[o].depth >= zmax {
                 continue;
             }
@@ -287,7 +287,7 @@ impl<F: Function> Worker<'_, F> {
 
             // Set the depth of the pixel
             let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(i, j)));
-            let z = (tile.corner[2] + k + 1).try_into().unwrap();
+            let z = (tile.corner[2] + k + 1) as f32;
             assert!(self.out[o].depth < z);
             self.out[o].depth = z;
 
@@ -365,9 +365,12 @@ pub fn render<F: Function>(
                     let o = y * width + x;
                     if out[index].depth >= image[o].depth {
                         // Clamp voxels to the image depth
-                        if out[index].depth >= config.image_size.depth() - 1 {
+                        let d = (usize::try_from(config.image_size.depth())
+                            .unwrap()
+                            - 1) as f32;
+                        if out[index].depth >= d {
                             image[o] = GeometryPixel {
-                                depth: config.image_size.depth(),
+                                depth: d + 1.0,
                                 normal: [0.0, 0.0, 1.0],
                             };
                         } else {
