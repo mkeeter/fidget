@@ -128,7 +128,7 @@ fn shade_pixel(
     let p = Vector3::new(
         2.0 * (x as f32 / image.width() as f32 - 0.5),
         2.0 * (y as f32 / image.height() as f32 - 0.5),
-        2.0 * (image[(y, x)].depth as f32 / image.depth() as f32 - 0.5),
+        2.0 * (image[(y, x)].depth / image.depth() as f32 - 0.5),
     );
 
     let lights = [
@@ -175,7 +175,7 @@ fn compute_pixel_ssao(
     let p = Vector3::new(
         (((x as f32) / image.width() as f32) - 0.5) * 2.0,
         (((y as f32) / image.height() as f32) - 0.5) * 2.0,
-        (((d as f32) / image.depth() as f32) - 0.5) * 2.0,
+        ((d / image.depth() as f32) - 0.5) * 2.0,
     );
 
     // Get normal from the image
@@ -213,7 +213,7 @@ fn compute_pixel_ssao(
             0.0
         };
 
-        let actual_z = (((actual_h as f32) / image.depth() as f32) - 0.5) * 2.0;
+        let actual_z = ((actual_h / image.depth() as f32) - 0.5) * 2.0;
 
         let dz = sample_pos.z - actual_z;
         if dz < RADIUS {
