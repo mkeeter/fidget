@@ -113,7 +113,7 @@ pub fn render_normals(
     Ok(image
         .into_iter()
         .flat_map(|p| {
-            let [r, g, b] = if p.depth > 0 { p.to_color() } else { [0; 3] };
+            let [r, g, b] = if p.depth > 0.0 { p.to_color() } else { [0; 3] };
             [r, g, b, 255]
         })
         .collect())
