@@ -421,8 +421,8 @@ impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
 pub struct GeometryPixel {
     /// Z position of this pixel, in voxel units
     ///
-    /// This is always an integer but is stored as an `f32` for convenience;
-    /// empty pixels always have a depth of 0.
+    /// The fractional component is always zero. Empty pixels always have a
+    /// depth of 0.
     pub depth: f32,
     /// Function gradients at this pixel
     pub normal: [f32; 3],
