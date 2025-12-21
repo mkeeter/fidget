@@ -14,11 +14,13 @@ jobs:
   check:
     strategy:
       matrix:
-        target: [
-          "aarch64-apple-darwin",
-          "aarch64-pc-windows-msvc",
-          "aarch64-unknown-linux-gnu",
-        ]
+        include:
+          - target: "aarch64-apple-darwin"
+            native: true
+          - target: "aarch64-pc-windows-msvc"
+            native: false
+          - target: "aarch64-unknown-linux-gnu"
+            native: false
     runs-on: macos-14
     steps:
     - uses: actions/checkout@v4
@@ -28,3 +30,4 @@ jobs:
     - uses: ./.github/actions/rust-check
       with:
         target: ${{ matrix.target }}
+        native: ${{ matrix.native }}

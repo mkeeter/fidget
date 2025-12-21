@@ -4,17 +4,29 @@ inputs:
   target:
     description: 'rustc target'
     required: true
+  native:
+    description: 'whether this is a native build'
+    required: false
+    default: 'false'
 runs:
   using: "composite"
   steps:
     - name: Install target
       run: rustup target add ${{ inputs.target }}
       shell: bash
+    - name: Set package flags
+      run: |
+        if [ "${{ inputs.native }}" = "true" ]; then
+          echo "PACKAGE_FLAGS=--all-targets" >> $GITHUB_ENV
+        else
+          echo "PACKAGE_FLAGS=-p fidget" >> $GITHUB_ENV
+        fi
+      shell: bash
     - name: Check
-      run: cargo check --target=${{ inputs.target }} --all-targets --verbose
+      run: cargo check --target=${{ inputs.target }} $PACKAGE_FLAGS --verbose
       shell: bash
     - name: Clippy
-      run: cargo clippy --target=${{ inputs.target }} --all-targets --verbose
+      run: cargo clippy --target=${{ inputs.target }} $PACKAGE_FLAGS --verbose
       shell: bash
     - name: Check format
       run: cargo fmt -- --check || exit 1
