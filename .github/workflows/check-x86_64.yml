@@ -14,10 +14,11 @@ jobs:
   check:
     strategy:
       matrix:
-        target: [
-          "x86_64-unknown-linux-gnu",
-          "x86_64-pc-windows-msvc",
-        ]
+        include:
+          - target: "x86_64-unknown-linux-gnu"
+            native: true
+          - target: "x86_64-pc-windows-msvc"
+            native: false
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4

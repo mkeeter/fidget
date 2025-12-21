@@ -163,7 +163,7 @@ fn register_shape<
     for f in s.fields {
         let t = Type::try_from(f.shape().id).unwrap();
         count[t] += 1;
-        if f.vtable.default_fn.is_some() {
+        if f.default.is_some() {
             default_count += 1;
         }
     }
@@ -224,7 +224,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
         let tag = Type::try_from(f.shape().id).unwrap();
         if matches!(tag, Type::Tree) {
             let t = t.take().unwrap();
-            builder.set_nth_field(i, t).unwrap();
+            builder = builder.set_nth_field(i, t).unwrap();
             continue;
         }
 
@@ -236,12 +236,9 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
             )
             .into());
         };
-        let d = f
-            .vtable
-            .default_fn
-            .map(|df| unsafe { tag.build_from_default_fn(df) });
+        let d = f.default.map(|df| unsafe { tag.build_from_default_fn(df) });
         let v = build_tagged_value(tag, &ctx, v, d)?;
-        v.put(&mut builder, i);
+        builder = v.put(builder, i);
     }
 
     // This is quadratic, but N is small
@@ -280,13 +277,16 @@ fn build_binary<T: Facet<'static> + Into<Tree>>(
 
     let a = Tree::from_dynamic(&ctx, a, None)?;
     let b = Tree::from_dynamic(&ctx, b, None)?;
-
-    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
-
-    builder.set_nth_field(0, a).unwrap();
-    builder.set_nth_field(1, b).unwrap();
-
-    let t: T = builder.build().unwrap().materialize().unwrap();
+    let t: T = facet::Partial::alloc_shape(T::SHAPE)
+        .unwrap()
+        .set_nth_field(0, a)
+        .unwrap()
+        .set_nth_field(1, b)
+        .unwrap()
+        .build()
+        .unwrap()
+        .materialize()
+        .unwrap();
     Ok(t.into())
 }
 
@@ -305,10 +305,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
     for (i, f) in shape.fields.iter().enumerate() {
         let tag = Type::try_from(f.shape().id).unwrap();
 
-        let d = f
-            .vtable
-            .default_fn
-            .map(|df| unsafe { tag.build_from_default_fn(df) });
+        let d = f.default.map(|df| unsafe { tag.build_from_default_fn(df) });
         let v = if let Some(v) = m.get(f.name).cloned() {
             build_tagged_value(tag, &ctx, v, d)?
         } else if let Some(v) = d {
@@ -322,7 +319,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
             .into());
         };
 
-        v.put(&mut builder, i);
+        builder = v.put(builder, i);
     }
 
     // This is quadratic, but N is small
@@ -357,13 +354,17 @@ macro_rules! reducer {
             assert_eq!(shape.fields[0].shape().id, ConstTypeId::of::<Vec<Tree>>());
             assert_eq!(shape.fields.len(), 1);
 
-            let mut builder = facet::Partial::alloc_shape(&T::SHAPE).unwrap();
             let v = vec![$(
                 Tree::from_dynamic(&ctx, $v, None)?
             ),*];
-            builder.set_nth_field(0, v).unwrap();
-
-            let t: T = builder.build().unwrap().materialize().unwrap();
+            let t: T = facet::Partial::alloc_shape(&T::SHAPE)
+                .unwrap()
+                .set_nth_field(0, v)
+                .unwrap()
+                .build()
+                .unwrap()
+                .materialize()
+                .unwrap();
             Ok(t.into())
         }
     }
@@ -421,10 +422,7 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
     for (i, f) in shape.fields.iter().enumerate() {
         let tag = Type::try_from(f.shape().id).unwrap();
 
-        let d = f
-            .vtable
-            .default_fn
-            .map(|df| unsafe { tag.build_from_default_fn(df) });
+        let d = f.default.map(|df| unsafe { tag.build_from_default_fn(df) });
         let v = if let Some(v) = vs[tag].take() {
             v
         } else if tag == Type::Vec3 // Vec2 -> Vec3 upgrade
@@ -460,7 +458,7 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
             )
             .into());
         };
-        v.put(&mut builder, i);
+        builder = v.put(builder, i);
     }
 
     if let Some((k, _v)) = vs.iter().find(|(_k, v)| v.is_some()) {
@@ -532,7 +530,7 @@ fn from_value_list<T: Facet<'static> + Into<Tree>>(
             .into());
         }
 
-        v.put(&mut builder, i);
+        builder = v.put(builder, i);
     }
 
     let t: T = builder.build().unwrap().materialize().unwrap();

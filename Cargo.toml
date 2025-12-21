@@ -52,13 +52,13 @@ approx = "0.5.1"
 arrayvec = "0.7"
 bincode = "1.3"
 clap = { version = "4", features = ["derive"] }
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-channel = "0.5"
 document-features = "0.2"
 dynasmrt = "4.0"
 eframe = { version = "0.31", features = ["wgpu"] }
 enum-map = "2.7.3"
-facet = { version = "0.31", features = ["reflect"] }
+facet = { version = "0.33", features = ["reflect", "doc"] }
 env_logger = "0.11"
 heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }

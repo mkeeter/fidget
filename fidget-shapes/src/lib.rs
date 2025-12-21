@@ -625,6 +625,8 @@ mod test {
 
     #[test]
     fn circle_docstring() {
+        println!("{:#?}", Circle::SHAPE);
+        println!("{:#?}", Circle::SHAPE.doc);
         assert_eq!(Circle::SHAPE.doc, &[" 2D circle"]);
     }
 
@@ -662,7 +664,7 @@ mod test {
         };
         for f in s.fields {
             if f.name == "scale" {
-                let Some(f) = f.vtable.default_fn else {
+                let Some(facet::DefaultSource::Custom(f)) = f.default else {
                     panic!()
                 };
                 let v: Vec3 = unsafe { eval_default_fn(f) };
@@ -670,32 +672,100 @@ mod test {
                 assert_eq!(v.y, 1.0);
                 assert_eq!(v.z, 1.0);
             } else {
-                assert!(f.vtable.default_fn.is_none());
+                assert!(f.default.is_none());
+            }
+        }
+    }
+
+    struct ValidateVisitor;
+    impl ShapeVisitor for ValidateVisitor {
+        fn visit<
+            T: Facet<'static> + Clone + Send + Sync + Into<Tree> + 'static,
+        >(
+            &mut self,
+        ) {
+            let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty
+            else {
+                panic!("shape `{}` must be a struct", T::SHAPE.type_name());
+            };
+            for f in s.fields {
+                if types::Type::try_from(f.shape().id).is_err() {
+                    panic!(
+                        "field `{}` in `{}` has unhandled type: {}",
+                        f.name,
+                        T::SHAPE.type_name(),
+                        f.shape()
+                    );
+                }
+                if let Some(d) = f.default {
+                    assert!(
+                        matches!(d, facet::DefaultSource::Custom(..)),
+                        "default on field `{}` in `{}` must include value",
+                        f.name,
+                        T::SHAPE.type_name()
+                    );
+                }
             }
         }
     }
 
     #[test]
     fn validate_shapes() {
-        struct Visitor;
-        impl ShapeVisitor for Visitor {
-            fn visit<
-                T: Facet<'static> + Clone + Send + Sync + Into<Tree> + 'static,
-            >(
-                &mut self,
-            ) {
-                let facet::Type::User(facet::UserType::Struct(s)) = T::SHAPE.ty
-                else {
-                    panic!("must be a struct-shaped type");
-                };
-                for f in s.fields {
-                    if types::Type::try_from(f.shape().id).is_err() {
-                        panic!("unknown type: {}", f.shape());
-                    }
-                }
+        let mut v = ValidateVisitor;
+        visit_shapes(&mut v);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "field `uhoh` in `BadShape` has unhandled type: String"
+    )]
+    fn bad_shape_type() {
+        #[derive(Clone, facet::Facet)]
+        struct BadShape {
+            uhoh: String,
+        }
+        impl From<BadShape> for Tree {
+            fn from(_: BadShape) -> Tree {
+                unimplemented!()
             }
         }
-        let mut v = Visitor;
-        visit_shapes(&mut v);
+        let mut v = ValidateVisitor;
+        v.visit::<BadShape>();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "default on field `center` in `BadShape` must include value"
+    )]
+    fn bad_shape_default() {
+        #[derive(Clone, facet::Facet)]
+        struct BadShape {
+            #[facet(default)]
+            center: f64,
+        }
+        impl From<BadShape> for Tree {
+            fn from(_: BadShape) -> Tree {
+                unimplemented!()
+            }
+        }
+        let mut v = ValidateVisitor;
+        v.visit::<BadShape>();
+    }
+
+    #[test]
+    #[should_panic(expected = "shape `BadShapeEnum` must be a struct")]
+    fn bad_shape_shape() {
+        #[derive(Clone, facet::Facet)]
+        #[repr(C)]
+        enum BadShapeEnum {
+            UhOh,
+        }
+        impl From<BadShapeEnum> for Tree {
+            fn from(_: BadShapeEnum) -> Tree {
+                unimplemented!()
+            }
+        }
+        let mut v = ValidateVisitor;
+        v.visit::<BadShapeEnum>();
     }
 }
