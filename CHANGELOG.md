@@ -1,3 +1,6 @@
+# 0.4.2 (in progress)
+- Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
+
 # 0.4.1
 - Add `fidget-bytecode` crate (exported as `fidget::bytecode`), which is a
   binary representation of register instruction tapes.

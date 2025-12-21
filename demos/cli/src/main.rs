@@ -310,7 +310,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
             image
                 .into_iter()
                 .flat_map(|p| {
-                    if p.depth > 0 {
+                    if p.depth > 0.0 {
                         let c = p.to_color();
                         [c[0], c[1], c[2], 255]
                     } else {
@@ -331,7 +331,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .into_iter()
                 .zip(color)
                 .flat_map(|(p, c)| {
-                    if p.depth > 0 {
+                    if p.depth > 0.0 {
                         [c[0], c[1], c[2], 255]
                     } else {
                         [0, 0, 0, 0]
@@ -378,12 +378,17 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
         RenderMode3D::Heightmap => {
-            let z_max = image.iter().map(|p| p.depth).max().unwrap_or(1);
+            let z_max = image
+                .iter()
+                .map(|p| ordered_float::OrderedFloat(p.depth))
+                .max()
+                .map(|p| p.0)
+                .unwrap_or(1.0);
             image
                 .into_iter()
                 .flat_map(|p| {
-                    if p.depth > 0 {
-                        let z = (p.depth * 255 / z_max) as u8;
+                    if p.depth > 0.0 {
+                        let z = (p.depth * 255.0 / z_max).round() as u8;
                         [z, z, z, 255]
                     } else {
                         [0, 0, 0, 0]

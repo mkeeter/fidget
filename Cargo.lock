@@ -1450,7 +1450,7 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "criterion",
  "document-features",
@@ -1489,6 +1489,7 @@ dependencies = [
  "image",
  "log",
  "nalgebra",
+ "ordered-float 5.1.0",
  "rayon",
  "rhai",
  "strum 0.27.2",
@@ -1550,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-raster"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "fidget-core",
  "nalgebra",

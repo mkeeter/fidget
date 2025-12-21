@@ -41,7 +41,7 @@ fn sphere_var<F: Function + MathFunction>() {
             let epsilon = 2.0 / size as f32 / scale * 2.0;
             for (i, p) in image.iter().enumerate() {
                 let p = p.depth;
-                if p == size {
+                if p == size as f32 {
                     // Skip saturated voxels
                     continue;
                 }
@@ -49,10 +49,10 @@ fn sphere_var<F: Function + MathFunction>() {
                 let i = i as i32;
                 let x = (i % size) as f32;
                 let y = (i / size) as f32;
-                let z = p as f32;
+                let z = p;
                 let pos =
                     m.transform_point(&nalgebra::Point3::new(x, y, z)) * scale;
-                if p == 0 {
+                if p == 0.0 {
                     let v = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
                     assert!(
                         v + epsilon > r,

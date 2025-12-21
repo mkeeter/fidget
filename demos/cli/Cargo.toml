@@ -11,6 +11,7 @@ env_logger.workspace = true
 image.workspace = true
 log.workspace = true
 nalgebra.workspace = true
+ordered-float.workspace = true
 rayon.workspace = true
 rhai.workspace = true
 strum.workspace = true
