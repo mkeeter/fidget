@@ -724,8 +724,8 @@ mod test {
         struct BadShape {
             uhoh: String,
         }
-        impl Into<Tree> for BadShape {
-            fn into(self) -> Tree {
+        impl From<BadShape> for Tree {
+            fn from(_: BadShape) -> Tree {
                 unimplemented!()
             }
         }
@@ -743,8 +743,8 @@ mod test {
             #[facet(default)]
             center: f64,
         }
-        impl Into<Tree> for BadShape {
-            fn into(self) -> Tree {
+        impl From<BadShape> for Tree {
+            fn from(_: BadShape) -> Tree {
                 unimplemented!()
             }
         }
@@ -760,8 +760,8 @@ mod test {
         enum BadShapeEnum {
             UhOh,
         }
-        impl Into<Tree> for BadShapeEnum {
-            fn into(self) -> Tree {
+        impl From<BadShapeEnum> for Tree {
+            fn from(_: BadShapeEnum) -> Tree {
                 unimplemented!()
             }
         }
