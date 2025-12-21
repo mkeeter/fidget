@@ -390,7 +390,11 @@ impl Value {
     ///
     /// # Panics
     /// If the currently-selected builder field does not match our type
-    pub fn put<'facet>(self, builder: &mut facet::Partial<'facet>, i: usize) {
+    pub fn put<'facet>(
+        self,
+        builder: facet::Partial<'facet>,
+        i: usize,
+    ) -> facet::Partial<'facet> {
         match self {
             Value::Float(v) => builder.set_nth_field(i, v),
             Value::Vec2(v) => builder.set_nth_field(i, v),
@@ -401,7 +405,7 @@ impl Value {
             Value::Tree(v) => builder.set_nth_field(i, v),
             Value::VecTree(v) => builder.set_nth_field(i, v),
         }
-        .unwrap();
+        .unwrap()
     }
 }
 
@@ -484,18 +488,24 @@ impl Type {
     /// `f` must be a builder for the type associated with this tag
     pub unsafe fn build_from_default_fn(
         &self,
-        f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
+        f: facet::DefaultSource,
     ) -> Value {
-        unsafe {
-            match self {
-                Type::Float => Value::Float(eval_default_fn(f)),
-                Type::Vec2 => Value::Vec2(eval_default_fn(f)),
-                Type::Vec3 => Value::Vec3(eval_default_fn(f)),
-                Type::Vec4 => Value::Vec4(eval_default_fn(f)),
-                Type::Axis => Value::Axis(eval_default_fn(f)),
-                Type::Plane => Value::Plane(eval_default_fn(f)),
-                Type::Tree => Value::Tree(eval_default_fn(f)),
-                Type::VecTree => Value::VecTree(eval_default_fn(f)),
+        match f {
+            facet::DefaultSource::Custom(f) => unsafe {
+                match self {
+                    Type::Float => Value::Float(eval_default_fn(f)),
+                    Type::Vec2 => Value::Vec2(eval_default_fn(f)),
+                    Type::Vec3 => Value::Vec3(eval_default_fn(f)),
+                    Type::Vec4 => Value::Vec4(eval_default_fn(f)),
+                    Type::Axis => Value::Axis(eval_default_fn(f)),
+                    Type::Plane => Value::Plane(eval_default_fn(f)),
+                    Type::Tree => Value::Tree(eval_default_fn(f)),
+                    Type::VecTree => Value::VecTree(eval_default_fn(f)),
+                }
+            },
+            facet::DefaultSource::FromTrait => {
+                // Tested in a unit test elsewhere
+                panic!("must have default builder")
             }
         }
     }
@@ -509,7 +519,7 @@ pub unsafe fn eval_default_fn<T>(
     f: unsafe fn(facet::PtrUninit) -> facet::PtrMut,
 ) -> T {
     let mut v = std::mem::MaybeUninit::<T>::uninit();
-    let ptr = facet::PtrUninit::new((&mut v).into());
+    let ptr = facet::PtrUninit::new((&mut v) as *mut _);
     // SAFETY: `f` must be a builder for type `T`
     unsafe { f(ptr) };
     // SAFETY: `v` is initialized by `f`

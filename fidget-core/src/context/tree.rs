@@ -800,9 +800,8 @@ mod test {
             x: f64,
         }
 
-        let mut builder =
-            facet::Partial::alloc_shape(Transform::SHAPE).unwrap();
-        builder
+        let builder = facet::Partial::alloc_shape(Transform::SHAPE)
+            .unwrap()
             .set_field("tree", Tree::x() + 2.0 * Tree::y())
             .unwrap()
             .set_field("x", 1.0)
