@@ -378,8 +378,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
         RenderMode3D::Heightmap => {
-            let z_max =
-                image.iter().map(|p| p.depth as u32).max().unwrap_or(1) as f32;
+            let z_max = image
+                .iter()
+                .map(|p| ordered_float::OrderedFloat(p.depth))
+                .max()
+                .map(|p| p.0)
+                .unwrap_or(1.0);
             image
                 .into_iter()
                 .flat_map(|p| {

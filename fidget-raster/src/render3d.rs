@@ -365,9 +365,7 @@ pub fn render<F: Function>(
                     let o = y * width + x;
                     if out[index].depth >= image[o].depth {
                         // Clamp voxels to the image depth
-                        let d = (usize::try_from(config.image_size.depth())
-                            .unwrap()
-                            - 1) as f32;
+                        let d = (config.image_size.depth() - 1) as f32;
                         if out[index].depth >= d {
                             image[o] = GeometryPixel {
                                 depth: d + 1.0,

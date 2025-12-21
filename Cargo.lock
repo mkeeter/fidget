@@ -1489,6 +1489,7 @@ dependencies = [
  "image",
  "log",
  "nalgebra",
+ "ordered-float 5.1.0",
  "rayon",
  "rhai",
  "strum 0.27.2",
