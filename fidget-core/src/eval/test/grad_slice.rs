@@ -332,6 +332,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     }
 
     pub fn test_g_modulo() {
+        // y - (x % 1)
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -340,11 +341,17 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
 
         let shape = F::new(&ctx, &[out]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
-        println!(
-            "{}\n{}\n{}",
+        assert_eq!(
             Self::eval_xyz(&tape, &[0.0], &[0.5], &[0.0])[0],
+            Grad::new(0.5, -1.0, 1.0, 0.0)
+        );
+        assert_eq!(
             Self::eval_xyz(&tape, &[-0.01], &[0.5], &[0.0])[0],
+            Grad::new(-0.49, -1.0, 1.0, 0.0)
+        );
+        assert_eq!(
             Self::eval_xyz(&tape, &[0.01], &[0.5], &[0.0])[0],
+            Grad::new(0.49, -1.0, 1.0, 0.0)
         );
     }
 

@@ -625,8 +625,6 @@ mod test {
 
     #[test]
     fn circle_docstring() {
-        println!("{:#?}", Circle::SHAPE);
-        println!("{:#?}", Circle::SHAPE.doc);
         assert_eq!(Circle::SHAPE.doc, &[" 2D circle"]);
     }
 
