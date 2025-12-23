@@ -86,7 +86,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                 // handled above
             }
             case OP_INPUT, OP_COPY_IMM: {
-                // Nothing do here, we already marked op[1] as unalive
+                // Nothing to do here, we already marked op[1] as unalive
             }
 
             case OP_COPY_REG, // one input register

@@ -54,7 +54,7 @@ impl RenderConfig {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Doppleganger of the WGSL `struct Config`
+/// Doppelganger of the WGSL `struct Config`
 ///
 /// Fields are carefully ordered to require no padding
 #[derive(Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
@@ -1314,7 +1314,7 @@ impl BackfillContext {
         let tile64_zmin = &ctx.root_ctx.tile64_buffers.zmin;
 
         let nx = render_size.width().div_ceil(64) as usize;
-        let ny = render_size.width().div_ceil(64) as usize;
+        let ny = render_size.height().div_ceil(64) as usize;
 
         let bind_group4 = self.create_bind_group(
             ctx,
@@ -1648,12 +1648,12 @@ mod test {
                 if let Some(i) = e.location(&src) {
                     let pos = i.offset as usize..(i.offset + i.length) as usize;
                     panic!(
-                        "shader conpilation failed\n{src}\n{}",
+                        "shader compilation failed\n{src}\n{}",
                         e.emit_to_string_with_path(&src[pos], desc)
                     );
                 } else {
                     panic!(
-                        "shader conpilation failed\n{src}\n{}",
+                        "shader compilation failed\n{src}\n{}",
                         e.emit_to_string(desc)
                     );
                 }
@@ -1661,7 +1661,7 @@ mod test {
             if let Err(e) = v.validate(&m) {
                 let (pos, desc) = e.spans().next().unwrap();
                 panic!(
-                    "shader conpilation failed\n{src}\n{}",
+                    "shader compilation failed\n{src}\n{}",
                     e.emit_to_string_with_path(
                         &src[pos.to_range().unwrap()],
                         desc

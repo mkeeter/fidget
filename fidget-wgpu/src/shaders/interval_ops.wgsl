@@ -194,7 +194,7 @@ fn op_or(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
         return rhs;
     } else {
         stack_push(stack, CHOICE_BOTH);
-        return Value(vec2f(min(lhs.v[0], rhs.v[0]), max(lhs.v[0], rhs.v[0])));
+        return Value(vec2f(min(lhs.v[0], rhs.v[0]), max(lhs.v[1], rhs.v[1])));
     }
 }
 

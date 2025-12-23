@@ -29,7 +29,7 @@ fn normals_main(
     let pixel_index_xy = px + py * config.image_size.x;
 
     // If we've already written this pixel, then return; because evaluation
-    // happens in Z order, it will necessarily supercede the current pixel
+    // happens in Z order, it will necessarily supersede the current pixel
     if image_out[pixel_index_xy][0] != 0 {
         return;
     }
@@ -139,7 +139,7 @@ fn op_exp(lhs: Value) -> Value {
 
 fn op_log(lhs: Value) -> Value {
     let v = log(lhs.v.w);
-    return Value(vec4f(lhs.v.xyz / v, v));
+    return Value(vec4f(lhs.v.xyz / lhs.v.w, v));
 }
 
 fn op_not(lhs: Value) -> Value {
@@ -159,7 +159,7 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
-    if lhs.v.w != 0.0 {
+    if lhs.v.w == 0.0 {
         return lhs;
     } else {
         return rhs;
@@ -167,7 +167,7 @@ fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
 }
 
 fn op_or(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
-    if lhs.v.w == 0.0 {
+    if lhs.v.w != 0.0 {
         return lhs;
     } else {
         return rhs;
