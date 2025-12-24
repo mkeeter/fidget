@@ -22,6 +22,13 @@ const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 
+// polyfill for https://github.com/gfx-rs/wgpu/issues/8785
+#[cfg(target_arch = "wasm32")]
+const WG_ANY_POLYFILL: &str = include_str!("shaders/wg_any_wasm.wgsl");
+
+#[cfg(not(target_arch = "wasm32"))]
+const WG_ANY_POLYFILL: &str = include_str!("shaders/wg_any_native.wgsl");
+
 /// Settings for 3D rendering
 #[derive(Copy, Clone)]
 pub struct RenderConfig {
@@ -108,6 +115,7 @@ pub fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
+    shader_code += WG_ANY_POLYFILL;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
@@ -913,7 +921,6 @@ impl Context {
                 },
             mapped_at_creation: false,
         });
-        log::info!("got config buf");
         let tile_tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile tape (dummy)"),
             size: 1024,
@@ -1135,7 +1142,6 @@ impl Context {
         self.queue.submit(Some(encoder.finish()));
 
         // Map result buffer and read back the data
-        log::info!("buffer slice: {}", self.buffers.image.size());
         let buffer_slice = self.buffers.image.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
         self.device

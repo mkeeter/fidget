@@ -27,9 +27,7 @@ fn interval_tile_main(
     // beacause we use workgroup barriers further down; we have to bail out in a
     // way that the uniformity analysis pass accepts.
     let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
-    atomicOr(&wg_scratch, u32(active_tile_index >= tiles_in.count));
-    workgroupBarrier();
-    if workgroupUniformLoad(&wg_scratch) == 0 {
+    if wg_any(active_tile_index >= tiles_in.count) {
         return;
     }
 
@@ -124,9 +122,7 @@ fn interval_tile_main(
     }
 
     // Check whether any members of the workgroup allocated a new tape
-    atomicOr(&wg_scratch, u32(do_alloc));
-    workgroupBarrier();
-    if workgroupUniformLoad(&wg_scratch) == 0 {
+    if !wg_any(do_alloc) {
         return;
     }
 
