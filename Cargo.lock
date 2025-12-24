@@ -1694,7 +1694,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-wgpu"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "fidget-bytecode",
  "fidget-core",
