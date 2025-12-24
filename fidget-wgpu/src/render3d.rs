@@ -894,23 +894,10 @@ impl Context {
     ///
     /// This is async due to choices made by WebGPU; to use in an otherwise-sync
     /// program, consider a minimal async runtime like `pollster`.
-    pub async fn new() -> Result<Self, Error> {
-        // Initialize wgpu
-        let instance = wgpu::Instance::default();
-        let (device, queue) = {
-            let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    ..wgpu::RequestAdapterOptions::default()
-                })
-                .await
-                .map_err(|_| Error::NoAdapter)?;
-            adapter
-                .request_device(&wgpu::DeviceDescriptor::default())
-                .await
-                .map_err(Error::NoDevice)?
-        };
-
+    pub fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+    ) -> Result<Self, Error> {
         // The config buffer is statically sized
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
@@ -926,6 +913,7 @@ impl Context {
                 },
             mapped_at_creation: false,
         });
+        log::info!("got config buf");
         let tile_tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile tape (dummy)"),
             size: 1024,

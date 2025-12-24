@@ -1567,6 +1567,7 @@ dependencies = [
  "rayon",
  "rhai",
  "strum 0.27.2",
+ "wgpu 27.0.1",
  "workspace-hack",
 ]
 
@@ -1701,6 +1702,7 @@ dependencies = [
  "fidget-core",
  "fidget-raster",
  "heck",
+ "log",
  "naga 26.0.0",
  "nalgebra",
  "strum 0.27.2",

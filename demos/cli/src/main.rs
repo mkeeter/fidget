@@ -299,7 +299,23 @@ fn run3d_wgpu(
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
 ) -> Result<fidget::raster::GeometryBuffer> {
-    let mut ctx = pollster::block_on(fidget::wgpu::render3d::Context::new())?;
+    // Build a WGPU context
+    let instance = wgpu::Instance::default();
+    let (device, queue) = pollster::block_on(async move {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                ..wgpu::RequestAdapterOptions::default()
+            })
+            .await
+            .map_err(anyhow::Error::from)?;
+        let out = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await?;
+        Ok::<_, anyhow::Error>(out)
+    })?;
+
+    let mut ctx = fidget::wgpu::render3d::Context::new(device, queue)?;
     let cfg = fidget::wgpu::render3d::RenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         world_to_model,

@@ -17,6 +17,7 @@ fidget-bytecode.workspace = true
 workspace-hack.workspace = true
 
 heck.workspace = true
+log.workspace = true
 naga.workspace = true
 nalgebra.workspace = true
 strum.workspace = true
