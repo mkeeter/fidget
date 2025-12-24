@@ -23,10 +23,13 @@ fn interval_tile_main(
 ) {
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.  This means that it's possible to
-    // have more dispatches than active tiles.
+    // have more dispatches than active tiles.  However, we have a workgroup
+    // barrier, so we must ensure uniform evaluation.
+    var skip_evaluation = false;
+
     let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
     if active_tile_index >= tiles_in.count {
-        return;
+        skip_evaluation = true;
     }
 
     // Prepare for normal evaluation by tweaking the dispatch size.  This gets
@@ -41,7 +44,10 @@ fn interval_tile_main(
 
     // Get global tile position, in tile coordinates.  The top bit indicates
     // that the tile is filled.
-    let t_raw = tiles_in.active_tiles[active_tile_index];
+    var t_raw = 0u;
+    if !skip_evaluation {
+        t_raw = tiles_in.active_tiles[active_tile_index];
+    }
     let t_filled = (t_raw & (1 << 31u)) != 0;
     let t = t_raw & 0x7FFFFFFF;
     let tx = t % size_tiles.x;
@@ -56,10 +62,8 @@ fn interval_tile_main(
     // Subtile corner position, in voxels
     let corner_pos = subtile_corner * SUBTILE_SIZE;
 
-    var skip_evaluation = false;
-
     // Special handling for uniformly filled tiles
-    if t_filled {
+    if !skip_evaluation && t_filled {
         // Snap down to the larger tile size
         let z = (corner_pos.z / TILE_SIZE) * TILE_SIZE;
         atomicMax(&subtile_zmin[subtile_index_xy], z + TILE_SIZE - 1);
@@ -68,7 +72,7 @@ fn interval_tile_main(
 
     // Check for Z masking from tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
-    if tile_zmin[tile_index_xy] >= corner_pos.z {
+    if !skip_evaluation && tile_zmin[tile_index_xy] >= corner_pos.z {
         atomicMax(&subtile_zmin[subtile_index_xy], tile_zmin[tile_index_xy]);
         skip_evaluation = true;
     }
@@ -77,7 +81,7 @@ fn interval_tile_main(
     let m = interval_inputs(subtile_corner, SUBTILE_SIZE);
 
     // Last-minute check to see if anyone filled out this tile
-    if atomicLoad(&subtile_zmin[subtile_index_xy]) >= corner_pos.z + SUBTILE_SIZE {
+    if !skip_evaluation && atomicLoad(&subtile_zmin[subtile_index_xy]) >= corner_pos.z + SUBTILE_SIZE {
         skip_evaluation = true;
     }
 
@@ -122,12 +126,13 @@ fn interval_tile_main(
     // Check whether any members of the workgroup allocated a new tape
     atomicOr(&wg_allocate, u32(do_alloc));
     workgroupBarrier();
-    if atomicLoad(&wg_allocate) == 0 {
-        return;
-    }
+
+    // Annoying workaround because Dawn doesn't believe this is uniform, so we
+    // can't return early.
+    var any_alloc = atomicLoad(&wg_allocate) != 0;
 
     // thread (0,0,0) in the workgroup is responsible for allocating memory
-    if local_id.x == 0u && local_id.y == 0u && local_id.z == 0u {
+    if any_alloc && local_id.x == 0u && local_id.y == 0u && local_id.z == 0u {
         let alloc_addr = atomicAdd(&config.tile_tapes_offset, 64u);
         tile_tape[tape_start.addr] = alloc_addr | (1u << 31);
         atomicStore(&wg_allocate, alloc_addr);
@@ -135,11 +140,13 @@ fn interval_tile_main(
     workgroupBarrier();
 
     // Write our new tape address!
-    let addr = atomicLoad(&wg_allocate)
-        + local_id.x
-        + local_id.y * 4u
-        + local_id.z * 16u;
-    tile_tape[addr] = tape_start.index;
+    if any_alloc {
+        let addr = atomicLoad(&wg_allocate)
+            + local_id.x
+            + local_id.y * 4u
+            + local_id.z * 16u;
+        tile_tape[addr] = tape_start.index;
+    }
 }
 
 var<workgroup> wg_allocate: atomic<u32>;

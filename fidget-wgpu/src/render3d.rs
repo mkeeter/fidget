@@ -1135,6 +1135,7 @@ impl Context {
         self.queue.submit(Some(encoder.finish()));
 
         // Map result buffer and read back the data
+        log::info!("buffer slice: {}", self.buffers.image.size());
         let buffer_slice = self.buffers.image.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
         self.device

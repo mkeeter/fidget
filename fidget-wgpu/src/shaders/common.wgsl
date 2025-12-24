@@ -45,7 +45,9 @@ struct TileListInput {
 }
 
 fn nan_f32() -> f32 {
-    return bitcast<f32>(0x7FC00000);
+  // Workaround for https://github.com/gpuweb/gpuweb/issues/3749
+  let bits = 0xffffffffu;
+  return bitcast<f32>(bits);
 }
 
 /// Common render configuration and tape data
