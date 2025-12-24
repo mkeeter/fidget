@@ -299,7 +299,7 @@ fn run3d_wgpu(
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
 ) -> Result<fidget::raster::GeometryBuffer> {
-    let mut ctx = fidget::wgpu::render3d::Context::new()?;
+    let mut ctx = pollster::block_on(fidget::wgpu::render3d::Context::new())?;
     let cfg = fidget::wgpu::render3d::RenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         world_to_model,

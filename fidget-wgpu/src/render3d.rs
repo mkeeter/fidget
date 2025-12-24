@@ -891,10 +891,13 @@ impl DynamicBuffers {
 
 impl Context {
     /// Build a new 3D rendering context
-    pub fn new() -> Result<Self, Error> {
+    ///
+    /// This is async due to choices made by WebGPU; to use in an otherwise-sync
+    /// program, consider a minimal async runtime like `pollster`.
+    pub async fn new() -> Result<Self, Error> {
         // Initialize wgpu
         let instance = wgpu::Instance::default();
-        let (device, queue) = pollster::block_on(async {
+        let (device, queue) = {
             let adapter = instance
                 .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
@@ -905,8 +908,8 @@ impl Context {
             adapter
                 .request_device(&wgpu::DeviceDescriptor::default())
                 .await
-                .map_err(Error::NoDevice)
-        })?;
+                .map_err(Error::NoDevice)?
+        };
 
         // The config buffer is statically sized
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
