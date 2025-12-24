@@ -1,6 +1,6 @@
 @group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
 @group(1) @binding(1) var<storage, read> image_heightmap: array<u32>;
-@group(1) @binding(2) var<storage, read_write> image_out: array<vec4u>;
+@group(1) @binding(2) var<storage, read_write> image_out: array<vec4f>;
 
 @compute @workgroup_size(8, 8)
 fn normals_main(
@@ -51,11 +51,11 @@ fn normals_main(
     let tape_start = get_tape_start(vec3u(px, py, z));
     var stack = Stack(); // dummy value
     let out = run_tape(tape_start.index, m, &stack);
-    image_out[pixel_index_xy] = vec4u(
-        z,
-        bitcast<u32>(out.value.v.x),
-        bitcast<u32>(out.value.v.y),
-        bitcast<u32>(out.value.v.z)
+    image_out[pixel_index_xy] = vec4f(
+        f32(z),
+        out.value.v.x,
+        out.value.v.y,
+        out.value.v.z
     );
 }
 
