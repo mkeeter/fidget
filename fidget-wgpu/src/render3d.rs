@@ -227,6 +227,7 @@ fn strata_size_bytes(render_size: VoxelSize) -> usize {
     assert!(render_size.height().is_multiple_of(64));
     let nx = (render_size.width() / 64) as usize;
     let ny = (render_size.height() / 64) as usize;
+    // Snap to `min_storage_buffer_offset_alignment`
     ((nx * ny + 4) * std::mem::size_of::<u32>()).next_multiple_of(256)
 }
 
