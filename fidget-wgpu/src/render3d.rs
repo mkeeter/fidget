@@ -241,8 +241,7 @@ impl RootContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_rw(0), // tile_zmin
-                    buffer_rw(1), // tiles_out
+                    buffer_rw(0), // tiles_out
                 ],
             });
 
@@ -297,16 +296,10 @@ impl RootContext {
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.tile64_buffers.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: self.tile64_buffers.tiles.as_entire_binding(),
-                    },
-                ],
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.tile64_buffers.tiles.as_entire_binding(),
+                }],
             });
 
         compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
@@ -1091,7 +1084,7 @@ impl Context {
         self.clear_ctx
             .run(self, settings.image_size, &mut compute_pass);
 
-        // Populate root tiles
+        // Populate root tiles (64x64x64, densely packed)
         self.root_ctx
             .run(self, reg_count, render_size, &mut compute_pass);
 
@@ -1121,7 +1114,7 @@ impl Context {
             // Backfill from smaller tiles to larger tiles, for culling. This
             // step also resets counters for subsequent strata.  We skip this
             // step if we're in DEBUG_MODE and rendering a single strata,
-            // because we want those buffers to remain un-reset.
+            // because we want those buffers to remain un-reset for debugging
             if DEBUG_MODE && render_size.depth() == 64 {
                 continue;
             }

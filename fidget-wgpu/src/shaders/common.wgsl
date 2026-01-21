@@ -32,12 +32,16 @@ struct Config {
     tape_data: array<u32>,
 }
 
+/// Dynamic list of tiles, using an atomic bump allocator
 struct TileListOutput {
     wg_size: array<atomic<u32>, 3>,
     count: atomic<u32>,
+
+    /// Flexible array member
     active_tiles: array<u32>,
 }
 
+/// Read-only version of `TileListOutput`, see that `struct` for details
 struct TileListInput {
     wg_size: array<u32, 3>,
     count: u32,

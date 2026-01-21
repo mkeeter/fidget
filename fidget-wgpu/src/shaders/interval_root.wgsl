@@ -3,13 +3,12 @@
 // This must be combined with opcode definitions and the generic interpreter
 // from `tape_interpreter.wgsl`
 
-@group(1) @binding(0) var<storage, read_write> tile_zmin: array<atomic<u32>>;
 
 // This is a set of per-strata `TileListOutput` arrays.  Each one is
-// `config.strata_buffer_size` long (measured in `u32` words), which is large
-// enough to fit every tile.  We can't represent this directly, so good luck
-// poking the right memory locations by hand!
-@group(1) @binding(1) var<storage, read_write> tiles_out: array<atomic<u32>>;
+// `strata_size_bytes(..)` long, which is large enough to fit every tile.  We
+// can't represent this directly, so good luck poking the right memory locations
+// by hand!
+@group(1) @binding(0) var<storage, read_write> tiles_out: array<atomic<u32>>;
 
 /// Root tile size
 const TILE_SIZE: u32 = 64;
@@ -60,7 +59,9 @@ fn interval_root_main(
     tile_tape[tile_index_xyz] = new_tape_start;
 
     // The tile is full, so set the "filled" flag when pushing the tile to the
-    // tape list, which short-circuits evaluation.
+    // tape list, which short-circuits evaluation.  We do this instead of just
+    // setting tile_zmin so that the tile is evaluated when rendering normals,
+    // because we need to compute normals for filled pixels in root files.
     var filled_bit = 0u;
     if v[1] < 0.0 {
         filled_bit = 1 << 31u;

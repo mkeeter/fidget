@@ -1,4 +1,4 @@
-/// Backfill tile_zmin from subtile_zmin
+/// Merge all tile stages into a pixel array
 @group(1) @binding(0) var<storage, read> tile64_zmin: array<u32>;
 @group(1) @binding(1) var<storage, read> tile16_zmin: array<u32>;
 @group(1) @binding(2) var<storage, read> tile4_zmin: array<u32>;
