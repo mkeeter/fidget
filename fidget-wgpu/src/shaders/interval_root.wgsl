@@ -61,7 +61,7 @@ fn interval_root_main(
     // The tile is full, so set the "filled" flag when pushing the tile to the
     // tape list, which short-circuits evaluation.  We do this instead of just
     // setting tile_zmin so that the tile is evaluated when rendering normals,
-    // because we need to compute normals for filled pixels in root files.
+    // because we need to compute normals for filled pixels in root tiles.
     var filled_bit = 0u;
     if v[1] < 0.0 {
         filled_bit = 1 << 31u;

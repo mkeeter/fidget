@@ -114,7 +114,7 @@ fn op_cos(lhs: Value) -> Value {
 fn op_tan(lhs: Value) -> Value {
     let c = cos(lhs.v.w);
     let c2 = c * c;
-    return Value(vec4f(lhs.v.xyz / c, tan(lhs.v.w)));
+    return Value(vec4f(lhs.v.xyz / c2, tan(lhs.v.w)));
 }
 
 fn op_asin(lhs: Value) -> Value {

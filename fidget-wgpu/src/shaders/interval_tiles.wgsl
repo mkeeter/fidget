@@ -24,7 +24,7 @@ fn interval_tile_main(
     // Tile index is packed into two words of the workgroup ID, due to dispatch
     // size limits on any single dimension.  This means that it's possible to
     // have more dispatches than active tiles.  We can't just return here,
-    // beacause we use workgroup barriers further down; we have to bail out in a
+    // because we use workgroup barriers further down; we have to bail out in a
     // way that the uniformity analysis pass accepts.
     let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
     if wg_any(active_tile_index >= tiles_in.count) {
