@@ -16,6 +16,7 @@ fidget-raster.workspace = true
 fidget-bytecode.workspace = true
 workspace-hack.workspace = true
 
+flume.workspace = true
 heck.workspace = true
 log.workspace = true
 naga.workspace = true

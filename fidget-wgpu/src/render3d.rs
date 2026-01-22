@@ -950,14 +950,32 @@ impl Context {
         })
     }
 
-    /// Renders a single image using GPU acceleration
-    ///
-    /// Returns a heightmap
     pub fn run(
         &mut self,
-        shape: &VmShape, // XXX add ShapeVars here
+        shape: &VmShape,
         settings: RenderConfig,
     ) -> GeometryBuffer {
+        self.submit(shape, &settings);
+        let buffer_slice = self.map_image();
+        self.read_mapped_image(&buffer_slice, &settings)
+    }
+
+    pub async fn run_async(
+        &mut self,
+        shape: &VmShape,
+        settings: RenderConfig,
+    ) -> GeometryBuffer {
+        self.submit(shape, &settings);
+        let buffer_slice = self.map_image_async().await;
+        self.read_mapped_image(&buffer_slice, &settings)
+    }
+
+    /// Submits a single image to be rendered using GPU acceleration
+    pub fn submit(
+        &mut self,
+        shape: &VmShape, // XXX add ShapeVars here
+        settings: &RenderConfig,
+    ) {
         // Generate bytecode for the root tape
         let vars = shape.inner().vars();
         let bc = Bytecode::new(shape.inner().data());
@@ -1121,14 +1139,42 @@ impl Context {
 
         // Submit the commands and wait for the GPU to complete
         self.queue.submit(Some(encoder.finish()));
+    }
 
+    /// Synchronously maps the image buffer
+    ///
+    /// This is a blocking function suitable for use on the desktop
+    fn map_image(&self) -> wgpu::BufferSlice<'_> {
         // Map result buffer and read back the data
         let buffer_slice = self.buffers.image.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
+        buffer_slice
+    }
 
+    /// Asynchronously maps the image buffer
+    async fn map_image_async(&self) -> wgpu::BufferSlice<'_> {
+        // Map result buffer and read back the data
+        let buffer_slice = self.buffers.image.slice(..);
+        let (tx, rx) = flume::bounded(0); // rendezvous!
+        buffer_slice
+            .map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
+        rx.recv_async().await.unwrap();
+        buffer_slice
+    }
+
+    /// Reads a mapped image from `self.buffers.image`
+    ///
+    /// # Panics
+    /// If we have not yet called `submit` (to submit the job to the GPU) and
+    /// either `map_image` or `map_image_async` (to map the image buffer).
+    fn read_mapped_image(
+        &self,
+        buffer_slice: &wgpu::BufferSlice,
+        settings: &RenderConfig,
+    ) -> GeometryBuffer {
         // Get the pixel-populated image
         let result =
             <[GeometryPixel]>::ref_from_bytes(&buffer_slice.get_mapped_range())

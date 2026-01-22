@@ -61,6 +61,7 @@ eframe = { version = "0.31", features = ["wgpu"] }
 enum-map = "2.7.3"
 facet = { version = "0.33", features = ["reflect", "doc"] }
 env_logger = "0.11"
+flume = { version = "0.12", features = ["async"] }
 heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
