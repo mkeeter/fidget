@@ -892,10 +892,7 @@ impl DynamicBuffers {
 }
 
 impl Context {
-    /// Build a new 3D rendering context
-    ///
-    /// This is async due to choices made by WebGPU; to use in an otherwise-sync
-    /// program, consider a minimal async runtime like `pollster`.
+    /// Build a new 3D rendering context, given a device and queue
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
