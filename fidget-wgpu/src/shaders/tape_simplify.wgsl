@@ -12,10 +12,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
     }
 
     var live: array<bool, REG_COUNT>;
-    var count = 0;
-    while count < 16384 {
-        count += 1; // reasonable timeout
-
+    while true {
         i = i - 2;
         j = j - 2; // reserve space
 
