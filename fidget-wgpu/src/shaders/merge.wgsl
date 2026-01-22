@@ -1,14 +1,21 @@
 /// Merge all tile stages into a pixel array
+///
+/// This stage also prepares for normal dispatch by tweaking the workgroup size
+/// in the `TileListInput`
 @group(1) @binding(0) var<storage, read> tile64_zmin: array<u32>;
 @group(1) @binding(1) var<storage, read> tile16_zmin: array<u32>;
 @group(1) @binding(2) var<storage, read> tile4_zmin: array<u32>;
 @group(1) @binding(3) var<storage, read> result: array<u32>;
 @group(1) @binding(4) var<storage, read_write> merged: array<u32>;
+@group(1) @binding(5) var<storage, read_write> tiles_in: TileListInput;
 
 @compute @workgroup_size(8, 8)
 fn merge_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
+    // Prepare for normal evaluation by tweaking the dispatch size
+    tiles_in.wg_size[2] = 64u;
+
     // Out of bounds, return
     if global_id.x >= config.image_size.x ||
        global_id.y >= config.image_size.y

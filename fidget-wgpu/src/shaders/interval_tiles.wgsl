@@ -4,7 +4,7 @@
 // from `tape_interpreter.wgsl`
 
 /// Per-state IO bindings
-@group(1) @binding(0) var<storage, read_write> tiles_in: TileListInput;
+@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
 @group(1) @binding(1) var<storage, read> tile_zmin: array<u32>;
 
 @group(1) @binding(2) var<storage, read_write> subtiles_out: TileListOutput;
@@ -30,11 +30,6 @@ fn interval_tile_main(
     if wg_any(active_tile_index >= tiles_in.count) {
         return;
     }
-
-    // Prepare for normal evaluation by tweaking the dispatch size.  This gets
-    // applied to each tile size, but only matters when we're dispatching the
-    // normal shader.
-    tiles_in.wg_size[2] = 64u;
 
     // Convert to a size in tile units
     let size64 = config.render_size / 64;

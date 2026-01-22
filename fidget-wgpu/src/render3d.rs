@@ -340,7 +340,7 @@ impl IntervalContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_rw(0), // tiles_in (rw so we can update wg size)
+                    buffer_ro(0), // tiles_in
                     buffer_ro(1), // tile_zmin
                     buffer_rw(2), // subtiles_out
                     buffer_rw(3), // subtile_zmin
@@ -1100,9 +1100,14 @@ impl Context {
             self.voxel_ctx.run(self, reg_count, &mut compute_pass);
 
             // It's somewhat overkill to run `merge` after each layer, but it's
-            // also very cheap.
-            self.merge_ctx
-                .run(self, settings.image_size, &mut compute_pass);
+            // also very cheap (and we need it to prep for normal_ctx dispatch)
+            self.merge_ctx.run(
+                self,
+                strata,
+                settings.image_size,
+                render_size,
+                &mut compute_pass,
+            );
             self.normals_ctx.run(
                 self,
                 strata,
@@ -1401,6 +1406,7 @@ impl MergeContext {
                     buffer_ro(2), // tile4_zmin
                     buffer_ro(3), // result
                     buffer_rw(4), // merged
+                    buffer_rw(5), // tiles
                 ],
             });
 
@@ -1441,12 +1447,16 @@ impl MergeContext {
     fn run(
         &self,
         ctx: &Context,
+        strata: usize,
         image_size: VoxelSize,
+        render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
         let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
         let tile64_zmin = &ctx.root_ctx.tile64_buffers.zmin;
+
+        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1472,6 +1482,15 @@ impl MergeContext {
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: ctx.buffers.merged.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: ctx
+                            .root_ctx
+                            .tile64_buffers
+                            .tiles
+                            .slice(offset_bytes..)
+                            .into(),
                     },
                 ],
             });
