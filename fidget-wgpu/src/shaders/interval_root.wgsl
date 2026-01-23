@@ -3,7 +3,6 @@
 // This must be combined with opcode definitions and the generic interpreter
 // from `tape_interpreter.wgsl`
 
-
 // This is a set of per-strata `TileListOutput` arrays.  Each one is
 // `strata_size_bytes(..)` long, which is large enough to fit every tile.  We
 // can't represent this directly, so good luck poking the right memory locations
@@ -100,18 +99,24 @@ fn strata_size_bytes() -> u32 {
     // Each strata has a [vec3u, u32] header, adding 4 words
     let size_words = nx * ny + 4u;
     let size_bytes = size_words * 4u;
+
+    // Snap to `min_storage_buffer_offset_alignment`
     return next_multiple_of(size_bytes, 256);
 }
 
 /// Allocates a new chunk, returning a past-the-end pointer
 ///
-/// Note that we increment the root tape length, because we want to preserve
-/// these tapes through the reset in `backfill`
+/// Note that we increment both the current tape data offset *and* the root tape
+/// length, because we want to preserve these tapes through the reset in
+/// `backfill` (which resets by assigning `tape_data_offset = root_tape_len`).
+/// There's no concern about racing multiple simultaneous calls to `alloc`,
+/// because the `root_tape_len` is the canonical offset.
 fn alloc(chunk_size: u32) -> u32 {
     atomicAdd(&config.tape_data_offset, chunk_size);
     return atomicAdd(&config.root_tape_len, chunk_size);
 }
 
+/// Undo an allocation
 fn dealloc(chunk_size: u32) {
     atomicSub(&config.tape_data_offset, chunk_size);
     atomicSub(&config.root_tape_len, chunk_size);
