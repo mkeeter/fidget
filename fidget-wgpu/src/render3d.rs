@@ -741,7 +741,6 @@ pub struct Context {
     buffers: DynamicBuffers,
 
     config_buf: wgpu::Buffer,
-    tile_tape_buf: wgpu::Buffer,
     bind_group_layout: wgpu::BindGroupLayout,
 
     root_ctx: RootContext,
@@ -844,6 +843,9 @@ impl<const N: usize> RootTileBuffers<N> {
 
 /// Buffers which must be dynamically sized
 struct DynamicBuffers {
+    /// Map from tile to the relevant tape (as a start index)
+    tile_tapes: wgpu::Buffer,
+
     /// Root tiles (64^3)
     tile64: RootTileBuffers<64>,
 
@@ -886,7 +888,15 @@ fn scratch_buffer(device: &wgpu::Device) -> wgpu::Buffer {
 
 impl DynamicBuffers {
     fn new(device: &wgpu::Device) -> Self {
+        let tile_tapes = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile tape (dummy)"),
+            size: 1024,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
         Self {
+            tile_tapes,
             tile64: RootTileBuffers::new(device),
             tile16: TileBuffers::new(device),
             tile4: TileBuffers::new(device),
@@ -907,6 +917,24 @@ impl DynamicBuffers {
             render_pixels,
             wgpu::BufferUsages::STORAGE,
         );
+
+        // Resize tile_tape_buf, which must be big enough to contain all of our
+        // root tapes, followed by a full strata's worth of subsequent tapes (in
+        // a hierarchy).
+        let nx = u64::from(render_size.nx());
+        let ny = u64::from(render_size.ny());
+        let nz = u64::from(render_size.nz());
+        let tile_tape_words = nx * ny * nz  // Root tapes
+            + nx * ny * (64u64 / 16).pow(3) // Tapes for a strata of 16^3 tiles
+            + nx * ny * (64u64 / 4).pow(3); // Tapes for a strata of 4^3 tiles
+        let tile_tape_bytes =
+            tile_tape_words * std::mem::size_of::<u32>() as u64;
+        self.tile_tapes = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile tape"),
+            size: tile_tape_bytes,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
 
         let image_pixels =
             image_size.width() as usize * image_size.height() as usize;
@@ -953,13 +981,6 @@ impl Context {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let tile_tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tile tape (dummy)"),
-            size: 1024,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-
         // Create bind group layout and bind group
         let common_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -985,7 +1006,6 @@ impl Context {
         Ok(Self {
             device,
             config_buf,
-            tile_tape_buf,
             buffers,
             queue,
             bind_group_layout: common_bind_group_layout,
@@ -1080,24 +1100,6 @@ impl Context {
             writer[config_len..][..bc_len].copy_from_slice(bc.as_bytes());
         }
 
-        // Resize tile_tape_buf, which must be big enough to contain all of our
-        // root tapes, followed by a full strata's worth of subsequent tapes (in
-        // a hierarchy).
-        let tile_tape_words = nx * ny * nz  // Root tapes
-            + nx * ny * (64u64 / 16).pow(3) // Tapes for a strata of 16^3 tiles
-            + nx * ny * (64u64 / 4).pow(3); // Tapes for a strata of 4^3 tiles
-        let tile_tape_bytes =
-            tile_tape_words * std::mem::size_of::<u32>() as u64;
-        if self.tile_tape_buf.size() != tile_tape_bytes {
-            self.tile_tape_buf =
-                self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("tile tape"),
-                    size: tile_tape_bytes,
-                    usage: wgpu::BufferUsages::STORAGE,
-                    mapped_at_creation: false,
-                });
-        }
-
         self.buffers.reset(&self.device, settings.image_size);
 
         // Create a command encoder and dispatch the compute work
@@ -1123,7 +1125,7 @@ impl Context {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: self.tile_tape_buf.as_entire_binding(),
+                        resource: self.buffers.tile_tapes.as_entire_binding(),
                     },
                 ],
             });
