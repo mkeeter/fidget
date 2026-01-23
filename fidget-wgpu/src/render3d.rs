@@ -207,9 +207,6 @@ impl RegPipeline {
 }
 
 struct RootContext {
-    /// Input tiles (64^3)
-    tile64_buffers: TileBuffers<64>,
-
     /// Pipelines for 64^3 tile evaluation
     root_pipeline: RegPipeline,
 
@@ -243,8 +240,6 @@ impl RootContext {
                 ],
             });
 
-        let tile64_buffers = TileBuffers::new(device);
-
         let root_pipeline = RegPipeline::build(|reg_count| {
             let shader_code = interval_root_shader(reg_count);
             let pipeline_layout = device.create_pipeline_layout(
@@ -274,13 +269,8 @@ impl RootContext {
 
         Self {
             bind_group_layout,
-            tile64_buffers,
             root_pipeline,
         }
-    }
-
-    fn reset(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
-        self.tile64_buffers.reset_root(device, render_size)
     }
 
     fn run(
@@ -296,7 +286,7 @@ impl RootContext {
                 layout: &self.bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: self.tile64_buffers.tiles.as_entire_binding(),
+                    resource: ctx.buffers.tile64.tiles.as_entire_binding(),
                 }],
             });
 
@@ -312,12 +302,6 @@ impl RootContext {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct IntervalContext {
-    /// First stage output tiles (16^3)
-    tile16_buffers: TileBuffers<16>,
-
-    /// First stage output tiles (4^3)
-    tile4_buffers: TileBuffers<4>,
-
     /// Pipeline for 64^3 -> 16^3 tile evaluation
     interval64_pipeline: RegPipeline,
 
@@ -344,9 +328,6 @@ impl IntervalContext {
                     buffer_rw(3), // subtile_zmin
                 ],
             });
-
-        let tile16_buffers = TileBuffers::new(device);
-        let tile4_buffers = TileBuffers::new(device);
 
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -416,16 +397,9 @@ impl IntervalContext {
 
         Self {
             bind_group_layout,
-            tile16_buffers,
-            tile4_buffers,
             interval64_pipeline,
             interval16_pipeline,
         }
-    }
-
-    fn reset(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
-        self.tile16_buffers.reset(device, render_size);
-        self.tile4_buffers.reset(device, render_size);
     }
 
     fn run(
@@ -445,34 +419,30 @@ impl IntervalContext {
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: ctx
-                            .root_ctx
-                            .tile64_buffers
+                            .buffers
+                            .tile64
                             .tiles
                             .slice(offset_bytes..)
                             .into(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx
-                            .root_ctx
-                            .tile64_buffers
-                            .zmin
-                            .as_entire_binding(),
+                        resource: ctx.buffers.tile64.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: self.tile16_buffers.tiles.as_entire_binding(),
+                        resource: ctx.buffers.tile16.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: self.tile16_buffers.zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
                     },
                 ],
             });
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass.dispatch_workgroups_indirect(
-            &ctx.root_ctx.tile64_buffers.tiles,
+            &ctx.buffers.tile64.tiles,
             offset_bytes as u64,
         );
 
@@ -483,26 +453,25 @@ impl IntervalContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: self.tile16_buffers.tiles.as_entire_binding(),
+                        resource: ctx.buffers.tile16.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: self.tile16_buffers.zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: self.tile4_buffers.tiles.as_entire_binding(),
+                        resource: ctx.buffers.tile4.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: self.tile4_buffers.zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
                     },
                 ],
             });
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group4, &[]);
-        compute_pass
-            .dispatch_workgroups_indirect(&self.tile16_buffers.tiles, 0);
+        compute_pass.dispatch_workgroups_indirect(&ctx.buffers.tile16.tiles, 0);
     }
 }
 
@@ -586,19 +555,11 @@ impl VoxelContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx
-                            .interval_ctx
-                            .tile4_buffers
-                            .tiles
-                            .as_entire_binding(),
+                        resource: ctx.buffers.tile4.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx
-                            .interval_ctx
-                            .tile4_buffers
-                            .zmin
-                            .as_entire_binding(),
+                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -612,10 +573,7 @@ impl VoxelContext {
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
-        compute_pass.dispatch_workgroups_indirect(
-            &ctx.interval_ctx.tile4_buffers.tiles,
-            0,
-        );
+        compute_pass.dispatch_workgroups_indirect(&ctx.buffers.tile4.tiles, 0);
     }
 }
 
@@ -694,8 +652,8 @@ impl NormalsContext {
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: ctx
-                            .root_ctx
-                            .tile64_buffers
+                            .buffers
+                            .tile64
                             .tiles
                             .slice(offset_bytes..)
                             .into(),
@@ -715,7 +673,7 @@ impl NormalsContext {
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
         compute_pass.dispatch_workgroups_indirect(
-            &ctx.root_ctx.tile64_buffers.tiles,
+            &ctx.buffers.tile64.tiles,
             offset_bytes as u64,
         );
     }
@@ -810,7 +768,16 @@ impl<const N: usize> TileBuffers<N> {
 
 /// Buffers which must be dynamically sized
 struct DynamicBuffers {
-    /// Result buffer written by the voxel compute shader
+    /// Root tiles (64^3)
+    tile64: TileBuffers<64>,
+
+    /// First stage output tiles (16^3)
+    tile16: TileBuffers<16>,
+
+    /// Second stage output tiles (4^3)
+    tile4: TileBuffers<4>,
+
+    /// Voxel heightmap data
     ///
     /// This buffer has sizes that are multiples of 64 voxels on each dimension
     ///
@@ -820,10 +787,10 @@ struct DynamicBuffers {
     /// Combined result buffer, at the target image size
     ///
     /// Note that this buffer can't be read by the host; it must be copied to
-    /// 'image_buf`
+    /// [`image`](Self::image)
     merged: wgpu::Buffer,
 
-    /// Buffer of `GeometryPixel` equivalent data
+    /// Buffer of `GeometryPixel` equivalent data, generated by the normal pass
     geom: wgpu::Buffer,
 
     /// Result buffer that can be read back from the host
@@ -844,6 +811,9 @@ fn scratch_buffer(device: &wgpu::Device) -> wgpu::Buffer {
 impl DynamicBuffers {
     fn new(device: &wgpu::Device) -> Self {
         Self {
+            tile64: TileBuffers::new(device),
+            tile16: TileBuffers::new(device),
+            tile4: TileBuffers::new(device),
             result: scratch_buffer(device),
             image: scratch_buffer(device),
             merged: scratch_buffer(device),
@@ -852,9 +822,11 @@ impl DynamicBuffers {
     }
 
     fn reset(&mut self, device: &wgpu::Device, image_size: VoxelSize) {
-        let nx = image_size.width().next_multiple_of(64) as usize;
-        let ny = image_size.height().next_multiple_of(64) as usize;
-        let render_pixels = nx * ny;
+        let nx = image_size.width().next_multiple_of(64);
+        let ny = image_size.height().next_multiple_of(64);
+        let nz = image_size.depth().next_multiple_of(64);
+        let render_size = VoxelSize::new(nx, ny, nz);
+        let render_pixels = nx as usize * ny as usize;
         resize_buffer_with::<u32>(
             device,
             &mut self.result,
@@ -886,6 +858,10 @@ impl DynamicBuffers {
             image_pixels,
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
+
+        self.tile64.reset_root(device, render_size);
+        self.tile16.reset(device, render_size);
+        self.tile4.reset(device, render_size);
     }
 }
 
@@ -1054,8 +1030,6 @@ impl Context {
         }
 
         self.buffers.reset(&self.device, settings.image_size);
-        self.root_ctx.reset(&self.device, render_size);
-        self.interval_ctx.reset(&self.device, render_size);
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = self.device.create_command_encoder(
@@ -1297,18 +1271,14 @@ impl BackfillContext {
     ) {
         let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
-        let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
-        let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
-        let tile64_zmin = &ctx.root_ctx.tile64_buffers.zmin;
-
         let nx = render_size.width().div_ceil(64) as usize;
         let ny = render_size.height().div_ceil(64) as usize;
 
         let bind_group4 = self.create_bind_group(
             ctx,
             &ctx.buffers.result,
-            tile4_zmin,
-            ctx.interval_ctx.tile4_buffers.tiles.as_entire_binding(),
+            &ctx.buffers.tile4.zmin,
+            ctx.buffers.tile4.tiles.as_entire_binding(),
         );
         compute_pass.set_pipeline(&self.pipeline4);
         compute_pass.set_bind_group(1, &bind_group4, &[]);
@@ -1320,9 +1290,9 @@ impl BackfillContext {
 
         let bind_group16 = self.create_bind_group(
             ctx,
-            tile4_zmin,
-            tile16_zmin,
-            ctx.interval_ctx.tile16_buffers.tiles.as_entire_binding(),
+            &ctx.buffers.tile4.zmin,
+            &ctx.buffers.tile16.zmin,
+            ctx.buffers.tile16.tiles.as_entire_binding(),
         );
         compute_pass.set_pipeline(&self.pipeline16);
         compute_pass.set_bind_group(1, &bind_group16, &[]);
@@ -1334,10 +1304,10 @@ impl BackfillContext {
 
         let bind_group64 = self.create_bind_group(
             ctx,
-            tile16_zmin,
-            tile64_zmin,
-            ctx.root_ctx
-                .tile64_buffers
+            &ctx.buffers.tile16.zmin,
+            &ctx.buffers.tile64.zmin,
+            ctx.buffers
+                .tile64
                 .tiles
                 .slice(offset_bytes..offset_bytes + 16)
                 .into(),
@@ -1443,10 +1413,6 @@ impl MergeContext {
         render_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
-        let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
-        let tile64_zmin = &ctx.root_ctx.tile64_buffers.zmin;
-
         let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
         let bind_group =
@@ -1456,15 +1422,15 @@ impl MergeContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: tile64_zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile64.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: tile16_zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: tile4_zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -1477,8 +1443,8 @@ impl MergeContext {
                     wgpu::BindGroupEntry {
                         binding: 5,
                         resource: ctx
-                            .root_ctx
-                            .tile64_buffers
+                            .buffers
+                            .tile64
                             .tiles
                             .slice(offset_bytes..)
                             .into(),
@@ -1561,13 +1527,6 @@ impl ClearContext {
         image_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let result = &ctx.buffers.result;
-        let merged = &ctx.buffers.merged;
-        let geom = &ctx.buffers.geom;
-        let tile64_zmin = &ctx.root_ctx.tile64_buffers.zmin;
-        let tile16_zmin = &ctx.interval_ctx.tile16_buffers.zmin;
-        let tile4_zmin = &ctx.interval_ctx.tile4_buffers.zmin;
-
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -1575,27 +1534,27 @@ impl ClearContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: tile64_zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile64.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: tile16_zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: tile4_zmin.as_entire_binding(),
+                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: result.as_entire_binding(),
+                        resource: ctx.buffers.result.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: merged.as_entire_binding(),
+                        resource: ctx.buffers.merged.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: geom.as_entire_binding(),
+                        resource: ctx.buffers.geom.as_entire_binding(),
                     },
                 ],
             });
