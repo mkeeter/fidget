@@ -731,9 +731,39 @@ impl<const N: usize> TileBuffers<N> {
         self.reset_zmin(device, render_size);
     }
 
+    fn reset_zmin(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
+        // zero out the zmin buffer
+        let nx = render_size.width() as usize / N;
+        let ny = render_size.height() as usize / N;
+        resize_buffer_with::<u32>(
+            device,
+            &mut self.zmin,
+            &format!("tile{N}_zmin"),
+            nx * ny,
+            wgpu::BufferUsages::STORAGE,
+        );
+    }
+}
+
+/// Root tile buffers store strata-packed tile lists
+struct RootTileBuffers<const N: usize> {
+    tiles: wgpu::Buffer,
+    zmin: wgpu::Buffer,
+}
+
+impl<const N: usize> RootTileBuffers<N> {
+    fn new(device: &wgpu::Device) -> Self {
+        Self {
+            tiles: scratch_buffer(device),
+            zmin: scratch_buffer(device),
+        }
+    }
+
     /// Reset a root tiles buffer, which stores strata-packed tile lists
-    fn reset_root(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
+    fn reset(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
         assert_eq!(N, 64);
+        let nx = render_size.width() as usize / N;
+        let ny = render_size.height() as usize / N;
         let nz = render_size.depth() as usize / N;
 
         let strata_size = strata_size_bytes(render_size);
@@ -749,13 +779,6 @@ impl<const N: usize> TileBuffers<N> {
             total_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
-        self.reset_zmin(device, render_size);
-    }
-
-    fn reset_zmin(&mut self, device: &wgpu::Device, render_size: VoxelSize) {
-        // zero out the zmin buffer
-        let nx = render_size.width() as usize / N;
-        let ny = render_size.height() as usize / N;
         resize_buffer_with::<u32>(
             device,
             &mut self.zmin,
@@ -769,7 +792,7 @@ impl<const N: usize> TileBuffers<N> {
 /// Buffers which must be dynamically sized
 struct DynamicBuffers {
     /// Root tiles (64^3)
-    tile64: TileBuffers<64>,
+    tile64: RootTileBuffers<64>,
 
     /// First stage output tiles (16^3)
     tile16: TileBuffers<16>,
@@ -811,7 +834,7 @@ fn scratch_buffer(device: &wgpu::Device) -> wgpu::Buffer {
 impl DynamicBuffers {
     fn new(device: &wgpu::Device) -> Self {
         Self {
-            tile64: TileBuffers::new(device),
+            tile64: RootTileBuffers::new(device),
             tile16: TileBuffers::new(device),
             tile4: TileBuffers::new(device),
             result: scratch_buffer(device),
@@ -859,7 +882,7 @@ impl DynamicBuffers {
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
 
-        self.tile64.reset_root(device, render_size);
+        self.tile64.reset(device, render_size);
         self.tile16.reset(device, render_size);
         self.tile4.reset(device, render_size);
     }
