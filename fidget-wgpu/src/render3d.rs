@@ -1,5 +1,5 @@
 //! GPU-accelerated 3D rendering
-use crate::{Error, opcode_constants, util::resize_buffer_with};
+use crate::{Error, opcode_constants, util::new_buffer};
 use fidget_bytecode::Bytecode;
 use fidget_core::{eval::Function, render::VoxelSize, vm::VmShape};
 use fidget_raster::{GeometryBuffer, GeometryPixel};
@@ -28,15 +28,12 @@ const WG_ANY_POLYFILL: &str = include_str!("shaders/wg_any_wasm.wgsl");
 const WG_ANY_POLYFILL: &str = include_str!("shaders/wg_any_native.wgsl");
 
 /// Settings for 3D rendering
+///
+/// Note that this object only contains the world-to-model transform; the image
+/// size is set by the [`Buffers`] object passed into [`run`](Context::run) or
+/// [`run_async`](Context::run_async).
 #[derive(Copy, Clone)]
 pub struct RenderConfig {
-    /// Render size
-    ///
-    /// The resulting image will have the given width and height; depth sets the
-    /// number of voxels to evaluate within each pixel of the image (stacked
-    /// into a column going into the screen).
-    pub image_size: VoxelSize,
-
     /// World-to-model transform
     pub world_to_model: nalgebra::Matrix4<f32>,
 }
@@ -44,16 +41,8 @@ pub struct RenderConfig {
 impl Default for RenderConfig {
     fn default() -> Self {
         Self {
-            image_size: VoxelSize::from(512),
             world_to_model: nalgebra::Matrix4::identity(),
         }
-    }
-}
-
-impl RenderConfig {
-    /// Returns the combined screen-to-model transform matrix
-    pub fn mat(&self) -> nalgebra::Matrix4<f32> {
-        self.world_to_model * self.image_size.screen_to_world()
     }
 }
 
@@ -327,6 +316,7 @@ impl RootContext {
     fn run(
         &self,
         ctx: &Context,
+        buffers: &Buffers,
         reg_count: u8,
         render_size: RenderSize,
         compute_pass: &mut wgpu::ComputePass,
@@ -337,7 +327,7 @@ impl RootContext {
                 layout: &self.bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: ctx.buffers.tile64.tiles.as_entire_binding(),
+                    resource: buffers.tile64.tiles.as_entire_binding(),
                 }],
             });
 
@@ -458,6 +448,7 @@ impl IntervalContext {
     fn run(
         &self,
         ctx: &Context,
+        buffers: &Buffers,
         strata: usize,
         reg_count: u8,
         render_size: RenderSize,
@@ -471,8 +462,7 @@ impl IntervalContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx
-                            .buffers
+                        resource: buffers
                             .tile64
                             .tiles
                             .slice(offset_bytes..)
@@ -480,22 +470,22 @@ impl IntervalContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.buffers.tile64.zmin.as_entire_binding(),
+                        resource: buffers.tile64.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.buffers.tile16.tiles.as_entire_binding(),
+                        resource: buffers.tile16.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
+                        resource: buffers.tile16.zmin.as_entire_binding(),
                     },
                 ],
             });
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass.dispatch_workgroups_indirect(
-            &ctx.buffers.tile64.tiles,
+            &buffers.tile64.tiles,
             offset_bytes as u64,
         );
 
@@ -506,25 +496,25 @@ impl IntervalContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx.buffers.tile16.tiles.as_entire_binding(),
+                        resource: buffers.tile16.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
+                        resource: buffers.tile16.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.buffers.tile4.tiles.as_entire_binding(),
+                        resource: buffers.tile4.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
+                        resource: buffers.tile4.zmin.as_entire_binding(),
                     },
                 ],
             });
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group4, &[]);
-        compute_pass.dispatch_workgroups_indirect(&ctx.buffers.tile16.tiles, 0);
+        compute_pass.dispatch_workgroups_indirect(&buffers.tile16.tiles, 0);
     }
 }
 
@@ -598,6 +588,7 @@ impl VoxelContext {
     fn run(
         &self,
         ctx: &Context,
+        buffers: &Buffers,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
@@ -608,15 +599,15 @@ impl VoxelContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx.buffers.tile4.tiles.as_entire_binding(),
+                        resource: buffers.tile4.tiles.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
+                        resource: buffers.tile4.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.buffers.result.as_entire_binding(),
+                        resource: buffers.result.as_entire_binding(),
                     },
                 ],
             });
@@ -626,7 +617,7 @@ impl VoxelContext {
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
-        compute_pass.dispatch_workgroups_indirect(&ctx.buffers.tile4.tiles, 0);
+        compute_pass.dispatch_workgroups_indirect(&buffers.tile4.tiles, 0);
     }
 }
 
@@ -690,6 +681,7 @@ impl NormalsContext {
     fn run(
         &self,
         ctx: &Context,
+        buffers: &Buffers,
         strata: usize,
         reg_count: u8,
         render_size: RenderSize,
@@ -704,8 +696,7 @@ impl NormalsContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx
-                            .buffers
+                        resource: buffers
                             .tile64
                             .tiles
                             .slice(offset_bytes..)
@@ -713,11 +704,11 @@ impl NormalsContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.buffers.merged.as_entire_binding(),
+                        resource: buffers.merged.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.buffers.geom.as_entire_binding(),
+                        resource: buffers.geom.as_entire_binding(),
                     },
                 ],
             });
@@ -726,7 +717,7 @@ impl NormalsContext {
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
         compute_pass.dispatch_workgroups_indirect(
-            &ctx.buffers.tile64.tiles,
+            &buffers.tile64.tiles,
             offset_bytes as u64,
         );
     }
@@ -738,7 +729,6 @@ impl NormalsContext {
 pub struct Context {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    buffers: DynamicBuffers,
 
     config_buf: wgpu::Buffer,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -758,42 +748,27 @@ struct TileBuffers<const N: usize> {
 }
 
 impl<const N: usize> TileBuffers<N> {
-    fn new(device: &wgpu::Device) -> Self {
-        Self {
-            tiles: scratch_buffer(device),
-            zmin: scratch_buffer(device),
-        }
-    }
-
-    /// Reset buffers, allocating room for densely packed tiles
-    fn reset(&mut self, device: &wgpu::Device, render_size: RenderSize) {
+    /// Returns a new `TileBuffers` object
+    fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
         let nx = render_size.width() as usize / N;
         let ny = render_size.height() as usize / N;
         let nz = 64 / N;
 
-        resize_buffer_with::<u32>(
+        let tiles = new_buffer::<u32>(
             device,
-            &mut self.tiles,
             &format!("active_tile{N}"),
             // wg_dispatch: [u32; 3]
             // count: u32,
             4 + nx * ny * nz,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
-        self.reset_zmin(device, render_size);
-    }
-
-    fn reset_zmin(&mut self, device: &wgpu::Device, render_size: RenderSize) {
-        // zero out the zmin buffer
-        let nx = render_size.width() as usize / N;
-        let ny = render_size.height() as usize / N;
-        resize_buffer_with::<u32>(
+        let zmin = new_buffer::<u32>(
             device,
-            &mut self.zmin,
             &format!("tile{N}_zmin"),
             nx * ny,
             wgpu::BufferUsages::STORAGE,
         );
+        Self { tiles, zmin }
     }
 }
 
@@ -804,45 +779,43 @@ struct RootTileBuffers<const N: usize> {
 }
 
 impl<const N: usize> RootTileBuffers<N> {
-    fn new(device: &wgpu::Device) -> Self {
-        Self {
-            tiles: scratch_buffer(device),
-            zmin: scratch_buffer(device),
-        }
-    }
-
     /// Reset a root tiles buffer, which stores strata-packed tile lists
-    fn reset(&mut self, device: &wgpu::Device, render_size: RenderSize) {
+    fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
         assert_eq!(N, 64);
-        let nx = render_size.width() as usize / N;
-        let ny = render_size.height() as usize / N;
-        let nz = render_size.depth() as usize / N;
+        let nx = render_size.nx() as usize;
+        let ny = render_size.ny() as usize;
+        let nz = render_size.nz() as usize;
 
         let strata_size = strata_size_bytes(render_size);
         let total_size = strata_size * nz;
 
-        resize_buffer_with::<u8>(
+        let tiles = new_buffer::<u8>(
             // bytes
             device,
-            &mut self.tiles,
             &format!("active_tile{N}"),
             // wg_dispatch: [u32; 3]
             // count: u32,
             total_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
-        resize_buffer_with::<u32>(
+        let zmin = new_buffer::<u32>(
             device,
-            &mut self.zmin,
             &format!("tile{N}_zmin"),
             nx * ny,
             wgpu::BufferUsages::STORAGE,
         );
+        Self { tiles, zmin }
     }
 }
 
-/// Buffers which must be dynamically sized
-struct DynamicBuffers {
+/// Buffers for rendering at a particular image size
+///
+/// This object is constructed by [`Context::buffers`] and may only be used with
+/// that particular [`Context`].
+pub struct Buffers {
+    /// Image render size
+    image_size: VoxelSize,
+
     /// Map from tile to the relevant tape (as a start index)
     tile_tapes: wgpu::Buffer,
 
@@ -877,42 +850,12 @@ struct DynamicBuffers {
     image: wgpu::Buffer,
 }
 
-fn scratch_buffer(device: &wgpu::Device) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: 1,
-        usage: wgpu::BufferUsages::STORAGE,
-        mapped_at_creation: false,
-    })
-}
-
-impl DynamicBuffers {
-    fn new(device: &wgpu::Device) -> Self {
-        let tile_tapes = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tile tape (dummy)"),
-            size: 1024,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-
-        Self {
-            tile_tapes,
-            tile64: RootTileBuffers::new(device),
-            tile16: TileBuffers::new(device),
-            tile4: TileBuffers::new(device),
-            result: scratch_buffer(device),
-            image: scratch_buffer(device),
-            merged: scratch_buffer(device),
-            geom: scratch_buffer(device),
-        }
-    }
-
-    fn reset(&mut self, device: &wgpu::Device, image_size: VoxelSize) {
+impl Buffers {
+    fn new(device: &wgpu::Device, image_size: VoxelSize) -> Self {
         let render_size = RenderSize::from(image_size);
         let render_pixels = render_size.pixels();
-        resize_buffer_with::<u32>(
+        let result = new_buffer::<u32>(
             device,
-            &mut self.result,
             "result",
             render_pixels,
             wgpu::BufferUsages::STORAGE,
@@ -921,48 +864,55 @@ impl DynamicBuffers {
         // Resize tile_tape_buf, which must be big enough to contain all of our
         // root tapes, followed by a full strata's worth of subsequent tapes (in
         // a hierarchy).
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        let nz = u64::from(render_size.nz());
+        let nx = render_size.nx() as usize;
+        let ny = render_size.ny() as usize;
+        let nz = render_size.nz() as usize;
         let tile_tape_words = nx * ny * nz  // Root tapes
-            + nx * ny * (64u64 / 16).pow(3) // Tapes for a strata of 16^3 tiles
-            + nx * ny * (64u64 / 4).pow(3); // Tapes for a strata of 4^3 tiles
-        let tile_tape_bytes =
-            tile_tape_words * std::mem::size_of::<u32>() as u64;
-        self.tile_tapes = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tile tape"),
-            size: tile_tape_bytes,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
+            + nx * ny * (64usize / 16).pow(3) // Tapes for a strata of 16^3 tiles
+            + nx * ny * (64usize / 4).pow(3); // Tapes for a strata of 4^3 tiles
+        let tile_tapes = new_buffer::<u32>(
+            device,
+            "tile tape",
+            tile_tape_words,
+            wgpu::BufferUsages::STORAGE,
+        );
 
         let image_pixels =
             image_size.width() as usize * image_size.height() as usize;
-        resize_buffer_with::<u32>(
+        let merged = new_buffer::<u32>(
             device,
-            &mut self.merged,
             "merged",
             image_pixels,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         );
-        resize_buffer_with::<GeometryPixel>(
+        let geom = new_buffer::<GeometryPixel>(
             device,
-            &mut self.geom,
             "geom",
             image_pixels,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         );
-        resize_buffer_with::<GeometryPixel>(
+        let image = new_buffer::<GeometryPixel>(
             device,
-            &mut self.image,
             "image",
             image_pixels,
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
 
-        self.tile64.reset(device, render_size);
-        self.tile16.reset(device, render_size);
-        self.tile4.reset(device, render_size);
+        let tile64 = RootTileBuffers::new(device, render_size);
+        let tile16 = TileBuffers::new(device, render_size);
+        let tile4 = TileBuffers::new(device, render_size);
+
+        Self {
+            image_size,
+            tile_tapes,
+            tile64,
+            tile16,
+            tile4,
+            result,
+            image,
+            merged,
+            geom,
+        }
     }
 }
 
@@ -1001,12 +951,10 @@ impl Context {
             BackfillContext::new(&device, &common_bind_group_layout);
         let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
         let clear_ctx = ClearContext::new(&device, &common_bind_group_layout);
-        let buffers = DynamicBuffers::new(&device);
 
         Ok(Self {
             device,
             config_buf,
-            buffers,
             queue,
             bind_group_layout: common_bind_group_layout,
             root_ctx,
@@ -1019,30 +967,43 @@ impl Context {
         })
     }
 
+    /// Builds a new [`Buffers`] object for the given render size
+    ///
+    /// An image rendered with the resulting buffers will have the given width
+    /// and height; `image_size.depth()` sets the number of voxels to evaluate
+    /// within each pixel of the image (stacked into a column going into the
+    /// screen).
+    pub fn buffers(&self, image_size: VoxelSize) -> Buffers {
+        Buffers::new(&self.device, image_size)
+    }
+
     pub fn run(
         &mut self,
         shape: &VmShape,
+        buffers: &Buffers,
         settings: RenderConfig,
     ) -> GeometryBuffer {
-        self.submit(shape, &settings);
-        let buffer_slice = self.map_image();
-        self.read_mapped_image(&buffer_slice, &settings)
+        self.submit(shape, buffers, &settings);
+        let buffer_slice = self.map_image(buffers);
+        self.read_mapped_image(buffers, &buffer_slice)
     }
 
     pub async fn run_async(
         &mut self,
         shape: &VmShape,
+        buffers: &Buffers,
         settings: RenderConfig,
     ) -> GeometryBuffer {
-        self.submit(shape, &settings);
-        let buffer_slice = self.map_image_async().await;
-        self.read_mapped_image(&buffer_slice, &settings)
+        self.submit(shape, buffers, &settings);
+        let buffer_slice = self.map_image_async(buffers).await;
+        self.read_mapped_image(buffers, &buffer_slice)
     }
 
     /// Submits a single image to be rendered using GPU acceleration
     pub fn submit(
         &mut self,
         shape: &VmShape, // XXX add ShapeVars here
+        buffers: &Buffers,
         settings: &RenderConfig,
     ) {
         // Generate bytecode for the root tape
@@ -1051,12 +1012,14 @@ impl Context {
         assert!(bc.len() < TAPE_DATA_CAPACITY);
 
         // Create the 4x4 transform matrix
-        let shape = shape.with_transform(settings.mat());
+        let shape = shape.with_transform(
+            settings.world_to_model * buffers.image_size.screen_to_world(),
+        );
         let mat = shape.transform();
         let axes = shape
             .axes()
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
-        let render_size = RenderSize::from(settings.image_size);
+        let render_size = RenderSize::from(buffers.image_size);
 
         let nx = render_size.width() as u64 / 64;
         let ny = render_size.height() as u64 / 64;
@@ -1074,9 +1037,9 @@ impl Context {
             ],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
-                settings.image_size.width(),
-                settings.image_size.height(),
-                settings.image_size.depth(),
+                buffers.image_size.width(),
+                buffers.image_size.height(),
+                buffers.image_size.depth(),
             ],
             tape_data_offset: bytecode_len,
             root_tape_len: bytecode_len,
@@ -1099,8 +1062,6 @@ impl Context {
             writer[0..config_len].copy_from_slice(config.as_bytes());
             writer[config_len..][..bc_len].copy_from_slice(bc.as_bytes());
         }
-
-        self.buffers.reset(&self.device, settings.image_size);
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = self.device.create_command_encoder(
@@ -1125,7 +1086,7 @@ impl Context {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: self.buffers.tile_tapes.as_entire_binding(),
+                        resource: buffers.tile_tapes.as_entire_binding(),
                     },
                 ],
             });
@@ -1133,53 +1094,71 @@ impl Context {
         let reg_count = bc.reg_count();
 
         // Initial image clearing pass
-        self.clear_ctx
-            .run(self, settings.image_size, &mut compute_pass);
+        self.clear_ctx.run(
+            self,
+            buffers,
+            buffers.image_size,
+            &mut compute_pass,
+        );
 
         // Populate root tiles (64x64x64, densely packed)
-        self.root_ctx
-            .run(self, reg_count, render_size, &mut compute_pass);
+        self.root_ctx.run(
+            self,
+            buffers,
+            reg_count,
+            render_size,
+            &mut compute_pass,
+        );
 
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         for strata in (0..render_size.depth() as usize / 64).rev() {
             self.interval_ctx.run(
                 self,
+                buffers,
                 strata,
                 reg_count,
                 render_size,
                 &mut compute_pass,
             );
-            self.voxel_ctx.run(self, reg_count, &mut compute_pass);
+            self.voxel_ctx
+                .run(self, buffers, reg_count, &mut compute_pass);
 
             // It's somewhat overkill to run `merge` after each layer, but it's
             // also very cheap (and we need it to prep for normal_ctx dispatch)
             self.merge_ctx.run(
                 self,
+                buffers,
                 strata,
-                settings.image_size,
+                buffers.image_size,
                 render_size,
                 &mut compute_pass,
             );
             self.normals_ctx.run(
                 self,
+                buffers,
                 strata,
                 reg_count,
                 render_size,
                 &mut compute_pass,
             );
 
-            self.backfill_ctx
-                .run(self, strata, render_size, &mut compute_pass);
+            self.backfill_ctx.run(
+                self,
+                buffers,
+                strata,
+                render_size,
+                &mut compute_pass,
+            );
         }
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
         encoder.copy_buffer_to_buffer(
-            &self.buffers.geom,
+            &buffers.geom,
             0,
-            &self.buffers.image,
+            &buffers.image,
             0,
-            self.buffers.geom.size(),
+            buffers.geom.size(),
         );
 
         // Submit the commands and wait for the GPU to complete
@@ -1189,9 +1168,9 @@ impl Context {
     /// Synchronously maps the image buffer
     ///
     /// This is a blocking function suitable for use on the desktop
-    fn map_image(&self) -> wgpu::BufferSlice<'_> {
+    fn map_image<'a>(&self, buffers: &'a Buffers) -> wgpu::BufferSlice<'a> {
         // Map result buffer and read back the data
-        let buffer_slice = self.buffers.image.slice(..);
+        let buffer_slice = buffers.image.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
@@ -1200,9 +1179,12 @@ impl Context {
     }
 
     /// Asynchronously maps the image buffer
-    async fn map_image_async(&self) -> wgpu::BufferSlice<'_> {
+    async fn map_image_async<'a>(
+        &self,
+        buffers: &'a Buffers,
+    ) -> wgpu::BufferSlice<'a> {
         // Map result buffer and read back the data
-        let buffer_slice = self.buffers.image.slice(..);
+        let buffer_slice = buffers.image.slice(..);
         let (tx, rx) = flume::bounded(0); // rendezvous!
         buffer_slice
             .map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
@@ -1217,17 +1199,17 @@ impl Context {
     /// either `map_image` or `map_image_async` (to map the image buffer).
     fn read_mapped_image(
         &self,
+        buffers: &Buffers,
         buffer_slice: &wgpu::BufferSlice,
-        settings: &RenderConfig,
     ) -> GeometryBuffer {
         // Get the pixel-populated image
         let result =
             <[GeometryPixel]>::ref_from_bytes(&buffer_slice.get_mapped_range())
                 .unwrap()
                 .to_owned();
-        self.buffers.image.unmap();
+        buffers.image.unmap();
 
-        GeometryBuffer::build(result, settings.image_size).unwrap()
+        GeometryBuffer::build(result, buffers.image_size).unwrap()
     }
 
     /// Debug function to read a buffer to a `Vec<T>`
@@ -1336,6 +1318,7 @@ impl BackfillContext {
     fn run(
         &self,
         ctx: &Context,
+        buffers: &Buffers,
         strata: usize,
         render_size: RenderSize,
         compute_pass: &mut wgpu::ComputePass,
@@ -1347,9 +1330,9 @@ impl BackfillContext {
 
         let bind_group4 = self.create_bind_group(
             ctx,
-            &ctx.buffers.result,
-            &ctx.buffers.tile4.zmin,
-            ctx.buffers.tile4.tiles.as_entire_binding(),
+            &buffers.result,
+            &buffers.tile4.zmin,
+            buffers.tile4.tiles.as_entire_binding(),
         );
         compute_pass.set_pipeline(&self.pipeline4);
         compute_pass.set_bind_group(1, &bind_group4, &[]);
@@ -1361,9 +1344,9 @@ impl BackfillContext {
 
         let bind_group16 = self.create_bind_group(
             ctx,
-            &ctx.buffers.tile4.zmin,
-            &ctx.buffers.tile16.zmin,
-            ctx.buffers.tile16.tiles.as_entire_binding(),
+            &buffers.tile4.zmin,
+            &buffers.tile16.zmin,
+            buffers.tile16.tiles.as_entire_binding(),
         );
         compute_pass.set_pipeline(&self.pipeline16);
         compute_pass.set_bind_group(1, &bind_group16, &[]);
@@ -1375,9 +1358,9 @@ impl BackfillContext {
 
         let bind_group64 = self.create_bind_group(
             ctx,
-            &ctx.buffers.tile16.zmin,
-            &ctx.buffers.tile64.zmin,
-            ctx.buffers
+            &buffers.tile16.zmin,
+            &buffers.tile64.zmin,
+            buffers
                 .tile64
                 .tiles
                 .slice(offset_bytes..offset_bytes + 16)
@@ -1479,6 +1462,7 @@ impl MergeContext {
     fn run(
         &self,
         ctx: &Context,
+        buffers: &Buffers,
         strata: usize,
         image_size: VoxelSize,
         render_size: RenderSize,
@@ -1493,28 +1477,27 @@ impl MergeContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx.buffers.tile64.zmin.as_entire_binding(),
+                        resource: buffers.tile64.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
+                        resource: buffers.tile16.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
+                        resource: buffers.tile4.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: ctx.buffers.result.as_entire_binding(),
+                        resource: buffers.result.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: ctx.buffers.merged.as_entire_binding(),
+                        resource: buffers.merged.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: ctx
-                            .buffers
+                        resource: buffers
                             .tile64
                             .tiles
                             .slice(offset_bytes..)
@@ -1595,6 +1578,7 @@ impl ClearContext {
     fn run(
         &self,
         ctx: &Context,
+        buffers: &Buffers,
         image_size: VoxelSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
@@ -1605,27 +1589,27 @@ impl ClearContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: ctx.buffers.tile64.zmin.as_entire_binding(),
+                        resource: buffers.tile64.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: ctx.buffers.tile16.zmin.as_entire_binding(),
+                        resource: buffers.tile16.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: ctx.buffers.tile4.zmin.as_entire_binding(),
+                        resource: buffers.tile4.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: ctx.buffers.result.as_entire_binding(),
+                        resource: buffers.result.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: ctx.buffers.merged.as_entire_binding(),
+                        resource: buffers.merged.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: ctx.buffers.geom.as_entire_binding(),
+                        resource: buffers.geom.as_entire_binding(),
                     },
                 ],
             });

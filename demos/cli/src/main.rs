@@ -316,14 +316,13 @@ fn run3d_wgpu(
     })?;
 
     let mut ctx = fidget::wgpu::render3d::Context::new(device, queue)?;
-    let cfg = fidget::wgpu::render3d::RenderConfig {
-        image_size: fidget::render::VoxelSize::from(settings.size),
-        world_to_model,
-    };
+    let image_size = fidget::render::VoxelSize::from(settings.size);
+    let cfg = fidget::wgpu::render3d::RenderConfig { world_to_model };
     let mut image = Default::default();
     let start = std::time::Instant::now();
+    let buffers = ctx.buffers(image_size);
     for _ in 0..settings.n {
-        image = ctx.run(&shape, cfg);
+        image = ctx.run(&shape, &buffers, cfg);
     }
     info!(
         "Rendered {}x at {:?} ms/frame",
