@@ -25,7 +25,7 @@ fn backfill_main(
     let size_subtiles = size_tiles * 4u;
 
     // Reset various counters to prepare for the next strata
-    if TILE_SIZE == 64 && global_id.x == 0u && global_id.y == 0u && global_id.z == 0u {
+    if TILE_SIZE == 64 && global_id.x == 0u {
         atomicStore(&config.tape_data_offset, atomicLoad(&config.root_tape_len));
         atomicStore(&config.tile_tapes_offset, size64.x * size64.y * size64.z);
     }
