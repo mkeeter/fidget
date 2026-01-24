@@ -679,9 +679,9 @@ impl NormalsContext {
         buffers: &Buffers,
         strata: usize,
         reg_count: u8,
-        render_size: RenderSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        let render_size = buffers.render_size();
         let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
         let bind_group =
@@ -913,6 +913,10 @@ impl Buffers {
             geom,
         }
     }
+
+    fn render_size(&self) -> RenderSize {
+        self.image_size.into()
+    }
 }
 
 impl Context {
@@ -1020,9 +1024,9 @@ impl Context {
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
         let render_size = RenderSize::from(buffers.image_size);
 
-        let nx = render_size.width() as u64 / 64;
-        let ny = render_size.height() as u64 / 64;
-        let nz = render_size.depth() as u64 / 64;
+        let nx = u64::from(render_size.nx());
+        let ny = u64::from(render_size.ny());
+        let nz = u64::from(render_size.nz());
 
         let bytecode_len: u32 = bc.len().try_into().unwrap();
         let config = Config {
@@ -1119,30 +1123,17 @@ impl Context {
 
             // It's somewhat overkill to run `merge` after each layer, but it's
             // also very cheap (and we need it to prep for normal_ctx dispatch)
-            self.merge_ctx.run(
-                self,
-                buffers,
-                strata,
-                buffers.image_size,
-                render_size,
-                &mut compute_pass,
-            );
+            self.merge_ctx.run(self, buffers, strata, &mut compute_pass);
             self.normals_ctx.run(
                 self,
                 buffers,
                 strata,
                 reg_count,
-                render_size,
                 &mut compute_pass,
             );
 
-            self.backfill_ctx.run(
-                self,
-                buffers,
-                strata,
-                render_size,
-                &mut compute_pass,
-            );
+            self.backfill_ctx
+                .run(self, buffers, strata, &mut compute_pass);
         }
         drop(compute_pass);
 
@@ -1314,9 +1305,9 @@ impl BackfillContext {
         ctx: &Context,
         buffers: &Buffers,
         strata: usize,
-        render_size: RenderSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        let render_size = buffers.render_size();
         let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
         let nx = render_size.width().div_ceil(64) as usize;
@@ -1458,10 +1449,10 @@ impl MergeContext {
         ctx: &Context,
         buffers: &Buffers,
         strata: usize,
-        image_size: VoxelSize,
-        render_size: RenderSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        let image_size = buffers.image_size;
+        let render_size = buffers.render_size();
         let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
         let bind_group =
