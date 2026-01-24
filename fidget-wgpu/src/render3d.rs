@@ -223,6 +223,7 @@ fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Container of multiple pipelines, parameterized by register count
 struct RegPipeline(BTreeMap<u8, wgpu::ComputePipeline>);
 
 impl RegPipeline {
@@ -345,7 +346,7 @@ struct IntervalContext {
     /// Pipeline for 16^3 -> 4^3 tile evaluation
     interval16_pipeline: RegPipeline,
 
-    /// Bind group layout
+    /// Bind group layout (same for both pipelines)
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
@@ -773,7 +774,7 @@ struct RootTileBuffers<const N: usize> {
 }
 
 impl<const N: usize> RootTileBuffers<N> {
-    /// Reset a root tiles buffer, which stores strata-packed tile lists
+    /// Build a new root tiles buffer, which stores strata-packed tile lists
     fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
         assert_eq!(N, 64);
         let nx = render_size.nx() as usize;
