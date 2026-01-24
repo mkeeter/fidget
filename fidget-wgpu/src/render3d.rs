@@ -1310,8 +1310,8 @@ impl BackfillContext {
         let render_size = buffers.render_size();
         let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
-        let nx = render_size.width().div_ceil(64) as usize;
-        let ny = render_size.height().div_ceil(64) as usize;
+        let nx = render_size.nx() as usize;
+        let ny = render_size.ny() as usize;
 
         let bind_group4 = self.create_bind_group(
             ctx,
@@ -1322,7 +1322,7 @@ impl BackfillContext {
         compute_pass.set_pipeline(&self.pipeline4);
         compute_pass.set_bind_group(1, &bind_group4, &[]);
         compute_pass.dispatch_workgroups(
-            (nx * ny * 16).div_ceil(64) as u32,
+            (nx * ny * 16usize.pow(2)).div_ceil(64) as u32,
             1,
             1,
         );
@@ -1336,7 +1336,7 @@ impl BackfillContext {
         compute_pass.set_pipeline(&self.pipeline16);
         compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass.dispatch_workgroups(
-            (nx * ny * 4).div_ceil(64) as u32,
+            (nx * ny * 4usize.pow(2)).div_ceil(64) as u32,
             1,
             1,
         );
