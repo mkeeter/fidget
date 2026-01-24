@@ -31,7 +31,8 @@ fn interval_root_main(
         tile_corner.z * size64.x * size64.y;
 
     // Tile's lower z position, in voxels
-    let corner_z = tile_corner.z * TILE_SIZE;
+    let corner_pos = tile_corner * TILE_SIZE;
+    let corner_z = corner_pos.z;
 
     // Compute transformed interval regions
     let m = interval_inputs(tile_corner, TILE_SIZE);
@@ -53,7 +54,7 @@ fn interval_root_main(
     }
 
     // Update this tile's position in the tape index map
-    let tape_index = get_tape_offset_for_level(tile_corner, 64u);
+    let tape_index = get_tape_offset_for_level(corner_pos, 64u);
     tile_tape[tape_index] = new_tape_start;
 
     // The tile is full, so set the "filled" flag when pushing the tile to the
