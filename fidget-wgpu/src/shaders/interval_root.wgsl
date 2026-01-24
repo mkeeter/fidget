@@ -30,9 +30,6 @@ fn interval_root_main(
         tile_corner.y * size64.x +
         tile_corner.z * size64.x * size64.y;
 
-    // Reset this tile's position in the tape tree
-    tile_tape[tile_index_xyz] = 0u;
-
     // Tile's lower z position, in voxels
     let corner_z = tile_corner.z * TILE_SIZE;
 
@@ -55,7 +52,9 @@ fn interval_root_main(
         new_tape_start = simplify_tape(out.pos, out.count, &stack);
     }
 
-    tile_tape[tile_index_xyz] = new_tape_start;
+    // Update this tile's position in the tape index map
+    let tape_index = get_tape_offset_for_level(tile_corner, 64u);
+    tile_tape[tape_index] = new_tape_start;
 
     // The tile is full, so set the "filled" flag when pushing the tile to the
     // tape list, which short-circuits evaluation.  We do this instead of just

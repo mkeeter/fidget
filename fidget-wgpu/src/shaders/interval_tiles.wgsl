@@ -25,10 +25,7 @@ fn interval_tile_main(
     // size limits on any single dimension.  This means that it's possible to
     // have more dispatches than active tiles.
     let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
-
-    // We use `wg_any` to pass uniformity analysis, because we use workgroup
-    // barriers later in the kernel.
-    if wg_any(active_tile_index >= tiles_in.count) {
+    if active_tile_index >= tiles_in.count {
         return;
     }
 
@@ -61,88 +58,62 @@ fn interval_tile_main(
         // Snap down to the larger tile size
         let z = (corner_pos.z / TILE_SIZE) * TILE_SIZE;
         atomicMax(&subtile_zmin[subtile_index_xy], z + TILE_SIZE - 1);
-        skip_evaluation = true;
+        return;
     }
 
     // Check for Z masking from tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
     if tile_zmin[tile_index_xy] >= corner_pos.z + SUBTILE_SIZE {
         atomicMax(&subtile_zmin[subtile_index_xy], tile_zmin[tile_index_xy]);
-        skip_evaluation = true;
+        return;
     }
 
     // Last-minute check to see if anyone filled out this tile
     if atomicLoad(&subtile_zmin[subtile_index_xy]) >= corner_pos.z + SUBTILE_SIZE {
-        skip_evaluation = true;
-    }
-
-    var tape_start = get_tape_start(corner_pos);
-    var do_alloc = false;
-    if !skip_evaluation {
-        // Compute transformed interval regions
-        let m = interval_inputs(subtile_corner, SUBTILE_SIZE);
-
-        // Do the actual interpreter work
-        var stack = Stack();
-        let out = run_tape(tape_start.index, m, &stack);
-
-        let v = out.value.v;
-        if v[1] < 0.0 {
-            // Full, write to subtile_zmin
-            atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
-            do_alloc = true;
-        } else if v[0] > 0.0 {
-            // Empty, nothing to do here
-        } else {
-            // Push this subtile to the output list
-            let offset = atomicAdd(&subtiles_out.count, 1u);
-            let subtile_index_xyz = subtile_corner.x +
-                (subtile_corner.y * size_subtiles.x) +
-                (subtile_corner.z * size_subtiles.x * size_subtiles.y);
-            subtiles_out.active_tiles[offset] = subtile_index_xyz;
-
-            // Update the indirect dispatch count
-            let count = offset + 1u;
-            let wg_dispatch_x = min(count, 32768u);
-            let wg_dispatch_y = (count + 32767u) / 32768u;
-            atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
-            atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
-            atomicMax(&subtiles_out.wg_size[2], 1u);
-            do_alloc = true;
-        }
-
-        if do_alloc && stack.has_choice {
-            let next = simplify_tape(out.pos, out.count, &stack);
-            if next != 0 {
-                tape_start.index = next;
-            }
-        }
-    }
-
-    // Check whether any members of the workgroup allocated a new tape
-    if !wg_any(do_alloc) {
         return;
     }
 
-    // thread (0,0,0) in the workgroup is responsible for allocating memory
-    if local_id.x == 0u && local_id.y == 0u && local_id.z == 0u {
-        // Allocate a new set of 64 tapes
-        let alloc_addr = atomicAdd(&config.tile_tapes_offset, 64u);
-        // Mark the parent tape in the tree as a branch to our new address
-        tile_tape[tape_start.addr] = alloc_addr | (1u << 31);
-        atomicStore(&wg_scratch, alloc_addr);
+    // Compute transformed interval regions
+    let m = interval_inputs(subtile_corner, SUBTILE_SIZE);
+
+    // Do the actual interpreter work
+    var stack = Stack();
+    let tape_start = get_tape_start(corner_pos);
+    let out = run_tape(tape_start, m, &stack);
+
+    let v = out.value.v;
+    if v[1] < 0.0 {
+        // Full, write to subtile_zmin
+        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
+    } else if v[0] > 0.0 {
+        return;
+        // Empty, nothing to do here
+    } else {
+        // Push this subtile to the output list
+        let offset = atomicAdd(&subtiles_out.count, 1u);
+        let subtile_index_xyz = subtile_corner.x +
+            (subtile_corner.y * size_subtiles.x) +
+            (subtile_corner.z * size_subtiles.x * size_subtiles.y);
+        subtiles_out.active_tiles[offset] = subtile_index_xyz;
+
+        // Update the indirect dispatch count
+        let count = offset + 1u;
+        let wg_dispatch_x = min(count, 32768u);
+        let wg_dispatch_y = (count + 32767u) / 32768u;
+        atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
+        atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
+        atomicMax(&subtiles_out.wg_size[2], 1u);
     }
-    workgroupBarrier();
 
-    // Write our new tape address!
-    let addr = atomicLoad(&wg_scratch)
-        + local_id.x
-        + local_id.y * 4u
-        + local_id.z * 16u;
-    tile_tape[addr] = tape_start.index;
+    let tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
+    tile_tape[tape_offset] = tape_start;
+    if stack.has_choice {
+        let next = simplify_tape(out.pos, out.count, &stack);
+        if next != 0 {
+            tile_tape[tape_offset] = next;
+        }
+    }
 }
-
-var<workgroup> wg_scratch: atomic<u32>;
 
 /// Allocates a new chunk, returning a past-the-end pointer
 fn alloc(chunk_size: u32) -> u32 {

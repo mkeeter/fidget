@@ -55,7 +55,7 @@ fn voxel_ray_main(
     // Do the actual interpreter work
     let tape_start = get_tape_start(corner_pos);
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_start.index, m, &stack);
+    let out = run_tape(tape_start, m, &stack);
 
     if out.value.v < 0.0 {
         atomicMax(&result[pixel_index_xy], corner_pos.z);

@@ -27,7 +27,6 @@ fn backfill_main(
     // Reset various counters to prepare for the next strata
     if TILE_SIZE == 64 && global_id.x == 0u {
         atomicStore(&config.tape_data_offset, atomicLoad(&config.root_tape_len));
-        atomicStore(&config.tile_tapes_offset, size64.x * size64.y * size64.z);
     }
 
     let tile_count = size_tiles.x * size_tiles.y;

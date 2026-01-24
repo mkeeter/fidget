@@ -14,14 +14,11 @@ struct Config {
     /// Render size, in voxels (always a multiple of 64)
     render_size: vec3u,
 
-    // Next empty position in `tile_tapes`
-    tile_tapes_offset: atomic<u32>,
+    /// Length of the `tape_data` array (in `u32` words)
+    tape_data_capacity: u32,
 
     /// Image size, in voxels
     image_size: vec3u,
-
-    /// Length of the `tape_data` array (in `u32` words)
-    tape_data_capacity: u32,
 
     /// Length of the root tape (plus tile tapes after root tile evaluation)
     ///
@@ -57,50 +54,62 @@ fn nan_f32() -> f32 {
 /// Common render configuration and tape data
 @group(0) @binding(0) var<storage, read_write> config: Config;
 
-/// Tape tree (with offset given by config.tile_tapes_offset)
+/// Map from tile to tape index
+/// TODO document this stuff
 @group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
 
-struct TapeIndex {
-    addr: u32,
-    index: u32,
+/// For a given position and recursion level, return the offset into `tile_tape`
+fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
+    let size64 = config.render_size / 64;
+    if level == 64u {
+        // 64^3 root tile tapes are densely packed
+        let corner_pos64 = corner_pos / 64;
+        let index64 = corner_pos64.x
+            + corner_pos64.y * size64.x
+            + corner_pos64.z * size64.x * size64.y;
+        return index64;
+    }
+
+    let size16 = config.render_size / 16;
+    var offset = size64.x * size64.y * size64.z;
+    if level == 16u {
+        let corner_pos16 = corner_pos / 16;
+        let index16 = corner_pos16.x
+            + corner_pos16.y * size16.x
+            + corner_pos16.z % 4 * size16.x * size16.y;
+        return index16;
+    }
+
+    let size4 = config.render_size / 4;
+    offset += size16.x * size16.y * 4;
+    if level == 4u {
+        let corner_pos4 = corner_pos / 4;
+        let index4 = corner_pos4.x
+            + corner_pos4.y * size4.x
+            + corner_pos4.z % 16 * size4.x * size4.y;
+        return index4;
+    }
+
+    return 0;
 }
 
-/// For a given position, return the tape start index
-fn get_tape_start(corner_pos: vec3u) -> TapeIndex {
-    // 64^3 root tile tapes are densely packed
-    let size64 = config.render_size / 64;
-    let corner_pos64 = corner_pos / 64;
-    let index64 = corner_pos64.x
-        + corner_pos64.y * size64.x
-        + corner_pos64.z * size64.x * size64.y;
-    let tape_index64 = tile_tape[index64];
+/// For a given voxel position, return the tape start index
+///
+/// This is the highest-resolution tape index that is valid for the given
+/// position, e.g. preferring tapes specialized to 4x4x4 regions, then
+/// 16x16x16, then 64x64x64.
+fn get_tape_start(corner_pos: vec3u) -> u32 {
+    let index64 = get_tape_offset_for_level(corner_pos, 64u);
+    let index16 = get_tape_offset_for_level(corner_pos, 16u);
+    let index4 = get_tape_offset_for_level(corner_pos, 4u);
 
-    // We use the high bit to indicate a recursive address
-    if (tape_index64 & (1u << 31)) == 0 {
-        return TapeIndex(index64, tape_index64);
+    if tile_tape[index4] != 0 {
+        return tile_tape[index4];
+    } else if tile_tape[index16] != 0 {
+        return tile_tape[index16];
+    } else if tile_tape[index64] != 0 {
+        return tile_tape[index64];
+    } else {
+        return 0u;
     }
-
-    // Otherwise, we have to recurse!  Let's find the relative offset of the
-    // 16^3 tile within the root tile.
-    let corner_pos16 = (corner_pos % 64u) / 16; // 0-3 on each axis
-    let index16 = corner_pos16.x
-        + corner_pos16.y * 4u
-        + corner_pos16.z * 16u;
-
-    // Look up the 16^3 tile tape
-    let addr16 = (tape_index64 & 0x7FFFFFFF) + index16;
-    let tape_index16 = tile_tape[addr16];
-    if (tape_index16 & (1u << 31)) == 0 {
-        return TapeIndex(addr16, tape_index16);
-    }
-
-    // Find the relative offset of the 4^3 tile within the 16^3 tile
-    let corner_pos4 = (corner_pos % 16u) / 4; // 0-3 on each axis
-    let index4 = corner_pos4.x
-        + corner_pos4.y * 4u
-        + corner_pos4.z * 16u;
-
-    // This is the end of the tree!
-    let addr4 = (tape_index16 & 0x7FFFFFFF) + index4;
-    return TapeIndex(addr4, tile_tape[addr4]);
 }

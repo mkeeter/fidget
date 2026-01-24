@@ -50,7 +50,7 @@ fn normals_main(
 
     let tape_start = get_tape_start(vec3u(px, py, z));
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_start.index, m, &stack);
+    let out = run_tape(tape_start, m, &stack);
     image_out[pixel_index_xy] = vec4f(
         f32(z),
         out.value.v.x,

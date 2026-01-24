@@ -19,13 +19,6 @@ const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 
-// polyfill for https://github.com/gfx-rs/wgpu/issues/8785
-#[cfg(target_arch = "wasm32")]
-const WG_ANY_POLYFILL: &str = include_str!("shaders/wg_any_wasm.wgsl");
-
-#[cfg(not(target_arch = "wasm32"))]
-const WG_ANY_POLYFILL: &str = include_str!("shaders/wg_any_native.wgsl");
-
 /// Settings for 3D rendering
 ///
 /// Note that this object only contains the world-to-model transform; the image
@@ -67,14 +60,11 @@ struct Config {
     /// Render size, rounded up to the nearest multiple of 64
     render_size: [u32; 3],
 
-    /// Next empty position in `tile_tapes`
-    tile_tapes_offset: u32,
+    /// Number of words in the trailing tape buffer
+    tape_data_capacity: u32,
 
     /// Image size (not rounded)
     image_size: [u32; 3],
-
-    /// Number of words in the trailing tape buffer
-    tape_data_capacity: u32,
 
     /// Length of the root tape
     root_tape_len: u32,
@@ -154,7 +144,6 @@ pub fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
-    shader_code += WG_ANY_POLYFILL;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
@@ -869,7 +858,7 @@ impl Buffers {
             device,
             "tile tape",
             tile_tape_words,
-            wgpu::BufferUsages::STORAGE,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         let image_pixels =
@@ -1024,15 +1013,10 @@ impl Context {
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
         let render_size = RenderSize::from(buffers.image_size);
 
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        let nz = u64::from(render_size.nz());
-
         let bytecode_len: u32 = bc.len().try_into().unwrap();
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes,
-            tile_tapes_offset: (nx * ny * nz).try_into().unwrap(),
             render_size: [
                 render_size.width(),
                 render_size.height(),
@@ -1514,6 +1498,7 @@ impl ClearContext {
         encoder.clear_buffer(&buffers.result, 0, None);
         encoder.clear_buffer(&buffers.merged, 0, None);
         encoder.clear_buffer(&buffers.geom, 0, None);
+        encoder.clear_buffer(&buffers.tile_tapes, 0, None);
     }
 }
 
