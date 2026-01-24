@@ -15,7 +15,6 @@ const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
 const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
-const CLEAR_SHADER: &str = include_str!("shaders/clear.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
@@ -189,11 +188,6 @@ pub fn normals_shader(reg_count: u8) -> String {
 /// Returns a shader for merging images
 pub fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER
-}
-
-/// Returns a shader for clearing images
-pub fn clear_shader() -> String {
-    CLEAR_SHADER.to_owned() + COMMON_SHADER
 }
 
 /// Returns a shader for backfilling tile `zmin` values
@@ -766,7 +760,7 @@ impl<const N: usize> TileBuffers<N> {
             device,
             &format!("tile{N}_zmin"),
             nx * ny,
-            wgpu::BufferUsages::STORAGE,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
         Self { tiles, zmin }
     }
@@ -802,7 +796,7 @@ impl<const N: usize> RootTileBuffers<N> {
             device,
             &format!("tile{N}_zmin"),
             nx * ny,
-            wgpu::BufferUsages::STORAGE,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
         Self { tiles, zmin }
     }
@@ -858,7 +852,7 @@ impl Buffers {
             device,
             "result",
             render_pixels,
-            wgpu::BufferUsages::STORAGE,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         // Resize tile_tape_buf, which must be big enough to contain all of our
@@ -883,13 +877,17 @@ impl Buffers {
             device,
             "merged",
             image_pixels,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
         let geom = new_buffer::<GeometryPixel>(
             device,
             "geom",
             image_pixels,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
         let image = new_buffer::<GeometryPixel>(
             device,
@@ -950,7 +948,7 @@ impl Context {
         let backfill_ctx =
             BackfillContext::new(&device, &common_bind_group_layout);
         let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
-        let clear_ctx = ClearContext::new(&device, &common_bind_group_layout);
+        let clear_ctx = ClearContext::new();
 
         Ok(Self {
             device,
@@ -1068,6 +1066,9 @@ impl Context {
             &wgpu::CommandEncoderDescriptor { label: None },
         );
 
+        // Initial image clearing pass
+        self.clear_ctx.run(&mut encoder, buffers);
+
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
@@ -1092,14 +1093,6 @@ impl Context {
             });
         compute_pass.set_bind_group(0, &bind_group, &[]);
         let reg_count = bc.reg_count();
-
-        // Initial image clearing pass
-        self.clear_ctx.run(
-            self,
-            buffers,
-            buffers.image_size,
-            &mut compute_pass,
-        );
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
@@ -1515,111 +1508,20 @@ impl MergeContext {
     }
 }
 
-struct ClearContext {
-    bind_group_layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::ComputePipeline,
-}
+struct ClearContext;
 
 impl ClearContext {
-    fn new(
-        device: &wgpu::Device,
-        common_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let shader_code = clear_shader();
-
-        // Create bind group layout and bind group
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_rw(0), // tile64_zmin
-                    buffer_rw(1), // tile16_zmin
-                    buffer_rw(2), // tile4_zmin
-                    buffer_rw(3), // voxel_result
-                    buffer_rw(4), // voxel_merged
-                    buffer_rw(5), // geom
-                ],
-            });
-
-        // Create the compute pipeline
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-        // Compile the shader
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-
-        let pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("clear"),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("clear_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        Self {
-            pipeline,
-            bind_group_layout,
-        }
+    fn new() -> Self {
+        ClearContext
     }
 
-    fn run(
-        &self,
-        ctx: &Context,
-        buffers: &Buffers,
-        image_size: VoxelSize,
-        compute_pass: &mut wgpu::ComputePass,
-    ) {
-        let bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile64.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile16.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.tile4.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffers.result.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: buffers.merged.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: buffers.geom.as_entire_binding(),
-                    },
-                ],
-            });
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(1, &bind_group, &[]);
-        compute_pass.dispatch_workgroups(
-            image_size.width().div_ceil(8),
-            image_size.height().div_ceil(8),
-            1,
-        );
+    fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
+        encoder.clear_buffer(&buffers.tile64.zmin, 0, None);
+        encoder.clear_buffer(&buffers.tile16.zmin, 0, None);
+        encoder.clear_buffer(&buffers.tile4.zmin, 0, None);
+        encoder.clear_buffer(&buffers.result, 0, None);
+        encoder.clear_buffer(&buffers.merged, 0, None);
+        encoder.clear_buffer(&buffers.geom, 0, None);
     }
 }
 
@@ -1656,7 +1558,6 @@ mod test {
             (normals_shader(16), "normals tiles"),
             (merge_shader(), "merge"),
             (backfill_shader(), "backfill"),
-            (clear_shader(), "clear"),
         ] {
             // This isn't the best formatting, but it will at least include the
             // relevant text.
