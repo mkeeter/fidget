@@ -86,7 +86,7 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Memo
 zerocopy = { version = "0.8", features = ["derive"] }
 
 # Local crates
-fidget.path     = "fidget"
+fidget          = { path = "fidget", default-features = false }
 fidget-core     = { path = "fidget-core",     version = "=0.4.1" }
 fidget-bytecode = { path = "fidget-bytecode", version = "=0.4.1" }
 fidget-gui      = { path = "fidget-gui",      version = "=0.4.1" }
