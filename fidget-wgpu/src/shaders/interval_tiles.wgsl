@@ -66,7 +66,7 @@ fn interval_tile_main(
 
     // Check for Z masking from tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
-    if tile_zmin[tile_index_xy] >= corner_pos.z {
+    if tile_zmin[tile_index_xy] >= corner_pos.z + SUBTILE_SIZE {
         atomicMax(&subtile_zmin[subtile_index_xy], tile_zmin[tile_index_xy]);
         skip_evaluation = true;
     }
