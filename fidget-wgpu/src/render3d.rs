@@ -740,7 +740,7 @@ impl<const N: usize> TileBuffers<N> {
 
         let tiles = new_buffer::<u32>(
             device,
-            &format!("active_tile{N}"),
+            format!("active_tile{N}"),
             // wg_dispatch: [u32; 3]
             // count: u32,
             4 + nx * ny * nz,
@@ -748,7 +748,7 @@ impl<const N: usize> TileBuffers<N> {
         );
         let zmin = new_buffer::<u32>(
             device,
-            &format!("tile{N}_zmin"),
+            format!("tile{N}_zmin"),
             nx * ny,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
@@ -776,7 +776,7 @@ impl<const N: usize> RootTileBuffers<N> {
         let tiles = new_buffer::<u8>(
             // bytes
             device,
-            &format!("active_tile{N}"),
+            format!("active_tile{N}"),
             // wg_dispatch: [u32; 3]
             // count: u32,
             total_size,
@@ -784,7 +784,7 @@ impl<const N: usize> RootTileBuffers<N> {
         );
         let zmin = new_buffer::<u32>(
             device,
-            &format!("tile{N}_zmin"),
+            format!("tile{N}_zmin"),
             nx * ny,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
