@@ -321,6 +321,7 @@ fn run3d_wgpu(
     let mut image = Default::default();
     let start = std::time::Instant::now();
     let buffers = ctx.buffers(image_size);
+    let shape = ctx.shape(&shape);
     for _ in 0..settings.n {
         image = ctx.run(&shape, &buffers, cfg);
     }

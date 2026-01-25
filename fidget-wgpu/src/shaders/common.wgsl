@@ -25,7 +25,7 @@ struct Config {
     /// `tape_data_offset` should be reset to this value between strata
     root_tape_len: atomic<u32>,
 
-    /// Tape data, tightly packed per-tile
+    /// Tape data, tightly packed per-tile (flexible array member)
     tape_data: array<u32>,
 }
 
@@ -38,7 +38,7 @@ struct TileListOutput {
     active_tiles: array<u32>,
 }
 
-/// Read-only version of `TileListOutput`, see that `struct` for details
+/// Read-only version of `TileListOutput`
 struct TileListInput {
     wg_size: array<u32, 3>,
     count: u32,
@@ -55,7 +55,9 @@ fn nan_f32() -> f32 {
 @group(0) @binding(0) var<storage, read_write> config: Config;
 
 /// Map from tile to tape index
-/// TODO document this stuff
+///
+/// See the comment in the computation of `tile_tape_words` for details on how
+/// this buffer is packed.
 @group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
 
 /// For a given position and recursion level, return the offset into `tile_tape`
@@ -75,19 +77,22 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
     if level == 16u {
         let corner_pos16 = corner_pos / 16;
         return offset
-            + corner_pos16.x
-            + corner_pos16.y * size16.x
-            + corner_pos16.z % 4 * size16.x * size16.y;
+            + 2 * (corner_pos16.x
+                 + corner_pos16.y * size16.x
+                 + (corner_pos16.z % 4) * size16.x * size16.y);
     }
 
     let size4 = config.render_size / 4;
-    offset += size16.x * size16.y * 4;
+    offset += size16.x
+        * size16.y
+        * 4  // Z tiles
+        * 2; // each item is an (index, z) tuple
     if level == 4u {
         let corner_pos4 = corner_pos / 4;
         return offset
-            + corner_pos4.x
-            + corner_pos4.y * size4.x
-            + corner_pos4.z % 16 * size4.x * size4.y;
+            + 2 * (corner_pos4.x
+                 + corner_pos4.y * size4.x
+                 + (corner_pos4.z % 16) * size4.x * size4.y);
     }
 
     return 0;
@@ -99,13 +104,16 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
 /// position, e.g. preferring tapes specialized to 4x4x4 regions, then
 /// 16x16x16, then 64x64x64.
 fn get_tape_start(corner_pos: vec3u) -> u32 {
+    // Presumably the compiler will optimize out common code here
     let index64 = get_tape_offset_for_level(corner_pos, 64u);
     let index16 = get_tape_offset_for_level(corner_pos, 16u);
     let index4 = get_tape_offset_for_level(corner_pos, 4u);
 
-    if tile_tape[index4] != 0 {
+    // The 4^3 and 16^3 tiles are reused between strata, so we have to check
+    // that the Z position is valid for the current strata.
+    if tile_tape[index4] != 0 && tile_tape[index4 + 1] == corner_pos.z / 4 {
         return tile_tape[index4];
-    } else if tile_tape[index16] != 0 {
+    } else if tile_tape[index16] != 0 && tile_tape[index16 + 1] == corner_pos.z / 16 {
         return tile_tape[index16];
     } else if tile_tape[index64] != 0 {
         return tile_tape[index64];

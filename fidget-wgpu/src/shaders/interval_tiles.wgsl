@@ -107,6 +107,7 @@ fn interval_tile_main(
 
     let tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
     tile_tape[tape_offset] = tape_start;
+    tile_tape[tape_offset + 1] = corner_pos.z / SUBTILE_SIZE;
     if stack.has_choice {
         let next = simplify_tape(out.pos, out.count, &stack);
         if next != 0 {

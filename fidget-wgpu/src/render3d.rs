@@ -68,6 +68,7 @@ struct Config {
 
     /// Length of the root tape
     root_tape_len: u32,
+    // This is followed by a flexible array member containing tape data
 }
 
 /// A render size is rounded up to the next multiple of 64 on every axis
@@ -714,7 +715,7 @@ pub struct Context {
     device: wgpu::Device,
     queue: wgpu::Queue,
 
-    config_buf: wgpu::Buffer,
+    /// Bind group layout for the common bind group (used by all stages)
     bind_group_layout: wgpu::BindGroupLayout,
 
     root_ctx: RootContext,
@@ -792,6 +793,54 @@ impl<const N: usize> RootTileBuffers<N> {
     }
 }
 
+pub struct RenderShape {
+    config_buf: wgpu::Buffer,
+    axes: [u32; 3],
+    bytecode_len: u32,
+    reg_count: u8,
+}
+
+impl RenderShape {
+    fn new(device: &wgpu::Device, shape: &VmShape) -> Self {
+        // The config buffer is statically sized
+        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("config"),
+            size: (std::mem::size_of::<Config>()
+                + TAPE_DATA_CAPACITY * std::mem::size_of::<u32>())
+                as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: true,
+        });
+
+        // Generate bytecode for the root tape
+        let vars = shape.inner().vars();
+        let bytecode = Bytecode::new(shape.inner().data());
+        assert!(bytecode.len() < TAPE_DATA_CAPACITY);
+
+        // Create the 4x4 transform matrix
+        let axes = shape
+            .axes()
+            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
+
+        let offset = std::mem::size_of::<Config>();
+        {
+            let mut buffer_view =
+                config_buf.slice(offset as u64..).get_mapped_range_mut();
+            let bytes = bytecode.as_bytes();
+            buffer_view[..bytes.len()].copy_from_slice(bytes);
+        }
+        config_buf.unmap();
+
+        // TODO send shape bytecode to GPU
+        Self {
+            config_buf,
+            axes,
+            bytecode_len: bytecode.len().try_into().unwrap(),
+            reg_count: bytecode.reg_count(),
+        }
+    }
+}
+
 /// Buffers for rendering at a particular image size
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
@@ -851,9 +900,28 @@ impl Buffers {
         let nx = render_size.nx() as usize;
         let ny = render_size.ny() as usize;
         let nz = render_size.nz() as usize;
-        let tile_tape_words = nx * ny * nz  // Root tapes
-            + nx * ny * (64usize / 16).pow(3) // Tapes for a strata of 16^3 tiles
-            + nx * ny * (64usize / 4).pow(3); // Tapes for a strata of 4^3 tiles
+
+        // The tile tape array is... complicated
+        //
+        // The first `nx * ny * nz` words are tape indices for the root tiles
+        // (64^3), densely allocated in x / y / z order.  This is
+        // straight-forward.
+        //
+        // After that point, it gets weirder.  At any given point in time, we're
+        // evaluating a single strata (i.e. a 64-voxel deep slice of the image).
+        // We allocated enough tape words for that strata, also in x / y / z
+        // order, but z is limited to either 0..4 for the 16^3 subtiles, or
+        // 0..16 for 4^3 subtiles.  We also need to track *which* strata is
+        // represented by the tape word, so we double this allocation.
+        //
+        // In other words, it looks something like this:
+        //
+        // | index | index | index | ... | densely packed 64^3 tape indices
+        // | index | z | index | z | ... | 16^3 data
+        // | index | z | index | z | ... | 4^3 data
+        let tile_tape_words = nx * ny * nz
+            + 2 * (nx * ny * (64usize / 16).pow(3)
+                + nx * ny * (64usize / 4).pow(3));
         let tile_tapes = new_buffer::<u32>(
             device,
             "tile tape",
@@ -914,15 +982,6 @@ impl Context {
         device: wgpu::Device,
         queue: wgpu::Queue,
     ) -> Result<Self, Error> {
-        // The config buffer is statically sized
-        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: (std::mem::size_of::<Config>()
-                + TAPE_DATA_CAPACITY * std::mem::size_of::<u32>())
-                as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         // Create bind group layout and bind group
         let common_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -946,7 +1005,6 @@ impl Context {
 
         Ok(Self {
             device,
-            config_buf,
             queue,
             bind_group_layout: common_bind_group_layout,
             root_ctx,
@@ -969,9 +1027,14 @@ impl Context {
         Buffers::new(&self.device, image_size)
     }
 
+    /// Builds a new [`RenderShape`] object for the given shape
+    pub fn shape(&self, shape: &VmShape) -> RenderShape {
+        RenderShape::new(&self.device, shape)
+    }
+
     pub fn run(
         &mut self,
-        shape: &VmShape,
+        shape: &RenderShape,
         buffers: &Buffers,
         settings: RenderConfig,
     ) -> GeometryBuffer {
@@ -982,7 +1045,7 @@ impl Context {
 
     pub async fn run_async(
         &mut self,
-        shape: &VmShape,
+        shape: &RenderShape,
         buffers: &Buffers,
         settings: RenderConfig,
     ) -> GeometryBuffer {
@@ -994,29 +1057,18 @@ impl Context {
     /// Submits a single image to be rendered using GPU acceleration
     pub fn submit(
         &mut self,
-        shape: &VmShape, // XXX add ShapeVars here
+        shape: &RenderShape,
         buffers: &Buffers,
         settings: &RenderConfig,
     ) {
-        // Generate bytecode for the root tape
-        let vars = shape.inner().vars();
-        let bc = Bytecode::new(shape.inner().data());
-        assert!(bc.len() < TAPE_DATA_CAPACITY);
-
-        // Create the 4x4 transform matrix
-        let shape = shape.with_transform(
-            settings.world_to_model * buffers.image_size.screen_to_world(),
-        );
-        let mat = shape.transform();
-        let axes = shape
-            .axes()
-            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
         let render_size = RenderSize::from(buffers.image_size);
 
-        let bytecode_len: u32 = bc.len().try_into().unwrap();
+        let mat =
+            settings.world_to_model * buffers.image_size.screen_to_world();
+
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
-            axes,
+            axes: shape.axes,
             render_size: [
                 render_size.width(),
                 render_size.height(),
@@ -1028,26 +1080,23 @@ impl Context {
                 buffers.image_size.height(),
                 buffers.image_size.depth(),
             ],
-            tape_data_offset: bytecode_len,
-            root_tape_len: bytecode_len,
+            tape_data_offset: shape.bytecode_len,
+            root_tape_len: shape.bytecode_len,
         };
 
         {
             // We load the `Config` and the initial tape; the rest of the tape
             // buffer is uninitialized (filled in by the GPU)
             let config_len = std::mem::size_of_val(&config);
-            let bc_len = bc.as_bytes().len();
-            let config_load_size = (config_len + bc_len).next_multiple_of(16);
             let mut writer = self
                 .queue
                 .write_buffer_with(
-                    &self.config_buf,
+                    &shape.config_buf,
                     0,
-                    (config_load_size as u64).try_into().unwrap(),
+                    (config_len as u64).try_into().unwrap(),
                 )
                 .unwrap();
             writer[0..config_len].copy_from_slice(config.as_bytes());
-            writer[config_len..][..bc_len].copy_from_slice(bc.as_bytes());
         }
 
         // Create a command encoder and dispatch the compute work
@@ -1072,7 +1121,7 @@ impl Context {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: self.config_buf.as_entire_binding(),
+                        resource: shape.config_buf.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -1081,13 +1130,12 @@ impl Context {
                 ],
             });
         compute_pass.set_bind_group(0, &bind_group, &[]);
-        let reg_count = bc.reg_count();
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
             self,
             buffers,
-            reg_count,
+            shape.reg_count,
             render_size,
             &mut compute_pass,
         );
@@ -1098,12 +1146,16 @@ impl Context {
                 self,
                 buffers,
                 strata,
-                reg_count,
+                shape.reg_count,
                 render_size,
                 &mut compute_pass,
             );
-            self.voxel_ctx
-                .run(self, buffers, reg_count, &mut compute_pass);
+            self.voxel_ctx.run(
+                self,
+                buffers,
+                shape.reg_count,
+                &mut compute_pass,
+            );
 
             // It's somewhat overkill to run `merge` after each layer, but it's
             // also very cheap (and we need it to prep for normal_ctx dispatch)
@@ -1112,7 +1164,7 @@ impl Context {
                 self,
                 buffers,
                 strata,
-                reg_count,
+                shape.reg_count,
                 &mut compute_pass,
             );
 
