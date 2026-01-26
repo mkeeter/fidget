@@ -117,7 +117,9 @@ impl<F: Function, T> RenderHandle<F, T> {
 
         // Ordering is a little weird here, to persuade the borrow checker to be
         // happy about things.  At this point, `next` is empty if we can't reuse
-        // it, and `Some(..)` if we can.
+        // it, and `Some(..)` if we can.  Clippy can't quite handle this
+        // ordering, rust-lang/rust-clippy#16467 and #16182
+        #[allow(clippy::panicking_unwrap, clippy::unnecessary_unwrap)]
         if self.next.is_none() {
             let s = shape_storage.pop().unwrap_or_default();
             let next = self.shape.simplify(trace, s, workspace).unwrap();
