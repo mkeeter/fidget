@@ -339,8 +339,7 @@ impl<T> AssemblerData<T> {
         dynasm!(self.ops
             ; add rsp, self.mem_offset as i32
             ; pop rbp
-            ; emms
-            ; vzeroall
+            ; vzeroupper
             ; ret
         );
         self.ops.finalize()
