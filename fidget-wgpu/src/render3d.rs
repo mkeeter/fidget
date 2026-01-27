@@ -1,4 +1,72 @@
 //! GPU-accelerated 3D rendering
+//!
+//! # Theory
+//! This module implements an algorithm similar to the one described in
+//! [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces (Keeter '20)](https://www.mattkeeter.com/research/mpr/).
+//! The rest of this section is intended for people who have read that paper
+//! ("MPR" for short).
+//!
+//! We use interval arithmetic on a high-fanout hierarchy of tiles (64³, 16³,
+//! 4³), followed by voxel and normal evaluation.  At each stage of interval
+//! arithmetic, we compute a **simplified tape** for each tile containing only
+//! portions of the expression which are active.
+//!
+//! After the root tile evaluation, tiles are sparse.  Tiles and tapes uses an
+//! atomic bump allocator to claim portions of a fixed buffer.  The tile buffer
+//! is always sized to fit all possible tiles; the tape buffer can run out of
+//! space, in which case we fall back to the previous (unsimplified) tape.
+//!
+//! ## Changes versus MPR
+//! There are a few notable changes compared to the MPR paper and reference
+//! implementation.
+//!
+//! First, modern GPU APIs support indirect dispatch based on buffers on the GPU
+//! itself.  This saves a round-trip: the 64³ shader can compute a dispatch size
+//! for the 16³ shader and store it in a buffer.
+//!
+//! In a more significant change, evaluation is broken into **strata**:
+//!
+//! - The initial pass of 64³ tiles renders all of those tiles, any which are
+//!   active are accumulated into a set of `depth / 64` strata
+//! - Strata are evaluated one at a time in z-sorted order; this is where 16³,
+//!   4³, voxel, and normal evaluation happens.  You can think of this as doing
+//!   raymarching on 64³ voxels at a time.
+//!
+//! Strata-sorted evaluation has a few advantages:
+//!
+//! - We can statically allocate enough space for all tiles: all 64³ in the
+//!   image, then all 16³ and 4³ tiles in a single strata.  It would be
+//!   prohibitive to allocate storage for all 4³ tiles in the entire volume, but
+//!   doing per-strata evaluation reduces the memory scaling from N³ to N².
+//! - We get some amount of Z culling, because each pass can bail out if the
+//!   result in the heightmap fully covers the tile
+//!
+//! # Practice
+//! There are four core objects, each with different lifetimes
+//!
+//! - [`Context`] contains all of the pipelines used for 3D rendering.  It
+//!   is expensive to build and should be constructed once per thread / worker.
+//! - [`RenderShape`] contains a GPU buffer with serialized bytecode to render a
+//!   particular shape.  It is somewhat expensive to build and should only be
+//!   constructed when a shape changes (i.e. not once per frame)
+//! - [`Buffers`] contains GPU buffers needed for rendering at a particular
+//!   image size.  It is somewhat expensive to build and should only be
+//!   constructed when the target image size changes (i.e. not once per frame).
+//!   It may be wise to store a small cache of "image size → `Buffers`".
+//! - [`RenderConfig`] sets the transform matrix for rendering.  This is cheap
+//!   to construct and could be built once per frame
+//!
+//! Usage is pretty simple:
+//! - Build a [`Context`]
+//! - Use [`Context::shape`] to convert from a [`VmShape`] to a [`RenderShape`]
+//! - Use [`Context::buffers`] to get [`Buffers`] at a particular image size
+//! - Call [`Context::run`] or [`Context::run_async`] to get an image
+//!
+//! Right now, there's no support for operating solely on the GPU; both `run`
+//! functions read back the resulting buffer into CPU memory.
+//!
+//! ## Sync and async operation
+
 use crate::{opcode_constants, util::new_buffer};
 use fidget_bytecode::Bytecode;
 use fidget_core::{eval::Function, render::VoxelSize, vm::VmShape};
@@ -128,7 +196,7 @@ impl RenderSize {
 const TAPE_DATA_CAPACITY: usize = 1024 * 1024 * 16; // 16M words, 64 MiB
 
 /// Returns a shader for interval root tiles
-pub fn interval_root_shader(reg_count: u8) -> String {
+fn interval_root_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_ROOT_SHADER;
@@ -141,7 +209,7 @@ pub fn interval_root_shader(reg_count: u8) -> String {
 }
 
 /// Returns a shader for interval tile evaluation
-pub fn interval_tiles_shader(reg_count: u8) -> String {
+fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
@@ -154,7 +222,7 @@ pub fn interval_tiles_shader(reg_count: u8) -> String {
 }
 
 /// Returns a shader for interval tile evaluation
-pub fn voxel_tiles_shader(reg_count: u8) -> String {
+fn voxel_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
@@ -165,7 +233,7 @@ pub fn voxel_tiles_shader(reg_count: u8) -> String {
 }
 
 /// Returns a shader for interval tile evaluation
-pub fn normals_shader(reg_count: u8) -> String {
+fn normals_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
@@ -176,12 +244,12 @@ pub fn normals_shader(reg_count: u8) -> String {
 }
 
 /// Returns a shader for merging images
-pub fn merge_shader() -> String {
+fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER
 }
 
 /// Returns a shader for backfilling tile `zmin` values
-pub fn backfill_shader() -> String {
+fn backfill_shader() -> String {
     BACKFILL_SHADER.to_owned() + COMMON_SHADER
 }
 
@@ -710,7 +778,7 @@ impl NormalsContext {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Context for 3D (voxel) rendering
+/// Context for 3D (combined heightmap and normal) rendering
 pub struct Context {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -793,6 +861,10 @@ impl<const N: usize> RootTileBuffers<N> {
     }
 }
 
+/// Shape for rendering
+///
+/// This object is constructed by [`Context::shape`] and may only be used with
+/// that particular [`Context`].
 pub struct RenderShape {
     config_buf: wgpu::Buffer,
     axes: [u32; 3],
@@ -841,7 +913,7 @@ impl RenderShape {
     }
 }
 
-/// Buffers for rendering at a particular image size
+/// Buffers for rendering, which control the rendered image size
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
 /// that particular [`Context`].
@@ -1029,6 +1101,10 @@ impl Context {
         RenderShape::new(&self.device, shape)
     }
 
+    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    ///
+    /// This function is not present when built for the `wasm32` target
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
         &mut self,
         shape: &RenderShape,
@@ -1040,6 +1116,10 @@ impl Context {
         self.read_mapped_image(buffers, &buffer_slice)
     }
 
+    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    ///
+    /// This function is only relevant for the web target
+    #[cfg(target_arch = "wasm32")]
     pub async fn run_async(
         &mut self,
         shape: &RenderShape,
@@ -1052,7 +1132,7 @@ impl Context {
     }
 
     /// Submits a single image to be rendered using GPU acceleration
-    pub fn submit(
+    fn submit(
         &mut self,
         shape: &RenderShape,
         buffers: &Buffers,
@@ -1186,6 +1266,7 @@ impl Context {
     /// Synchronously maps the image buffer
     ///
     /// This is a blocking function suitable for use on the desktop
+    #[cfg(not(target_arch = "wasm32"))]
     fn map_image<'a>(&self, buffers: &'a Buffers) -> wgpu::BufferSlice<'a> {
         // Map result buffer and read back the data
         let buffer_slice = buffers.image.slice(..);
@@ -1197,13 +1278,14 @@ impl Context {
     }
 
     /// Asynchronously maps the image buffer
+    #[cfg(target_arch = "wasm32")]
     async fn map_image_async<'a>(
         &self,
         buffers: &'a Buffers,
     ) -> wgpu::BufferSlice<'a> {
         // Map result buffer and read back the data
         let buffer_slice = buffers.image.slice(..);
-        let (tx, rx) = flume::bounded(0); // rendezvous!
+        let (tx, rx) = flume::bounded(0); // rendezvous! TODO is this good?
         buffer_slice
             .map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
