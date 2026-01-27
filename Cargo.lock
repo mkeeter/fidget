@@ -1575,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-jit"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "arrayvec",
  "dynasmrt",

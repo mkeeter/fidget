@@ -1,5 +1,7 @@
-# 0.4.2 (in progress)
+# 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
+- Fixed memory corruption in a subset of x86 interval JIT functions, revealed
+  by changes in `rustc 1.93`'s codegen.
 
 # 0.4.1
 - Add `fidget-bytecode` crate (exported as `fidget::bytecode`), which is a
