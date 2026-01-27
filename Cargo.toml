@@ -85,7 +85,7 @@ fidget.path     = "fidget"
 fidget-core     = { path = "fidget-core",     version = "=0.4.1" }
 fidget-bytecode = { path = "fidget-bytecode", version = "=0.4.1" }
 fidget-gui      = { path = "fidget-gui",      version = "=0.4.1" }
-fidget-jit      = { path = "fidget-jit",      version = "=0.4.1" }
+fidget-jit      = { path = "fidget-jit",      version = "=0.4.2" }
 fidget-mesh     = { path = "fidget-mesh",     version = "=0.4.1" }
 fidget-raster   = { path = "fidget-raster",   version = "=0.4.2" }
 fidget-rhai     = { path = "fidget-rhai",     version = "=0.4.1" }

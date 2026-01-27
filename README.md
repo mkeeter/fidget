@@ -26,6 +26,7 @@ The library contains a variety of data structures and algorithms, e.g.
 - Meshing (using our own implementation of the
   [Manifold Dual Contouring](https://people.engr.tamu.edu/schaefer/research/dualsimp_tvcg.pdf)
   algorithm)
+- A canonical bytecode format for tapes, for use in other interpreters
 
 If this all sounds oddly familiar, it's because you've read
 [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces](https://www.mattkeeter.com/research/mpr/).
@@ -48,20 +49,27 @@ Issues and PRs are welcome, although I'm unlikely to merge anything which adds
 substantial maintenance burden.  This is a personal-scale experimental project,
 so adjust your expectations accordingly.
 
+## Crate organization and versioning
+The Fidget project is broken into separate crates for improved modularity and
+compile times.  Everything is re-exported by the `fidget` root crate, so you
+shouldn't need to think about it.  The version of the root crate is the maximum
+version of any child crate; they're not necessarily bumped in lockstep, only
+when things change.
+
 ## Demos
 The [`demos` folder](demos/README.md) contains several demo tools and
 applications built using the Fidget crate,
 ranging from CLI to GUI to web app.
 
 ## Projects using Fidget
-- [The Prospero Challenge](https://mattkeeter.com/projects/prospero) was
-  designed around Fidget's rendering implementation, then opened up to
+- [The Prospero Challenge](https://mattkeeter.com/projects/prospero)
+  was designed around Fidget's rendering implementation, then opened up to
   third-party submissions
-- [`rsaccon/fidget-koto`](https://github.com/rsaccon/fidget-koto): An adaptation
-  of the `fidget-viewer` demo using [Koto](https://koto.dev/) for scripting
-  (instead of [Rhai](https://rhai.rs))
-- [`alexneufeld/fidgetpy`](https://github.com/alexneufeld/fidgetpy): Python
-  bindings and high-level API
+- [`rsaccon/fidget-koto`](https://github.com/rsaccon/fidget-koto):
+  An adaptation of the `fidget-viewer` demo using [Koto](https://koto.dev/)
+  for scripting (instead of [Rhai](https://rhai.rs))
+- [`alexneufeld/fidgetpy`](https://github.com/alexneufeld/fidgetpy):
+  Python bindings and high-level API
 - [Halfspace](https://github.com/mkeeter/halfspace) is an IDE for solid modeling using distance fields
 - [The Concavum Customizer](https://github.com/julianschuler/concavum-customizer)
   is an interactive customizer for a parametric split keyboard
