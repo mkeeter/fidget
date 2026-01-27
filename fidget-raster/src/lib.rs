@@ -476,7 +476,7 @@ impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
 /// Three-channel color image
 pub type ColorImage = Image<[u8; 3]>;
 
-/// Error type for type construction
+/// Error type for image builder
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Bad pixel count when building image from data

@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "criterion",
  "document-features",
@@ -1699,7 +1699,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-wgpu"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "fidget-bytecode",
  "fidget-core",

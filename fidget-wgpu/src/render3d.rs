@@ -1,5 +1,5 @@
 //! GPU-accelerated 3D rendering
-use crate::{Error, opcode_constants, util::new_buffer};
+use crate::{opcode_constants, util::new_buffer};
 use fidget_bytecode::Bytecode;
 use fidget_core::{eval::Function, render::VoxelSize, vm::VmShape};
 use fidget_raster::{GeometryBuffer, GeometryPixel};
@@ -978,10 +978,7 @@ impl Buffers {
 
 impl Context {
     /// Build a new 3D rendering context, given a device and queue
-    pub fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-    ) -> Result<Self, Error> {
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         // Create bind group layout and bind group
         let common_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1003,7 +1000,7 @@ impl Context {
         let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
         let clear_ctx = ClearContext::new();
 
-        Ok(Self {
+        Self {
             device,
             queue,
             bind_group_layout: common_bind_group_layout,
@@ -1014,7 +1011,7 @@ impl Context {
             backfill_ctx,
             merge_ctx,
             clear_ctx,
-        })
+        }
     }
 
     /// Builds a new [`Buffers`] object for the given render size

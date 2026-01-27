@@ -12,15 +12,3 @@ fn opcode_constants() -> String {
     }
     out
 }
-
-/// Error type for type construction
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    /// Could not get WGPU adapter
-    #[error("could not get adapter")]
-    NoAdapter,
-
-    /// Could not get WGPU device
-    #[error("could not get WGPU device")]
-    NoDevice(#[from] wgpu::RequestDeviceError),
-}
