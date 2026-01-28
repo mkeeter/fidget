@@ -143,7 +143,7 @@ struct Config {
 ///
 /// The internal `VoxelSize` stores divided-by-64 values, so that the render
 /// size cannot be constructed with an invalid state.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct RenderSize(VoxelSize);
 
 impl From<VoxelSize> for RenderSize {
@@ -168,7 +168,7 @@ impl RenderSize {
 
     /// Number of tiles in the Z axis
     fn nz(&self) -> u32 {
-        self.0.height()
+        self.0.depth()
     }
 
     /// Number of voxels in the X axis
