@@ -1,28 +1,13 @@
-@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
-@group(1) @binding(1) var<storage, read> image_heightmap: array<u32>;
-@group(1) @binding(2) var<storage, read_write> image_out: array<vec4f>;
+@group(1) @binding(0) var<storage, read> image_heightmap: array<u32>;
+@group(1) @binding(1) var<storage, read_write> image_out: array<vec4f>;
 
 @compute @workgroup_size(8, 8)
 fn normals_main(
-    @builtin(workgroup_id) workgroup_id: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u
+    @builtin(global_invocation_id) global_id: vec3u,
 ) {
-    // Tile index is packed into two words of the workgroup ID, due to dispatch
-    // size limits on any single dimension.
-    let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
-    if active_tile_index >= tiles_in.count {
-        return;
-    }
-
-    // 64^2 tile position
-    let size64 = config.render_size / 64;
-    let t = tiles_in.active_tiles[active_tile_index];
-    let tx = t % size64.x;
-    let ty = (t / size64.x) % size64.y;
-
-    // Pixel position
-    let px = tx * 64u + (workgroup_id.z % 8) * 8 + local_id.x;
-    let py = ty * 64u + (workgroup_id.z / 8) * 8 + local_id.y;
+    // One compute thread per pixel
+    let px = global_id.x;
+    let py = global_id.y;
     if px >= config.image_size.x || py >= config.image_size.y {
         return;
     }

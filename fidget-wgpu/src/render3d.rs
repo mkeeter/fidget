@@ -692,9 +692,8 @@ impl NormalsContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0), // tiles_in
-                    buffer_ro(1), // image_heightmap
-                    buffer_rw(2), // image_out
+                    buffer_ro(0), // image_heightmap
+                    buffer_rw(1), // image_out
                 ],
             });
 
@@ -735,13 +734,9 @@ impl NormalsContext {
         &self,
         ctx: &Context,
         buffers: &Buffers,
-        strata: usize,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let render_size = buffers.render_size();
-        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
-
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -749,18 +744,10 @@ impl NormalsContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers
-                            .tile64
-                            .tiles
-                            .slice(offset_bytes..)
-                            .into(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
                         resource: buffers.heightmap.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 2,
+                        binding: 1,
                         resource: buffers.geom.as_entire_binding(),
                     },
                 ],
@@ -769,9 +756,10 @@ impl NormalsContext {
         compute_pass.set_pipeline(self.normals_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
-        compute_pass.dispatch_workgroups_indirect(
-            &buffers.tile64.tiles,
-            offset_bytes as u64,
+        compute_pass.dispatch_workgroups(
+            buffers.image_size.width().div_ceil(8),
+            buffers.image_size.height().div_ceil(8),
+            1,
         );
     }
 }
@@ -1228,13 +1216,11 @@ impl Context {
                 &mut compute_pass,
             );
 
-            // It's somewhat overkill to run `merge` after each layer, but it's
-            // also very cheap (and we need it to prep for normal_ctx dispatch)
-            self.merge_ctx.run(self, buffers, strata, &mut compute_pass);
+            // Merge filled tiles from large -> small, populating the heightmap
+            self.merge_ctx.run(self, buffers, &mut compute_pass);
             self.normals_ctx.run(
                 self,
                 buffers,
-                strata,
                 shape.reg_count,
                 &mut compute_pass,
             );
@@ -1515,7 +1501,6 @@ impl MergeContext {
                     buffer_ro(2), // tile4_zmin
                     buffer_ro(3), // voxels
                     buffer_rw(4), // heightmap
-                    buffer_rw(5), // tiles
                 ],
             });
 
@@ -1557,12 +1542,9 @@ impl MergeContext {
         &self,
         ctx: &Context,
         buffers: &Buffers,
-        strata: usize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let image_size = buffers.image_size;
-        let render_size = buffers.render_size();
-        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
 
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1588,14 +1570,6 @@ impl MergeContext {
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: buffers.heightmap.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: buffers
-                            .tile64
-                            .tiles
-                            .slice(offset_bytes..)
-                            .into(),
                     },
                 ],
             });

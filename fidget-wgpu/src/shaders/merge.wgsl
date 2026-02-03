@@ -1,21 +1,14 @@
 /// Merge all tile stages into a pixel array
-///
-/// This stage also prepares for normal dispatch by tweaking the workgroup size
-/// in the `TileListInput`
 @group(1) @binding(0) var<storage, read> tile64_zmin: array<u32>;
 @group(1) @binding(1) var<storage, read> tile16_zmin: array<u32>;
 @group(1) @binding(2) var<storage, read> tile4_zmin: array<u32>;
-@group(1) @binding(3) var<storage, read> result: array<u32>;
-@group(1) @binding(4) var<storage, read_write> merged: array<u32>;
-@group(1) @binding(5) var<storage, read_write> tiles_in: TileListInput;
+@group(1) @binding(3) var<storage, read> voxels: array<u32>;
+@group(1) @binding(4) var<storage, read_write> heightmap: array<u32>;
 
 @compute @workgroup_size(8, 8)
 fn merge_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
-    // Prepare for normal evaluation by tweaking the dispatch size
-    tiles_in.wg_size[2] = 64u;
-
     // Out of bounds, return
     if global_id.x >= config.image_size.x ||
        global_id.y >= config.image_size.y
@@ -23,7 +16,7 @@ fn merge_main(
         return;
     }
     let pixel_index = global_id.x + global_id.y * config.image_size.x;
-    if merged[pixel_index] != 0 {
+    if heightmap[pixel_index] != 0 {
         return;
     }
 
@@ -31,7 +24,7 @@ fn merge_main(
     let size16 = size64 * 4u;
     let size4 = size16 * 4u;
 
-    var out = 0u;
+    var out = heightmap[pixel_index];
     let index64 = global_id.x / 64 + global_id.y / 64 * size64.x;
     out = max(out, tile64_zmin[index64]);
 
@@ -41,7 +34,7 @@ fn merge_main(
     let index4 = global_id.x / 4 + global_id.y / 4 * size4.x;
     out = max(out, tile4_zmin[index4]);
 
-    out = max(out, result[global_id.x + global_id.y * config.render_size.x]);
+    out = max(out, voxels[global_id.x + global_id.y * config.render_size.x]);
 
-    merged[pixel_index] = out;
+    heightmap[pixel_index] = out;
 }

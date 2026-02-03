@@ -2,6 +2,11 @@
 const CHUNK_SIZE: u32 = 128;
 
 fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
+    // Bail out immediately if there were no choices in the tape
+    if !stack.has_choice {
+        return 0u;
+    }
+
     var i: u32 = end;
     let chunk_size = min(tape_len * 2, CHUNK_SIZE);
     var chunk_start = alloc(chunk_size);

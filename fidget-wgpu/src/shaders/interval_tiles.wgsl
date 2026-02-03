@@ -51,8 +51,6 @@ fn interval_tile_main(
     // Subtile corner position, in voxels
     let corner_pos = subtile_corner * SUBTILE_SIZE;
 
-    var skip_evaluation = false;
-
     // Special handling for uniformly filled tiles
     if t_filled {
         // Snap down to the larger tile size
@@ -83,7 +81,8 @@ fn interval_tile_main(
 
     let v = out.value.v;
     if v[1] < 0.0 {
-        // Full, write to subtile_zmin
+        // Full, write to subtile_zmin but don't return yet (because we want to
+        // store a simplified tape for normal evaluation)
         atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
     } else if v[0] > 0.0 {
         return;
@@ -105,14 +104,11 @@ fn interval_tile_main(
         atomicMax(&subtiles_out.wg_size[2], 1u);
     }
 
-    let tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
-    tile_tape[tape_offset] = tape_start;
-    tile_tape[tape_offset + 1] = corner_pos.z / SUBTILE_SIZE;
-    if stack.has_choice {
-        let next = simplify_tape(out.pos, out.count, &stack);
-        if next != 0 {
-            tile_tape[tape_offset] = next;
-        }
+    let next = simplify_tape(out.pos, out.count, &stack);
+    if next != 0 {
+        let tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
+        tile_tape[tape_offset] = next;
+        tile_tape[tape_offset + 1] = corner_pos.z / SUBTILE_SIZE;
     }
 }
 

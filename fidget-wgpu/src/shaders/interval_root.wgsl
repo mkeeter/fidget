@@ -48,15 +48,6 @@ fn interval_root_main(
         return;
     }
 
-    var new_tape_start = 0u;
-    if stack.has_choice {
-        new_tape_start = simplify_tape(out.pos, out.count, &stack);
-    }
-
-    // Update this tile's position in the tape index map
-    let tape_index = get_tape_offset_for_level(corner_pos, 64u);
-    tile_tape[tape_index] = new_tape_start;
-
     // The tile is full, so set the "filled" flag when pushing the tile to the
     // tape list, which short-circuits evaluation.  We do this instead of just
     // setting tile_zmin so that the tile is evaluated when rendering normals,
@@ -65,6 +56,9 @@ fn interval_root_main(
     if v[1] < 0.0 {
         filled_bit = 1 << 31u;
     }
+
+    // We have to subdivide and recurse, which we do by writing the 64^3
+    // tile and incrementing our dispatch size (in a particular strata).
 
     // Select the active strata, based on Z position
     let strata_size = strata_size_bytes() / 4; // bytes -> words
@@ -83,6 +77,13 @@ fn interval_root_main(
     atomicMax(&tiles_out[i], wg_dispatch_x);
     atomicMax(&tiles_out[i + 1], wg_dispatch_y);
     atomicMax(&tiles_out[i + 2], 1u);
+
+    let next = simplify_tape(out.pos, out.count, &stack);
+    if next != 0 {
+        // Update this tile's position in the tape index map
+        let tape_index = get_tape_offset_for_level(corner_pos, 64u);
+        tile_tape[tape_index] = next;
+    }
 }
 
 fn next_multiple_of(a: u32, b: u32) -> u32 {
