@@ -1059,21 +1059,22 @@ impl Buffers {
     /// We allocated enough tape words for that strata, also in x / y / z
     /// order, but z is limited to either 0..4 for the 16^3 subtiles, or
     /// 0..16 for 4^3 subtiles.  We also need to track *which* strata is
-    /// represented by the tape word, so we double this allocation.
+    /// represented by the tape word, which is packed into the top 6 bits
+    /// (so we support up to 4K voxel depth)
     ///
     /// In other words, it looks something like this:
     ///
     /// ```text
     /// | index | index | index | ... | densely packed 64^3 tape indices
-    /// | index | z | index | z | ... | 16^3 data
-    /// | index | z | index | z | ... | 4^3 data
+    /// | (index | z) | (index | z) | ... | 16^3 data
+    /// | (index | z) | (index | z) | ... | 4^3 data
     /// ```
     fn tile_tape_words(render_size: RenderSize, strata_size: usize) -> usize {
         let nx = render_size.nx() as usize;
         let ny = render_size.ny() as usize;
         let nz = render_size.nz() as usize;
         nx * ny * nz
-            + 2 * (nx * ny * strata_size)
+            + (nx * ny * strata_size)
                 * ((64usize / 16).pow(3) + (64usize / 4).pow(3))
     }
 

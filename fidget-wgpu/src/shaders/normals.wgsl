@@ -54,14 +54,14 @@ fn get_tape_start(corner_pos: vec3u) -> u32 {
     let index4 = get_tape_offset_for_level(corner_pos, 4u);
     // that the Z position is valid for the current strata.
     let t4 = tile_tape[index4];
-    if t4 != 0 && tile_tape[index4 + 1] == corner_pos.z / 4 {
-        return t4;
+    if t4 != 0 && t4 >> TILE_TAPE_STRATA_SHIFT == corner_pos.z / 4 {
+        return t4 & TILE_TAPE_MASK;
     }
 
     let index16 = get_tape_offset_for_level(corner_pos, 16u);
     let t16 = tile_tape[index16];
-    if t16 != 0 && tile_tape[index16 + 1] == corner_pos.z / 16 {
-        return t16;
+    if t16 != 0 && t16 >> TILE_TAPE_STRATA_SHIFT == corner_pos.z / 16 {
+        return t16 & TILE_TAPE_MASK;
     }
 
     let index64 = get_tape_offset_for_level(corner_pos, 64u);

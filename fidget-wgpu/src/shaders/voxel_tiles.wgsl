@@ -54,7 +54,7 @@ fn voxel_ray_main(
 
     // Do the actual interpreter work
     let tape_offset = get_tape_offset_for_level(corner_pos, 4);
-    let tape_start = tile_tape[tape_offset];
+    let tape_start = tile_tape[tape_offset] & TILE_TAPE_MASK;
     var stack = Stack(); // dummy value
     let out = run_tape(tape_start, m, &stack);
 

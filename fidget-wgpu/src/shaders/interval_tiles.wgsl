@@ -77,7 +77,7 @@ fn interval_tile_main(
     // Do the actual interpreter work
     var stack = Stack();
     let tape_offset = get_tape_offset_for_level(corner_pos, TILE_SIZE);
-    var tape_start = tile_tape[tape_offset];
+    var tape_start = tile_tape[tape_offset] & TILE_TAPE_MASK;
     let out = run_tape(tape_start, m, &stack);
 
     let v = out.value.v;
@@ -110,8 +110,7 @@ fn interval_tile_main(
         tape_start = next;
     }
     let next_tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
-    tile_tape[next_tape_offset] = tape_start;
-    tile_tape[next_tape_offset + 1] = corner_pos.z / SUBTILE_SIZE;
+    tile_tape[next_tape_offset] = tape_start | ((corner_pos.z / SUBTILE_SIZE) << TILE_TAPE_STRATA_SHIFT);
 }
 
 /// Allocates a new chunk, returning a past-the-end pointer
