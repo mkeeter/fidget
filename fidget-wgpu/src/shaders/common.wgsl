@@ -25,6 +25,12 @@ struct Config {
     /// `tape_data_offset` should be reset to this value between strata
     root_tape_len: atomic<u32>,
 
+    /// Number of root tiles in a strata
+    strata_size: u32,
+
+    // Round to multiple of 8
+    _padding: u32,
+
     /// Tape data, tightly packed per-tile (flexible array member)
     tape_data: array<u32>,
 }
@@ -79,7 +85,7 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
         return offset
             + 2 * (corner_pos16.x
                  + corner_pos16.y * size16.x
-                 + (corner_pos16.z % 4) * size16.x * size16.y);
+                 + (corner_pos16.z % (4 * config.strata_size)) * size16.x * size16.y);
     }
 
     let size4 = config.render_size / 4;
@@ -92,7 +98,7 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
         return offset
             + 2 * (corner_pos4.x
                  + corner_pos4.y * size4.x
-                 + (corner_pos4.z % 16) * size4.x * size4.y);
+                 + (corner_pos4.z % (16 * config.strata_size)) * size4.x * size4.y);
     }
 
     return 0;

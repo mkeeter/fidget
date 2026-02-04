@@ -136,6 +136,12 @@ struct Config {
 
     /// Length of the root tape
     root_tape_len: u32,
+
+    /// Number of root tiles in a strata
+    strata_size: u32,
+
+    /// Round to multiple of 8
+    _padding: u32,
     // This is followed by a flexible array member containing tape data
 }
 
@@ -312,11 +318,12 @@ struct RootContext {
 /// Per-strata offset in the root tiles list
 ///
 /// This must be equivalent to `strata_size_bytes` in the interval root shader
-fn strata_size_bytes(render_size: RenderSize) -> usize {
+fn strata_size_bytes(render_size: RenderSize, strata_size: usize) -> usize {
     let nx = render_size.nx() as usize;
     let ny = render_size.ny() as usize;
     // Snap to `min_storage_buffer_offset_alignment`
-    ((nx * ny + 4) * std::mem::size_of::<u32>()).next_multiple_of(256)
+    ((nx * ny * strata_size + 4) * std::mem::size_of::<u32>())
+        .next_multiple_of(256)
 }
 
 impl RootContext {
@@ -504,10 +511,9 @@ impl IntervalContext {
         buffers: &Buffers,
         strata: usize,
         reg_count: u8,
-        render_size: RenderSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
+        let offset_bytes = (strata * buffers.strata_size_bytes()) as u64;
         let bind_group16 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -537,10 +543,8 @@ impl IntervalContext {
             });
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group16, &[]);
-        compute_pass.dispatch_workgroups_indirect(
-            &buffers.tile64.tiles,
-            offset_bytes as u64,
-        );
+        compute_pass
+            .dispatch_workgroups_indirect(&buffers.tile64.tiles, offset_bytes);
 
         let bind_group4 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -821,13 +825,17 @@ struct RootTileBuffers<const N: usize> {
 
 impl<const N: usize> RootTileBuffers<N> {
     /// Build a new root tiles buffer, which stores strata-packed tile lists
-    fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        render_size: RenderSize,
+        strata_size: usize,
+    ) -> Self {
         assert_eq!(N, 64);
         let nx = render_size.nx() as usize;
         let ny = render_size.ny() as usize;
         let nz = render_size.nz() as usize;
 
-        let strata_size = strata_size_bytes(render_size);
+        let strata_size = strata_size_bytes(render_size, strata_size);
         let total_size = strata_size * nz;
 
         let tiles = new_buffer::<u8>(
@@ -911,6 +919,9 @@ pub struct Buffers {
     /// (64^3 voxels).
     image_size: VoxelSize,
 
+    /// Depth of each strata, as a number of root (64^3) tiles
+    strata_size: usize,
+
     /// Map from tile to the relevant tape (as a start index)
     tile_tapes: wgpu::Buffer,
 
@@ -937,7 +948,11 @@ pub struct Buffers {
 }
 
 impl Buffers {
-    fn new(device: &wgpu::Device, image_size: VoxelSize) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        image_size: VoxelSize,
+        strata_size: usize,
+    ) -> Self {
         let render_size = RenderSize::from(image_size);
         let render_pixels = render_size.pixels();
         let voxels = new_buffer::<u32>(
@@ -973,8 +988,8 @@ impl Buffers {
         // | index | z | index | z | ... | 16^3 data
         // | index | z | index | z | ... | 4^3 data
         let tile_tape_words = nx * ny * nz
-            + 2 * (nx * ny * (64usize / 16).pow(3)
-                + nx * ny * (64usize / 4).pow(3));
+            + 2 * (nx * ny * strata_size)
+                * ((64usize / 16).pow(3) + (64usize / 4).pow(3));
         let tile_tapes = new_buffer::<u32>(
             device,
             "tile tape",
@@ -1007,12 +1022,13 @@ impl Buffers {
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
 
-        let tile64 = RootTileBuffers::new(device, render_size);
+        let tile64 = RootTileBuffers::new(device, render_size, strata_size);
         let tile16 = TileBuffers::new(device, render_size);
         let tile4 = TileBuffers::new(device, render_size);
 
         Self {
             image_size,
+            strata_size,
             tile_tapes,
             tile64,
             tile16,
@@ -1026,6 +1042,10 @@ impl Buffers {
 
     fn render_size(&self) -> RenderSize {
         self.image_size.into()
+    }
+
+    fn strata_size_bytes(&self) -> usize {
+        strata_size_bytes(self.render_size(), self.strata_size)
     }
 }
 
@@ -1074,7 +1094,7 @@ impl Context {
     /// within each pixel of the image (stacked into a column going into the
     /// screen).
     pub fn buffers(&self, image_size: VoxelSize) -> Buffers {
-        Buffers::new(&self.device, image_size)
+        Buffers::new(&self.device, image_size, 4) // TODO strata size
     }
 
     /// Builds a new [`RenderShape`] object for the given shape
@@ -1140,6 +1160,8 @@ impl Context {
             ],
             tape_data_offset: shape.bytecode_len,
             root_tape_len: shape.bytecode_len,
+            strata_size: buffers.strata_size.try_into().unwrap(),
+            _padding: u32::MAX,
         };
 
         {
@@ -1199,13 +1221,14 @@ impl Context {
         );
 
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
-        for strata in (0..render_size.depth() as usize / 64).rev() {
+        let strata_count =
+            (render_size.depth() as usize).div_ceil(64 * buffers.strata_size);
+        for strata in (0..strata_count).rev() {
             self.interval_ctx.run(
                 self,
                 buffers,
                 strata,
                 shape.reg_count,
-                render_size,
                 &mut compute_pass,
             );
             self.voxel_ctx.run(
@@ -1402,7 +1425,9 @@ impl BackfillContext {
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let render_size = buffers.render_size();
-        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
+        let offset_bytes = (strata
+            * strata_size_bytes(render_size, buffers.strata_size))
+            as u64;
 
         let nx = render_size.nx() as usize;
         let ny = render_size.ny() as usize;

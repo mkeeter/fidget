@@ -62,7 +62,7 @@ fn interval_root_main(
 
     // Select the active strata, based on Z position
     let strata_size = strata_size_bytes() / 4; // bytes -> words
-    let i = strata_size * tile_corner.z;
+    let i = strata_size * (tile_corner.z / config.strata_size);
 
     // `count` is at offset 3 in the struct
     let offset = atomicAdd(&tiles_out[i + 3], 1u);
@@ -98,7 +98,7 @@ fn strata_size_bytes() -> u32 {
     let ny = config.render_size.y / 64u;
 
     // Each strata has a [vec3u, u32] header, adding 4 words
-    let size_words = nx * ny + 4u;
+    let size_words = nx * ny * config.strata_size + 4u;
     let size_bytes = size_words * 4u;
 
     // Snap to `min_storage_buffer_offset_alignment`
