@@ -103,27 +103,3 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
 
     return 0;
 }
-
-/// For a given voxel position, return the tape start index
-///
-/// This is the highest-resolution tape index that is valid for the given
-/// position, e.g. preferring tapes specialized to 4x4x4 regions, then
-/// 16x16x16, then 64x64x64.
-fn get_tape_start(corner_pos: vec3u) -> u32 {
-    // Presumably the compiler will optimize out common code here
-    let index64 = get_tape_offset_for_level(corner_pos, 64u);
-    let index16 = get_tape_offset_for_level(corner_pos, 16u);
-    let index4 = get_tape_offset_for_level(corner_pos, 4u);
-
-    // The 4^3 and 16^3 tiles are reused between strata, so we have to check
-    // that the Z position is valid for the current strata.
-    if tile_tape[index4] != 0 && tile_tape[index4 + 1] == corner_pos.z / 4 {
-        return tile_tape[index4];
-    } else if tile_tape[index16] != 0 && tile_tape[index16 + 1] == corner_pos.z / 16 {
-        return tile_tape[index16];
-    } else if tile_tape[index64] != 0 {
-        return tile_tape[index64];
-    } else {
-        return 0u;
-    }
-}
