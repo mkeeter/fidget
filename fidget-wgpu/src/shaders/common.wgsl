@@ -91,7 +91,7 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
     let size4 = config.render_size / 4;
     offset += size16.x
         * size16.y
-        * 4  // Z tiles
+        * 4 * config.strata_size  // Z tiles
         * 2; // each item is an (index, z) tuple
     if level == 4u {
         let corner_pos4 = corner_pos / 4;
