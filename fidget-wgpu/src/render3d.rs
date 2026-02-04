@@ -891,7 +891,6 @@ impl RenderShape {
         }
         config_buf.unmap();
 
-        // TODO send shape bytecode to GPU
         Self {
             config_buf,
             axes,
