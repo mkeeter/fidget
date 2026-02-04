@@ -154,6 +154,9 @@ struct RenderSize(VoxelSize);
 
 impl From<VoxelSize> for RenderSize {
     fn from(image_size: VoxelSize) -> Self {
+        assert!(image_size.width() <= 4096);
+        assert!(image_size.height() <= 4096);
+        assert!(image_size.depth() <= 4096);
         let nx = image_size.width().div_ceil(64);
         let ny = image_size.height().div_ceil(64);
         let nz = image_size.depth().div_ceil(64);
