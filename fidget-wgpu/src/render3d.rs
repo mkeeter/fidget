@@ -790,6 +790,7 @@ pub struct Context {
     clear_ctx: ClearContext,
 }
 
+#[derive(Clone)]
 struct TileBuffers<const N: usize> {
     tiles: wgpu::Buffer,
     zmin: wgpu::Buffer,
@@ -834,6 +835,7 @@ impl<const N: usize> TileBuffers<N> {
 }
 
 /// Root tile buffers store strata-packed tile lists
+#[derive(Clone)]
 struct RootTileBuffers<const N: usize> {
     tiles: wgpu::Buffer,
     zmin: wgpu::Buffer,
@@ -887,6 +889,7 @@ impl<const N: usize> RootTileBuffers<N> {
 ///
 /// This object is constructed by [`Context::shape`] and may only be used with
 /// that particular [`Context`].
+#[derive(Clone)]
 pub struct RenderShape {
     config_buf: wgpu::Buffer,
     axes: [u32; 3],
@@ -938,6 +941,7 @@ impl RenderShape {
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
 /// that particular [`Context`].
+#[derive(Clone)]
 pub struct Buffers {
     /// Image render size
     ///

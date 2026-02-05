@@ -44,7 +44,7 @@ use nalgebra::{
 ///
 /// If the render region is not square, then the shorter axis is clamped to ±1
 /// and the longer axis will exceed that value.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct RegionSize<const N: usize>
 where
     Const<N>: DimNameAdd<U1>,
