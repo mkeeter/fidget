@@ -1,65 +1,92 @@
 // VM interpreter for floating-point values, using voxel tiles
 
-@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
-@group(1) @binding(1) var<storage, read> tile4_zmin: array<u32>;
+@group(1) @binding(0) var<storage, read_write> tape_data: TapeData;
+@group(1) @binding(1) var<storage, read> tile4_in: TileListInput;
+@group(1) @binding(2) var<storage, read> tile4_zmin: array<Voxel>;
 
-/// Output array, image size
-@group(1) @binding(2) var<storage, read_write> result: array<atomic<u32>>;
+/// Output array, image size (rounded up to tile count)
+@group(1) @binding(3) var<storage, read_write> result: array<Voxel>;
 
 @compute @workgroup_size(4, 4, 4)
 fn voxel_ray_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u
+    @builtin(num_workgroups) num_workgroups: vec3u,
+    @builtin(local_invocation_id) local_id: vec3u,
 ) {
-    // Tile index is packed into two words of the workgroup ID, due to dispatch
-    // size limits on any single dimension.
-    let active_tile4_index = workgroup_id.x + workgroup_id.y * 32768;
-    if active_tile4_index >= tiles_in.count {
-        return;
-    }
+    var tile_index = workgroup_id.x +
+        workgroup_id.y * (num_workgroups.x * 4u) +
+        workgroup_id.z * (num_workgroups.x * 4u) * (num_workgroups.y * 4u);
+    let stride = num_workgroups.x * num_workgroups.y * num_workgroups.z;
 
     // Convert to a size in tile units
     let size64 = config.render_size / 64;
     let size16 = size64 * 4u;
     let size4 = size16 * 4u;
+    while tile_index < tile4_in.count {
+        // Get global tile position, in tile4 coordinates
+        let tile = tile4_in.active_tiles[tile_index];
+        let t = tile.tile;
+        tile_index += stride;
+        let tx = t % size4.x;
+        let ty = (t / size4.x) % size4.y;
+        let tz = (t / (size4.x * size4.y)) % size4.z;
+        let tile4_corner = vec3u(tx, ty, tz);
 
-    // Get global tile position, in tile4 coordinates
-    let t = tiles_in.active_tiles[active_tile4_index];
-    let tx = t % size4.x;
-    let ty = (t / size4.x) % size4.y;
-    let tz = (t / (size4.x * size4.y)) % size4.z;
-    let tile4_corner = vec3u(tx, ty, tz);
+        // Subtile corner position, in voxels
+        let corner_pos = tile4_corner * 4 + local_id;
 
-    // Subtile corner position, in voxels
-    let corner_pos = tile4_corner * 4 + local_id;
+        let tile4_index_xy = tx + ty * size4.x;
+        let pixel_index_xy = corner_pos.x + corner_pos.y * config.render_size.x;
+        if tile4_zmin[tile4_index_xy].z >= corner_pos.z {
+            // copy-and-swap loop
+            let new_z = tile4_zmin[tile4_index_xy].z;
+            loop {
+                let old_z = atomicLoad(&result[pixel_index_xy].z);
+                if (new_z <= old_z) {
+                    break;
+                }
+                let exchanged_z = atomicCompareExchangeWeak(
+                    &result[pixel_index_xy].z, old_z, new_z);
+                if (exchanged_z.exchanged) {
+                    result[pixel_index_xy].tape_index = tile4_zmin[tile4_index_xy].tape_index;
+                    break;
+                }
+            }
+            continue;
+        }
 
-    let tile4_index_xy = tx + ty * size4.x;
-    let pixel_index_xy = corner_pos.x + corner_pos.y * config.render_size.x;
-    if tile4_zmin[tile4_index_xy] >= corner_pos.z {
-        atomicMax(&result[pixel_index_xy], tile4_zmin[tile4_index_xy]);
-        return;
-    }
+        // Last chance to bail out
+        if atomicLoad(&result[pixel_index_xy].z) >= u32(corner_pos.z) {
+            continue;
+        }
 
-    // Last chance to bail out
-    if atomicLoad(&result[pixel_index_xy]) >= u32(corner_pos.z) {
-        return;
-    }
+        // Compute input values
+        let m = transformed_inputs(
+            Value(f32(corner_pos.x)),
+            Value(f32(corner_pos.y)),
+            Value(f32(corner_pos.z)),
+        );
 
-    // Compute input values
-    let m = transformed_inputs(
-        Value(f32(corner_pos.x)),
-        Value(f32(corner_pos.y)),
-        Value(f32(corner_pos.z)),
-    );
+        // Do the actual interpreter work
+        var stack = Stack(); // dummy value
+        let out = run_tape(tile.tape_index, m, &stack);
 
-    // Do the actual interpreter work
-    let tape_offset = get_tape_offset_for_level(corner_pos, 4);
-    let tape_start = tile_tape[tape_offset] & TILE_TAPE_MASK;
-    var stack = Stack(); // dummy value
-    let out = run_tape(tape_start, m, &stack);
-
-    if out.value.v < 0.0 {
-        atomicMax(&result[pixel_index_xy], corner_pos.z);
+        if out.value.v < 0.0 {
+            // copy-and-swap loop
+            let new_z = corner_pos.z;
+            loop {
+                let old_z = atomicLoad(&result[pixel_index_xy].z);
+                if (new_z <= old_z) {
+                    break;
+                }
+                let exchanged_z = atomicCompareExchangeWeak(
+                    &result[pixel_index_xy].z, old_z, new_z);
+                if (exchanged_z.exchanged) {
+                    result[pixel_index_xy].tape_index = tile4_zmin[tile4_index_xy].tape_index;
+                    break;
+                }
+            }
+        }
     }
 }
 

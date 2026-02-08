@@ -44,8 +44,8 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
     var out = TapeResult(build_imm(nan_f32()), 0, 0);
     while true {
         count += 1;
-        let op = unpack4xU8(config.tape_data[i]);
-        let imm_u = config.tape_data[i + 1];
+        let op = unpack4xU8(tape_data.data[i]);
+        let imm_u = tape_data.data[i + 1];
         let imm_v = build_imm(bitcast<f32>(imm_u));
         i = i + 2;
         switch op[0] {

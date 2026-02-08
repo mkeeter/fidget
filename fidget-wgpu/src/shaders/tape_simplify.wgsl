@@ -11,7 +11,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
     let chunk_size = min(tape_len * 2, CHUNK_SIZE);
     var chunk_start = alloc(chunk_size);
     var j = chunk_start + chunk_size;
-    if j > config.tape_data_capacity {
+    if j > tape_data.capacity {
         dealloc(chunk_size);
         return 0u;
     }
@@ -21,17 +21,17 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         i = i - 2;
         j = j - 2; // reserve space
 
-        var op = unpack4xU8(config.tape_data[i]);
-        let imm_u = config.tape_data[i + 1];
+        var op = unpack4xU8(tape_data.data[i]);
+        let imm_u = tape_data.data[i + 1];
 
         if op[0] == OP_JUMP {
             if imm_u == 0xFFFFFFFFu {
-                config.tape_data[j] = OP_JUMP;
-                config.tape_data[j + 1] = 0xFFFFFFFFu;
+                tape_data.data[j] = OP_JUMP;
+                tape_data.data[j + 1] = 0xFFFFFFFFu;
                 continue;
             } else if imm_u == 0u {
-                config.tape_data[j] = OP_JUMP;
-                config.tape_data[j + 1] = 0;
+                tape_data.data[j] = OP_JUMP;
+                tape_data.data[j + 1] = 0;
                 return j;
             } else {
                 // Jump to a new tape position
@@ -45,14 +45,14 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         if j == chunk_start {
             chunk_start = alloc(chunk_size);
             let nj = chunk_start + chunk_size - 2;
-            if nj >= config.tape_data_capacity {
+            if nj >= tape_data.capacity {
                 dealloc(chunk_size);
                 return 0u;
             }
-            config.tape_data[j] = OP_JUMP;
-            config.tape_data[j + 1] = nj - 2;
-            config.tape_data[nj] = OP_JUMP;
-            config.tape_data[nj + 1] = j + 2;
+            tape_data.data[j] = OP_JUMP;
+            tape_data.data[j + 1] = nj - 2;
+            tape_data.data[nj] = OP_JUMP;
+            tape_data.data[nj + 1] = j + 2;
             j = nj - 2;
         }
 
@@ -204,8 +204,18 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         }
 
         // Write the simplified expression back to the new tape
-        config.tape_data[j] = pack4xU8(op);
-        config.tape_data[j + 1] = imm_u;
+        tape_data.data[j] = pack4xU8(op);
+        tape_data.data[j + 1] = imm_u;
     }
     return 0u; // invalid
+}
+
+/// Allocates a new chunk, returning the start of the chunk
+fn alloc(chunk_size: u32) -> u32 {
+    return atomicAdd(&tape_data.offset, chunk_size);
+}
+
+/// Undo an allocation
+fn dealloc(chunk_size: u32) {
+    atomicSub(&tape_data.offset, chunk_size);
 }

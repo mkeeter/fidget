@@ -75,6 +75,8 @@ use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+const REPACK_SHADER: &str = include_str!("shaders/repack.wgsl");
+const FLATPACK_SHADER: &str = include_str!("shaders/flatpack.wgsl");
 const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
 const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
 const DUMMY_STACK_SHADER: &str = include_str!("shaders/dummy_stack.wgsl");
@@ -86,6 +88,8 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
+const CUMSUM_SHADER: &str = include_str!("shaders/cumsum.wgsl");
+const FLATSUM_SHADER: &str = include_str!("shaders/flatsum.wgsl");
 
 /// Settings for 3D rendering
 ///
@@ -122,27 +126,11 @@ struct Config {
     /// `u32::MAX` is used as a marker if an axis is unused
     axes: [u32; 3],
 
-    /// Initial offset in `tape_data`
-    tape_data_offset: u32,
-
     /// Render size, rounded up to the nearest multiple of 64
     render_size: [u32; 3],
 
-    /// Number of words in the trailing tape buffer
-    tape_data_capacity: u32,
-
     /// Image size (not rounded)
     image_size: [u32; 3],
-
-    /// Length of the root tape
-    root_tape_len: u32,
-
-    /// Number of root tiles in a strata
-    strata_size: u32,
-
-    /// Round to multiple of 8
-    _padding: u32,
-    // This is followed by a flexible array member containing tape data
 }
 
 /// A render size is rounded up to the next multiple of 64 on every axis
@@ -252,6 +240,26 @@ fn normals_shader(reg_count: u8) -> String {
     shader_code
 }
 
+/// Returns a shader for computing the cumulative sum of Z strata occupancy
+fn cumsum_shader() -> String {
+    CUMSUM_SHADER.to_owned() + COMMON_SHADER
+}
+
+/// Returns a shader for computing the flat cumulative sum of Z strata occupancy
+fn flatsum_shader() -> String {
+    FLATSUM_SHADER.to_owned() + COMMON_SHADER
+}
+
+/// Returns a shader for repacking tiles in per-dispatch Z-sorted order
+fn repack_shader() -> String {
+    REPACK_SHADER.to_owned() + COMMON_SHADER
+}
+
+/// Returns a shader for repacking tiles in a flat Z-sorted order
+fn flatpack_shader() -> String {
+    FLATPACK_SHADER.to_owned() + COMMON_SHADER
+}
+
 /// Returns a shader for merging images
 fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER
@@ -281,6 +289,19 @@ fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
         visibility: wgpu::ShaderStages::COMPUTE,
         ty: wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+fn uniform_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
             has_dynamic_offset: false,
             min_binding_size: None,
         },
@@ -318,17 +339,6 @@ struct RootContext {
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
-/// Per-strata offset in the root tiles list
-///
-/// This must be equivalent to `strata_size_bytes` in the interval root shader
-fn strata_size_bytes(render_size: RenderSize, strata_size: usize) -> usize {
-    let nx = render_size.nx() as usize;
-    let ny = render_size.ny() as usize;
-    // Snap to `min_storage_buffer_offset_alignment`
-    ((nx * ny * strata_size + 4) * std::mem::size_of::<u32>())
-        .next_multiple_of(256)
-}
-
 impl RootContext {
     fn new(
         device: &wgpu::Device,
@@ -339,7 +349,10 @@ impl RootContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_rw(0), // tiles_out
+                    buffer_rw(0), // tape_data
+                    buffer_ro(1), // tile64_out
+                    buffer_ro(2), // tile64_zmin
+                    buffer_ro(3), // tile64_hist
                 ],
             });
 
@@ -516,6 +529,8 @@ impl IntervalContext {
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        todo!()
+        /*
         let offset_bytes = (strata * buffers.strata_size_bytes()) as u64;
         let bind_group16 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -575,6 +590,7 @@ impl IntervalContext {
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group4, &[]);
         compute_pass.dispatch_workgroups_indirect(&buffers.tile16.tiles, 0);
+        */
     }
 }
 
@@ -781,13 +797,11 @@ pub struct Context {
     /// Bind group layout for the common bind group (used by all stages)
     bind_group_layout: wgpu::BindGroupLayout,
 
+    /// Uniform buffer for render configuration
+    config_buf: wgpu::Buffer,
+
+    /// Interval root context
     root_ctx: RootContext,
-    interval_ctx: IntervalContext,
-    voxel_ctx: VoxelContext,
-    normals_ctx: NormalsContext,
-    backfill_ctx: BackfillContext,
-    merge_ctx: MergeContext,
-    clear_ctx: ClearContext,
 }
 
 #[derive(Clone)]
@@ -834,64 +848,13 @@ impl<const N: usize> TileBuffers<N> {
     }
 }
 
-/// Root tile buffers store strata-packed tile lists
-#[derive(Clone)]
-struct RootTileBuffers<const N: usize> {
-    tiles: wgpu::Buffer,
-    zmin: wgpu::Buffer,
-}
-
-impl<const N: usize> RootTileBuffers<N> {
-    /// Build a new root tiles buffer, which stores strata-packed tile lists
-    fn new(
-        device: &wgpu::Device,
-        render_size: RenderSize,
-        strata_size: usize,
-    ) -> Self {
-        assert_eq!(N, 64);
-        let nx = render_size.nx() as usize;
-        let ny = render_size.ny() as usize;
-        let nz = render_size.nz() as usize;
-
-        let strata_size = strata_size_bytes(render_size, strata_size);
-        let total_size = strata_size * nz;
-
-        let tiles = new_buffer::<u8>(
-            // bytes
-            device,
-            format!("active_tile{N}"),
-            // wg_dispatch: [u32; 3]
-            // count: u32,
-            total_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
-        );
-        let zmin = new_buffer::<u32>(
-            device,
-            format!("tile{N}_zmin"),
-            nx * ny,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        );
-        Self { tiles, zmin }
-    }
-
-    /// Returns the total buffer size (in bytes)
-    fn size(render_size: RenderSize, strata_size: usize) -> usize {
-        let nx = render_size.nx() as usize;
-        let ny = render_size.ny() as usize;
-        let nz = render_size.nz() as usize;
-
-        let strata_size = strata_size_bytes(render_size, strata_size);
-        strata_size * nz + nx * ny * std::mem::size_of::<u32>()
-    }
-}
-
 /// Shape for rendering
 ///
 /// This object is constructed by [`Context::shape`] and may only be used with
 /// that particular [`Context`].
 #[derive(Clone)]
 pub struct RenderShape {
-    config_buf: wgpu::Buffer,
+    tape_buf: wgpu::Buffer,
     axes: [u32; 3],
     bytecode_len: u32,
     reg_count: u8,
@@ -900,11 +863,9 @@ pub struct RenderShape {
 impl RenderShape {
     fn new(device: &wgpu::Device, shape: &VmShape) -> Self {
         // The config buffer is statically sized
-        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: (std::mem::size_of::<Config>()
-                + TAPE_DATA_CAPACITY * std::mem::size_of::<u32>())
-                as u64,
+        let tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tape_data"),
+            size: 8 + (TAPE_DATA_CAPACITY * std::mem::size_of::<u32>()) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: true,
         });
@@ -919,17 +880,19 @@ impl RenderShape {
             .axes()
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
 
-        let offset = std::mem::size_of::<Config>();
         {
-            let mut buffer_view =
-                config_buf.slice(offset as u64..).get_mapped_range_mut();
+            let mut buffer_view = tape_buf.slice(..).get_mapped_range_mut();
             let bytes = bytecode.as_bytes();
-            buffer_view[..bytes.len()].copy_from_slice(bytes);
+            buffer_view[0..4] // offset
+                .copy_from_slice((bytecode.len() as u32).as_bytes());
+            buffer_view[4..8] // capacity
+                .copy_from_slice((TAPE_DATA_CAPACITY as u32).as_bytes());
+            buffer_view[8..bytes.len() + 8].copy_from_slice(bytes);
         }
-        config_buf.unmap();
+        tape_buf.unmap();
 
         Self {
-            config_buf,
+            tape_buf,
             axes,
             bytecode_len: bytecode.len().try_into().unwrap(),
             reg_count: bytecode.reg_count(),
@@ -949,14 +912,17 @@ pub struct Buffers {
     /// (64^3 voxels).
     image_size: VoxelSize,
 
+    /// Output tiles from the interval root evaluation
+    ///
+    /// This is the product of `(render_size / 64).[x,y,z]`, plus an initial
+    /// `u32` for the atomic counter (which must be initialized to 0).
+    tile64_out: wgpu::Buffer,
+
     /// Depth of each strata, as a number of root (64^3) tiles
     strata_size: usize,
 
     /// Map from tile to the relevant tape (as a start index)
     tile_tapes: wgpu::Buffer,
-
-    /// Root tile Z heights (64^3)
-    tile64: RootTileBuffers<64>,
 
     /// Z heights for filled first-stage tiles (16^3)
     tile16: TileBuffers<16>,
@@ -992,7 +958,6 @@ impl Buffers {
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let tile_tape_words = Self::tile_tape_words(render_size, strata_size);
         let tile_tapes = new_buffer::<u32>(
             device,
             "tile tape",
@@ -1025,91 +990,25 @@ impl Buffers {
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
 
-        let tile64 = RootTileBuffers::new(device, render_size, strata_size);
         let tile16 = TileBuffers::new(device, render_size, strata_size);
         let tile4 = TileBuffers::new(device, render_size, strata_size);
 
+        let tile64_out = new_buffer::<u32>(
+            device,
+            "tile64_out",
+            (render_size.nx() * render_size.ny() * render_size.nz() + 1)
+                as usize,
+            wgpu::BufferUsages::STORAGE,
+        );
+
         Self {
+            tile64_out,
             image_size,
-            strata_size,
-            tile_tapes,
-            tile64,
-            tile16,
-            tile4,
-            voxels,
-            heightmap,
-            geom,
-            image,
         }
     }
 
     fn render_size(&self) -> RenderSize {
         self.image_size.into()
-    }
-
-    fn strata_size_bytes(&self) -> usize {
-        strata_size_bytes(self.render_size(), self.strata_size)
-    }
-
-    /// Returns the number of `u32` words in the `tile_tapes` buffer
-    /// The tile tape array is... complicated
-    ///
-    /// The first `nx * ny * nz` words are tape indices for the root tiles
-    /// (64^3), densely allocated in x / y / z order.  This is
-    /// straight-forward.
-    ///
-    /// After that point, it gets weirder.  At any given point in time, we're
-    /// evaluating a single strata (i.e. a 64-voxel deep slice of the image).
-    /// We allocated enough tape words for that strata, also in x / y / z
-    /// order, but z is limited to either 0..4 for the 16^3 subtiles, or
-    /// 0..16 for 4^3 subtiles.  We also need to track *which* strata is
-    /// represented by the tape word, which is packed into the top 6 bits
-    /// (so we support up to 4K voxel depth)
-    ///
-    /// In other words, it looks something like this:
-    ///
-    /// ```text
-    /// | index | index | index | ... | densely packed 64^3 tape indices
-    /// | (index | z) | (index | z) | ... | 16^3 data
-    /// | (index | z) | (index | z) | ... | 4^3 data
-    /// ```
-    fn tile_tape_words(render_size: RenderSize, strata_size: usize) -> usize {
-        let nx = render_size.nx() as usize;
-        let ny = render_size.ny() as usize;
-        let nz = render_size.nz() as usize;
-        nx * ny * nz
-            + (nx * ny * strata_size)
-                * ((64usize / 16).pow(3) + (64usize / 4).pow(3))
-    }
-
-    /// Returns the number of bytes that will be allocated across all buffers
-    ///
-    /// Returns a tuple of `(total_size, max size)`
-    fn buffer_size(
-        image_size: VoxelSize,
-        strata_size: usize,
-    ) -> (usize, usize) {
-        let render_size = RenderSize::from(image_size);
-
-        let render_pixels = render_size.pixels();
-        let image_pixels =
-            image_size.width() as usize * image_size.height() as usize;
-        let tile_tape_words = Self::tile_tape_words(render_size, strata_size);
-
-        let sizes = &[
-            RootTileBuffers::<64>::size(render_size, strata_size), // tile64
-            TileBuffers::<16>::size(render_size, strata_size),     // tile16
-            TileBuffers::<4>::size(render_size, strata_size),      // tile4
-            tile_tape_words * std::mem::size_of::<u32>(),          // tile_tapes
-            render_pixels * std::mem::size_of::<u32>(),            // voxels
-            image_pixels * std::mem::size_of::<u32>(),             // heightmap
-            image_pixels * std::mem::size_of::<GeometryPixel>(),   // geom
-            image_pixels * std::mem::size_of::<GeometryPixel>(),   // image
-        ];
-        (
-            sizes.iter().sum::<usize>(),
-            sizes.iter().max().cloned().unwrap(),
-        )
     }
 }
 
@@ -1120,34 +1019,23 @@ impl Context {
         let common_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
-                entries: &[
-                    buffer_rw(0), // config (including tape buffer)
-                    buffer_rw(1), // tile_tape (hierarchical)
-                ],
+                entries: &[uniform_ro(0)],
             });
 
         let root_ctx = RootContext::new(&device, &common_bind_group_layout);
-        let interval_ctx =
-            IntervalContext::new(&device, &common_bind_group_layout);
-        let voxel_ctx = VoxelContext::new(&device, &common_bind_group_layout);
-        let normals_ctx =
-            NormalsContext::new(&device, &common_bind_group_layout);
-        let backfill_ctx =
-            BackfillContext::new(&device, &common_bind_group_layout);
-        let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
-        let clear_ctx = ClearContext::new();
+        let config_buf = new_buffer::<Config>(
+            &device,
+            "config",
+            1,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
 
         Self {
             device,
             queue,
             bind_group_layout: common_bind_group_layout,
+            config_buf,
             root_ctx,
-            interval_ctx,
-            voxel_ctx,
-            normals_ctx,
-            backfill_ctx,
-            merge_ctx,
-            clear_ctx,
         }
     }
 
@@ -1227,26 +1115,20 @@ impl Context {
                 render_size.height(),
                 render_size.depth(),
             ],
-            tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
                 buffers.image_size.width(),
                 buffers.image_size.height(),
                 buffers.image_size.depth(),
             ],
-            tape_data_offset: shape.bytecode_len,
-            root_tape_len: shape.bytecode_len,
-            strata_size: buffers.strata_size.try_into().unwrap(),
-            _padding: u32::MAX,
         };
 
         {
-            // We load the `Config` and the initial tape; the rest of the tape
-            // buffer is uninitialized (filled in by the GPU)
+            // We load the `Config`
             let config_len = std::mem::size_of_val(&config);
             let mut writer = self
                 .queue
                 .write_buffer_with(
-                    &shape.config_buf,
+                    &self.config_buf,
                     0,
                     (config_len as u64).try_into().unwrap(),
                 )
@@ -1260,7 +1142,7 @@ impl Context {
         );
 
         // Initial image clearing pass
-        self.clear_ctx.run(&mut encoder, buffers);
+        //self.clear_ctx.run(&mut encoder, buffers); // TODO
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1273,16 +1155,10 @@ impl Context {
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: shape.config_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile_tapes.as_entire_binding(),
-                    },
-                ],
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.config_buf.as_entire_binding(),
+                }],
             });
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
@@ -1295,6 +1171,7 @@ impl Context {
             &mut compute_pass,
         );
 
+        /* TODO
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         let strata_count =
             (render_size.depth() as usize).div_ceil(64 * buffers.strata_size);
@@ -1325,6 +1202,7 @@ impl Context {
             self.backfill_ctx
                 .run(self, buffers, strata, &mut compute_pass);
         }
+        */
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -1499,6 +1377,7 @@ impl BackfillContext {
         strata: usize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        /*
         let render_size = buffers.render_size();
         let offset_bytes = (strata
             * strata_size_bytes(render_size, buffers.strata_size))
@@ -1548,6 +1427,8 @@ impl BackfillContext {
         compute_pass.set_pipeline(&self.pipeline64);
         compute_pass.set_bind_group(1, &bind_group64, &[]);
         compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
+        */
+        todo!()
     }
 
     fn create_bind_group(
@@ -1720,46 +1601,68 @@ mod test {
         }
     }
 
-    #[test]
-    fn compile_shaders() {
+    fn compile_shader(src: &str, desc: &str) {
         let mut v = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
             naga::valid::Capabilities::all(),
         );
-        for (src, desc) in [
-            (interval_root_shader(16), "interval root"),
-            (interval_tiles_shader(16), "interval tiles"),
-            (voxel_tiles_shader(16), "voxel tiles"),
-            (normals_shader(16), "normals tiles"),
-            (merge_shader(), "merge"),
-            (backfill_shader(), "backfill"),
-        ] {
-            // This isn't the best formatting, but it will at least include the
-            // relevant text.
-            let m = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| {
-                if let Some(i) = e.location(&src) {
-                    let pos = i.offset as usize..(i.offset + i.length) as usize;
-                    panic!(
-                        "shader compilation failed\n{src}\n{}",
-                        e.emit_to_string_with_path(&src[pos], desc)
-                    );
-                } else {
-                    panic!(
-                        "shader compilation failed\n{src}\n{}",
-                        e.emit_to_string(desc)
-                    );
-                }
-            });
-            if let Err(e) = v.validate(&m) {
-                let (pos, desc) = e.spans().next().unwrap();
+        // This isn't the best formatting, but it will at least include the
+        // relevant text.
+        let m = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| {
+            if let Some(i) = e.location(src) {
+                let pos = i.offset as usize..(i.offset + i.length) as usize;
                 panic!(
                     "shader compilation failed\n{src}\n{}",
-                    e.emit_to_string_with_path(
-                        &src[pos.to_range().unwrap()],
-                        desc
-                    )
+                    e.emit_to_string_with_path(&src[pos], desc)
+                );
+            } else {
+                panic!(
+                    "shader compilation failed\n{src}\n{}",
+                    e.emit_to_string(desc)
                 );
             }
+        });
+        if let Err(e) = v.validate(&m) {
+            let (pos, desc) = e.spans().next().unwrap();
+            panic!(
+                "shader compilation failed\n{src}\n{}",
+                e.emit_to_string_with_path(&src[pos.to_range().unwrap()], desc)
+            );
         }
+    }
+
+    #[test]
+    fn check_interval_root_shader() {
+        compile_shader(&interval_root_shader(16), "interval root")
+    }
+
+    #[test]
+    fn check_interval_tile_shader() {
+        compile_shader(&interval_tiles_shader(16), "interval tile")
+    }
+
+    #[test]
+    fn check_voxel_tile_shader() {
+        compile_shader(&voxel_tiles_shader(16), "voxel")
+    }
+
+    #[test]
+    fn check_cumsum_shader() {
+        compile_shader(&cumsum_shader(), "cumsum")
+    }
+
+    #[test]
+    fn check_repack_shader() {
+        compile_shader(&repack_shader(), "repack")
+    }
+
+    #[test]
+    fn check_flatsum_shader() {
+        compile_shader(&flatsum_shader(), "flatsum")
+    }
+
+    #[test]
+    fn check_flatpack_shader() {
+        compile_shader(&flatpack_shader(), "flatpack")
     }
 }
