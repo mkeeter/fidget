@@ -1743,6 +1743,7 @@ dependencies = [
  "log",
  "naga 26.0.0",
  "nalgebra",
+ "pollster",
  "strum",
  "thiserror 2.0.18",
  "wgpu 27.0.1",
