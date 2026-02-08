@@ -9,6 +9,7 @@
     - Remove separate opcodes, e.g. `SubRegReg`, `SubRegImm`, and `SubImmReg`
       now all generate `BytecodeOp::Sub` (using the reserved register as needed
       for immediates).
+- Add `PartialEq` for `GeometryPixel`
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
