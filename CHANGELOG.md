@@ -4,6 +4,12 @@
 - Bumped many dependencies
 - Add `Image::build` function to build an image from a `Vec<T>` and
   `ImageSizeLike`, returning an error if the data size is incorrect.
+- Revamping `fidget-bytecode`
+    - Reserve register `u8::MAX` to represent an inline immediate
+    - Remove separate opcodes, e.g. `SubRegReg`, `SubRegImm`, and `SubImmReg`
+      now all generate `BytecodeOp::Sub` (using the reserved register as needed
+      for immediates).
+    - This also removes the `enum RegOpDiscriminants` from `fidget_core`
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
