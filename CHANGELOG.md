@@ -10,6 +10,7 @@
       now all generate `BytecodeOp::Sub` (using the reserved register as needed
       for immediates).
     - This also removes the `enum RegOpDiscriminants` from `fidget_core`
+- Add `PartialEq` for `GeometryPixel`
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
