@@ -434,9 +434,7 @@ impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
 ///
 /// This type can be passed directly in a buffer to the GPU.
 #[repr(C)]
-#[derive(
-    Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable, PartialEq,
-)]
+#[derive(Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable)]
 pub struct GeometryPixel {
     /// Z position of this pixel, in voxel units
     ///

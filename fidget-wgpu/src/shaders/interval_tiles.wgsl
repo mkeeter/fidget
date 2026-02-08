@@ -3,12 +3,15 @@
 // This must be combined with opcode definitions and the generic interpreter
 // from `tape_interpreter.wgsl`
 
-/// Per-state IO bindings
-@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
-@group(1) @binding(1) var<storage, read> tile_zmin: array<u32>;
+@group(1) @binding(0) var<storage, read_write> dispatch_counter: array<u32>;
+@group(1) @binding(1) var<storage, read> tiles_in: TileListInput;
+@group(1) @binding(2) var<storage, read> tile_zmin: array<Voxel>;
 
-@group(1) @binding(2) var<storage, read_write> subtiles_out: TileListOutput;
-@group(1) @binding(3) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
+@group(1) @binding(3) var<storage, read_write> tape_data: TapeData;
+
+@group(1) @binding(4) var<storage, read_write> subtiles_out: TileListOutput;
+@group(1) @binding(5) var<storage, read_write> subtile_zmin: array<Voxel>;
+@group(1) @binding(6) var<storage, read_write> subtile_hist: array<atomic<u32>>;
 
 /// Input tile size; one input tile maps to a 4x4x4 workgroup
 override TILE_SIZE: u32;
@@ -19,14 +22,30 @@ override SUBTILE_SIZE: u32;
 @compute @workgroup_size(4, 4, 4)
 fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u
+    @builtin(num_workgroups) num_workgroups: vec3u,
+    @builtin(local_invocation_id) local_id: vec3u,
 ) {
-    // Tile index is packed into two words of the workgroup ID, due to dispatch
-    // size limits on any single dimension.  This means that it's possible to
-    // have more dispatches than active tiles.
-    let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
-    if active_tile_index >= tiles_in.count {
-        return;
+    // Handle the dispatch counter update.  In theory, we just need a single
+    // counter; in practice, we need one per workgroup because we can't do
+    // global synchronization of the update.
+    //
+    // We know that each dispatch is of size `max_tiles_per_dispatch` except the
+    // final one, so this gives us a tile index to process (which is the global
+    // dispatch offset plus a workgroups-specific offset).
+    var workgroup_index = workgroup_id.x; // always 1D
+    let tile_in_index = workgroup_index +
+        dispatch_counter[workgroup_index] * config.max_tiles_per_dispatch;
+    workgroupBarrier();
+
+    // Updating the counter is only done by thread 0 in the workgroup.
+    if local_id.x == 0 && local_id.y == 0 && local_id.z == 0 {
+        // If this dispatch finishes processing all tiles, then reset the
+        // counter to prepare for the next pass.
+        if tile_in_index + num_workgroups.x >= tiles_in.count {
+            dispatch_counter[workgroup_index] = 0u;
+        } else {
+            dispatch_counter[workgroup_index] += 1u;
+        }
     }
 
     // Convert to a size in tile units
@@ -34,11 +53,12 @@ fn interval_tile_main(
     let size_tiles = size64 * (64 / TILE_SIZE);
     let size_subtiles = size_tiles * 4u;
 
-    // Get global tile position, in tile coordinates.  The top bit indicates
-    // that the tile is filled.
-    let t_raw = tiles_in.active_tiles[active_tile_index];
-    let t_filled = (t_raw & (1 << 31u)) != 0;
-    let t = t_raw & 0x7FFFFFFF;
+    // Get global tile position, in tile coordinates.
+    if tile_in_index >= tiles_in.count {
+        return;
+    }
+    let tile = tiles_in.active_tiles[tile_in_index];
+    let t = tile.tile;
     let tx = t % size_tiles.x;
     let ty = (t / size_tiles.x) % size_tiles.y;
     let tz = (t / (size_tiles.x * size_tiles.y)) % size_tiles.z;
@@ -47,27 +67,21 @@ fn interval_tile_main(
     // Subtile corner position
     let subtile_corner = tile_corner * 4 + local_id;
     let subtile_index_xy = subtile_corner.x + subtile_corner.y * size_subtiles.x;
+    let subtile_index_xyz = subtile_index_xy + subtile_corner.z * size_subtiles.x * size_subtiles.y;
 
     // Subtile corner position, in voxels
     let corner_pos = subtile_corner * SUBTILE_SIZE;
 
-    // Special handling for uniformly filled tiles
-    if t_filled {
-        // Snap down to the larger tile size
-        let z = (corner_pos.z / TILE_SIZE) * TILE_SIZE;
-        atomicMax(&subtile_zmin[subtile_index_xy], z + TILE_SIZE - 1);
-        return;
-    }
-
-    // Check for Z masking from tile
+    // Check for Z masking from parent tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
-    if tile_zmin[tile_index_xy] >= corner_pos.z + SUBTILE_SIZE {
-        atomicMax(&subtile_zmin[subtile_index_xy], tile_zmin[tile_index_xy]);
+    let tile_value = tile_zmin[tile_index_xy].value;
+    if (tile_value >> 20) >= corner_pos.z + SUBTILE_SIZE - 1 {
+        atomicMax(&subtile_zmin[subtile_index_xy].value, tile_value);
         return;
     }
 
     // Last-minute check to see if anyone filled out this tile
-    if atomicLoad(&subtile_zmin[subtile_index_xy]) >= corner_pos.z + SUBTILE_SIZE {
+    if (atomicLoad(&subtile_zmin[subtile_index_xy].value) >> 20) >= corner_pos.z + SUBTILE_SIZE {
         return;
     }
 
@@ -76,48 +90,32 @@ fn interval_tile_main(
 
     // Do the actual interpreter work
     var stack = Stack();
-    let tape_offset = get_tape_offset_for_level(corner_pos, TILE_SIZE);
-    var tape_start = tile_tape[tape_offset] & TILE_TAPE_MASK;
+    var tape_start = tile.tape_index;
     let out = run_tape(tape_start, m, &stack);
 
     let v = out.value.v;
-    if v[1] < 0.0 {
-        // Full, write to subtile_zmin but don't return yet (because we want to
-        // store a simplified tape for normal evaluation)
-        atomicMax(&subtile_zmin[subtile_index_xy], corner_pos.z + SUBTILE_SIZE - 1);
-    } else if v[0] > 0.0 {
-        return;
-        // Empty, nothing to do here
-    } else {
-        // Push this subtile to the output list
-        let offset = atomicAdd(&subtiles_out.count, 1u);
-        let subtile_index_xyz = subtile_corner.x +
-            (subtile_corner.y * size_subtiles.x) +
-            (subtile_corner.z * size_subtiles.x * size_subtiles.y);
-        subtiles_out.active_tiles[offset] = subtile_index_xyz;
 
-        // Update the indirect dispatch count
-        let count = offset + 1u;
-        let wg_dispatch_x = min(count, 32768u);
-        let wg_dispatch_y = (count + 32767u) / 32768u;
-        atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
-        atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
-        atomicMax(&subtiles_out.wg_size[2], 1u);
+    // If the tile is completely empty, then we're done!
+    if v[0] > 0.0 {
+        return;
     }
 
     let next = simplify_tape(out.pos, out.count, &stack);
     if next != 0 {
         tape_start = next;
     }
-    let next_tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
-    tile_tape[next_tape_offset] = tape_start | ((corner_pos.z / SUBTILE_SIZE) << TILE_TAPE_STRATA_SHIFT);
-}
 
-/// Allocates a new chunk, returning a past-the-end pointer
-fn alloc(chunk_size: u32) -> u32 {
-    return atomicAdd(&config.tape_data_offset, chunk_size);
-}
-
-fn dealloc(chunk_size: u32) {
-    atomicSub(&config.tape_data_offset, chunk_size);
+    if v[1] < 0.0 {
+        // Full, write to subtile_zmin but don't return yet (because we want to
+        // store a simplified tape for normal evaluation)
+        // CAS loop, see interval_root for details
+        let new_z = corner_pos.z + SUBTILE_SIZE - 1;
+        let new_value = (new_z << 20) | tape_start; // XXX handle overflow?
+        atomicMax(&subtile_zmin[subtile_index_xy].value, new_value);
+    } else {
+        // Otherwise, enqueue the tile and add its Z position to the histogram
+        let offset = atomicAdd(&subtiles_out.count, 1u);
+        subtiles_out.tiles[offset] = ActiveTile(subtile_index_xyz, tape_start);
+        atomicAdd(&subtile_hist[subtile_corner.z], 1);
+    }
 }

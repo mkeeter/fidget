@@ -1,4 +1,4 @@
-/// Number of `TapeWord` objects (u32 x 2) to allocate for each tape chunk
+/// Number of TapeWord objects (u32 x 2) to allocate for each tape chunk
 const CHUNK_SIZE: u32 = 64;
 
 fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
@@ -11,7 +11,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
     let chunk_size = min(tape_len, CHUNK_SIZE);
     var chunk_start = alloc(chunk_size);
     var j = chunk_start + chunk_size;
-    if j > config.tape_data_capacity {
+    if j > tape_data.capacity {
         dealloc(chunk_size);
         return 0u;
     }
@@ -21,16 +21,16 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         i = i - 1;
         j = j - 1; // reserve space
 
-        let word = config.tape_data[i];
+        let word = tape_data.data[i];
         var op = unpack4xU8(word.op);
         let imm_u = word.imm;
 
         if op[0] == OP_JUMP {
             if imm_u == 0xFFFFFFFFu {
-                config.tape_data[j] = TapeWord(OP_JUMP, 0xFFFFFFFFu);
+                tape_data.data[j] = TapeWord(OP_JUMP, 0xFFFFFFFFu);
                 continue;
             } else if imm_u == 0u {
-                config.tape_data[j] = TapeWord(OP_JUMP, 0);
+                tape_data.data[j] = TapeWord(OP_JUMP, 0);
                 return j;
             } else {
                 // Jump to a new tape position
@@ -44,12 +44,12 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         if j == chunk_start {
             chunk_start = alloc(chunk_size);
             let nj = chunk_start + chunk_size - 1;
-            if nj >= config.tape_data_capacity {
+            if nj >= tape_data.capacity {
                 dealloc(chunk_size);
                 return 0u;
             }
-            config.tape_data[j] = TapeWord(OP_JUMP, nj - 1);
-            config.tape_data[nj] = TapeWord(OP_JUMP, j + 1);
+            tape_data.data[j] = TapeWord(OP_JUMP, nj - 1);
+            tape_data.data[nj] = TapeWord(OP_JUMP, j + 1);
             j = nj - 1;
         }
 
@@ -176,7 +176,17 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         }
 
         // Write the simplified expression back to the new tape
-        config.tape_data[j] = TapeWord(pack4xU8(op), imm_u);
+        tape_data.data[j] = TapeWord(pack4xU8(op), imm_u);
     }
     return 0u; // invalid
+}
+
+/// Allocates a new chunk, returning the start of the chunk
+fn alloc(chunk_size: u32) -> u32 {
+    return atomicAdd(&tape_data.offset, chunk_size) + tape_data.base_len;
+}
+
+/// Undo an allocation
+fn dealloc(chunk_size: u32) {
+    atomicSub(&tape_data.offset, chunk_size);
 }

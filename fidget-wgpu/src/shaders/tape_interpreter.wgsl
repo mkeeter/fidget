@@ -1,3 +1,26 @@
+struct TapeData {
+    /// Offset of the first free word in `data`
+    ///
+    /// This must be initialized based on tape length
+    offset: atomic<u32>,
+
+    /// Original tape length (an additional offset)
+    base_len: u32,
+
+    /// Total capacity of `data` (in words)
+    capacity: u32,
+
+    /// Flexible array member of tape data
+    ///
+    /// The first valid tape (at index 0) must be the root tape
+    data: array<TapeWord>,
+}
+
+struct TapeWord {
+    op: u32,
+    imm: u32,
+}
+
 const OP_JUMP: u32 = 0xFF;
 
 // Transform inputs with `config.mat`
@@ -46,7 +69,7 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
     var out = TapeResult(build_imm(nan_f32()), 0, 0);
     while true {
         count += 1;
-        let word = config.tape_data[i];
+        let word = tape_data.data[i];
         let op = unpack4xU8(word.op);
         let rhs_i = op[3];
         let lhs_i = op[2];

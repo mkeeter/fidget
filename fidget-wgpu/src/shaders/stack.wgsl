@@ -1,5 +1,4 @@
 const STACK_SIZE_WORDS: u32 = 32; // number of u32 words in the stack
-const STACK_SIZE_BITS: u32 = STACK_SIZE_WORDS * 32u;
 const STACK_SIZE_ITEMS: u32 = STACK_SIZE_WORDS * 16u;
 
 const CHOICE_LEFT: u32 = 1;
@@ -9,8 +8,8 @@ const CHOICE_BOTH: u32 = 3;
 // Lossy stack, which expects a set of pushes followed by a set of pops
 // (mixing pushes and pops is not allowed)
 struct Stack {
-    /// Current bitwise offset in the stack
-    offset: u32,
+    /// Current item index in the stack (unwrapped)
+    index: u32,
 
     /// Number of items stored in the stack, (saturating at STACK_SIZE_ITEMS)
     valid_count: u32,
@@ -24,8 +23,8 @@ struct Stack {
 
 // Pushes a value to the stack, wrapping on overflow
 fn stack_push(s: ptr<function, Stack>, v: u32) {
-    let word_offset = s.offset % 32u;
-    let word_index = s.offset / 32u;
+    let word_offset = (s.index % 16u) * 2; // bit position
+    let word_index = (s.index / 16u) % STACK_SIZE_WORDS;
 
     let mask = 3u << word_offset;
     s.data[word_index] &= ~mask;
@@ -33,7 +32,7 @@ fn stack_push(s: ptr<function, Stack>, v: u32) {
 
     s.has_choice |= (v == CHOICE_LEFT) || (v == CHOICE_RIGHT);
 
-    s.offset = (s.offset + 2u) % STACK_SIZE_BITS;
+    s.index += 1;
     s.valid_count = min(s.valid_count + 1, STACK_SIZE_ITEMS);
 }
 
@@ -44,9 +43,9 @@ fn stack_pop(s: ptr<function, Stack>) -> u32 {
     }
     s.valid_count -= 1;
 
-    s.offset = (s.offset + STACK_SIZE_BITS - 2u) % STACK_SIZE_BITS;
-    let word_offset = s.offset % 32u;
-    let word_index = s.offset / 32u;
+    s.index -= 1;
+    let word_offset = (s.index % 16u) * 2; // bit position
+    let word_index = (s.index / 16u) % STACK_SIZE_WORDS;
 
     return (s.data[word_index] >> word_offset) & 3u;
 }
