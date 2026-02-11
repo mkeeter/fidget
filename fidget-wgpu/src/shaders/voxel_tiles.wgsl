@@ -13,10 +13,8 @@ fn voxel_ray_main(
     @builtin(num_workgroups) num_workgroups: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
 ) {
-    var tile_index = workgroup_id.x +
-        workgroup_id.y * (num_workgroups.x * 4u) +
-        workgroup_id.z * (num_workgroups.x * 4u) * (num_workgroups.y * 4u);
-    let stride = num_workgroups.x * num_workgroups.y * num_workgroups.z;
+    var tile_index = workgroup_id.x; // always a 1D dispatch
+    let stride = num_workgroups.x;
 
     // Convert to a size in tile units
     let size64 = config.render_size / 64;

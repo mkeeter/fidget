@@ -4,7 +4,7 @@
 @group(1) @binding(2) var<storage, read_write> dispatch: VoxelDispatch;
 
 const TILE_SIZE: u32 = 4;
-override MAX_TILES_PER_DISPATCH: u32;
+override MAX_DISPATCH: u32;
 
 /// Dispatched with one workgroup (PEAK EFFICIENCY)
 @compute @workgroup_size(1, 1, 1)
@@ -26,9 +26,6 @@ fn flatsum_main() {
 }
 
 fn plan_dispatch(count: u32) -> VoxelDispatch {
-    let n = min(count, MAX_TILES_PER_DISPATCH);
-    return VoxelDispatch(
-        vec3u(min(n, 32768u), (n + 32767u) / 32768u, 1u),
-        count,
-    );
+    let n = min(count, MAX_DISPATCH);
+    return VoxelDispatch(vec3u(n, 1u, 1u), count);
 }

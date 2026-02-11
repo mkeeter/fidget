@@ -4,7 +4,7 @@
 @group(1) @binding(2) var<storage, read_write> dispatch: array<Dispatch>;
 
 override TILE_SIZE: u32;
-override MAX_TILES_PER_DISPATCH: u32;
+override MAX_DISPATCH: u32;
 
 /// Dispatched with one workgroup (PEAK EFFICIENCY)
 @compute @workgroup_size(1, 1, 1)
@@ -16,7 +16,7 @@ fn cumsum_main() {
     for (var i = 0u; i < size_tiles.z; i += 1) {
         let z = size_tiles.z - i - 1;
         tile_z_to_dispatch[z] = d;
-        if (cumsum + tiles_hist[z] > MAX_TILES_PER_DISPATCH) {
+        if (cumsum + tiles_hist[z] > MAX_DISPATCH) {
             dispatch[d] = plan_dispatch(cumsum, buffer_offset);
             d += 1;
             buffer_offset += cumsum;
@@ -39,9 +39,6 @@ fn cumsum_main() {
 }
 
 fn plan_dispatch(count: u32, buffer_offset: u32) -> Dispatch {
-    return Dispatch(
-        vec3u(min(count, 32768u), (count + 32767u) / 32768u, 1u),
-        count,
-        buffer_offset
-    );
+    let n = min(count, MAX_DISPATCH);
+    return Dispatch(vec3u(n, 1u, 1u), count, buffer_offset);
 }

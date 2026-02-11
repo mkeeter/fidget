@@ -25,3 +25,6 @@ strum.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 zerocopy.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true

@@ -3,7 +3,7 @@
 @group(1) @binding(2) var<storage, read> dispatch: array<Dispatch>;
 
 /// Scratch buffer used to pack tiles
-@group(1) @binding(3) var<storage, read_write> tile_count: array<atomic<u32>>;
+@group(1) @binding(3) var<storage, read_write> z_scratch: array<atomic<u32>>;
 
 /// Sorted output list of tiles
 @group(1) @binding(4) var<storage, read_write> tiles_out: array<ActiveTile>;
@@ -26,6 +26,6 @@ fn repack_main(
     let z = t.tile / (size_tiles.x * size_tiles.y);
     var d = tile_z_to_dispatch[z];
     let buffer_offset = dispatch[d].buffer_offset;
-    let count = atomicAdd(&tile_count[d], 1u);
+    let count = atomicAdd(&z_scratch[d], 1u);
     tiles_out[buffer_offset + count] = t;
 }
