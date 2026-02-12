@@ -376,6 +376,7 @@ impl RegPipeline {
     }
 }
 
+/// Root context, which produces a list of 64^3 tiles
 struct RootContext {
     /// Pipelines for 64^3 tile evaluation
     root_pipeline: RegPipeline,
@@ -655,18 +656,16 @@ impl<const N: usize> RepackContext<N> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct IntervalContext {
-    /// Pipeline for 64^3 -> 16^3 tile evaluation
-    interval64_pipeline: RegPipeline,
-
-    /// Pipeline for 16^3 -> 4^3 tile evaluation
-    interval16_pipeline: RegPipeline,
-
-    /// Bind group layout (same for both pipelines)
+/// Single-stage interval evaluation context
+///
+/// This pipeline accepts a list of tiles of size `(N * 4)^3` and produces tiles
+/// of size `N^3`.
+struct IntervalContext<const N: usize> {
+    interval_pipeline: RegPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
-impl IntervalContext {
+impl<const N: usize> IntervalContext<N> {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
@@ -676,10 +675,14 @@ impl IntervalContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0), // tiles_in
-                    buffer_ro(1), // tile_zmin
-                    buffer_rw(2), // subtiles_out
-                    buffer_rw(3), // subtile_zmin
+                    buffer_rw(0), // dispatch_count
+                    buffer_ro(1), // dispatch
+                    buffer_ro(2), // tiles_in
+                    buffer_ro(3), // tile_zmin
+                    buffer_rw(4), // tape_data
+                    buffer_rw(5), // subtiles_out
+                    buffer_rw(6), // subtiles_zmin
+                    buffer_rw(7), // subtiles_hist
                 ],
             });
 
@@ -693,7 +696,7 @@ impl IntervalContext {
                 push_constant_ranges: &[],
             });
 
-        let interval64_pipeline = RegPipeline::build(|reg_count| {
+        let interval_pipeline = RegPipeline::build(|reg_count| {
             let shader_code = interval_tiles_shader(reg_count);
             // SAFETY: the shader is carefully written
             let shader_module = unsafe {
@@ -714,35 +717,10 @@ impl IntervalContext {
                 module: &shader_module,
                 entry_point: Some("interval_tile_main"),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("TILE_SIZE", 64.0), ("SUBTILE_SIZE", 16.0)],
-                    ..Default::default()
-                },
-                cache: None,
-            })
-        });
-
-        let interval16_pipeline = RegPipeline::build(|reg_count| {
-            let shader_code = interval_tiles_shader(reg_count);
-            // SAFETY: the shader is carefully written
-            let shader_module = unsafe {
-                device.create_shader_module_trusted(
-                    wgpu::ShaderModuleDescriptor {
-                        label: None,
-                        source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-                    },
-                    wgpu::ShaderRuntimeChecks {
-                        bounds_checks: false,
-                        force_loop_bounding: false,
-                    },
-                )
-            };
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(&format!("interval16 ({reg_count})")),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("interval_tile_main"),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("TILE_SIZE", 16.0), ("SUBTILE_SIZE", 4.0)],
+                    constants: &[
+                        ("TILE_SIZE", N as f64 * 4.0),
+                        ("SUBTILE_SIZE", N as f64),
+                    ],
                     ..Default::default()
                 },
                 cache: None,
@@ -751,15 +729,20 @@ impl IntervalContext {
 
         Self {
             bind_group_layout,
-            interval64_pipeline,
-            interval16_pipeline,
+            interval_pipeline,
         }
     }
 
-    fn run(&self) {
-        todo!()
-        /*
-        let offset_bytes = (strata * buffers.strata_size_bytes()) as u64;
+    fn run<const M: usize>(
+        &self,
+        ctx: &Context,
+        shape: &RenderShape,
+        tiles_in: &TileBuffers<M>,
+        tiles_out: &TileBuffers<N>,
+        dispatch: usize,
+        compute_pass: &mut wgpu::ComputePass,
+    ) {
+        assert_eq!(N * 4, M);
         let bind_group16 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -767,58 +750,44 @@ impl IntervalContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers
-                            .tile64
-                            .tiles
-                            .slice(offset_bytes..)
-                            .into(),
+                        resource: tiles_in.dispatch_count.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.tile64.zmin.as_entire_binding(),
+                        resource: tiles_in.dispatch.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile16.tiles.as_entire_binding(),
+                        resource: tiles_in.sorted.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: buffers.tile16.zmin.as_entire_binding(),
+                        resource: tiles_in.zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: shape.tape_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: tiles_out.out.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: tiles_out.zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: tiles_out.hist.as_entire_binding(),
                     },
                 ],
             });
-        compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
+        compute_pass.set_pipeline(self.interval_pipeline.get(shape.reg_count));
         compute_pass.set_bind_group(1, &bind_group16, &[]);
-        compute_pass
-            .dispatch_workgroups_indirect(&buffers.tile64.tiles, offset_bytes);
-
-        let bind_group4 =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile16.tiles.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile16.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.tile4.tiles.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffers.tile4.zmin.as_entire_binding(),
-                    },
-                ],
-            });
-        compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
-        compute_pass.set_bind_group(1, &bind_group4, &[]);
-        compute_pass.dispatch_workgroups_indirect(&buffers.tile16.tiles, 0);
-        */
+        compute_pass.dispatch_workgroups_indirect(
+            &tiles_in.dispatch,
+            (dispatch * std::mem::size_of::<Dispatch>()) as u64,
+        );
     }
 }
 
@@ -1043,6 +1012,8 @@ pub struct Context {
     /// Cumulative sum and repacking into dispatches
     repack64_ctx: RepackContext<64>,
 
+    interval16_ctx: IntervalContext<16>,
+
     /// Context for clearing buffers
     clear_ctx: ClearContext,
 }
@@ -1052,6 +1023,9 @@ pub struct Context {
 struct TileBuffers<const N: usize> {
     /// Maximum number of output tiles that can be stored in these buffers
     max_tile_count: usize,
+
+    /// Maximum number of dispatches that can be planned by this stage
+    max_dispatch_count: usize,
 
     /// Unsorted `ActiveTile` list
     ///
@@ -1074,6 +1048,11 @@ struct TileBuffers<const N: usize> {
     /// The maximum number of dispatches depends on `N` and the render size
     dispatch: wgpu::Buffer,
 
+    /// Array of counters to keep track of which dispatch we're on
+    ///
+    /// There should be one `u32` here for each workgroup
+    dispatch_count: wgpu::Buffer,
+
     /// Scratch array for sorting tiles (one `u32` per `render_size.x / N`)
     z_scratch: wgpu::Buffer,
 
@@ -1092,7 +1071,7 @@ impl<const N: usize> TileBuffers<N> {
     fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
         let nx = render_size.width() as usize / N;
         let ny = render_size.height() as usize / N;
-        let nz = render_size.depth() as usize / N; // XXX wrong for later sizes
+        let nz = render_size.depth() as usize / N;
 
         let max_tile_count = match N {
             64 => nx * ny * nz,
@@ -1101,7 +1080,7 @@ impl<const N: usize> TileBuffers<N> {
             _ => panic!("invalid tile size {N}"),
         };
         // XXX is this right?
-        let dispatch_count = max_tile_count.div_ceil(MAX_DISPATCH as usize);
+        let max_dispatch_count = max_tile_count.div_ceil(MAX_DISPATCH as usize);
 
         let out = new_buffer::<u32>(
             device,
@@ -1138,8 +1117,14 @@ impl<const N: usize> TileBuffers<N> {
         );
         let dispatch = new_buffer::<Dispatch>(
             device,
-            format!("tile{N}_dispatch"),
-            dispatch_count,
+            format!("dispatch{N}"),
+            max_dispatch_count,
+            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+        );
+        let dispatch_count = new_buffer::<u32>(
+            device,
+            format!("dispatch_count{N}"),
+            MAX_DISPATCH as usize,
             wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
         );
         let sorted = new_buffer::<ActiveTile>(
@@ -1150,10 +1135,12 @@ impl<const N: usize> TileBuffers<N> {
         );
         Self {
             max_tile_count,
+            max_dispatch_count,
             out,
             hist, // TODO merge this and zmin?
             zmin,
             dispatch,
+            dispatch_count,
             z_scratch,
             z_to_dispatch,
             sorted,
@@ -1239,6 +1226,9 @@ pub struct Buffers {
     /// Buffers for the 64^3 pass
     tile64: TileBuffers<64>,
 
+    /// Buffers for the 64^3 pass
+    tile16: TileBuffers<16>,
+
     /// Buffer of `GeometryPixel` equivalent data, generated by the normal pass
     geom: wgpu::Buffer,
 
@@ -1266,10 +1256,12 @@ impl Buffers {
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
         let tile64 = TileBuffers::new(device, render_size);
+        let tile16 = TileBuffers::new(device, render_size);
 
         Self {
             image_size,
             tile64,
+            tile16,
             geom,
             image,
         }
@@ -1311,6 +1303,8 @@ impl Context {
         let root_ctx = RootContext::new(&device, &common_bind_group_layout);
         let repack64_ctx =
             RepackContext::new(&device, &common_bind_group_layout);
+        let interval16_ctx =
+            IntervalContext::new(&device, &common_bind_group_layout);
 
         Self {
             device,
@@ -1321,6 +1315,7 @@ impl Context {
             clear_ctx,
             root_ctx,
             repack64_ctx,
+            interval16_ctx,
         }
     }
 
@@ -1448,6 +1443,18 @@ impl Context {
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(self, shape, buffers, &mut compute_pass);
+        self.repack64_ctx
+            .run(self, &buffers.tile64, &mut compute_pass);
+        for i in 0..buffers.tile64.max_dispatch_count {
+            self.interval16_ctx.run(
+                self,
+                shape,
+                &buffers.tile64,
+                &buffers.tile16,
+                i,
+                &mut compute_pass,
+            );
+        }
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -1913,6 +1920,29 @@ mod test {
 
     #[test]
     fn plan() {
+        // XXX here's some thoughts
+        //
+        // - Each dispatch of an interval stage can generate some maximum number
+        //   of tiles
+        //     - The root dispatch can generate nx * ny * nz tiles
+        //     - Subsequent dispatches can generate a number of tiles based on
+        //       the previous stage
+        // - These tiles will be split into one-or-more dispatches for the
+        //   subsequent stage
+        //   - If # of tiles < MAX_DISPATCH tiles, then the next stage will only
+        //     do a single dispatch – which can produce 64x more tiles
+        //   - Otherwise, the next stage will perform
+        //     `tile_count.div_ceil(MAX_DISPATCH)` dispatches, and each dispatch
+        //     will produce 64x MAX_DISPATCH tiles
+        //
+        //  NEW PLAN
+        //  just sort Z tiles, then plan maximal dispatches (no looping)
+        //  need to generate 3 plans per dispatch
+        //      tile evaluation (num_workgrups, 1, 1)
+        //      cumsum (1, 1, 1)
+        //      repack (tile_count, 1, 1)
+        //  each of these should be written to (0, 0, 0) if the dispatch should
+        //  be skipped
         fn print_plan(r: RenderSize) {
             println!(
                 "Rendering [{}, {}, {}] voxels",
@@ -2108,6 +2138,7 @@ mod test {
             //  x = [31, 32]
             //  y = 0..64
             //  z= 0..64
+            assert_eq!(buffers.tile64.max_dispatch_count, 1);
         }
 
         #[test]
