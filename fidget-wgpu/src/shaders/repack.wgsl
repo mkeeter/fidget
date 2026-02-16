@@ -1,12 +1,14 @@
 @group(1) @binding(0) var<storage, read> tiles: TileListInput;
 @group(1) @binding(1) var<storage, read> tile_z_to_offset: array<u32>;
-@group(1) @binding(2) var<storage, read> dispatch: array<Dispatch>;
 
 /// Scratch buffer used to pack tiles
-@group(1) @binding(3) var<storage, read_write> z_scratch: array<atomic<u32>>;
+///
+/// This is the same buffer as the Z histogram shader, which we subtract from to
+/// get back down to 0
+@group(1) @binding(2) var<storage, read_write> z_hist: array<atomic<u32>>;
 
 /// Sorted output list of tiles
-@group(1) @binding(4) var<storage, read_write> tiles_out: array<ActiveTile>;
+@group(1) @binding(3) var<storage, read_write> tiles_out: array<ActiveTile>;
 
 override TILE_SIZE: u32;
 
@@ -25,6 +27,6 @@ fn repack_main(
     let t = tiles.active_tiles[global_id.x];
     let z = t.tile / (size_tiles.x * size_tiles.y);
     var buffer_offset = tile_z_to_offset[z];
-    let count = atomicAdd(&z_scratch[z], 1u);
+    let count = atomicSub(&z_hist[z], 1u) - 1;
     tiles_out[buffer_offset + count] = t;
 }

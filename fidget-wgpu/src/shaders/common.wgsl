@@ -66,21 +66,11 @@ struct ActiveTile {
 struct Dispatch {
     /// Indirect dispatch size
     wg_dispatch: vec3u,
-    /// Number of tiles actually in this dispatch
-    tile_count: u32,
-    /// Offset of the first tile in the `tiles_out` buffer
-    buffer_offset: u32,
-}
-
-/// Indirect dispatch plan for voxel dispatch
-struct VoxelDispatch {
-    /// Indirect dispatch size
-    wg_dispatch: vec3u,
 
     /// Number of tiles actually in this dispatch
     ///
-    /// Note that `wg_dispatch` may dispatch fewer workgroups than `tile_count`,
-    /// because the voxel shader loops over tiles.
+    /// Note that `wg_dispatch` may dispatch fewer workgroups than `tile_count`
+    /// when used in the voxel shader, because that shader loops over tiles.
     tile_count: u32,
 }
 

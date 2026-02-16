@@ -20,6 +20,11 @@ override TILE_SIZE: u32;
 /// Output tile size, must be TILE_SIZE / 4; one output tile maps to one thread
 override SUBTILE_SIZE: u32;
 
+/// Number of workgroups per dispatch of this kernel
+///
+/// This is multiplied with the dispatch counter to find the offset
+override MAX_TILES_PER_DISPATCH: u32;
+
 @compute @workgroup_size(4, 4, 4)
 fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
@@ -43,102 +48,98 @@ fn interval_tile_main(
     }
     workgroupBarrier();
 
+    // At this point, we know our dispatch number.  All dispatches are of size
+    // MAX_TILES_PER_DISPATCH except the last one.  TODO: store a count in
+    // `tiles_in` so we don't need the `dispatch` buffer?
+
     // Convert to a size in tile units
     let size64 = config.render_size / 64;
     let size_tiles = size64 * (64 / TILE_SIZE);
     let size_subtiles = size_tiles * 4u;
 
-    // It's possible to have more tiles than workgroups, in which case the
-    // kernel loops over them.
-    let stride = num_workgroups.x;
-    while workgroup_index < dispatch[d].tile_count {
-        // Get global tile position, in tile coordinates.  The top bit indicates
-        // that the tile is filled.
-        let tile = tiles_in[dispatch[d].buffer_offset + workgroup_index];
-        workgroup_index += stride;
-        let t = tile.tile;
-        let tx = t % size_tiles.x;
-        let ty = (t / size_tiles.x) % size_tiles.y;
-        let tz = (t / (size_tiles.x * size_tiles.y)) % size_tiles.z;
-        let tile_corner = vec3u(tx, ty, tz);
+    // Get global tile position, in tile coordinates.
+    let tile = tiles_in[workgroup_index + d * MAX_TILES_PER_DISPATCH];
+    let t = tile.tile;
+    let tx = t % size_tiles.x;
+    let ty = (t / size_tiles.x) % size_tiles.y;
+    let tz = (t / (size_tiles.x * size_tiles.y)) % size_tiles.z;
+    let tile_corner = vec3u(tx, ty, tz);
 
-        // Subtile corner position
-        let subtile_corner = tile_corner * 4 + local_id;
-        let subtile_index_xy = subtile_corner.x + subtile_corner.y * size_subtiles.x;
-        let subtile_index_xyz = subtile_index_xy + subtile_corner.z * size_subtiles.x * size_subtiles.y;
+    // Subtile corner position
+    let subtile_corner = tile_corner * 4 + local_id;
+    let subtile_index_xy = subtile_corner.x + subtile_corner.y * size_subtiles.x;
+    let subtile_index_xyz = subtile_index_xy + subtile_corner.z * size_subtiles.x * size_subtiles.y;
 
-        // Subtile corner position, in voxels
-        let corner_pos = subtile_corner * SUBTILE_SIZE;
+    // Subtile corner position, in voxels
+    let corner_pos = subtile_corner * SUBTILE_SIZE;
 
-        // Check for Z masking from parent tile
-        let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
-        if tile_zmin[tile_index_xy].z >= corner_pos.z + SUBTILE_SIZE {
-            // CAS loop, see interval_root for details
-            let new_z = tile_zmin[tile_index_xy].z;
-            loop {
-                let old_z = atomicLoad(&subtile_zmin[subtile_index_xy].z);
-                if (new_z <= old_z) {
-                    break;
-                }
-                let exchanged_z = atomicCompareExchangeWeak(
-                    &subtile_zmin[subtile_index_xy].z, old_z, new_z);
-                if (exchanged_z.exchanged) {
-                    // Z updated, now update the tape
-                    subtile_zmin[subtile_index_xy].tape_index = tile_zmin[tile_index_xy].tape_index;
-                    break;
-                }
+    // Check for Z masking from parent tile
+    let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
+    if tile_zmin[tile_index_xy].z >= corner_pos.z + SUBTILE_SIZE - 1 {
+        // CAS loop, see interval_root for details
+        let new_z = tile_zmin[tile_index_xy].z;
+        loop {
+            let old_z = atomicLoad(&subtile_zmin[subtile_index_xy].z);
+            if (new_z <= old_z) {
+                break;
             }
-            continue;
-        }
-
-        // Last-minute check to see if anyone filled out this tile
-        if atomicLoad(&subtile_zmin[subtile_index_xy].z) >= corner_pos.z + SUBTILE_SIZE {
-            continue;
-        }
-
-        // Compute transformed interval regions
-        let m = interval_inputs(subtile_corner, SUBTILE_SIZE);
-
-        // Do the actual interpreter work
-        var stack = Stack();
-        var tape_start = tile.tape_index;
-        let out = run_tape(tape_start, m, &stack);
-
-        let v = out.value.v;
-
-        // If the tile is completely empty, then we're done!
-        if v[0] > 0.0 {
-            continue;
-        }
-
-        let next = simplify_tape(out.pos, out.count, &stack);
-        if next != 0 {
-            tape_start = next;
-        }
-
-        if v[1] < 0.0 {
-            // Full, write to subtile_zmin but don't return yet (because we want to
-            // store a simplified tape for normal evaluation)
-            // CAS loop, see interval_root for details
-            let new_z = corner_pos.z + SUBTILE_SIZE - 1;
-            loop {
-                let old_z = atomicLoad(&subtile_zmin[subtile_index_xy].z);
-                if (new_z <= old_z) {
-                    break;
-                }
-                let exchanged_z = atomicCompareExchangeWeak(
-                    &subtile_zmin[subtile_index_xy].z, old_z, new_z);
-                if (exchanged_z.exchanged) {
-                    // Z updated, now update the tape
-                    subtile_zmin[subtile_index_xy].tape_index = next;
-                    break;
-                }
+            let exchanged_z = atomicCompareExchangeWeak(
+                &subtile_zmin[subtile_index_xy].z, old_z, new_z);
+            if (exchanged_z.exchanged) {
+                // Z updated, now update the tape
+                subtile_zmin[subtile_index_xy].tape_index = tile_zmin[tile_index_xy].tape_index;
+                break;
             }
-        } else {
-            // Otherwise, enqueue the tile and add its Z position to the histogram
-            let offset = atomicAdd(&subtiles_out.count, 1u);
-            subtiles_out.tiles[offset] = ActiveTile(subtile_index_xyz, next);
-            atomicAdd(&subtile_hist[subtile_corner.z], 1);
         }
+    }
+
+    // Last-minute check to see if anyone filled out this tile
+    if atomicLoad(&subtile_zmin[subtile_index_xy].z) >= corner_pos.z + SUBTILE_SIZE {
+        return;
+    }
+
+    // Compute transformed interval regions
+    let m = interval_inputs(subtile_corner, SUBTILE_SIZE);
+
+    // Do the actual interpreter work
+    var stack = Stack();
+    var tape_start = tile.tape_index;
+    let out = run_tape(tape_start, m, &stack);
+
+    let v = out.value.v;
+
+    // If the tile is completely empty, then we're done!
+    if v[0] > 0.0 {
+        return;
+    }
+
+    let next = simplify_tape(out.pos, out.count, &stack);
+    if next != 0 {
+        tape_start = next;
+    }
+
+    if v[1] < 0.0 {
+        // Full, write to subtile_zmin but don't return yet (because we want to
+        // store a simplified tape for normal evaluation)
+        // CAS loop, see interval_root for details
+        let new_z = corner_pos.z + SUBTILE_SIZE - 1;
+        loop {
+            let old_z = atomicLoad(&subtile_zmin[subtile_index_xy].z);
+            if (new_z <= old_z) {
+                break;
+            }
+            let exchanged_z = atomicCompareExchangeWeak(
+                &subtile_zmin[subtile_index_xy].z, old_z, new_z);
+            if (exchanged_z.exchanged) {
+                // Z updated, now update the tape
+                subtile_zmin[subtile_index_xy].tape_index = next;
+                break;
+            }
+        }
+    } else {
+        // Otherwise, enqueue the tile and add its Z position to the histogram
+        let offset = atomicAdd(&subtiles_out.count, 1u);
+        subtiles_out.tiles[offset] = ActiveTile(subtile_index_xyz, next);
+        atomicAdd(&subtile_hist[subtile_corner.z], 1);
     }
 }
