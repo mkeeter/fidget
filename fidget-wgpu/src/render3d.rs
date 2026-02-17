@@ -595,7 +595,7 @@ impl<const N: usize> RepackContext<N> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.z_to_dispatch.as_entire_binding(),
+                        resource: buffers.z_to_offset.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -619,7 +619,7 @@ impl<const N: usize> RepackContext<N> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.z_to_dispatch.as_entire_binding(),
+                        resource: buffers.z_to_offset.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -1000,264 +1000,26 @@ pub struct Context {
     /// Uniform buffer for render configuration
     config_buf: wgpu::Buffer,
 
-    /// Interval root context
+    /// Interval root context, generating 64³ tiles
     root_ctx: RootContext,
 
-    /// Cumulative sum and repacking into dispatches
+    /// Cumulative sum and repacking into dispatches for 64³ tiles
     repack64_ctx: RepackContext<64>,
 
+    /// Interval tile context, going from 64³ to 16³ tiles
     interval16_ctx: IntervalContext<16>,
+
+    /// Cumulative sum and repacking into dispatches for 16³ tiles
+    repack16_ctx: RepackContext<16>,
+
+    /// Interval tile context, going from 64³ to 4³ tiles
+    interval4_ctx: IntervalContext<4>,
+
+    /// Cumulative sum and repacking into dispatches for 4³ tiles
+    repack4_ctx: RepackContext<4>,
 
     /// Context for clearing buffers
     clear_ctx: ClearContext,
-}
-
-/// Tile buffers for a stage which produces tiles of size `N`
-#[derive(Clone)]
-struct TileBuffers<const N: usize> {
-    /// Maximum number of output tiles that can be stored in these buffers
-    max_tile_count: usize,
-
-    /// Maximum number of dispatches that can be planned by this stage
-    max_dispatch_count: usize,
-
-    /// Unsorted `ActiveTile` list
-    ///
-    /// This is the product of `(render_size / N).[x,y,z]`, plus an initial
-    /// `u32` for the atomic counter (which must be initialized to 0).
-    out: wgpu::Buffer,
-
-    /// Number of tiles in each Z position
-    ///
-    /// Stores one `u32` per `render_size.z / N`
-    hist: wgpu::Buffer,
-
-    /// Map from tile Z position to dispatch number
-    ///
-    /// Stores one `u32` per `render_size.z / N`
-    z_to_dispatch: wgpu::Buffer,
-
-    /// Array of dispatch objects
-    ///
-    /// The maximum number of dispatches depends on `N` and the render size
-    dispatch: wgpu::Buffer,
-
-    /// Array of counters to keep of dispatch for the **next** stage
-    ///
-    /// There should be one `u32` here for each workgroup
-    dispatch_count: wgpu::Buffer,
-
-    /// Output tuple of `(Z, tape index)` for each N³ tile
-    ///
-    /// This stores one tuple for each tile in the product of
-    /// `(render_size / N).[x,y]`
-    zmin: wgpu::Buffer,
-
-    /// Sorted array of `ActiveTile` objects
-    sorted: wgpu::Buffer,
-}
-
-impl<const N: usize> TileBuffers<N> {
-    /// Returns a new `TileBuffers` object
-    fn new<const M: usize>(
-        device: &wgpu::Device,
-        render_size: RenderSize,
-        prev: Option<&TileBuffers<M>>,
-    ) -> Self {
-        let nx = render_size.width() as usize / N;
-        let ny = render_size.height() as usize / N;
-        let nz = render_size.depth() as usize / N;
-
-        // Figure out how many tiles can be produced by this stage
-        let max_tile_count = if let Some(prev) = prev {
-            // The previous stage can generate some number of tiles.  It will
-            // also plan some number of dispatches; each dispatch can handle up
-            // to MAX_TILES_PER_DISPATCH, so that's an upper bound on how many
-            // tiles we need to handle.  Each tile from the previous stage can
-            // generate up to 64 tiles in this stage.
-            assert_eq!(M, N * 4);
-            prev.max_tile_count.min(MAX_TILES_PER_DISPATCH as usize) * 64
-        } else {
-            // This is a root buffer, so it evaluates every tile in the region
-            nx * ny * nz
-        };
-        let max_dispatch_count =
-            max_tile_count.div_ceil(MAX_TILES_PER_DISPATCH as usize);
-
-        let out = new_buffer::<u32>(
-            device,
-            format!("tile{N}_out"),
-            // count, then 2 words per tile
-            1 + max_tile_count * 2,
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
-        );
-        let z_to_dispatch = new_buffer::<u32>(
-            device,
-            format!("tile{N}_z_to_dispatch"),
-            nz,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | DEBUG_FLAGS,
-        );
-        let hist = new_buffer::<u32>(
-            device,
-            format!("tile{N}_hist"),
-            nz,
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
-        );
-        let zmin = new_buffer::<Voxel>(
-            device,
-            format!("tile{N}_zmin"),
-            nx * ny,
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
-        );
-        let dispatch = new_buffer::<Dispatch>(
-            device,
-            format!("dispatch{N}"),
-            max_dispatch_count,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::INDIRECT
-                | DEBUG_FLAGS,
-        );
-        let dispatch_count = new_buffer::<u32>(
-            device,
-            format!("dispatch_count{N}"),
-            max_tile_count.min(MAX_TILES_PER_DISPATCH as usize), // XXX correct?
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
-        );
-        let sorted = new_buffer::<ActiveTile>(
-            device,
-            format!("tile{N}_sorted"),
-            max_tile_count,
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
-        );
-        Self {
-            max_tile_count,
-            max_dispatch_count,
-            out,
-            hist, // TODO merge this and zmin?
-            zmin,
-            dispatch,
-            dispatch_count,
-            z_to_dispatch,
-            sorted,
-        }
-    }
-}
-
-/// Shape for rendering
-///
-/// This object is constructed by [`Context::shape`] and may only be used with
-/// that particular [`Context`].
-#[derive(Clone)]
-pub struct RenderShape {
-    tape_buf: wgpu::Buffer,
-    axes: [u32; 3],
-    bytecode_len: u32,
-    reg_count: u8,
-}
-
-impl RenderShape {
-    fn new(device: &wgpu::Device, shape: &VmShape) -> Self {
-        // The config buffer is statically sized
-        let tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tape_data"),
-            size: 8 + (TAPE_DATA_CAPACITY * std::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | DEBUG_FLAGS,
-            mapped_at_creation: true,
-        });
-
-        // Generate bytecode for the root tape
-        let vars = shape.inner().vars();
-        let bytecode = Bytecode::new(shape.inner().data());
-        assert!(bytecode.len() < TAPE_DATA_CAPACITY);
-
-        // Create the 4x4 transform matrix
-        let axes = shape
-            .axes()
-            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
-
-        {
-            let mut buffer_view = tape_buf.slice(..).get_mapped_range_mut();
-            let bytes = bytecode.as_bytes();
-            buffer_view[0..4] // offset
-                .copy_from_slice((bytecode.len() as u32).as_bytes());
-            buffer_view[4..8] // capacity
-                .copy_from_slice((TAPE_DATA_CAPACITY as u32).as_bytes());
-            buffer_view[8..][..bytes.len()].copy_from_slice(bytes);
-        }
-        tape_buf.unmap();
-
-        Self {
-            tape_buf,
-            axes,
-            bytecode_len: bytecode.len().try_into().unwrap(),
-            reg_count: bytecode.reg_count(),
-        }
-    }
-}
-
-/// Buffers for rendering, which control the rendered image size
-///
-/// This object is constructed by [`Context::buffers`] and may only be used with
-/// that particular [`Context`].
-#[derive(Clone)]
-pub struct Buffers {
-    /// Image render size
-    ///
-    /// Note that the tile buffers below round up to the nearest root tile
-    /// (64³ voxels).
-    image_size: VoxelSize,
-
-    /// Buffers for the 64³ pass
-    tile64: TileBuffers<64>,
-
-    /// Buffers for the 64³ pass
-    tile16: TileBuffers<16>,
-
-    /// Buffer of `GeometryPixel` equivalent data, generated by the normal pass
-    geom: wgpu::Buffer,
-
-    /// Result buffer that can be read back from the host
-    image: wgpu::Buffer,
-}
-
-impl Buffers {
-    fn new(device: &wgpu::Device, image_size: VoxelSize) -> Self {
-        let render_size = RenderSize::from(image_size);
-        let image_pixels =
-            image_size.width() as usize * image_size.height() as usize;
-        let geom = new_buffer::<GeometryPixel>(
-            device,
-            "geom",
-            image_pixels,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
-        );
-        let image = new_buffer::<GeometryPixel>(
-            device,
-            "image",
-            image_pixels,
-            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        );
-        let tile64 = TileBuffers::new::<0>(device, render_size, None);
-        let tile16 = TileBuffers::new(device, render_size, Some(&tile64));
-
-        Self {
-            image_size,
-            tile64,
-            tile16,
-            geom,
-            image,
-        }
-    }
-
-    fn render_size(&self) -> RenderSize {
-        self.image_size.into()
-    }
 }
 
 impl Context {
@@ -1293,6 +1055,12 @@ impl Context {
             RepackContext::new(&device, &common_bind_group_layout);
         let interval16_ctx =
             IntervalContext::new(&device, &common_bind_group_layout);
+        let repack16_ctx =
+            RepackContext::new(&device, &common_bind_group_layout);
+        let interval4_ctx =
+            IntervalContext::new(&device, &common_bind_group_layout);
+        let repack4_ctx =
+            RepackContext::new(&device, &common_bind_group_layout);
 
         Self {
             device,
@@ -1304,6 +1072,9 @@ impl Context {
             root_ctx,
             repack64_ctx,
             interval16_ctx,
+            repack16_ctx,
+            interval4_ctx,
+            repack4_ctx,
         }
     }
 
@@ -1433,7 +1204,7 @@ impl Context {
         self.root_ctx.run(self, shape, buffers, &mut compute_pass);
         self.repack64_ctx
             .run(self, &buffers.tile64, &mut compute_pass);
-        for i in 0..buffers.tile64.max_dispatch_count {
+        for i in 0..buffers.tile64.max_dispatch_count() {
             self.interval16_ctx.run(
                 self,
                 shape,
@@ -1442,6 +1213,21 @@ impl Context {
                 i,
                 &mut compute_pass,
             );
+            self.repack16_ctx
+                .run(self, &buffers.tile16, &mut compute_pass);
+            for j in 0..buffers.tile16.max_dispatch_count() {
+                self.interval4_ctx.run(
+                    self,
+                    shape,
+                    &buffers.tile16,
+                    &buffers.tile4,
+                    j,
+                    &mut compute_pass,
+                );
+                self.repack4_ctx
+                    .run(self, &buffers.tile4, &mut compute_pass);
+                // TODO voxel eval
+            }
         }
         drop(compute_pass);
 
@@ -1538,6 +1324,270 @@ impl Context {
             .to_vec();
         scratch.unmap();
         result
+    }
+}
+
+/// Tile buffers for a stage which produces tiles of size `N`
+#[derive(Clone)]
+struct TileBuffers<const N: usize> {
+    /// Maximum number of output tiles that can be stored in these buffers
+    max_tile_count: usize,
+
+    /// Unsorted `ActiveTile` list
+    ///
+    /// This is the product of `(render_size / N).[x,y,z]`, plus an initial
+    /// `u32` for the atomic counter (which must be initialized to 0).
+    out: wgpu::Buffer,
+
+    /// Number of tiles in each Z position
+    ///
+    /// Stores one `u32` per `render_size.z / N`
+    hist: wgpu::Buffer,
+
+    /// Map from tile Z position to buffer offset
+    ///
+    /// Stores one `u32` per `render_size.z / N`
+    z_to_offset: wgpu::Buffer,
+
+    /// Array of dispatch objects
+    ///
+    /// The maximum number of dispatches depends on `N` and the render size
+    dispatch: wgpu::Buffer,
+
+    /// Array of counters to keep of dispatch for the **next** stage
+    ///
+    /// There should be one `u32` here for each workgroup
+    dispatch_count: wgpu::Buffer,
+
+    /// Output tuple of `(Z, tape index)` for each N³ tile
+    ///
+    /// This stores one tuple for each tile in the product of
+    /// `(render_size / N).[x,y]`
+    zmin: wgpu::Buffer,
+
+    /// Sorted array of `ActiveTile` objects
+    sorted: wgpu::Buffer,
+}
+
+impl<const N: usize> TileBuffers<N> {
+    /// Returns a new `TileBuffers` object
+    fn new<const M: usize>(
+        device: &wgpu::Device,
+        render_size: RenderSize,
+        prev: Option<&TileBuffers<M>>,
+    ) -> Self {
+        let nx = render_size.width() as usize / N;
+        let ny = render_size.height() as usize / N;
+        let nz = render_size.depth() as usize / N;
+
+        // Figure out how many tiles can be produced by this stage
+        let max_tile_count = if let Some(prev) = prev {
+            // The previous stage can generate some number of tiles.  It will
+            // also plan some number of dispatches; each dispatch can handle up
+            // to MAX_TILES_PER_DISPATCH, so that's an upper bound on how many
+            // tiles we need to handle.  Each tile from the previous stage can
+            // generate up to 64 tiles in this stage.
+            assert_eq!(M, N * 4);
+            prev.max_tiles_per_dispatch() * 64
+        } else {
+            // This is a root buffer, so it evaluates every tile in the region
+            nx * ny * nz
+        };
+        let max_dispatch_count =
+            max_tile_count.div_ceil(MAX_TILES_PER_DISPATCH as usize);
+
+        let out = new_buffer::<u32>(
+            device,
+            format!("tile{N}_out"),
+            // count, then 2 words per tile
+            1 + max_tile_count * 2,
+            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+        );
+        let z_to_offset = new_buffer::<u32>(
+            device,
+            format!("tile{N}_z_to_offset"),
+            nz,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | DEBUG_FLAGS,
+        );
+        let hist = new_buffer::<u32>(
+            device,
+            format!("tile{N}_hist"),
+            nz,
+            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+        );
+        let zmin = new_buffer::<Voxel>(
+            device,
+            format!("tile{N}_zmin"),
+            nx * ny,
+            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+        );
+        let dispatch = new_buffer::<Dispatch>(
+            device,
+            format!("dispatch{N}"),
+            max_dispatch_count,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::INDIRECT
+                | DEBUG_FLAGS,
+        );
+        let dispatch_count = new_buffer::<u32>(
+            device,
+            format!("dispatch_count{N}"),
+            max_tile_count.min(MAX_TILES_PER_DISPATCH as usize), // XXX correct?
+            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+        );
+        let sorted = new_buffer::<ActiveTile>(
+            device,
+            format!("tile{N}_sorted"),
+            max_tile_count,
+            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+        );
+        Self {
+            max_tile_count,
+            out,
+            hist, // TODO merge this and zmin?
+            zmin,
+            dispatch,
+            dispatch_count,
+            z_to_offset,
+            sorted,
+        }
+    }
+
+    /// Maximum number of tiles to be evaluated per generated dispatch
+    ///
+    /// This applies to the subsequent rendering stage
+    fn max_tiles_per_dispatch(&self) -> usize {
+        self.max_tile_count.min(MAX_TILES_PER_DISPATCH as usize)
+    }
+
+    /// Maximum number of generated dispatch stages
+    ///
+    /// This applies to the subsequent rendering stage
+    fn max_dispatch_count(&self) -> usize {
+        self.max_tile_count
+            .div_ceil(MAX_TILES_PER_DISPATCH as usize)
+    }
+}
+
+/// Shape for rendering
+///
+/// This object is constructed by [`Context::shape`] and may only be used with
+/// that particular [`Context`].
+#[derive(Clone)]
+pub struct RenderShape {
+    tape_buf: wgpu::Buffer,
+    axes: [u32; 3],
+    bytecode_len: u32,
+    reg_count: u8,
+}
+
+impl RenderShape {
+    fn new(device: &wgpu::Device, shape: &VmShape) -> Self {
+        // The config buffer is statically sized
+        let tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tape_data"),
+            size: 8 + (TAPE_DATA_CAPACITY * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | DEBUG_FLAGS,
+            mapped_at_creation: true,
+        });
+
+        // Generate bytecode for the root tape
+        let vars = shape.inner().vars();
+        let bytecode = Bytecode::new(shape.inner().data());
+        assert!(bytecode.len() < TAPE_DATA_CAPACITY);
+
+        // Create the 4x4 transform matrix
+        let axes = shape
+            .axes()
+            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
+
+        {
+            let mut buffer_view = tape_buf.slice(..).get_mapped_range_mut();
+            let bytes = bytecode.as_bytes();
+            buffer_view[0..4] // offset
+                .copy_from_slice((bytecode.len() as u32).as_bytes());
+            buffer_view[4..8] // capacity
+                .copy_from_slice((TAPE_DATA_CAPACITY as u32).as_bytes());
+            buffer_view[8..][..bytes.len()].copy_from_slice(bytes);
+        }
+        tape_buf.unmap();
+
+        Self {
+            tape_buf,
+            axes,
+            bytecode_len: bytecode.len().try_into().unwrap(),
+            reg_count: bytecode.reg_count(),
+        }
+    }
+}
+
+/// Buffers for rendering, which control the rendered image size
+///
+/// This object is constructed by [`Context::buffers`] and may only be used with
+/// that particular [`Context`].
+#[derive(Clone)]
+pub struct Buffers {
+    /// Image render size
+    ///
+    /// Note that the tile buffers below round up to the nearest root tile
+    /// (64³ voxels).
+    image_size: VoxelSize,
+
+    /// Buffers for the 64³ pass
+    tile64: TileBuffers<64>,
+
+    /// Buffers for the 64³ pass
+    tile16: TileBuffers<16>,
+
+    /// Buffers for the 4³ pass
+    tile4: TileBuffers<4>,
+
+    /// Buffer of `GeometryPixel` equivalent data, generated by the normal pass
+    geom: wgpu::Buffer,
+
+    /// Result buffer that can be read back from the host
+    image: wgpu::Buffer,
+}
+
+impl Buffers {
+    fn new(device: &wgpu::Device, image_size: VoxelSize) -> Self {
+        let render_size = RenderSize::from(image_size);
+        let image_pixels =
+            image_size.width() as usize * image_size.height() as usize;
+        let geom = new_buffer::<GeometryPixel>(
+            device,
+            "geom",
+            image_pixels,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+        );
+        let image = new_buffer::<GeometryPixel>(
+            device,
+            "image",
+            image_pixels,
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        );
+        let tile64 = TileBuffers::new::<0>(device, render_size, None);
+        let tile16 = TileBuffers::new(device, render_size, Some(&tile64));
+        let tile4 = TileBuffers::new(device, render_size, Some(&tile16));
+
+        Self {
+            image_size,
+            tile64,
+            tile16,
+            tile4,
+            geom,
+            image,
+        }
+    }
+
+    fn render_size(&self) -> RenderSize {
+        self.image_size.into()
     }
 }
 
@@ -2062,9 +2112,8 @@ mod test {
             ctx.queue.submit(Some(encoder.finish()));
 
             let tile_z_to_offset =
-                ctx.read_buffer::<u32>(&buffers.tile64.z_to_dispatch);
+                ctx.read_buffer::<u32>(&buffers.tile64.z_to_offset);
             assert_eq!(tile_z_to_offset.len(), 16);
-            println!("{tile_z_to_offset:?}");
             for (i, z) in tile_z_to_offset.iter().enumerate() {
                 assert_eq!(
                     *z as usize,
@@ -2100,7 +2149,6 @@ mod test {
                     assert!(ys[x as usize - 7].remove(&y));
                 }
                 assert!(ys[0].is_empty() && ys[1].is_empty());
-                println!();
             }
 
             // Repacking uses `hist` to count down tiles, so it should be all 0s
@@ -2121,7 +2169,7 @@ mod test {
             //  x = [31, 32]
             //  y = 0..=63
             //  z = 0..=63
-            assert_eq!(buffers.tile64.max_dispatch_count, 1);
+            assert_eq!(buffers.tile64.max_dispatch_count(), 1);
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
             ctx.interval16_ctx.run(
@@ -2186,6 +2234,148 @@ mod test {
             assert_eq!(hist.len(), 64);
             for n in hist {
                 assert_eq!(n, 128); // strip of 2x64 tiles
+            }
+
+            ////////////////////////////////////////////////////////////////////
+            // Next up: the repacking pass for 16³ tiles
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.repack16_ctx
+                .run(ctx, &buffers.tile16, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let tile_z_to_offset =
+                ctx.read_buffer::<u32>(&buffers.tile16.z_to_offset);
+            assert_eq!(tile_z_to_offset.len(), 64);
+            for (i, z) in tile_z_to_offset.iter().enumerate() {
+                assert_eq!(
+                    *z as usize,
+                    128 * (64 - i - 1),
+                    "bad offset at {z}, {i}"
+                );
+            }
+
+            // Only dispatch 0 is used, because we don't have > MAX_DISPATH_SIZE
+            // tiles generated in this stage.
+            let dispatch =
+                ctx.read_buffer::<Dispatch>(&buffers.tile16.dispatch);
+            assert_eq!(dispatch.len(), buffers.tile16.max_dispatch_count());
+            assert_eq!(dispatch[0].tile_count, 2 * 64 * 64);
+            assert_eq!(dispatch[0].wg_dispatch, [2 * 64 * 64, 1, 1]);
+            for d in &dispatch[1..] {
+                assert_eq!(d.tile_count, 0);
+                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+            }
+
+            let sorted = ctx.read_buffer::<ActiveTile>(&buffers.tile16.sorted);
+            for (i, t) in sorted[..2 * 64 * 64].chunks(128).enumerate() {
+                let ys = (0..64).collect::<BTreeSet<u32>>();
+                let mut ys = [ys.clone(), ys];
+                for t in t {
+                    assert_eq!(t.tape_index, 0);
+                    let x = t.tile % 64;
+                    let y = (t.tile / 64) % 64;
+                    let z = (t.tile / 64) / 64;
+
+                    // Ensure that we're in reverse-z order
+                    assert_eq!(z as usize, 64 - i - 1);
+                    // Only middle tiles should be active
+                    assert!(x == 31 || x == 32);
+                    // All Y values must be represented
+                    assert!(ys[x as usize - 31].remove(&y));
+                }
+                assert!(ys[0].is_empty() && ys[1].is_empty());
+            }
+
+            // Repacking uses `hist` to count down tiles, so it should be all 0s
+            let hist = ctx.read_buffer::<u32>(&buffers.tile16.hist);
+            assert_eq!(hist.len(), 64);
+            for n in hist {
+                assert_eq!(n, 0);
+            }
+
+            // Now we're onto the 16³ -> 4³ tile pass
+            //
+            // We'll do a single dispatch of 16³ -> 4³ tile refinement, which
+            // should produce 131072 tiles with
+            //  x = [127,128]
+            //  y = 0..=256
+            //  z = 0..=256
+
+            // The previous stage could plan up to 8 dispatches; in practice,
+            // we've asserted that only the first dispatch is used.
+            assert_eq!(buffers.tile16.max_dispatch_count(), 8);
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.interval4_ctx.run(
+                ctx,
+                &shape,
+                &buffers.tile16,
+                &buffers.tile4,
+                0,
+                &mut compute_pass,
+            );
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let dispatch_count =
+                ctx.read_buffer::<u32>(&buffers.tile16.dispatch_count);
+            assert_eq!(
+                dispatch_count.len(),
+                buffers.tile16.max_tiles_per_dispatch()
+            );
+            // all dispatch counters are either left as 0 or reset
+            for (i, d) in dispatch_count.iter().enumerate() {
+                assert_eq!(*d, 0, "bad dispatch at {i}");
+            }
+
+            let out = ctx.read_buffer::<u32>(&buffers.tile4.out);
+            let count = out[0] as usize;
+            assert_eq!(
+                out.len(),
+                1 + buffers.tile16.max_tiles_per_dispatch() * 64 * 2
+            );
+            assert_eq!(count, 131072); // Y-Z slice at the origin
+            let mut tiles = BTreeSet::new();
+            for t in out[1..].chunks_exact(2).take(count) {
+                let (tile, tape_index) = (t[0], t[1]);
+                assert_eq!(tape_index, 0);
+                tiles.insert(tile);
+                let x = tile % 256;
+                let y = (tile / 256) % 256;
+                let z = (tile / 256) / 256;
+                assert!(
+                    x == 127 || x == 128,
+                    "bad x value {x} in tile {x}, {y}, {z}"
+                );
+                tiles.insert(tile);
+            }
+            assert_eq!(tiles.len(), 131072); // no duplicates
+
+            // Check that the zmin buffer is correctly filled out
+            let zmin = ctx.read_buffer::<Voxel>(&buffers.tile4.zmin);
+            assert_eq!(zmin.len(), 256 * 256);
+            for x in 0..256 {
+                for y in 0..256 {
+                    // The previous stage only produced tiles with x = [7,8]
+                    if x / 4 < 31 || x / 4 > 32 {
+                        continue;
+                    }
+                    let t = zmin[x + y * 256];
+                    assert_eq!(t.tape_index, 0);
+                    if x < 127 {
+                        assert_eq!(t.z, 1023, "bad z at tile {x}, {y}");
+                    } else {
+                        assert_eq!(t.z, 0, "bad z at tile {x}, {y}");
+                    }
+                }
+            }
+
+            let hist = ctx.read_buffer::<u32>(&buffers.tile4.hist);
+            assert_eq!(hist.len(), 256);
+            for n in hist {
+                assert_eq!(n, 512); // strip of 2x256 tiles
             }
         }
 
