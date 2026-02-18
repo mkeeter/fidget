@@ -664,13 +664,12 @@ impl<const N: usize> IntervalContext<N> {
                 label: None,
                 entries: &[
                     buffer_rw(0), // dispatch_count
-                    buffer_ro(1), // dispatch
-                    buffer_ro(2), // tiles_in
-                    buffer_ro(3), // tile_zmin
-                    buffer_rw(4), // tape_data
-                    buffer_rw(5), // subtiles_out
-                    buffer_rw(6), // subtiles_zmin
-                    buffer_rw(7), // subtiles_hist
+                    buffer_ro(1), // tiles_in
+                    buffer_ro(2), // tile_zmin
+                    buffer_rw(3), // tape_data
+                    buffer_rw(4), // subtiles_out
+                    buffer_rw(5), // subtiles_zmin
+                    buffer_rw(6), // subtiles_hist
                 ],
             });
 
@@ -748,30 +747,26 @@ impl<const N: usize> IntervalContext<N> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: tiles_in.dispatch.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
                         resource: tiles_in.sorted.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 3,
+                        binding: 2,
                         resource: tiles_in.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 4,
+                        binding: 3,
                         resource: shape.tape_buf.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 5,
+                        binding: 4,
                         resource: tiles_out.out.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 6,
+                        binding: 5,
                         resource: tiles_out.zmin.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 7,
+                        binding: 6,
                         resource: tiles_out.hist.as_entire_binding(),
                     },
                 ],
@@ -1442,10 +1437,11 @@ impl<const N: usize> TileBuffers<N> {
             max_tile_count.min(MAX_TILES_PER_DISPATCH as usize),
             wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
         );
-        let sorted = new_buffer::<ActiveTile>(
+        let sorted = new_buffer::<u32>(
             device,
             format!("tile{N}_sorted"),
-            max_tile_count,
+            // count, then 2 words per tile
+            1 + max_tile_count * 2,
             wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
         );
         Self {
@@ -2071,23 +2067,29 @@ mod test {
 
             // Make sure that the output tiles are just at the X = 0 origin
             // (so have tile X = 7 or 8) and we have the expected number.
-            let out = ctx.read_buffer::<u32>(&buffers.tile64.out);
-            let count = out[0] as usize;
-            assert_eq!(out.len(), 1 + 16usize.pow(3) * 2);
-            assert_eq!(count, 16 * 16 * 2); // Y-Z slice at the origin
+            use zerocopy::TryFromBytes;
+            #[derive(TryFromBytes, Immutable, KnownLayout)]
+            #[repr(C)]
+            struct TileList {
+                count: u32,
+                tiles: [ActiveTile],
+            }
+            let out = ctx.read_buffer::<u8>(&buffers.tile64.out);
+            let out = TileList::try_ref_from_bytes(&out).unwrap();
+            assert_eq!(out.count, 16 * 16 * 2); // Y-Z slice at the origin
+            assert_eq!(out.tiles.len(), 16usize.pow(3));
             let mut tiles = BTreeSet::new();
-            for t in out[1..].chunks_exact(2).take(count) {
-                let (tile, tape_index) = (t[0], t[1]);
-                assert_eq!(tape_index, 0);
-                tiles.insert(tile);
-                let x = tile % 16;
-                let y = (tile / 16) % 16;
-                let z = (tile / 16) / 16;
+            for t in out.tiles.iter().take(out.count as usize) {
+                assert_eq!(t.tape_index, 0);
+                tiles.insert(t.tile);
+                let x = t.tile % 16;
+                let y = (t.tile / 16) % 16;
+                let z = (t.tile / 16) / 16;
                 assert!(
                     x == 7 || x == 8,
                     "bad x value {x} in tile {x}, {y}, {z}"
                 );
-                tiles.insert(tile);
+                tiles.insert(t.tile);
             }
             assert_eq!(tiles.len(), 16 * 16 * 2); // no duplicates
 
@@ -2139,9 +2141,11 @@ mod test {
                 assert_eq!(d.wg_dispatch, [32 * 16, 1, 1]);
             }
 
-            let sorted = ctx.read_buffer::<ActiveTile>(&buffers.tile64.sorted);
-            assert_eq!(sorted.len(), 16usize.pow(3));
-            for (i, t) in sorted[..32 * 16].chunks(32).enumerate() {
+            let sorted = ctx.read_buffer::<u8>(&buffers.tile64.sorted);
+            let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
+            assert_eq!(sorted.tiles.len(), 16usize.pow(3));
+            assert_eq!(sorted.count, 16 * 16 * 2); // Y-Z slice at the origin
+            for (i, t) in sorted.tiles[..32 * 16].chunks(32).enumerate() {
                 let ys = (0..16).collect::<BTreeSet<u32>>();
                 let mut ys = [ys.clone(), ys];
                 for t in t {
@@ -2277,8 +2281,9 @@ mod test {
                 assert_eq!(d.wg_dispatch, [0, 0, 0]);
             }
 
-            let sorted = ctx.read_buffer::<ActiveTile>(&buffers.tile16.sorted);
-            for (i, t) in sorted[..2 * 64 * 64].chunks(128).enumerate() {
+            let sorted = ctx.read_buffer::<u8>(&buffers.tile16.sorted);
+            let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
+            for (i, t) in sorted.tiles[..2 * 64 * 64].chunks(128).enumerate() {
                 let ys = (0..64).collect::<BTreeSet<u32>>();
                 let mut ys = [ys.clone(), ys];
                 for t in t {
@@ -2417,8 +2422,13 @@ mod test {
                 assert_eq!(d.wg_dispatch, [0, 0, 0]);
             }
 
-            let sorted = ctx.read_buffer::<ActiveTile>(&buffers.tile4.sorted);
-            for (i, t) in sorted[..2 * 256 * 256].chunks(256 * 2).enumerate() {
+            let sorted = ctx.read_buffer::<u8>(&buffers.tile4.sorted);
+            let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
+            assert_eq!(sorted.count, 256 * 256 * 2);
+            for (i, t) in sorted.tiles[..sorted.count as usize]
+                .chunks(256 * 2)
+                .enumerate()
+            {
                 let ys = (0..256).collect::<BTreeSet<u32>>();
                 let mut ys = [ys.clone(), ys];
                 for t in t {

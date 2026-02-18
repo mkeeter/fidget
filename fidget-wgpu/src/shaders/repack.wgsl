@@ -8,7 +8,7 @@
 @group(1) @binding(2) var<storage, read_write> z_hist: array<atomic<u32>>;
 
 /// Sorted output list of tiles
-@group(1) @binding(3) var<storage, read_write> tiles_out: array<ActiveTile>;
+@group(1) @binding(3) var<storage, read_write> tiles_out: TileListOutput;
 
 override TILE_SIZE: u32;
 
@@ -20,7 +20,9 @@ fn repack_main(
     // Calculate render size in tile units
     let size_tiles = config.render_size / TILE_SIZE;
 
-    if global_id.x >= tiles.count {
+    if global_id.x == 0 {
+        tiles_out.count = tiles.count;
+    } else if global_id.x >= tiles.count {
         return;
     }
 
@@ -28,5 +30,5 @@ fn repack_main(
     let z = t.tile / (size_tiles.x * size_tiles.y);
     var buffer_offset = tile_z_to_offset[z];
     let count = atomicSub(&z_hist[z], 1u) - 1;
-    tiles_out[buffer_offset + count] = t;
+    tiles_out.tiles[buffer_offset + count] = t;
 }

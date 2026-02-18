@@ -3,16 +3,15 @@
 // This must be combined with opcode definitions and the generic interpreter
 // from `tape_interpreter.wgsl`
 
-@group(1) @binding(0) var<storage, read_write> dispatch_count: array<u32>;
-@group(1) @binding(1) var<storage, read> dispatch: array<Dispatch>;
-@group(1) @binding(2) var<storage, read> tiles_in: array<ActiveTile>;
-@group(1) @binding(3) var<storage, read> tile_zmin: array<Voxel>;
+@group(1) @binding(0) var<storage, read_write> dispatch_counter: array<u32>;
+@group(1) @binding(1) var<storage, read> tiles_in: TileListInput;
+@group(1) @binding(2) var<storage, read> tile_zmin: array<Voxel>;
 
-@group(1) @binding(4) var<storage, read_write> tape_data: TapeData;
+@group(1) @binding(3) var<storage, read_write> tape_data: TapeData;
 
-@group(1) @binding(5) var<storage, read_write> subtiles_out: TileListOutput;
-@group(1) @binding(6) var<storage, read_write> subtile_zmin: array<Voxel>;
-@group(1) @binding(7) var<storage, read_write> subtile_hist: array<atomic<u32>>;
+@group(1) @binding(4) var<storage, read_write> subtiles_out: TileListOutput;
+@group(1) @binding(5) var<storage, read_write> subtile_zmin: array<Voxel>;
+@group(1) @binding(6) var<storage, read_write> subtile_hist: array<atomic<u32>>;
 
 /// Input tile size; one input tile maps to a 4x4x4 workgroup
 override TILE_SIZE: u32;
@@ -37,13 +36,13 @@ fn interval_tile_main(
     // threads in the workgroup have had a chance to read it; if we're at the
     // end of dispatches, then we instead reset it to 0.
     var workgroup_index = workgroup_id.x; // always 1D
-    let d = dispatch_count[workgroup_index];
+    let d = dispatch_counter[workgroup_index];
     workgroupBarrier();
     if local_id.x == 0 && local_id.y == 0 && local_id.z == 0 {
-        if d + 1 == arrayLength(&dispatch) || dispatch[d + 1].tile_count == 0 {
-            dispatch_count[workgroup_index] = 0;
+        if d + num_workgroups.x >= tiles_in.count {
+            dispatch_counter[workgroup_index] = 0;
         } else {
-            dispatch_count[workgroup_index] += 1;
+            dispatch_counter[workgroup_index] += 1;
         }
     }
     workgroupBarrier();
@@ -58,7 +57,11 @@ fn interval_tile_main(
     let size_subtiles = size_tiles * 4u;
 
     // Get global tile position, in tile coordinates.
-    let tile = tiles_in[workgroup_index + d * MAX_TILES_PER_DISPATCH];
+    let tile_in_index = workgroup_index + d * MAX_TILES_PER_DISPATCH;
+    if tile_in_index >= tiles_in.count {
+        return;
+    }
+    let tile = tiles_in.active_tiles[tile_in_index];
     let t = tile.tile;
     let tx = t % size_tiles.x;
     let ty = (t / size_tiles.x) % size_tiles.y;
