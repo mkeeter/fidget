@@ -1,6 +1,6 @@
 // VM interpreter for floating-point values, using voxel tiles
 
-@group(1) @binding(0) var<storage, read_write> tape_data: TapeData;
+@group(1) @binding(0) var<storage, read> tape_data: TapeData;
 @group(1) @binding(1) var<storage, read> tile4_in: TileListInput;
 @group(1) @binding(2) var<storage, read> tile4_zmin: array<Voxel>;
 
