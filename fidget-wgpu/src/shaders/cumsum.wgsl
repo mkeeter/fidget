@@ -20,8 +20,12 @@ fn cumsum_main() {
     }
 
     // Plan enough dispatches to process every tile
+    //
+    // In the voxel case (where we have only 1 output dispatch), then we'll
+    // write it to MAX_TILES_PER_DISPATCH because the voxel kernel itself does
+    // looping.
     var d = 0u;
-    while buffer_offset > 0 {
+    while buffer_offset > 0 && d < arrayLength(&dispatch) {
         let n = min(MAX_TILES_PER_DISPATCH, buffer_offset);
         dispatch[d] = Dispatch(vec3u(n, 1u, 1u), n);
         buffer_offset -= n;

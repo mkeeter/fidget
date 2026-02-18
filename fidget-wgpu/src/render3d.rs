@@ -744,7 +744,7 @@ impl<const N: usize> IntervalContext<N> {
                     // Right now, this stage zeroes it on the last dispatch
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: tiles_in.dispatch_count.as_entire_binding(),
+                        resource: tiles_in.dispatch_counter.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -1357,7 +1357,7 @@ struct TileBuffers<const N: usize> {
     /// Array of counters to keep of dispatch for the **next** stage
     ///
     /// There should be one `u32` here for each workgroup
-    dispatch_count: wgpu::Buffer,
+    dispatch_counter: wgpu::Buffer,
 
     /// Output tuple of `(Z, tape index)` for each N³ tile
     ///
@@ -1393,8 +1393,11 @@ impl<const N: usize> TileBuffers<N> {
             // This is a root buffer, so it evaluates every tile in the region
             nx * ny * nz
         };
-        let max_dispatch_count =
-            max_tile_count.div_ceil(MAX_TILES_PER_DISPATCH as usize);
+        let max_dispatch_count = if N == 4 {
+            1
+        } else {
+            max_tile_count.div_ceil(MAX_TILES_PER_DISPATCH as usize)
+        };
 
         let out = new_buffer::<u32>(
             device,
@@ -1431,9 +1434,9 @@ impl<const N: usize> TileBuffers<N> {
                 | wgpu::BufferUsages::INDIRECT
                 | DEBUG_FLAGS,
         );
-        let dispatch_count = new_buffer::<u32>(
+        let dispatch_counter = new_buffer::<u32>(
             device,
-            format!("dispatch_count{N}"),
+            format!("dispatch_counter{N}"),
             max_tile_count.min(MAX_TILES_PER_DISPATCH as usize), // XXX correct?
             wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
         );
@@ -1449,7 +1452,7 @@ impl<const N: usize> TileBuffers<N> {
             hist, // TODO merge this and zmin?
             zmin,
             dispatch,
-            dispatch_count,
+            dispatch_counter,
             z_to_offset,
             sorted,
         }
@@ -1466,8 +1469,12 @@ impl<const N: usize> TileBuffers<N> {
     ///
     /// This applies to the subsequent rendering stage
     fn max_dispatch_count(&self) -> usize {
-        self.max_tile_count
-            .div_ceil(MAX_TILES_PER_DISPATCH as usize)
+        if N == 4 {
+            1
+        } else {
+            self.max_tile_count
+                .div_ceil(MAX_TILES_PER_DISPATCH as usize)
+        }
     }
 }
 
@@ -2183,11 +2190,11 @@ mod test {
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
-            let dispatch_count =
-                ctx.read_buffer::<u32>(&buffers.tile64.dispatch_count);
-            assert_eq!(dispatch_count.len(), 4096);
+            let dispatch_counter =
+                ctx.read_buffer::<u32>(&buffers.tile64.dispatch_counter);
+            assert_eq!(dispatch_counter.len(), 4096);
             // all dispatch counters are either left as 0 or reset
-            for (i, d) in dispatch_count.iter().enumerate() {
+            for (i, d) in dispatch_counter.iter().enumerate() {
                 assert_eq!(*d, 0, "bad dispatch at {i}");
             }
 
@@ -2319,14 +2326,14 @@ mod test {
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
-            let dispatch_count =
-                ctx.read_buffer::<u32>(&buffers.tile16.dispatch_count);
+            let dispatch_counter =
+                ctx.read_buffer::<u32>(&buffers.tile16.dispatch_counter);
             assert_eq!(
-                dispatch_count.len(),
+                dispatch_counter.len(),
                 buffers.tile16.max_tiles_per_dispatch()
             );
             // all dispatch counters are either left as 0 or reset
-            for (i, d) in dispatch_count.iter().enumerate() {
+            for (i, d) in dispatch_counter.iter().enumerate() {
                 assert_eq!(*d, 0, "bad dispatch at {i}");
             }
 
@@ -2376,6 +2383,63 @@ mod test {
             assert_eq!(hist.len(), 256);
             for n in hist {
                 assert_eq!(n, 512); // strip of 2x256 tiles
+            }
+
+            ////////////////////////////////////////////////////////////////////
+            // Almost done!  Time for the repacking pass for 4³ tiles
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.repack4_ctx.run(ctx, &buffers.tile4, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let tile_z_to_offset =
+                ctx.read_buffer::<u32>(&buffers.tile4.z_to_offset);
+            assert_eq!(tile_z_to_offset.len(), 256);
+            for (i, z) in tile_z_to_offset.iter().enumerate() {
+                assert_eq!(
+                    *z as usize,
+                    512 * (256 - i - 1),
+                    "bad offset at {z}, {i}"
+                );
+            }
+
+            // Only dispatch 0 is used, because we don't have > MAX_DISPATH_SIZE
+            // tiles generated in this stage.
+            let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
+            assert_eq!(dispatch.len(), buffers.tile4.max_dispatch_count());
+            assert_eq!(dispatch[0].tile_count, MAX_TILES_PER_DISPATCH);
+            assert_eq!(dispatch[0].wg_dispatch, [MAX_TILES_PER_DISPATCH, 1, 1]);
+            for d in &dispatch[1..] {
+                assert_eq!(d.tile_count, 0);
+                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+            }
+
+            let sorted = ctx.read_buffer::<ActiveTile>(&buffers.tile4.sorted);
+            for (i, t) in sorted[..2 * 256 * 256].chunks(256 * 2).enumerate() {
+                let ys = (0..256).collect::<BTreeSet<u32>>();
+                let mut ys = [ys.clone(), ys];
+                for t in t {
+                    assert_eq!(t.tape_index, 0);
+                    let x = t.tile % 256;
+                    let y = (t.tile / 256) % 256;
+                    let z = (t.tile / 256) / 256;
+
+                    // Ensure that we're in reverse-z order
+                    assert_eq!(z as usize, 256 - i - 1);
+                    // Only middle tiles should be active
+                    assert!(x == 127 || x == 128);
+                    // All Y values must be represented
+                    assert!(ys[x as usize - 127].remove(&y));
+                }
+                assert!(ys[0].is_empty() && ys[1].is_empty());
+            }
+
+            // Repacking uses `hist` to count down tiles, so it should be all 0s
+            let hist = ctx.read_buffer::<u32>(&buffers.tile4.hist);
+            assert_eq!(hist.len(), 256);
+            for n in hist {
+                assert_eq!(n, 0);
             }
         }
 
