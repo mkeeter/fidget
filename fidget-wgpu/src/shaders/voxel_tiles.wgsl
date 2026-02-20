@@ -35,26 +35,14 @@ fn voxel_ray_main(
 
         let tile4_index_xy = tx + ty * size4.x;
         let pixel_index_xy = corner_pos.x + corner_pos.y * config.render_size.x;
-        if tile4_zmin[tile4_index_xy].z >= corner_pos.z {
-            // copy-and-swap loop
-            let new_z = tile4_zmin[tile4_index_xy].z;
-            loop {
-                let old_z = atomicLoad(&result[pixel_index_xy].z);
-                if (new_z <= old_z) {
-                    break;
-                }
-                let exchanged_z = atomicCompareExchangeWeak(
-                    &result[pixel_index_xy].z, old_z, new_z);
-                if (exchanged_z.exchanged) {
-                    result[pixel_index_xy].tape_index = tile4_zmin[tile4_index_xy].tape_index;
-                    break;
-                }
-            }
+        let tile4_value = tile4_zmin[tile4_index_xy].value;
+        if (tile4_value >> 20) >= corner_pos.z {
+            atomicMax(&result[pixel_index_xy].value, tile4_value);
             continue;
         }
 
-        // Last chance to bail out
-        if atomicLoad(&result[pixel_index_xy].z) >= u32(corner_pos.z) {
+        // Last chance to bail out, if a different thread rendered this pixel
+        if (atomicLoad(&result[pixel_index_xy].value) >> 20) >= corner_pos.z {
             continue;
         }
 
@@ -70,20 +58,9 @@ fn voxel_ray_main(
         let out = run_tape(tile.tape_index, m, &stack);
 
         if out.value.v < 0.0 {
-            // copy-and-swap loop
             let new_z = corner_pos.z;
-            loop {
-                let old_z = atomicLoad(&result[pixel_index_xy].z);
-                if (new_z <= old_z) {
-                    break;
-                }
-                let exchanged_z = atomicCompareExchangeWeak(
-                    &result[pixel_index_xy].z, old_z, new_z);
-                if (exchanged_z.exchanged) {
-                    result[pixel_index_xy].tape_index = tile4_zmin[tile4_index_xy].tape_index;
-                    break;
-                }
-            }
+            let new_value = (new_z << 20) | tile.tape_index;
+            atomicMax(&result[pixel_index_xy].value, new_value);
         }
     }
 }

@@ -165,11 +165,20 @@ struct ActiveTile {
     tape_index: u32,
 }
 
+/// Z value and tape index packed into a single `u32` word
+///
+/// The top 12 bits are the Z value; the bottom 20 are a tape index.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
-struct Voxel {
-    z: u32,
-    tape_index: u32,
+struct Voxel(u32);
+
+impl Voxel {
+    fn z(&self) -> u32 {
+        self.0 >> 20
+    }
+    fn tape_index(&self) -> u32 {
+        self.0 & ((1 << 20) - 1)
+    }
 }
 
 /// A render size is rounded up to the next multiple of 64 on every axis
@@ -1644,6 +1653,8 @@ impl<const N: usize> BackfillContext<N> {
                 entries: &[
                     buffer_ro(0), // subtile_zmin
                     buffer_rw(1), // tile_zmin
+                    buffer_rw(2), // tiles_out (to clear count)
+                    buffer_rw(3), // tile_hist (to clear counts)
                 ],
             });
 
@@ -1684,14 +1695,15 @@ impl<const N: usize> BackfillContext<N> {
         }
     }
 
-    fn run(
+    fn run<const M: usize>(
         &self,
         ctx: &Context,
         render_size: RenderSize,
         subtile_zmin: &wgpu::Buffer,
-        tile_zmin: &wgpu::Buffer,
+        tile_buf: &TileBuffers<M>,
         compute_pass: &mut wgpu::ComputePass,
     ) {
+        assert_eq!(M, N * 4);
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -1703,7 +1715,15 @@ impl<const N: usize> BackfillContext<N> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: tile_zmin.as_entire_binding(),
+                        resource: tile_buf.zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: tile_buf.out.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: tile_buf.hist.as_entire_binding(),
                     },
                 ],
             });
@@ -2061,11 +2081,11 @@ mod test {
             for x in 0..16 {
                 for y in 0..16 {
                     let t = zmin[x + y * 16];
-                    assert_eq!(t.tape_index, 0);
+                    assert_eq!(t.tape_index(), 0);
                     if x < 7 {
-                        assert_eq!(t.z, 1023, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
                     } else {
-                        assert_eq!(t.z, 0, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
                     }
                 }
             }
@@ -2197,11 +2217,11 @@ mod test {
                         continue;
                     }
                     let t = zmin[x + y * 64];
-                    assert_eq!(t.tape_index, 0);
+                    assert_eq!(t.tape_index(), 0);
                     if x < 31 {
-                        assert_eq!(t.z, 1023, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
                     } else {
-                        assert_eq!(t.z, 0, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
                     }
                 }
             }
@@ -2340,11 +2360,11 @@ mod test {
                         continue;
                     }
                     let t = zmin[x + y * 256];
-                    assert_eq!(t.tape_index, 0);
+                    assert_eq!(t.tape_index(), 0);
                     if x < 127 {
-                        assert_eq!(t.z, 1023, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
                     } else {
-                        assert_eq!(t.z, 0, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
                     }
                 }
             }
@@ -2429,11 +2449,11 @@ mod test {
             assert_eq!(voxels.len(), 1024 * 1024);
             for (y, vs) in voxels.chunks(1024).enumerate() {
                 for (x, v) in vs.iter().enumerate() {
-                    assert_eq!(v.tape_index, 0);
+                    assert_eq!(v.tape_index(), 0);
                     if (508..512).contains(&x) {
-                        assert_eq!(v.z, 1023, "bad value at {x}, {y}");
+                        assert_eq!(v.z(), 1023, "bad value at {x}, {y}");
                     } else {
-                        assert_eq!(v.z, 0, "bad value at {x}, {y}");
+                        assert_eq!(v.z(), 0, "bad value at {x}, {y}");
                     }
                 }
             }
@@ -2446,7 +2466,7 @@ mod test {
                 ctx,
                 buffers.render_size(),
                 &buffers.voxels,
-                &buffers.tile4.zmin,
+                &buffers.tile4,
                 &mut compute_pass,
             );
             drop(compute_pass);
@@ -2463,13 +2483,13 @@ mod test {
                         continue;
                     }
                     let t = zmin[x + y * 256];
-                    assert_eq!(t.tape_index, 0);
+                    assert_eq!(t.tape_index(), 0);
 
                     // this condition changed!
                     if x <= 127 {
-                        assert_eq!(t.z, 1023, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
                     } else {
-                        assert_eq!(t.z, 0, "bad z at tile {x}, {y}");
+                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
                     }
                 }
             }

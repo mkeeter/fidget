@@ -2,13 +2,29 @@
 @group(1) @binding(0) var<storage, read> subtile_zmin: array<Voxel>;
 @group(1) @binding(1) var<storage, read_write> tile_zmin: array<Voxel>;
 
+// Things to clear
+@group(1) @binding(2) var<storage, read_write> tiles_out: TileListOutput;
+@group(1) @binding(3) var<storage, read_write> tile_hist: array<atomic<u32>>;
+
 override TILE_SIZE: u32;
 
 // Dispatch size is one kernel per XY tile, each of which samples a 4x4 region
 @compute @workgroup_size(64)
 fn backfill_main(
-    @builtin(global_invocation_id) global_id: vec3u
+    @builtin(global_invocation_id) global_id: vec3u,
+    @builtin(num_workgroups) num_workgroups: vec3u,
 ) {
+    // Reset the tile count
+    if global_id.x == 0u {
+        tiles_out.count = 0u;
+    }
+    // Reset the tile Z histogram (cooperatively)
+    let stride = num_workgroups.x * 64u;
+    for (var i = global_id.x; i < arrayLength(&tile_hist); i += stride) {
+        tile_hist[i] = 0u;
+    }
+
+    // Prepare to do the backfilling
     let SUBTILE_SIZE = TILE_SIZE / 4u;
 
     // Convert to a size in tile units
@@ -31,7 +47,7 @@ fn backfill_main(
         for (var j=0u; j < 4u; j++) {
             let subtile_corner = tile_corner * 4u + vec2u(i, j);
             let subtile_index = subtile_corner.x + subtile_corner.y * size_subtiles.x;
-            let v = subtile_zmin[subtile_index].z;
+            let v = subtile_zmin[subtile_index].value >> 20;
 
             // bail out immediately if a subtile isn't populated
             if v == 0 {
@@ -45,6 +61,5 @@ fn backfill_main(
     // if this tile had a higher Z value, then we wouldn't have evaluated the
     // subtile at all, so we can't have a case where the tile has a higher Z and
     // a 0-index tape.
-    tile_zmin[tile_id].z = new_zmin;
-    tile_zmin[tile_id].tape_index = 0u;
+    tile_zmin[tile_id].value = new_zmin << 20;
 }

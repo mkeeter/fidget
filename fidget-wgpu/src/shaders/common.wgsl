@@ -45,13 +45,11 @@ struct TapeData {
     data: array<u32>,
 }
 
-/// Single voxel, as a tuple of Z value and tape index
+/// Single voxel, as a packed `(Z, tape index)` tuple
 ///
-/// The Z value is atomic so that we can update it with a copy-and-swap loop
-/// before changing the tape index.
+/// The Z value occupies the upper 12 bits; the tape index is the lower 20.
 struct Voxel {
-    z: atomic<u32>,
-    tape_index: u32,
+    value: atomic<u32>,
 }
 
 /// Tile to be evaluated

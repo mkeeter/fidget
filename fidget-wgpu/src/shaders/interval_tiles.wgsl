@@ -30,26 +30,28 @@ fn interval_tile_main(
     @builtin(num_workgroups) num_workgroups: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
 ) {
-    // Handle the dispatch counter update: we have a per-workgroup counter
-    // (which should be eventually consistent across threads) because we can't
-    // do global synchronization.  Thread 0 increments it by one after all
-    // threads in the workgroup have had a chance to read it; if we're at the
-    // end of dispatches, then we instead reset it to 0.
+    // Handle the dispatch counter update.  In theory, we just need a single
+    // counter; in practice, we need one per workgroup because we can't do
+    // global synchronization of the update.
+    //
+    // We know that each dispatch is of size MAX_TILES_PER_DISPATCH except the
+    // final one, so this gives us a tile index to process (which is the global
+    // dispatch offset plus a workgroups-specific offset).
     var workgroup_index = workgroup_id.x; // always 1D
-    let d = dispatch_counter[workgroup_index];
-    workgroupBarrier();
-    if local_id.x == 0 && local_id.y == 0 && local_id.z == 0 {
-        if d + num_workgroups.x >= tiles_in.count {
-            dispatch_counter[workgroup_index] = 0;
-        } else {
-            dispatch_counter[workgroup_index] += 1;
-        }
-    }
+    let tile_in_index = workgroup_index +
+        dispatch_counter[workgroup_index] * MAX_TILES_PER_DISPATCH;
     workgroupBarrier();
 
-    // At this point, we know our dispatch number.  All dispatches are of size
-    // MAX_TILES_PER_DISPATCH except the last one.  TODO: store a count in
-    // `tiles_in` so we don't need the `dispatch` buffer?
+    // Updating the counter is only done by thread 0 in the workgroup.
+    if local_id.x == 0 && local_id.y == 0 && local_id.z == 0 {
+        // If this dispatch finishes processing all tiles, then reset the
+        // counter to prepare for the next pass.
+        if tile_in_index + num_workgroups.x >= tiles_in.count {
+            dispatch_counter[workgroup_index] = 0u;
+        } else {
+            dispatch_counter[workgroup_index] += 1u;
+        }
+    }
 
     // Convert to a size in tile units
     let size64 = config.render_size / 64;
@@ -57,7 +59,6 @@ fn interval_tile_main(
     let size_subtiles = size_tiles * 4u;
 
     // Get global tile position, in tile coordinates.
-    let tile_in_index = workgroup_index + d * MAX_TILES_PER_DISPATCH;
     if tile_in_index >= tiles_in.count {
         return;
     }
@@ -78,26 +79,14 @@ fn interval_tile_main(
 
     // Check for Z masking from parent tile
     let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
-    if tile_zmin[tile_index_xy].z >= corner_pos.z + SUBTILE_SIZE - 1 {
-        // CAS loop, see interval_root for details
-        let new_z = tile_zmin[tile_index_xy].z;
-        loop {
-            let old_z = atomicLoad(&subtile_zmin[subtile_index_xy].z);
-            if (new_z <= old_z) {
-                break;
-            }
-            let exchanged_z = atomicCompareExchangeWeak(
-                &subtile_zmin[subtile_index_xy].z, old_z, new_z);
-            if (exchanged_z.exchanged) {
-                // Z updated, now update the tape
-                subtile_zmin[subtile_index_xy].tape_index = tile_zmin[tile_index_xy].tape_index;
-                break;
-            }
-        }
+    let tile_value = tile_zmin[tile_index_xy].value;
+    if (tile_value >> 20) >= corner_pos.z + SUBTILE_SIZE - 1 {
+        atomicMax(&subtile_zmin[subtile_index_xy].value, tile_value);
+        return;
     }
 
     // Last-minute check to see if anyone filled out this tile
-    if atomicLoad(&subtile_zmin[subtile_index_xy].z) >= corner_pos.z + SUBTILE_SIZE {
+    if (atomicLoad(&subtile_zmin[subtile_index_xy].value) >> 20) >= corner_pos.z + SUBTILE_SIZE {
         return;
     }
 
@@ -126,19 +115,8 @@ fn interval_tile_main(
         // store a simplified tape for normal evaluation)
         // CAS loop, see interval_root for details
         let new_z = corner_pos.z + SUBTILE_SIZE - 1;
-        loop {
-            let old_z = atomicLoad(&subtile_zmin[subtile_index_xy].z);
-            if (new_z <= old_z) {
-                break;
-            }
-            let exchanged_z = atomicCompareExchangeWeak(
-                &subtile_zmin[subtile_index_xy].z, old_z, new_z);
-            if (exchanged_z.exchanged) {
-                // Z updated, now update the tape
-                subtile_zmin[subtile_index_xy].tape_index = next;
-                break;
-            }
-        }
+        let new_value = (new_z << 20) | tape_start; // XXX handle overflow?
+        atomicMax(&subtile_zmin[subtile_index_xy].value, new_value);
     } else {
         // Otherwise, enqueue the tile and add its Z position to the histogram
         let offset = atomicAdd(&subtiles_out.count, 1u);

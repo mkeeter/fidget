@@ -52,28 +52,10 @@ fn interval_root_main(
     let next = simplify_tape(out.pos, out.count, &stack);
 
     if v[1] < 0.0 {
-        // If the tile is full, then write the z value and tape index to zmin.
-        // u64 atomics aren't supported, so we have to do a CAS loop to check
-        // whether this Z value is higher (and only set the tape once the Z
-        // value is successfully written).  See gpuweb#5071 for planned support.
         let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
         let new_z = corner_pos.z + TILE_SIZE - 1;
-        loop {
-            let old_z = atomicLoad(&tile64_zmin[tile_index_xy].z);
-            if (new_z <= old_z) {
-                break;
-            }
-
-            // Try to update the Z value, since it's higher
-            let exchanged_z = atomicCompareExchangeWeak(
-                &tile64_zmin[tile_index_xy].z, old_z, new_z);
-            if (exchanged_z.exchanged) {
-                // Z updated, now update the tape
-                tile64_zmin[tile_index_xy].tape_index = next;
-                break;
-            }
-            // CAS failed, retry
-        }
+        let new_value = (new_z << 20) | next; // TODO next overflow
+        atomicMax(&tile64_zmin[tile_index_xy].value, new_value);
     } else {
         // Otherwise, enqueue the tile and add its Z position to the histogram
         let tile_index_xyz = tile_corner.x +
