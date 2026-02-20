@@ -88,7 +88,6 @@ const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 const CUMSUM_SHADER: &str = include_str!("shaders/cumsum.wgsl");
-const FLATSUM_SHADER: &str = include_str!("shaders/flatsum.wgsl");
 
 /// Maximum dispatch size on one axis
 ///
@@ -283,11 +282,6 @@ fn normals_shader(reg_count: u8) -> String {
 /// Returns a shader for computing the cumulative sum of Z strata occupancy
 fn cumsum_shader() -> String {
     CUMSUM_SHADER.to_owned() + COMMON_SHADER
-}
-
-/// Returns a shader for computing the flat cumulative sum of Z strata occupancy
-fn flatsum_shader() -> String {
-    FLATSUM_SHADER.to_owned() + COMMON_SHADER
 }
 
 /// Returns a shader for repacking tiles in per-dispatch Z-sorted order
@@ -1018,6 +1012,15 @@ pub struct Context {
     /// Voxel evaluation context
     voxel_ctx: VoxelContext,
 
+    /// Backfill context (voxel → 4³ tiles)
+    backfill4_ctx: BackfillContext<1>,
+
+    /// Backfill context (4³ → 16³ tiles)
+    backfill16_ctx: BackfillContext<4>,
+
+    /// Backfill context (16³ → 64³ tiles)
+    backfill64_ctx: BackfillContext<16>,
+
     /// Context for clearing buffers
     clear_ctx: ClearContext,
 }
@@ -1062,6 +1065,12 @@ impl Context {
         let repack4_ctx =
             RepackContext::new(&device, &common_bind_group_layout);
         let voxel_ctx = VoxelContext::new(&device, &common_bind_group_layout);
+        let backfill4_ctx =
+            BackfillContext::new(&device, &common_bind_group_layout);
+        let backfill16_ctx =
+            BackfillContext::new(&device, &common_bind_group_layout);
+        let backfill64_ctx =
+            BackfillContext::new(&device, &common_bind_group_layout);
 
         Self {
             device,
@@ -1077,6 +1086,9 @@ impl Context {
             interval4_ctx,
             voxel_ctx,
             repack4_ctx,
+            backfill4_ctx,
+            backfill16_ctx,
+            backfill64_ctx,
         }
     }
 
@@ -1613,15 +1625,13 @@ impl Buffers {
     }
 }
 
-struct BackfillContext {
+/// Backfills from tiles of size `N` to the parent tiles (of size `N * 4`)
+struct BackfillContext<const N: usize> {
     bind_group_layout: wgpu::BindGroupLayout,
-
-    pipeline4: wgpu::ComputePipeline,
-    pipeline16: wgpu::ComputePipeline,
-    pipeline64: wgpu::ComputePipeline,
+    pipeline: wgpu::ComputePipeline,
 }
 
-impl BackfillContext {
+impl<const N: usize> BackfillContext<N> {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
@@ -1634,7 +1644,6 @@ impl BackfillContext {
                 entries: &[
                     buffer_ro(0), // subtile_zmin
                     buffer_rw(1), // tile_zmin
-                    buffer_rw(2), // count_clear
                 ],
             });
 
@@ -1656,28 +1665,21 @@ impl BackfillContext {
                 source: wgpu::ShaderSource::Wgsl(shader_code.into()),
             });
 
-        let make_pipeline = |tile_size: u32| {
+        let pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(&format!("backfill{tile_size}")),
+                label: Some(&format!("backfill{N}")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("backfill_main"),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("TILE_SIZE", tile_size as f64)],
+                    constants: &[("TILE_SIZE", N as f64)],
                     ..Default::default()
                 },
                 cache: None,
-            })
-        };
-
-        let pipeline4 = make_pipeline(4);
-        let pipeline16 = make_pipeline(16);
-        let pipeline64 = make_pipeline(64);
+            });
 
         Self {
-            pipeline64,
-            pipeline16,
-            pipeline4,
+            pipeline,
             bind_group_layout,
         }
     }
@@ -1685,89 +1687,33 @@ impl BackfillContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
-        strata: usize,
-        compute_pass: &mut wgpu::ComputePass,
-    ) {
-        /*
-        let render_size = buffers.render_size();
-        let offset_bytes = (strata
-            * strata_size_bytes(render_size, buffers.strata_size))
-            as u64;
-
-        let nx = render_size.nx() as usize;
-        let ny = render_size.ny() as usize;
-
-        let bind_group4 = self.create_bind_group(
-            ctx,
-            &buffers.voxels,
-            &buffers.tile4.zmin,
-            buffers.tile4.tiles.as_entire_binding(),
-        );
-        compute_pass.set_pipeline(&self.pipeline4);
-        compute_pass.set_bind_group(1, &bind_group4, &[]);
-        compute_pass.dispatch_workgroups(
-            (nx * ny * 16usize.pow(2)).div_ceil(64) as u32,
-            1,
-            1,
-        );
-
-        let bind_group16 = self.create_bind_group(
-            ctx,
-            &buffers.tile4.zmin,
-            &buffers.tile16.zmin,
-            buffers.tile16.tiles.as_entire_binding(),
-        );
-        compute_pass.set_pipeline(&self.pipeline16);
-        compute_pass.set_bind_group(1, &bind_group16, &[]);
-        compute_pass.dispatch_workgroups(
-            (nx * ny * 4usize.pow(2)).div_ceil(64) as u32,
-            1,
-            1,
-        );
-
-        let bind_group64 = self.create_bind_group(
-            ctx,
-            &buffers.tile16.zmin,
-            &buffers.tile64.zmin,
-            buffers
-                .tile64
-                .tiles
-                .slice(offset_bytes..offset_bytes + 16)
-                .into(),
-        );
-        compute_pass.set_pipeline(&self.pipeline64);
-        compute_pass.set_bind_group(1, &bind_group64, &[]);
-        compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
-        */
-        todo!()
-    }
-
-    fn create_bind_group(
-        &self,
-        ctx: &Context,
+        render_size: RenderSize,
         subtile_zmin: &wgpu::Buffer,
         tile_zmin: &wgpu::Buffer,
-        tile_clear: wgpu::BindingResource,
-    ) -> wgpu::BindGroup {
-        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: subtile_zmin.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: tile_zmin.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: tile_clear,
-                },
-            ],
-        })
+        compute_pass: &mut wgpu::ComputePass,
+    ) {
+        let bind_group =
+            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: subtile_zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: tile_zmin.as_entire_binding(),
+                    },
+                ],
+            });
+
+        // Dispatched once per parent tile, on the X axis only
+        let nx = render_size.width() as usize / (N * 4);
+        let ny = render_size.height() as usize / (N * 4);
+        compute_pass.set_pipeline(&self.pipeline);
+        compute_pass.set_bind_group(1, &bind_group, &[]);
+        compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
     }
 }
 
@@ -1969,8 +1915,8 @@ mod test {
     }
 
     #[test]
-    fn check_flatsum_shader() {
-        compile_shader(&flatsum_shader(), "flatsum")
+    fn check_backfill_shader() {
+        compile_shader(&backfill_shader(), "backfill")
     }
 
     #[test]
@@ -2488,6 +2434,42 @@ mod test {
                         assert_eq!(v.z, 1023, "bad value at {x}, {y}");
                     } else {
                         assert_eq!(v.z, 0, "bad value at {x}, {y}");
+                    }
+                }
+            }
+
+            ////////////////////////////////////////////////////////////////////
+            // Let's run the backfill shader and see how it does
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.backfill4_ctx.run(
+                ctx,
+                buffers.render_size(),
+                &buffers.voxels,
+                &buffers.tile4.zmin,
+                &mut compute_pass,
+            );
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            // Now, the tile4 zmin buffer should be populated all the way up to
+            // x = 128 (previously it was x < 128).
+            let zmin = ctx.read_buffer::<Voxel>(&buffers.tile4.zmin);
+            assert_eq!(zmin.len(), 256 * 256);
+            for x in 0..256 {
+                for y in 0..256 {
+                    // The previous stage only produced tiles with x = [7,8]
+                    if x / 4 < 31 || x / 4 > 32 {
+                        continue;
+                    }
+                    let t = zmin[x + y * 256];
+                    assert_eq!(t.tape_index, 0);
+
+                    // this condition changed!
+                    if x <= 127 {
+                        assert_eq!(t.z, 1023, "bad z at tile {x}, {y}");
+                    } else {
+                        assert_eq!(t.z, 0, "bad z at tile {x}, {y}");
                     }
                 }
             }
