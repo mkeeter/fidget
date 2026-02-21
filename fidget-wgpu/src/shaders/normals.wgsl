@@ -1,5 +1,10 @@
-@group(1) @binding(0) var<storage, read> image_heightmap: array<u32>;
-@group(1) @binding(1) var<storage, read_write> image_out: array<vec4f>;
+/// Compute normals and build a merged image
+@group(1) @binding(0) var<storage, read> tape_data: TapeData;
+@group(1) @binding(1) var<storage, read> tile64_zmin: array<u32>;
+@group(1) @binding(2) var<storage, read> tile16_zmin: array<u32>;
+@group(1) @binding(3) var<storage, read> tile4_zmin: array<u32>;
+@group(1) @binding(4) var<storage, read> voxels: array<u32>;
+@group(1) @binding(5) var<storage, read_write> image_out: array<vec4f>;
 
 @compute @workgroup_size(8, 8)
 fn normals_main(
@@ -11,19 +16,29 @@ fn normals_main(
     if px >= config.image_size.x || py >= config.image_size.y {
         return;
     }
-    let pixel_index_xy = px + py * config.image_size.x;
 
-    // If we've already written this pixel, then return; because evaluation
-    // happens in Z order, it will necessarily supersede the current pixel
-    if image_out[pixel_index_xy][0] != 0 {
-        return;
-    }
+    // Pick the highest zmin value available
+    let size64 = config.render_size / 64;
+    let size16 = size64 * 4u;
+    let size4 = size16 * 4u;
+    let index64 = global_id.x / 64 + global_id.y / 64 * size64.x;
+    var out = tile64_zmin[index64];
+    let index16 = global_id.x / 16 + global_id.y / 16 * size16.x;
+    out = max(out, tile16_zmin[index16]);
+    let index4 = global_id.x / 4 + global_id.y / 4 * size4.x;
+    out = max(out, tile4_zmin[index4]);
+    out = max(out, voxels[global_id.x + global_id.y * config.render_size[0]]);
+
+    let z = out >> 20;
+    let tape_index = out & ((1 << 20) - 1);
 
     // If this pixel hasn't yet been written in the heightmap, then return
-    let z = image_heightmap[pixel_index_xy];
-    if z == 0u {
+    if z == 0 {
         return;
     }
+    image_out[px + py * config.image_size.x] = vec4f(4.0, 5.0, 6.0, 7.0);
+
+    let pixel_index_xy = px + py * config.image_size.x;
 
     // Store gradients with dx, dy, dz in xyz and value in w
     let gx = Value(vec4f(1.0, 0.0, 0.0, f32(px)));
@@ -33,44 +48,14 @@ fn normals_main(
     // Compute input values
     let m = transformed_inputs(gx, gy, gz);
 
-    let tape_start = get_tape_start(vec3u(px, py, z));
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_start, m, &stack);
+    let result = run_tape(tape_index, m, &stack);
     image_out[pixel_index_xy] = vec4f(
         f32(z),
-        out.value.v.x,
-        out.value.v.y,
-        out.value.v.z
+        result.value.v.x,
+        result.value.v.y,
+        result.value.v.z
     );
-}
-
-/// For a given voxel position, return the tape start index
-///
-/// This is the highest-resolution tape index that is valid for the given
-/// position, e.g. preferring tapes specialized to 4x4x4 regions, then
-/// 16x16x16, then 64x64x64.
-fn get_tape_start(corner_pos: vec3u) -> u32 {
-    // The 4^3 and 16^3 tiles are reused between strata, so we have to check Z
-    let index4 = get_tape_offset_for_level(corner_pos, 4u);
-    // that the Z position is valid for the current strata.
-    let t4 = tile_tape[index4];
-    if t4 != 0 && t4 >> TILE_TAPE_STRATA_SHIFT == corner_pos.z / 4 {
-        return t4 & TILE_TAPE_MASK;
-    }
-
-    let index16 = get_tape_offset_for_level(corner_pos, 16u);
-    let t16 = tile_tape[index16];
-    if t16 != 0 && t16 >> TILE_TAPE_STRATA_SHIFT == corner_pos.z / 16 {
-        return t16 & TILE_TAPE_MASK;
-    }
-
-    let index64 = get_tape_offset_for_level(corner_pos, 64u);
-    let t64 = tile_tape[index64];
-    if t64 != 0 {
-        return t64;
-    } else {
-        return 0u;
-    }
 }
 
 struct Value {

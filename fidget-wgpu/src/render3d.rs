@@ -83,7 +83,6 @@ const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
 const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
-const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
@@ -135,15 +134,15 @@ struct Config {
     ///
     /// `u32::MAX` is used as a marker if an axis is unused
     axes: [u32; 3],
+    _padding1: u32,
 
     /// Render size, rounded up to the nearest multiple of 64
     render_size: [u32; 3],
+    _padding2: u32,
 
     /// Image size (not rounded)
     image_size: [u32; 3],
-
-    /// Pad to multiple of 8 bytes
-    _padding: [u32; 3],
+    _padding3: u32,
 }
 
 /// Indirect dispatch plan for a round of interval tile dispatch
@@ -296,11 +295,6 @@ fn cumsum_shader() -> String {
 /// Returns a shader for repacking tiles in per-dispatch Z-sorted order
 fn repack_shader() -> String {
     REPACK_SHADER.to_owned() + COMMON_SHADER
-}
-
-/// Returns a shader for merging images
-fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER
 }
 
 /// Returns a shader for backfilling tile `zmin` values
@@ -909,8 +903,12 @@ impl NormalsContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0), // image_heightmap
-                    buffer_rw(1), // image_out
+                    buffer_ro(0), // tape_data
+                    buffer_ro(1), // tile64_zmin
+                    buffer_ro(2), // tile16_zmin
+                    buffer_ro(3), // tile4_zmin
+                    buffer_ro(4), // vnoxels
+                    buffer_rw(5), // image_out
                 ],
             });
 
@@ -951,10 +949,9 @@ impl NormalsContext {
         &self,
         ctx: &Context,
         buffers: &Buffers,
-        reg_count: u8,
+        shape: &RenderShape,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        /*
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -962,16 +959,32 @@ impl NormalsContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.heightmap.as_entire_binding(),
+                        resource: shape.tape_buf.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
+                        resource: buffers.tile64.zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buffers.tile16.zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: buffers.tile4.zmin.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: buffers.voxels.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
                         resource: buffers.geom.as_entire_binding(),
                     },
                 ],
             });
 
-        compute_pass.set_pipeline(self.normals_pipeline.get(reg_count));
+        compute_pass.set_pipeline(self.normals_pipeline.get(shape.reg_count));
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
         compute_pass.dispatch_workgroups(
@@ -979,8 +992,6 @@ impl NormalsContext {
             buffers.image_size.height().div_ceil(8),
             1,
         );
-        */
-        todo!()
     }
 }
 
@@ -999,6 +1010,9 @@ pub struct Context {
 
     /// Uniform buffer for render configuration
     config_buf: wgpu::Buffer,
+
+    /// Context for clearing buffers
+    clear_ctx: ClearContext,
 
     /// Interval root context, generating 64³ tiles
     root_ctx: RootContext,
@@ -1030,8 +1044,8 @@ pub struct Context {
     /// Backfill context (16³ → 64³ tiles)
     backfill64_ctx: BackfillContext<16>,
 
-    /// Context for clearing buffers
-    clear_ctx: ClearContext,
+    /// Normal context for merging `zmin` buffers and computing normals
+    normals_ctx: NormalsContext,
 }
 
 impl Context {
@@ -1080,6 +1094,8 @@ impl Context {
             BackfillContext::new(&device, &common_bind_group_layout);
         let backfill64_ctx =
             BackfillContext::new(&device, &common_bind_group_layout);
+        let normals_ctx =
+            NormalsContext::new(&device, &common_bind_group_layout);
 
         Self {
             device,
@@ -1098,6 +1114,7 @@ impl Context {
             backfill4_ctx,
             backfill16_ctx,
             backfill64_ctx,
+            normals_ctx,
         }
     }
 
@@ -1169,7 +1186,9 @@ impl Context {
                 buffers.image_size.height(),
                 buffers.image_size.depth(),
             ],
-            _padding: [0u32; _],
+            _padding1: 0u32,
+            _padding2: 0u32,
+            _padding3: 0u32,
         };
 
         let config_len = std::mem::size_of_val(&config);
@@ -1737,113 +1756,6 @@ impl<const N: usize> BackfillContext<N> {
     }
 }
 
-struct MergeContext {
-    bind_group_layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::ComputePipeline,
-}
-
-impl MergeContext {
-    fn new(
-        device: &wgpu::Device,
-        common_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let shader_code = merge_shader();
-
-        // Create bind group layout and bind group
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_ro(0), // tile64_zmin
-                    buffer_ro(1), // tile16_zmin
-                    buffer_ro(2), // tile4_zmin
-                    buffer_ro(3), // voxels
-                    buffer_rw(4), // heightmap
-                ],
-            });
-
-        // Create the compute pipeline
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-        // Compile the shader
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-
-        let pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("merge"),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("merge_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        Self {
-            pipeline,
-            bind_group_layout,
-        }
-    }
-
-    fn run(
-        &self,
-        ctx: &Context,
-        buffers: &Buffers,
-        compute_pass: &mut wgpu::ComputePass,
-    ) {
-        /*
-        let image_size = buffers.image_size;
-
-        let bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile64.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile16.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.tile4.zmin.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffers.voxels.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: buffers.heightmap.as_entire_binding(),
-                    },
-                ],
-            });
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(1, &bind_group, &[]);
-        compute_pass.dispatch_workgroups(
-            image_size.width().div_ceil(8),
-            image_size.height().div_ceil(8),
-            1,
-        );
-        */
-        todo!()
-    }
-}
-
 struct ClearContext;
 
 impl ClearContext {
@@ -1940,61 +1852,8 @@ mod test {
     }
 
     #[test]
-    fn plan() {
-        // XXX here's some thoughts
-        //
-        // - Each dispatch of an interval stage can generate some maximum number
-        //   of tiles
-        //     - The root dispatch can generate nx * ny * nz tiles
-        //     - Subsequent dispatches can generate a number of tiles based on
-        //       the previous stage
-        // - These tiles will be split into one-or-more dispatches for the
-        //   subsequent stage
-        //   - If # of tiles < MAX_TILES_PER_DISPATCH tiles, then the next stage will only
-        //     do a single dispatch – which can produce 64x more tiles
-        //   - Otherwise, the next stage will perform
-        //     `tile_count.div_ceil(MAX_TILES_PER_DISPATCH)` dispatches, and each dispatch
-        //     will produce 64x MAX_TILES_PER_DISPATCH tiles
-        //
-        //  NEW PLAN
-        //  just sort Z tiles, then plan maximal dispatches (no looping)
-        //  need to generate 3 plans per dispatch
-        //      tile evaluation (num_workgrups, 1, 1)
-        //      cumsum (1, 1, 1)
-        //      repack (tile_count, 1, 1)
-        //  each of these should be written to (0, 0, 0) if the dispatch should
-        //  be skipped
-        fn print_plan(r: RenderSize) {
-            println!(
-                "Rendering [{}, {}, {}] voxels",
-                r.width(),
-                r.height(),
-                r.depth()
-            );
-            let nx = r.nx();
-            let ny = r.ny();
-            let nz = r.nz();
-            println!("  [{nx}, {ny}, {nz}] tiles");
-            println!("  initial dispatch renders {}x root tiles", nx * ny * nz);
-            println!(
-                "  there can be {}x root tiles active for 64 -> 16 pass",
-                nx * ny * nz
-            );
-            println!(
-                "  64 -> 16 pass can produce {}x 16³ tiles",
-                nx * ny * nz * 64
-            );
-            println!(
-                "  16->4 pass is dispatched with a max of {MAX_TILES_PER_DISPATCH} workgroups"
-            );
-            println!(
-                "  16->4 pass can produce a max of {}x 4³ tiles",
-                MAX_TILES_PER_DISPATCH * 4 * 4 * 4
-            );
-            println!("  each strata contains {}x 16³ tiles", nx * ny * 16);
-            println!("  each strata contains {}x 4³ tiles", nx * ny * 16 * 16);
-        }
-        print_plan(RenderSize::from(VoxelSize::from(1024)));
+    fn check_normals_shader() {
+        compile_shader(&normals_shader(8), "normals")
     }
 
     /// GPU-specific tests
@@ -2490,6 +2349,31 @@ mod test {
                         assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
                     } else {
                         assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
+                    }
+                }
+            }
+
+            ////////////////////////////////////////////////////////////////////
+            // Normals!
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.normals_ctx
+                .run(ctx, &buffers, &shape, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let geom = ctx.read_buffer::<[f32; 4]>(&buffers.geom);
+            assert_eq!(geom.len(), 1024 * 1024);
+            for (y, vs) in geom.chunks(1024).enumerate() {
+                for (x, v) in vs.iter().enumerate() {
+                    if x <= 511 {
+                        assert_eq!(
+                            v,
+                            &[1023.0, 1.0 / 512.0, 0.0, 0.0],
+                            "bad pixel at {x}, {y}"
+                        );
+                    } else {
+                        assert_eq!(v, &[0.0; 4], "bad pixel at {x}, {y}");
                     }
                 }
             }

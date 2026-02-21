@@ -7,12 +7,15 @@ struct Config {
 
     /// Mapping from X, Y, Z to input indices
     axes: vec3u,
+    _padding1: u32,
 
     /// Render size, in voxels (always a multiple of 64)
     render_size: vec3u,
+    _padding2: u32,
 
     /// Image size, in voxels
     image_size: vec3u,
+    _padding3: u32,
 }
 
 /// Dynamic list of tiles, using an atomic bump allocator

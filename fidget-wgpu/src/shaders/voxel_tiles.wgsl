@@ -34,7 +34,7 @@ fn voxel_ray_main(
         let corner_pos = tile4_corner * 4 + local_id;
 
         let tile4_index_xy = tx + ty * size4.x;
-        let pixel_index_xy = corner_pos.x + corner_pos.y * config.render_size.x;
+        let pixel_index_xy = corner_pos.x + corner_pos.y * config.render_size[0];
         let tile4_value = tile4_zmin[tile4_index_xy].value;
         if (tile4_value >> 20) >= corner_pos.z {
             atomicMax(&result[pixel_index_xy].value, tile4_value);
