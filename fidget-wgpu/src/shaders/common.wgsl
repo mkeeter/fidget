@@ -15,7 +15,9 @@ struct Config {
 
     /// Image size, in voxels
     image_size: vec3u,
-    _padding3: u32,
+
+    /// Maximum number of workgroups in a single dispatch
+    max_tiles_per_dispatch: u32,
 }
 
 /// Dynamic list of tiles, using an atomic bump allocator

@@ -88,11 +88,6 @@ const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 const CUMSUM_SHADER: &str = include_str!("shaders/cumsum.wgsl");
 
-/// Maximum dispatch size on one axis
-///
-/// In our tile dispatches, we always use a 1D workgroup
-const MAX_TILES_PER_DISPATCH: u32 = 32768;
-
 const DEBUG_FLAGS: wgpu::BufferUsages = if cfg!(test) {
     wgpu::BufferUsages::COPY_SRC
 } else {
@@ -108,12 +103,20 @@ const DEBUG_FLAGS: wgpu::BufferUsages = if cfg!(test) {
 pub struct RenderConfig {
     /// World-to-model transform
     pub world_to_model: nalgebra::Matrix4<f32>,
+
+    /// Maximum number of tiles to process in a single dispatch
+    ///
+    /// This is equivalent to the number of workgroups dispatched; each
+    /// workgroup has 64 threads to process subtiles (dividing by 4 on each
+    /// axis).
+    pub spec: GpuSpec,
 }
 
 impl Default for RenderConfig {
     fn default() -> Self {
         Self {
             world_to_model: nalgebra::Matrix4::identity(),
+            spec: GpuSpec::High,
         }
     }
 }
@@ -142,7 +145,7 @@ struct Config {
 
     /// Image size (not rounded)
     image_size: [u32; 3],
-    _padding3: u32,
+    max_tiles_per_dispatch: u32,
 }
 
 /// Indirect dispatch plan for a round of interval tile dispatch
@@ -512,13 +515,7 @@ impl<const N: usize> RepackContext<N> {
                 module: &shader_module,
                 entry_point: Some("cumsum_main"),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[
-                        ("TILE_SIZE", N as f64),
-                        (
-                            "MAX_TILES_PER_DISPATCH",
-                            MAX_TILES_PER_DISPATCH as f64,
-                        ),
-                    ],
+                    constants: &[("TILE_SIZE", N as f64)],
                     ..Default::default()
                 },
                 cache: None,
@@ -632,7 +629,7 @@ impl<const N: usize> RepackContext<N> {
         compute_pass.set_pipeline(&self.repack_pipeline);
         compute_pass.set_bind_group(1, &repack_bind_group, &[]);
         compute_pass.dispatch_workgroups(
-            (buffers.max_tile_count as u32).min(MAX_TILES_PER_DISPATCH),
+            buffers.max_tiles_per_dispatch() as u32,
             1,
             1,
         );
@@ -704,10 +701,6 @@ impl<const N: usize> IntervalContext<N> {
                     constants: &[
                         ("TILE_SIZE", N as f64 * 4.0),
                         ("SUBTILE_SIZE", N as f64),
-                        (
-                            "MAX_TILES_PER_DISPATCH",
-                            MAX_TILES_PER_DISPATCH as f64,
-                        ),
                     ],
                     ..Default::default()
                 },
@@ -1001,6 +994,7 @@ impl NormalsContext {
 pub struct Context {
     device: wgpu::Device,
     queue: wgpu::Queue,
+    spec: GpuSpec,
 
     /// Bind group layout for the common bind group (used by all stages)
     bind_group_layout: wgpu::BindGroupLayout,
@@ -1050,7 +1044,11 @@ pub struct Context {
 
 impl Context {
     /// Build a new 3D rendering context, given a device and queue
-    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+    pub fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        spec: GpuSpec,
+    ) -> Self {
         // Create bind group layout and bind group
         let common_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1100,6 +1098,7 @@ impl Context {
         Self {
             device,
             queue,
+            spec,
             bind_group_layout: common_bind_group_layout,
             bind_group,
             config_buf,
@@ -1125,7 +1124,7 @@ impl Context {
     /// within each pixel of the image (stacked into a column going into the
     /// screen).
     pub fn buffers(&self, image_size: VoxelSize) -> Buffers {
-        Buffers::new(&self.device, image_size)
+        Buffers::new(&self.device, image_size, self.spec)
     }
 
     /// Builds a new [`RenderShape`] object for the given shape
@@ -1181,6 +1180,7 @@ impl Context {
                 render_size.height(),
                 render_size.depth(),
             ],
+            max_tiles_per_dispatch: self.spec.max_tiles_per_dispatch() as u32,
             image_size: [
                 buffers.image_size.width(),
                 buffers.image_size.height(),
@@ -1188,7 +1188,6 @@ impl Context {
             ],
             _padding1: 0u32,
             _padding2: 0u32,
-            _padding3: 0u32,
         };
 
         let config_len = std::mem::size_of_val(&config);
@@ -1375,6 +1374,11 @@ struct TileBuffers<const N: usize> {
     /// Maximum number of output tiles that can be stored in these buffers
     max_tile_count: usize,
 
+    /// Maximum number of tiles processed in one dispatch
+    ///
+    /// This value should be copied from [`Config::max_tiles_per_dispatch`]
+    max_tiles_per_dispatch: usize,
+
     /// Unsorted `ActiveTile` list
     ///
     /// This fits `max_tile_count` plus a leading counter word
@@ -1416,6 +1420,7 @@ impl<const N: usize> TileBuffers<N> {
         device: &wgpu::Device,
         render_size: RenderSize,
         prev: Option<&TileBuffers<M>>,
+        max_tiles_per_dispatch: usize,
     ) -> Self {
         let nx = render_size.width() as usize / N;
         let ny = render_size.height() as usize / N;
@@ -1425,7 +1430,7 @@ impl<const N: usize> TileBuffers<N> {
         let max_tile_count = if let Some(prev) = prev {
             // The previous stage can generate some number of tiles.  It will
             // also plan some number of dispatches; each dispatch can handle up
-            // to MAX_TILES_PER_DISPATCH, so that's an upper bound on how many
+            // to `max_tiles_per_dispatch`, so that's an upper bound on how many
             // tiles we need to handle.  Each tile from the previous stage can
             // generate up to 64 tiles in this stage.
             assert_eq!(M, N * 4);
@@ -1440,7 +1445,7 @@ impl<const N: usize> TileBuffers<N> {
         let max_dispatch_count = if N == 4 {
             1
         } else {
-            max_tile_count.div_ceil(MAX_TILES_PER_DISPATCH as usize)
+            max_tile_count.div_ceil(max_tiles_per_dispatch)
         };
 
         let out = new_buffer::<u32>(
@@ -1481,7 +1486,7 @@ impl<const N: usize> TileBuffers<N> {
         let dispatch_counter = new_buffer::<u32>(
             device,
             format!("dispatch_counter{N}"),
-            max_tile_count.min(MAX_TILES_PER_DISPATCH as usize),
+            max_tile_count.min(max_tiles_per_dispatch),
             wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
         );
         let sorted = new_buffer::<u32>(
@@ -1493,6 +1498,7 @@ impl<const N: usize> TileBuffers<N> {
         );
         Self {
             max_tile_count,
+            max_tiles_per_dispatch,
             out,
             hist, // TODO merge this and zmin into one buffer to minimize binds?
             zmin,
@@ -1507,7 +1513,7 @@ impl<const N: usize> TileBuffers<N> {
     ///
     /// This applies to the subsequent rendering stage
     fn max_tiles_per_dispatch(&self) -> usize {
-        self.max_tile_count.min(MAX_TILES_PER_DISPATCH as usize)
+        self.max_tile_count.min(self.max_tiles_per_dispatch)
     }
 
     /// Maximum number of generated dispatch stages
@@ -1517,8 +1523,7 @@ impl<const N: usize> TileBuffers<N> {
         if N == 4 {
             1
         } else {
-            self.max_tile_count
-                .div_ceil(MAX_TILES_PER_DISPATCH as usize)
+            self.max_tile_count.div_ceil(self.max_tiles_per_dispatch)
         }
     }
 }
@@ -1531,7 +1536,6 @@ impl<const N: usize> TileBuffers<N> {
 pub struct RenderShape {
     tape_buf: wgpu::Buffer,
     axes: [u32; 3],
-    bytecode_len: u32,
     reg_count: u8,
 }
 
@@ -1571,7 +1575,6 @@ impl RenderShape {
         Self {
             tape_buf,
             axes,
-            bytecode_len: bytecode.len().try_into().unwrap(),
             reg_count: bytecode.reg_count(),
         }
     }
@@ -1608,8 +1611,31 @@ pub struct Buffers {
     image: wgpu::Buffer,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum GpuSpec {
+    Low,
+    Medium,
+    High,
+    Custom(u32),
+}
+
+impl GpuSpec {
+    pub fn max_tiles_per_dispatch(&self) -> usize {
+        match self {
+            GpuSpec::Low => 512,
+            GpuSpec::Medium => 4096,
+            GpuSpec::High => 32768,
+            GpuSpec::Custom(i) => *i as usize,
+        }
+    }
+}
+
 impl Buffers {
-    fn new(device: &wgpu::Device, image_size: VoxelSize) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        image_size: VoxelSize,
+        spec: GpuSpec,
+    ) -> Self {
         let render_size = RenderSize::from(image_size);
         let image_pixels =
             image_size.width() as usize * image_size.height() as usize;
@@ -1627,9 +1653,25 @@ impl Buffers {
             image_pixels,
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
-        let tile64 = TileBuffers::new::<0>(device, render_size, None);
-        let tile16 = TileBuffers::new(device, render_size, Some(&tile64));
-        let tile4 = TileBuffers::new(device, render_size, Some(&tile16));
+        let max_tiles_per_dispatch = spec.max_tiles_per_dispatch();
+        let tile64 = TileBuffers::new::<0>(
+            device,
+            render_size,
+            None,
+            max_tiles_per_dispatch,
+        );
+        let tile16 = TileBuffers::new(
+            device,
+            render_size,
+            Some(&tile64),
+            max_tiles_per_dispatch,
+        );
+        let tile4 = TileBuffers::new(
+            device,
+            render_size,
+            Some(&tile16),
+            max_tiles_per_dispatch,
+        );
         let voxels = new_buffer::<Voxel>(
             device,
             "voxels",
@@ -1882,11 +1924,17 @@ mod test {
                     .await
                     .unwrap()
             });
-            Context::new(device, queue)
+            Context::new(device, queue, GpuSpec::Custom(32768))
         }
 
         // Inner test function to avoid rightward drift
         fn test_interval_root(ctx: &Context) {
+            const MAX_TILES_PER_DISPATCH: u32 = 32768;
+            assert_eq!(
+                ctx.spec.max_tiles_per_dispatch(),
+                MAX_TILES_PER_DISPATCH as usize
+            );
+
             // 16x16x16 image
             let size = VoxelSize::from(1024);
             let buffers = ctx.buffers(size);
@@ -2253,11 +2301,9 @@ mod test {
                 );
             }
 
-            // Only dispatch 0 is used, because we don't have > MAX_DISPATH_SIZE
-            // tiles generated in this stage.
             let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
             assert_eq!(dispatch.len(), buffers.tile4.max_dispatch_count());
-            assert_eq!(dispatch[0].tile_count, MAX_TILES_PER_DISPATCH);
+            assert_eq!(dispatch[0].tile_count, MAX_TILES_PER_DISPATCH); // XXX why?
             assert_eq!(dispatch[0].wg_dispatch, [MAX_TILES_PER_DISPATCH, 1, 1]);
             for d in &dispatch[1..] {
                 assert_eq!(d.tile_count, 0);

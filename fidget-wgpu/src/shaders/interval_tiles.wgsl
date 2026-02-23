@@ -19,11 +19,6 @@ override TILE_SIZE: u32;
 /// Output tile size, must be TILE_SIZE / 4; one output tile maps to one thread
 override SUBTILE_SIZE: u32;
 
-/// Number of workgroups per dispatch of this kernel
-///
-/// This is multiplied with the dispatch counter to find the offset
-override MAX_TILES_PER_DISPATCH: u32;
-
 @compute @workgroup_size(4, 4, 4)
 fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
@@ -34,12 +29,12 @@ fn interval_tile_main(
     // counter; in practice, we need one per workgroup because we can't do
     // global synchronization of the update.
     //
-    // We know that each dispatch is of size MAX_TILES_PER_DISPATCH except the
+    // We know that each dispatch is of size `max_tiles_per_dispatch` except the
     // final one, so this gives us a tile index to process (which is the global
     // dispatch offset plus a workgroups-specific offset).
     var workgroup_index = workgroup_id.x; // always 1D
     let tile_in_index = workgroup_index +
-        dispatch_counter[workgroup_index] * MAX_TILES_PER_DISPATCH;
+        dispatch_counter[workgroup_index] * config.max_tiles_per_dispatch;
     workgroupBarrier();
 
     // Updating the counter is only done by thread 0 in the workgroup.
