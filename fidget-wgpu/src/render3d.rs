@@ -154,8 +154,7 @@ struct Config {
 struct Dispatch {
     /// Indirect dispatch size
     wg_dispatch: [u32; 3],
-    /// Number of tiles actually in this dispatch
-    tile_count: u32,
+    _padding: u32,
 }
 
 #[derive(Copy, Clone, Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
@@ -2027,7 +2026,6 @@ mod test {
                 ctx.read_buffer::<Dispatch>(&buffers.tile64.dispatch);
             assert_eq!(dispatch.len(), 1);
             for d in dispatch {
-                assert_eq!(d.tile_count, 32 * 16);
                 assert_eq!(d.wg_dispatch, [32 * 16, 1, 1]);
             }
 
@@ -2164,10 +2162,8 @@ mod test {
             let dispatch =
                 ctx.read_buffer::<Dispatch>(&buffers.tile16.dispatch);
             assert_eq!(dispatch.len(), buffers.tile16.max_dispatch_count());
-            assert_eq!(dispatch[0].tile_count, 2 * 64 * 64);
             assert_eq!(dispatch[0].wg_dispatch, [2 * 64 * 64, 1, 1]);
             for d in &dispatch[1..] {
-                assert_eq!(d.tile_count, 0);
                 assert_eq!(d.wg_dispatch, [0, 0, 0]);
             }
 
@@ -2303,10 +2299,8 @@ mod test {
 
             let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
             assert_eq!(dispatch.len(), buffers.tile4.max_dispatch_count());
-            assert_eq!(dispatch[0].tile_count, MAX_TILES_PER_DISPATCH); // XXX why?
             assert_eq!(dispatch[0].wg_dispatch, [MAX_TILES_PER_DISPATCH, 1, 1]);
             for d in &dispatch[1..] {
-                assert_eq!(d.tile_count, 0);
                 assert_eq!(d.wg_dispatch, [0, 0, 0]);
             }
 

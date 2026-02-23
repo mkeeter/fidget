@@ -26,13 +26,13 @@ fn cumsum_main() {
     var d = 0u;
     while buffer_offset > 0 && d < arrayLength(&dispatch) {
         let n = min(config.max_tiles_per_dispatch, buffer_offset);
-        dispatch[d] = Dispatch(vec3u(n, 1u, 1u), n);
+        dispatch[d] = Dispatch(vec3u(n, 1u, 1u));
         buffer_offset -= n;
         d += 1;
     }
     // Clear all subsequent dispatch stages
     while d < arrayLength(&dispatch) {
-        dispatch[d] = Dispatch(vec3u(0, 0, 0), 0);
+        dispatch[d] = Dispatch(vec3u(0, 0, 0));
         d += 1;
     }
 }
