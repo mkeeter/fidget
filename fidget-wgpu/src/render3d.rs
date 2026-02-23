@@ -86,7 +86,6 @@ const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
-const CUMSUM_SHADER: &str = include_str!("shaders/cumsum.wgsl");
 
 const DEBUG_FLAGS: wgpu::BufferUsages = if cfg!(test) {
     wgpu::BufferUsages::COPY_SRC
@@ -289,11 +288,6 @@ fn normals_shader(reg_count: u8) -> String {
     shader_code
 }
 
-/// Returns a shader for computing the cumulative sum of Z strata occupancy
-fn cumsum_shader() -> String {
-    CUMSUM_SHADER.to_owned() + COMMON_SHADER
-}
-
 /// Returns a shader for repacking tiles in per-dispatch Z-sorted order
 fn repack_shader() -> String {
     REPACK_SHADER.to_owned() + COMMON_SHADER
@@ -468,9 +462,6 @@ impl RootContext {
 }
 
 struct RepackContext<const N: usize> {
-    cumsum_pipeline: wgpu::ComputePipeline,
-    cumsum_bind_group_layout: wgpu::BindGroupLayout,
-
     repack_pipeline: wgpu::ComputePipeline,
     repack_bind_group_layout: wgpu::BindGroupLayout,
 }
@@ -481,55 +472,15 @@ impl<const N: usize> RepackContext<N> {
         common_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         // Create bind group layout and bind group
-        let cumsum_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_ro(0), // tiles_hist
-                    buffer_rw(1), // tile_z_to_offset
-                    buffer_rw(2), // dispatch
-                ],
-            });
-
-        let cumsum_pipeline = {
-            let shader_code = cumsum_shader();
-            let pipeline_layout = device.create_pipeline_layout(
-                &wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[
-                        common_bind_group_layout,
-                        &cumsum_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                },
-            );
-            let shader_module =
-                device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: None,
-                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-                });
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(&format!("cumsum{N}")),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("cumsum_main"),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("TILE_SIZE", N as f64)],
-                    ..Default::default()
-                },
-                cache: None,
-            })
-        };
-
-        // Create bind group layout and bind group
         let repack_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0), // tiles_hist
-                    buffer_ro(1), // tile_z_to_offset
-                    buffer_rw(2), // hist
+                    buffer_ro(0), // tiles
+                    buffer_rw(1), // tiles_hist
+                    buffer_rw(2), // tile_z_offset
                     buffer_rw(3), // tiles_out
+                    buffer_rw(4), // dispatch
                 ],
             });
 
@@ -564,8 +515,6 @@ impl<const N: usize> RepackContext<N> {
         };
 
         Self {
-            cumsum_pipeline,
-            cumsum_bind_group_layout,
             repack_pipeline,
             repack_bind_group_layout,
         }
@@ -577,30 +526,6 @@ impl<const N: usize> RepackContext<N> {
         buffers: &TileBuffers<N>,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let cumsum_bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.cumsum_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.hist.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.z_to_offset.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.dispatch.as_entire_binding(),
-                    },
-                ],
-            });
-
-        compute_pass.set_pipeline(&self.cumsum_pipeline);
-        compute_pass.set_bind_group(1, &cumsum_bind_group, &[]);
-        compute_pass.dispatch_workgroups(1, 1, 1);
-
         let repack_bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -612,15 +537,19 @@ impl<const N: usize> RepackContext<N> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.z_to_offset.as_entire_binding(),
+                        resource: buffers.hist.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.hist.as_entire_binding(),
+                        resource: buffers.z_to_offset.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: buffers.sorted.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: buffers.dispatch.as_entire_binding(),
                     },
                 ],
             });
@@ -1878,11 +1807,6 @@ mod test {
     }
 
     #[test]
-    fn check_cumsum_shader() {
-        compile_shader(&cumsum_shader(), "cumsum")
-    }
-
-    #[test]
     fn check_repack_shader() {
         compile_shader(&repack_shader(), "repack")
     }
@@ -2015,11 +1939,7 @@ mod test {
                 ctx.read_buffer::<u32>(&buffers.tile64.z_to_offset);
             assert_eq!(tile_z_to_offset.len(), 16);
             for (i, z) in tile_z_to_offset.iter().enumerate() {
-                assert_eq!(
-                    *z as usize,
-                    32 * (16 - i - 1),
-                    "bad offset at {z}, {i}"
-                );
+                assert_eq!(*z as usize, 32, "bad offset at {z}, {i}");
             }
 
             let dispatch =
@@ -2052,11 +1972,11 @@ mod test {
                 assert!(ys[0].is_empty() && ys[1].is_empty());
             }
 
-            // Repacking uses `hist` to count down tiles, so it should be all 0s
+            // Repacking uses `hist` for a cumulative sum
             let hist = ctx.read_buffer::<u32>(&buffers.tile64.hist);
             assert_eq!(hist.len(), 16);
-            for n in hist {
-                assert_eq!(n, 0);
+            for (i, n) in hist.iter().enumerate() {
+                assert_eq!(*n, (32 * (i + 1) as u32) | (1 << 31));
             }
 
             ////////////////////////////////////////////////////////////////////
@@ -2150,11 +2070,7 @@ mod test {
                 ctx.read_buffer::<u32>(&buffers.tile16.z_to_offset);
             assert_eq!(tile_z_to_offset.len(), 64);
             for (i, z) in tile_z_to_offset.iter().enumerate() {
-                assert_eq!(
-                    *z as usize,
-                    128 * (64 - i - 1),
-                    "bad offset at {z}, {i}"
-                );
+                assert_eq!(*z as usize, 128, "bad offset at {z}, {i}");
             }
 
             // Only dispatch 0 is used, because we don't have > MAX_DISPATH_SIZE
@@ -2188,11 +2104,11 @@ mod test {
                 assert!(ys[0].is_empty() && ys[1].is_empty());
             }
 
-            // Repacking uses `hist` to count down tiles, so it should be all 0s
+            // Repacking uses `hist` to compute a cumulative sum
             let hist = ctx.read_buffer::<u32>(&buffers.tile16.hist);
             assert_eq!(hist.len(), 64);
-            for n in hist {
-                assert_eq!(n, 0);
+            for (i, n) in hist.iter().enumerate() {
+                assert_eq!(*n, (128 * (i + 1) as u32) | (1 << 31));
             }
 
             // Now we're onto the 16³ -> 4³ tile pass
@@ -2290,11 +2206,7 @@ mod test {
                 ctx.read_buffer::<u32>(&buffers.tile4.z_to_offset);
             assert_eq!(tile_z_to_offset.len(), 256);
             for (i, z) in tile_z_to_offset.iter().enumerate() {
-                assert_eq!(
-                    *z as usize,
-                    512 * (256 - i - 1),
-                    "bad offset at {z}, {i}"
-                );
+                assert_eq!(*z as usize, 512, "bad offset at {z}, {i}");
             }
 
             let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
@@ -2329,11 +2241,11 @@ mod test {
                 assert!(ys[0].is_empty() && ys[1].is_empty());
             }
 
-            // Repacking uses `hist` to count down tiles, so it should be all 0s
+            // Repacking uses `hist` to compute a cumulative sum
             let hist = ctx.read_buffer::<u32>(&buffers.tile4.hist);
             assert_eq!(hist.len(), 256);
-            for n in hist {
-                assert_eq!(n, 0);
+            for (i, n) in hist.iter().enumerate() {
+                assert_eq!(*n, (512 * (i + 1) as u32) | (1 << 31));
             }
 
             ////////////////////////////////////////////////////////////////////
