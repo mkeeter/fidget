@@ -102,20 +102,12 @@ const DEBUG_FLAGS: wgpu::BufferUsages = if cfg!(test) {
 pub struct RenderConfig {
     /// World-to-model transform
     pub world_to_model: nalgebra::Matrix4<f32>,
-
-    /// Maximum number of tiles to process in a single dispatch
-    ///
-    /// This is equivalent to the number of workgroups dispatched; each
-    /// workgroup has 64 threads to process subtiles (dividing by 4 on each
-    /// axis).
-    pub spec: GpuSpec,
 }
 
 impl Default for RenderConfig {
     fn default() -> Self {
         Self {
             world_to_model: nalgebra::Matrix4::identity(),
-            spec: GpuSpec::High,
         }
     }
 }
@@ -556,6 +548,7 @@ impl<const N: usize> RepackContext<N> {
 
         compute_pass.set_pipeline(&self.repack_pipeline);
         compute_pass.set_bind_group(1, &repack_bind_group, &[]);
+        // TODO this should be indirect
         compute_pass.dispatch_workgroups(
             buffers.max_tiles_per_dispatch() as u32,
             1,
@@ -1195,9 +1188,32 @@ impl Context {
                 );
                 self.repack4_ctx
                     .run(self, &buffers.tile4, &mut compute_pass);
-                // TODO voxel eval
+                self.voxel_ctx.run(self, buffers, shape, &mut compute_pass);
+                self.backfill4_ctx.run(
+                    self,
+                    buffers.render_size(),
+                    &buffers.voxels,
+                    &buffers.tile4,
+                    &mut compute_pass,
+                );
             }
+            self.backfill16_ctx.run(
+                self,
+                buffers.render_size(),
+                &buffers.tile4.zmin,
+                &buffers.tile16,
+                &mut compute_pass,
+            );
         }
+        self.backfill64_ctx.run(
+            self,
+            buffers.render_size(),
+            &buffers.tile16.zmin,
+            &buffers.tile64,
+            &mut compute_pass,
+        );
+        self.normals_ctx
+            .run(self, buffers, shape, &mut compute_pass);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
@@ -1381,7 +1397,9 @@ impl<const N: usize> TileBuffers<N> {
             format!("tile{N}_out"),
             // count, then 2 words per tile
             1 + max_tile_count * 2,
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | DEBUG_FLAGS,
         );
         let z_to_offset = new_buffer::<u32>(
             device,
@@ -1401,7 +1419,9 @@ impl<const N: usize> TileBuffers<N> {
             device,
             format!("tile{N}_zmin"),
             nx * ny,
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | DEBUG_FLAGS,
         );
         let dispatch = new_buffer::<Dispatch>(
             device,
@@ -1604,7 +1624,9 @@ impl Buffers {
             device,
             "voxels",
             render_size.width() as usize * render_size.height() as usize,
-            wgpu::BufferUsages::STORAGE | DEBUG_FLAGS,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | DEBUG_FLAGS,
         );
 
         Self {
@@ -1734,9 +1756,10 @@ impl ClearContext {
     }
 
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
-        encoder.clear_buffer(&buffers.tile64.out, 0, None);
-        encoder.clear_buffer(&buffers.tile64.hist, 0, None);
         encoder.clear_buffer(&buffers.tile64.zmin, 0, None);
+        encoder.clear_buffer(&buffers.tile16.zmin, 0, None);
+        encoder.clear_buffer(&buffers.tile4.zmin, 0, None);
+        encoder.clear_buffer(&buffers.voxels, 0, None);
         encoder.clear_buffer(&buffers.geom, 0, None);
     }
 }

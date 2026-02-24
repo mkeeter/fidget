@@ -315,7 +315,11 @@ fn run3d_wgpu(
         Ok::<_, anyhow::Error>(out)
     })?;
 
-    let mut ctx = fidget::wgpu::render3d::Context::new(device, queue);
+    let mut ctx = fidget::wgpu::render3d::Context::new(
+        device,
+        queue,
+        fidget::wgpu::render3d::GpuSpec::High,
+    );
     let image_size = fidget::render::VoxelSize::from(settings.size);
     let cfg = fidget::wgpu::render3d::RenderConfig { world_to_model };
     let mut image = Default::default();
