@@ -1950,7 +1950,6 @@ mod test {
             let mut tiles = BTreeSet::new();
             for t in out.tiles.iter().take(out.count as usize) {
                 assert_eq!(t.tape_index, 0);
-                tiles.insert(t.tile);
                 let x = t.tile % 16;
                 let y = (t.tile / 16) % 16;
                 let z = (t.tile / 16) / 16;
@@ -1958,7 +1957,7 @@ mod test {
                     x == 7 || x == 8,
                     "bad x value {x} in tile {x}, {y}, {z}"
                 );
-                tiles.insert(t.tile);
+                assert!(tiles.insert(t.tile));
             }
             assert_eq!(tiles.len(), 16 * 16 * 2); // no duplicates
 
@@ -2065,23 +2064,21 @@ mod test {
                 assert_eq!(*d, 0, "bad dispatch at {i}");
             }
 
-            let out = ctx.read_buffer::<u32>(&buffers.tile16.out);
-            let count = out[0] as usize;
-            assert_eq!(out.len(), 1 + 64usize.pow(3) * 2);
-            assert_eq!(count, 8192); // Y-Z slice at the origin
+            let out = ctx.read_buffer::<u8>(&buffers.tile16.out);
+            let out = TileList::try_ref_from_bytes(&out).unwrap();
+            assert_eq!(out.count, 8192); // Y-Z slice at the origin
+            assert_eq!(out.tiles.len(), 64usize.pow(3));
             let mut tiles = BTreeSet::new();
-            for t in out[1..].chunks_exact(2).take(count) {
-                let (tile, tape_index) = (t[0], t[1]);
-                assert_eq!(tape_index, 0);
-                tiles.insert(tile);
-                let x = tile % 64;
-                let y = (tile / 64) % 64;
-                let z = (tile / 64) / 64;
+            for t in out.tiles.iter().take(out.count as usize) {
+                assert_eq!(t.tape_index, 0);
+                let x = t.tile % 64;
+                let y = (t.tile / 64) % 64;
+                let z = (t.tile / 64) / 64;
                 assert!(
                     x == 31 || x == 32,
                     "bad x value {x} in tile {x}, {y}, {z}"
                 );
-                tiles.insert(tile);
+                assert!(tiles.insert(t.tile));
             }
             assert_eq!(tiles.len(), 8192); // no duplicates
 
@@ -2196,26 +2193,24 @@ mod test {
                 assert_eq!(*d, 0, "bad dispatch at {i}");
             }
 
-            let out = ctx.read_buffer::<u32>(&buffers.tile4.out);
-            let count = out[0] as usize;
+            let out = ctx.read_buffer::<u8>(&buffers.tile4.out);
+            let out = TileList::try_ref_from_bytes(&out).unwrap();
             assert_eq!(
-                out.len(),
-                1 + buffers.tile16.max_tiles_per_dispatch() * 64 * 2
+                out.tiles.len(),
+                buffers.tile16.max_tiles_per_dispatch() * 64
             );
-            assert_eq!(count, 131072); // Y-Z slice at the origin
+            assert_eq!(out.count, 131072); // Y-Z slice at the origin
             let mut tiles = BTreeSet::new();
-            for t in out[1..].chunks_exact(2).take(count) {
-                let (tile, tape_index) = (t[0], t[1]);
-                assert_eq!(tape_index, 0);
-                tiles.insert(tile);
-                let x = tile % 256;
-                let y = (tile / 256) % 256;
-                let z = (tile / 256) / 256;
+            for t in out.tiles.iter().take(out.count as usize) {
+                assert_eq!(t.tape_index, 0);
+                let x = t.tile % 256;
+                let y = (t.tile / 256) % 256;
+                let z = (t.tile / 256) / 256;
                 assert!(
                     x == 127 || x == 128,
                     "bad x value {x} in tile {x}, {y}, {z}"
                 );
-                tiles.insert(tile);
+                assert!(tiles.insert(t.tile));
             }
             assert_eq!(tiles.len(), 131072); // no duplicates
 
