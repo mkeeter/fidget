@@ -1905,7 +1905,7 @@ mod test {
         }
 
         // Inner test function to avoid rightward drift
-        fn step_by_step_(ctx: &Context) {
+        fn step_by_step_x_(ctx: &Context) {
             const MAX_TILES_PER_DISPATCH: u32 = 32768;
 
             // 16x16x16 tiles in the image
@@ -1968,11 +1968,8 @@ mod test {
                 for y in 0..16 {
                     let t = zmin[x + y * 16];
                     assert_eq!(t.tape_index(), 0);
-                    if x < 7 {
-                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
-                    } else {
-                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
-                    }
+                    let expected = if x < 7 { 1023 } else { 0 };
+                    assert_eq!(t.z(), expected, "bad z at tile {x}, {y}");
                 }
             }
 
@@ -2099,11 +2096,8 @@ mod test {
                     }
                     let t = zmin[x + y * 64];
                     assert_eq!(t.tape_index(), 0);
-                    if x < 31 {
-                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
-                    } else {
-                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
-                    }
+                    let expected = if x < 31 { 1023 } else { 0 };
+                    assert_eq!(t.z(), expected, "bad z at tile {x}, {y}");
                 }
             }
 
@@ -2236,11 +2230,8 @@ mod test {
                     }
                     let t = zmin[x + y * 256];
                     assert_eq!(t.tape_index(), 0);
-                    if x < 127 {
-                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
-                    } else {
-                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
-                    }
+                    let expected = if x < 127 { 1023 } else { 0 };
+                    assert_eq!(t.z(), expected, "bad z at tile {x}, {y}");
                 }
             }
 
@@ -2317,11 +2308,9 @@ mod test {
             for (y, vs) in voxels.chunks(1024).enumerate() {
                 for (x, v) in vs.iter().enumerate() {
                     assert_eq!(v.tape_index(), 0);
-                    if (508..512).contains(&x) {
-                        assert_eq!(v.z(), 1023, "bad value at {x}, {y}");
-                    } else {
-                        assert_eq!(v.z(), 0, "bad value at {x}, {y}");
-                    }
+                    let expected =
+                        if (508..512).contains(&x) { 1023 } else { 0 };
+                    assert_eq!(v.z(), expected, "bad value at {x}, {y}");
                 }
             }
 
@@ -2353,11 +2342,8 @@ mod test {
                     assert_eq!(t.tape_index(), 0);
 
                     // this condition changed!
-                    if x <= 127 {
-                        assert_eq!(t.z(), 1023, "bad z at tile {x}, {y}");
-                    } else {
-                        assert_eq!(t.z(), 0, "bad z at tile {x}, {y}");
-                    }
+                    let expected = if x <= 127 { 1023 } else { 0 };
+                    assert_eq!(t.z(), expected, "bad z at tile {x}, {y}");
                 }
             }
 
@@ -2374,27 +2360,24 @@ mod test {
             assert_eq!(geom.len(), 1024 * 1024);
             for (y, vs) in geom.chunks(1024).enumerate() {
                 for (x, v) in vs.iter().enumerate() {
-                    if x <= 511 {
-                        assert_eq!(
-                            v,
-                            &[1023.0, 1.0 / 512.0, 0.0, 0.0],
-                            "bad pixel at {x}, {y}"
-                        );
+                    let expected = if x <= 511 {
+                        [1023.0, 1.0 / 512.0, 0.0, 0.0]
                     } else {
-                        assert_eq!(v, &[0.0; 4], "bad pixel at {x}, {y}");
-                    }
+                        [0.0; 4]
+                    };
+                    assert_eq!(v, &expected, "bad pixel at {x}, {y}");
                 }
             }
         }
 
         #[test]
-        fn step_by_step() {
-            CTX.with(step_by_step_);
+        fn step_by_step_x() {
+            CTX.with(step_by_step_x_);
         }
 
-        fn repeat_x_(ctx: &Context) {
+        fn repeated_xy_(ctx: &Context) {
             let size = VoxelSize::from(64);
-            let buffers = ctx.buffers(size, GpuSpec::Custom(8));
+            let buffers = ctx.buffers(size, GpuSpec::High);
             let shape_x = ctx.shape(&VmShape::from(Tree::x()));
             let shape_y = ctx.shape(&VmShape::from(Tree::y()));
             let settings = RenderConfig::default();
@@ -2425,7 +2408,7 @@ mod test {
                                     normal: [0.0, 0.0, 0.0],
                                 }
                             }
-                        } else if y <= 31 {
+                        } else if y > 31 {
                             GeometryPixel {
                                 depth: 63.0,
                                 normal: [0.0, -1.0 / 32.0, 0.0],
@@ -2443,8 +2426,8 @@ mod test {
         }
 
         #[test]
-        fn repeat_x() {
-            CTX.with(repeat_x_);
+        fn repeated_xy() {
+            CTX.with(repeated_xy_);
         }
     }
 }
