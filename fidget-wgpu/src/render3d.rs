@@ -926,13 +926,13 @@ pub struct Context {
     voxel_ctx: VoxelContext,
 
     /// Backfill context (voxel → 4³ tiles)
-    backfill4_ctx: BackfillContext<1>,
+    backfill4_ctx: BackfillContext<4>,
 
     /// Backfill context (4³ → 16³ tiles)
-    backfill16_ctx: BackfillContext<4>,
+    backfill16_ctx: BackfillContext<16>,
 
     /// Backfill context (16³ → 64³ tiles)
-    backfill64_ctx: BackfillContext<16>,
+    backfill64_ctx: BackfillContext<64>,
 
     /// Normal context for merging `zmin` buffers and computing normals
     normals_ctx: NormalsContext,
@@ -1707,15 +1707,14 @@ impl<const N: usize> BackfillContext<N> {
         }
     }
 
-    fn run<const M: usize>(
+    fn run(
         &self,
         ctx: &Context,
         render_size: RenderSize,
         subtile_zmin: &wgpu::Buffer,
-        tile_buf: &TileBuffers<M>,
+        tile_buf: &TileBuffers<N>,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        assert_eq!(M, N * 4);
         let bind_group =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -1779,6 +1778,7 @@ impl ClearContext {
 mod test {
     use super::*;
     use heck::ToShoutySnakeCase;
+    use zerocopy::TryFromBytes;
 
     #[derive(
         Copy, Clone, Debug, IntoBytes, Immutable, FromBytes, KnownLayout,
@@ -1791,6 +1791,7 @@ mod test {
         tape_index: u32,
     }
 
+    /// Bonus methods to deal with bitpacked voxels
     impl Voxel {
         fn z(&self) -> u32 {
             self.0 >> 20
@@ -1798,6 +1799,13 @@ mod test {
         fn tape_index(&self) -> u32 {
             self.0 & ((1 << 20) - 1)
         }
+    }
+
+    #[derive(TryFromBytes, Immutable, KnownLayout)]
+    #[repr(C)]
+    struct TileList {
+        count: u32,
+        tiles: [ActiveTile],
     }
 
     #[test]
@@ -1936,13 +1944,6 @@ mod test {
 
             // Make sure that the output tiles are just at the X = 0 origin
             // (so have tile X = 7 or 8) and we have the expected number.
-            use zerocopy::TryFromBytes;
-            #[derive(TryFromBytes, Immutable, KnownLayout)]
-            #[repr(C)]
-            struct TileList {
-                count: u32,
-                tiles: [ActiveTile],
-            }
             let out = ctx.read_buffer::<u8>(&buffers.tile64.out);
             let out = TileList::try_ref_from_bytes(&out).unwrap();
             assert_eq!(out.count, 16 * 16 * 2); // Y-Z slice at the origin
@@ -2368,6 +2369,436 @@ mod test {
         #[test]
         fn step_by_step_x() {
             CTX.with(step_by_step_x_);
+        }
+
+        // Inner test function to avoid rightward drift
+        fn step_by_step_y_(ctx: &Context) {
+            const MAX_TILES_PER_DISPATCH: u32 = 32768;
+
+            // 1 root tile in the image
+            let size = VoxelSize::from(64);
+            let buffers =
+                ctx.buffers(size, GpuSpec::Custom(MAX_TILES_PER_DISPATCH));
+            let shape = ctx.shape(&VmShape::from(Tree::y()));
+            let settings = RenderConfig::default();
+
+            ////////////////////////////////////////////////////////////////////
+            // First pass: interval root tile evaluator
+            //
+            // This should produce 1 output tile at 0,0,0
+            ctx.load_config(&shape, &buffers, &settings);
+
+            let mut encoder = ctx.new_encoder();
+            ctx.clear_ctx.run(&buffers, &shape, &mut encoder);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.root_ctx.run(ctx, &shape, &buffers, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let out = ctx.read_buffer::<u8>(&buffers.tile64.out);
+            let out = TileList::try_ref_from_bytes(&out).unwrap();
+            assert_eq!(out.count, 1);
+            assert_eq!(out.tiles.len(), 1);
+            assert_eq!(out.tiles[0].tape_index, 0);
+            let x = out.tiles[0].tile % 16;
+            let y = (out.tiles[0].tile / 16) % 16;
+            let z = (out.tiles[0].tile / 16) / 16;
+            assert_eq!([x, y, z], [0, 0, 0], "bad value in tile {x}, {y}, {z}");
+
+            let zmin = ctx.read_buffer::<Voxel>(&buffers.tile64.zmin);
+            assert_eq!(zmin.len(), 1);
+            assert_eq!(zmin[0].tape_index(), 0);
+            assert_eq!(zmin[0].z(), 0);
+
+            let hist = ctx.read_buffer::<u32>(&buffers.tile64.hist);
+            assert_eq!(hist.len(), 1);
+            assert_eq!(hist[0], 1);
+
+            ////////////////////////////////////////////////////////////////////
+            // Next up: the repacking pass
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.repack64_ctx
+                .run(ctx, &buffers.tile64, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let tile_z_to_offset =
+                ctx.read_buffer::<u32>(&buffers.tile64.z_to_offset);
+            assert_eq!(tile_z_to_offset.len(), 1);
+            for (i, z) in tile_z_to_offset.iter().enumerate() {
+                assert_eq!(*z as usize, 1, "bad offset at {z}, {i}");
+            }
+
+            let dispatch =
+                ctx.read_buffer::<Dispatch>(&buffers.tile64.dispatch);
+            assert_eq!(dispatch.len(), 1);
+            for d in dispatch {
+                assert_eq!(d.wg_dispatch, [1, 1, 1]);
+            }
+
+            let sorted = ctx.read_buffer::<u8>(&buffers.tile64.sorted);
+            let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
+            assert_eq!(sorted.tiles.len(), 1);
+            assert_eq!(sorted.count, 1); // Y-Z slice at the origin
+            assert_eq!(sorted.tiles[0].tape_index, 0);
+            assert_eq!(sorted.tiles[0].tile, 0);
+
+            // Repacking uses `hist` for a cumulative sum
+            let hist = ctx.read_buffer::<u32>(&buffers.tile64.hist);
+            assert_eq!(hist.len(), 1);
+            assert_eq!(hist[0], 1 | (1 << 31));
+
+            ////////////////////////////////////////////////////////////////////
+            // At this point, we've got a Z-sorted list of 1 tile (0,0,0)
+            //
+            // We'll do a single dispatch of 64->16 tile refinement, which
+            // should produce 16 tiles with
+            //  x = 0..4
+            //  y = 1
+            //  z = 0..4
+            assert_eq!(buffers.tile64.max_dispatch_count(), 1);
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.interval16_ctx.run(
+                ctx,
+                &shape,
+                &buffers.tile64,
+                &buffers.tile16,
+                0,
+                &mut compute_pass,
+            );
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let dispatch_counter =
+                ctx.read_buffer::<u32>(&buffers.tile64.dispatch_counter);
+            assert_eq!(dispatch_counter.len(), 1);
+            // all dispatch counters are either left as 0 or reset
+            for (i, d) in dispatch_counter.iter().enumerate() {
+                assert_eq!(*d, 0, "bad dispatch at {i}");
+            }
+
+            let out = ctx.read_buffer::<u8>(&buffers.tile16.out);
+            let out = TileList::try_ref_from_bytes(&out).unwrap();
+            assert_eq!(out.count, 16); // Y-Z slice at the origin
+            assert_eq!(out.tiles.len(), 4usize.pow(3));
+            let mut tiles = BTreeSet::new();
+            for t in out.tiles.iter().take(out.count as usize) {
+                assert_eq!(t.tape_index, 0);
+                let x = t.tile % 4;
+                let y = (t.tile / 4) % 4;
+                let z = (t.tile / 4) / 4;
+                assert_eq!(y, 1, "bad value in tile {x}, {y}, {z}");
+                assert!(tiles.insert(t.tile));
+            }
+            assert_eq!(tiles.len(), 16); // no duplicates
+
+            // Check that the zmin buffer is correctly filled out
+            let zmin = ctx.read_buffer::<Voxel>(&buffers.tile16.zmin);
+            assert_eq!(zmin.len(), 4 * 4);
+            for y in 0..4 {
+                for x in 0..4 {
+                    let t = zmin[x + y * 4];
+                    assert_eq!(t.tape_index(), 0);
+                    let expected = if y > 1 { 63 } else { 0 };
+                    assert_eq!(t.z(), expected, "bad z at tile {x}, {y}");
+                }
+            }
+
+            let hist = ctx.read_buffer::<u32>(&buffers.tile16.hist);
+            assert_eq!(hist.len(), 4);
+            for n in hist {
+                assert_eq!(n, 4); // strip of 1x4 tiles
+            }
+
+            ////////////////////////////////////////////////////////////////////
+            // Next up: the repacking pass for 16³ tiles
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.repack16_ctx
+                .run(ctx, &buffers.tile16, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let tile_z_to_offset =
+                ctx.read_buffer::<u32>(&buffers.tile16.z_to_offset);
+            assert_eq!(tile_z_to_offset.len(), 4);
+            for (i, z) in tile_z_to_offset.iter().enumerate() {
+                assert_eq!(*z as usize, 4, "bad offset at {z}, {i}");
+            }
+
+            // Only dispatch 0 is used, because we don't have > MAX_DISPATH_SIZE
+            // tiles generated in this stage.
+            let dispatch =
+                ctx.read_buffer::<Dispatch>(&buffers.tile16.dispatch);
+            assert_eq!(dispatch.len(), buffers.tile16.max_dispatch_count());
+            assert_eq!(dispatch[0].wg_dispatch, [16, 1, 1]);
+            for d in &dispatch[1..] {
+                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+            }
+
+            let sorted = ctx.read_buffer::<u8>(&buffers.tile16.sorted);
+            let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
+            for (i, t) in sorted.tiles[..16].chunks(4).enumerate() {
+                let mut xs = (0..4).collect::<BTreeSet<u32>>();
+                for t in t {
+                    assert_eq!(t.tape_index, 0);
+                    let x = t.tile % 4;
+                    let y = (t.tile / 4) % 4;
+                    let z = (t.tile / 4) / 4;
+
+                    // Ensure that we're in reverse-z order
+                    assert_eq!(z as usize, 4 - i - 1);
+                    // Only middle tiles should be active
+                    assert_eq!(y, 1);
+                    // All Y values must be represented
+                    assert!(xs.remove(&x));
+                }
+                assert!(xs.is_empty());
+            }
+
+            // Repacking uses `hist` to compute a cumulative sum
+            let hist = ctx.read_buffer::<u32>(&buffers.tile16.hist);
+            assert_eq!(hist.len(), 4);
+            for (i, n) in hist.iter().enumerate() {
+                assert_eq!(*n, (4 * (i + 1) as u32) | (1 << 31));
+            }
+
+            // Now we're onto the 16³ -> 4³ tile pass
+            //
+            // We'll do a single dispatch of 16³ -> 4³ tile refinement, which
+            // should produce 256 tiles with
+            //  x = 0..16
+            //  y = 7
+            //  z = 0..16
+
+            assert_eq!(buffers.tile16.max_dispatch_count(), 1);
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.interval4_ctx.run(
+                ctx,
+                &shape,
+                &buffers.tile16,
+                &buffers.tile4,
+                0,
+                &mut compute_pass,
+            );
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let dispatch_counter =
+                ctx.read_buffer::<u32>(&buffers.tile16.dispatch_counter);
+            assert_eq!(
+                dispatch_counter.len(),
+                buffers.tile16.max_tiles_per_dispatch()
+            );
+            // all dispatch counters are either left as 0 or reset
+            for (i, d) in dispatch_counter.iter().enumerate() {
+                assert_eq!(*d, 0, "bad dispatch at {i}");
+            }
+
+            let out = ctx.read_buffer::<u8>(&buffers.tile4.out);
+            let out = TileList::try_ref_from_bytes(&out).unwrap();
+            assert_eq!(
+                out.tiles.len(),
+                buffers.tile16.max_tiles_per_dispatch() * 64
+            );
+            assert_eq!(out.count, 256); // X-Z slice at the origin
+            let mut tiles = BTreeSet::new();
+            for t in out.tiles.iter().take(out.count as usize) {
+                assert_eq!(t.tape_index, 0);
+                let x = t.tile % 16;
+                let y = (t.tile / 16) % 16;
+                let z = (t.tile / 16) / 16;
+                assert_eq!(y, 7, "bad value in tile {x}, {y}, {z}");
+                assert!(tiles.insert(t.tile));
+            }
+            assert_eq!(tiles.len(), 256); // no duplicates
+
+            // Check that the zmin buffer is correctly filled out
+            let zmin = ctx.read_buffer::<Voxel>(&buffers.tile4.zmin);
+            assert_eq!(zmin.len(), 16 * 16);
+            for y in 0..16 {
+                for x in 0..16 {
+                    let t = zmin[x + y * 4];
+                    // The previous stage only produced tiles with y = 1
+                    if y / 4 == 1 {
+                        assert_eq!(t.tape_index(), 0);
+                        let expected = if y > 7 { 63 } else { 0 };
+                        assert_eq!(t.z(), expected, "bad z at tile {x}, {y}");
+                    }
+                }
+            }
+
+            let hist = ctx.read_buffer::<u32>(&buffers.tile4.hist);
+            assert_eq!(hist.len(), 16);
+            for n in hist {
+                assert_eq!(n, 16); // strip of 1x16 tiles
+            }
+
+            ////////////////////////////////////////////////////////////////////
+            // Almost done!  Time for the repacking pass for 4³ tiles
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.repack4_ctx.run(ctx, &buffers.tile4, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let tile_z_to_offset =
+                ctx.read_buffer::<u32>(&buffers.tile4.z_to_offset);
+            assert_eq!(tile_z_to_offset.len(), 16);
+            for (i, z) in tile_z_to_offset.iter().enumerate() {
+                assert_eq!(*z as usize, 16, "bad offset at {z}, {i}");
+            }
+
+            let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
+            assert_eq!(dispatch.len(), buffers.tile4.max_dispatch_count());
+            assert_eq!(dispatch[0].wg_dispatch, [256, 1, 1]);
+            for d in &dispatch[1..] {
+                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+            }
+
+            let sorted = ctx.read_buffer::<u8>(&buffers.tile4.sorted);
+            let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
+            assert_eq!(sorted.count, 256);
+            for (i, t) in
+                sorted.tiles[..sorted.count as usize].chunks(16).enumerate()
+            {
+                let mut xs = (0..16).collect::<BTreeSet<u32>>();
+                for t in t {
+                    assert_eq!(t.tape_index, 0);
+                    let x = t.tile % 16;
+                    let y = (t.tile / 16) % 16;
+                    let z = (t.tile / 16) / 16;
+
+                    // Ensure that we're in reverse-z order
+                    assert_eq!(z as usize, 16 - i - 1);
+                    // Only middle tiles should be active
+                    assert_eq!(y, 7);
+                    // All Y values must be represented
+                    assert!(xs.remove(&x));
+                }
+                assert!(xs.is_empty());
+            }
+
+            // Repacking uses `hist` to compute a cumulative sum
+            let hist = ctx.read_buffer::<u32>(&buffers.tile4.hist);
+            assert_eq!(hist.len(), 16);
+            for (i, n) in hist.iter().enumerate() {
+                assert_eq!(*n, (16 * (i + 1) as u32) | (1 << 31));
+            }
+
+            ////////////////////////////////////////////////////////////////////
+            // It's morging^W voxel time!
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.voxel_ctx.run(ctx, &buffers, &shape, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let voxels = ctx.read_buffer::<Voxel>(&buffers.voxels);
+            assert_eq!(voxels.len(), 64 * 64);
+            for (y, vs) in voxels.chunks(64).enumerate() {
+                for (x, v) in vs.iter().enumerate() {
+                    assert_eq!(v.tape_index(), 0);
+                    assert_eq!(v.z(), 0, "bad value at {x}, {y}");
+                }
+            }
+
+            // TEST TEST IS THIS BREAKING THINGS?
+            let print_buffer = |buf, size| {
+                let data = ctx.read_buffer::<Voxel>(buf);
+                for y in 0..size {
+                    for x in 0..size {
+                        let v = data[x + y * size];
+                        print!("{}", if v.z() != 0 { "##" } else { ".." });
+                        assert_eq!(
+                            v.tape_index(),
+                            0,
+                            "bad tape index at {x} {y}"
+                        );
+                    }
+                    println!();
+                }
+            };
+            let print_buffers = |state: &str| {
+                println!("{state}");
+                print_buffer(&buffers.voxels, 64);
+                print_buffer(&buffers.tile4.zmin, 16);
+                print_buffer(&buffers.tile16.zmin, 4);
+                print_buffer(&buffers.tile64.zmin, 1);
+                println!();
+            };
+            print_buffers("before");
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.backfill4_ctx.run(
+                ctx,
+                buffers.render_size(),
+                &buffers.voxels,
+                &buffers.tile4,
+                &mut compute_pass,
+            );
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+            print_buffers("after backfill4");
+
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.backfill16_ctx.run(
+                ctx,
+                buffers.render_size(),
+                &buffers.tile4.zmin,
+                &buffers.tile16,
+                &mut compute_pass,
+            );
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+            print_buffers("after backfill16");
+
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.backfill64_ctx.run(
+                ctx,
+                buffers.render_size(),
+                &buffers.tile16.zmin,
+                &buffers.tile64,
+                &mut compute_pass,
+            );
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+            print_buffers("after backfill64");
+
+            ////////////////////////////////////////////////////////////////////
+            // Normals!
+            let mut encoder = ctx.new_encoder();
+            let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
+            ctx.normals_ctx
+                .run(ctx, &buffers, &shape, &mut compute_pass);
+            drop(compute_pass);
+            ctx.queue.submit(Some(encoder.finish()));
+
+            let geom = ctx.read_buffer::<[f32; 4]>(&buffers.geom);
+            assert_eq!(geom.len(), 64 * 64);
+            for (y, vs) in geom.chunks(64).enumerate() {
+                for (x, v) in vs.iter().enumerate() {
+                    let expected = if y > 31 {
+                        [63.0, 0.0, -1.0 / 32.0, 0.0]
+                    } else {
+                        [0.0; 4]
+                    };
+                    assert_eq!(v, &expected, "bad pixel at {x}, {y}");
+                }
+            }
+        }
+
+        #[test]
+        fn step_by_step_y() {
+            CTX.with(step_by_step_y_);
         }
 
         fn repeated_xy_(ctx: &Context) {

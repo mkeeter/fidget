@@ -61,6 +61,7 @@ fn backfill_main(
             new_zmin = min(new_zmin, v);
         }
     }
+
     // It's okay to set the tape to 0 because the normal pass (which is the only
     // thing using the tape) will prioritize the higher-resolution tiles first;
     // if this tile had a higher Z value, then we wouldn't have evaluated the
