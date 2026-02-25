@@ -1,3 +1,21 @@
+struct TapeData {
+    /// Offset of the first free word in `data`
+    ///
+    /// This must be initialized based on tape length
+    offset: atomic<u32>,
+
+    /// Original tape length (an additional offset)
+    base_len: u32,
+
+    /// Total capacity of `data` (in words)
+    capacity: u32,
+
+    /// Flexible array member of tape data
+    ///
+    /// The first valid tape (at index 0) must be the root tape
+    data: array<u32>,
+}
+
 const OP_JUMP: u32 = 0xFF;
 
 // Transform inputs with `config.mat`

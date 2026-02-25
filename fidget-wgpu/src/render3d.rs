@@ -892,7 +892,6 @@ impl NormalsContext {
 pub struct Context {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    spec: GpuSpec,
 
     /// Common bind group
     bind_group: wgpu::BindGroup,
@@ -941,11 +940,7 @@ pub struct Context {
 
 impl Context {
     /// Build a new 3D rendering context, given a device and queue
-    pub fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-        spec: GpuSpec,
-    ) -> Self {
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         // Create bind group layout and bind group
         let common_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -995,7 +990,6 @@ impl Context {
         Self {
             device,
             queue,
-            spec,
             bind_group,
             config_buf,
             clear_ctx,
@@ -1019,8 +1013,8 @@ impl Context {
     /// and height; `image_size.depth()` sets the number of voxels to evaluate
     /// within each pixel of the image (stacked into a column going into the
     /// screen).
-    pub fn buffers(&self, image_size: VoxelSize) -> Buffers {
-        Buffers::new(&self.device, image_size, self.spec)
+    pub fn buffers(&self, image_size: VoxelSize, spec: GpuSpec) -> Buffers {
+        Buffers::new(&self.device, image_size, spec)
     }
 
     /// Builds a new [`RenderShape`] object for the given shape
@@ -1033,7 +1027,7 @@ impl Context {
     /// This function is not present when built for the `wasm32` target
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
-        &mut self,
+        &self,
         shape: &RenderShape,
         buffers: &Buffers,
         settings: RenderConfig,
@@ -1076,7 +1070,7 @@ impl Context {
                 render_size.height(),
                 render_size.depth(),
             ],
-            max_tiles_per_dispatch: self.spec.max_tiles_per_dispatch() as u32,
+            max_tiles_per_dispatch: buffers.max_tiles_per_dispatch as u32,
             image_size: [
                 buffers.image_size.width(),
                 buffers.image_size.height(),
@@ -1122,7 +1116,7 @@ impl Context {
 
     /// Submits a single image to be rendered using GPU acceleration
     fn submit(
-        &mut self,
+        &self,
         shape: &RenderShape,
         buffers: &Buffers,
         settings: &RenderConfig,
@@ -1133,7 +1127,7 @@ impl Context {
         let mut encoder = self.new_encoder();
 
         // Initial image clearing pass
-        self.clear_ctx.run(&mut encoder, buffers, shape);
+        self.clear_ctx.run(buffers, shape, &mut encoder);
 
         let mut compute_pass = self.begin_compute_pass(&mut encoder);
 
@@ -1295,7 +1289,8 @@ struct TileBuffers<const N: usize> {
 
     /// Maximum number of tiles processed in one dispatch
     ///
-    /// This value should be copied from [`Config::max_tiles_per_dispatch`]
+    /// This value should be copied from [`Buffers::max_tiles_per_dispatch`] and
+    /// must be the same as [`Config::max_tiles_per_dispatch`].
     max_tiles_per_dispatch: usize,
 
     /// Unsorted `ActiveTile` list
@@ -1535,6 +1530,9 @@ impl RenderShape {
 /// that particular [`Context`].
 #[derive(Clone)]
 pub struct Buffers {
+    /// Maximum number of tiles processed in one dispatch
+    max_tiles_per_dispatch: usize,
+
     /// Image render size
     ///
     /// Note that the tile buffers below round up to the nearest root tile
@@ -1631,6 +1629,7 @@ impl Buffers {
         );
 
         Self {
+            max_tiles_per_dispatch,
             image_size,
             tile64,
             tile16,
@@ -1763,17 +1762,11 @@ impl ClearContext {
 
     fn run(
         &self,
-        encoder: &mut wgpu::CommandEncoder,
         buffers: &Buffers,
         shape: &RenderShape,
+        encoder: &mut wgpu::CommandEncoder,
     ) {
-        encoder.copy_buffer_to_buffer(
-            &shape.tape_buf,
-            4,
-            &shape.tape_buf,
-            0,
-            4,
-        );
+        encoder.clear_buffer(&shape.tape_buf, 0, Some(4));
         encoder.clear_buffer(&buffers.tile64.zmin, 0, None);
         encoder.clear_buffer(&buffers.tile16.zmin, 0, None);
         encoder.clear_buffer(&buffers.tile4.zmin, 0, None);
@@ -1908,20 +1901,17 @@ mod test {
                     .await
                     .unwrap()
             });
-            Context::new(device, queue, GpuSpec::Custom(32768))
+            Context::new(device, queue)
         }
 
         // Inner test function to avoid rightward drift
-        fn test_interval_root(ctx: &Context) {
+        fn step_by_step_(ctx: &Context) {
             const MAX_TILES_PER_DISPATCH: u32 = 32768;
-            assert_eq!(
-                ctx.spec.max_tiles_per_dispatch(),
-                MAX_TILES_PER_DISPATCH as usize
-            );
 
-            // 16x16x16 image
+            // 16x16x16 tiles in the image
             let size = VoxelSize::from(1024);
-            let buffers = ctx.buffers(size);
+            let buffers =
+                ctx.buffers(size, GpuSpec::Custom(MAX_TILES_PER_DISPATCH));
             let shape = ctx.shape(&VmShape::from(Tree::x()));
             let settings = RenderConfig::default();
 
@@ -1933,6 +1923,11 @@ mod test {
             //  y = 0..15
             //  z= 0..15
             ctx.load_config(&shape, &buffers, &settings);
+
+            let mut encoder = ctx.new_encoder();
+            ctx.clear_ctx.run(&buffers, &shape, &mut encoder);
+            ctx.queue.submit(Some(encoder.finish()));
+
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
             ctx.root_ctx.run(ctx, &shape, &buffers, &mut compute_pass);
@@ -2393,8 +2388,63 @@ mod test {
         }
 
         #[test]
-        fn interval_root() {
-            CTX.with(test_interval_root);
+        fn step_by_step() {
+            CTX.with(step_by_step_);
+        }
+
+        fn repeat_x_(ctx: &Context) {
+            let size = VoxelSize::from(64);
+            let buffers = ctx.buffers(size, GpuSpec::Custom(8));
+            let shape_x = ctx.shape(&VmShape::from(Tree::x()));
+            let shape_y = ctx.shape(&VmShape::from(Tree::y()));
+            let settings = RenderConfig::default();
+
+            for j in 0..5 {
+                let shape = if j % 2 == 0 { &shape_x } else { &shape_y };
+                let out = ctx.run(shape, &buffers, settings);
+                println!();
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let p = &out[(y, x)];
+                        print!("{}", if p.depth == 0.0 { ".." } else { "##" });
+                    }
+                    println!();
+                }
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let p = &out[(y, x)];
+                        let g = if j % 2 == 0 {
+                            if x <= 31 {
+                                GeometryPixel {
+                                    depth: 63.0,
+                                    normal: [1.0 / 32.0, 0.0, 0.0],
+                                }
+                            } else {
+                                GeometryPixel {
+                                    depth: 0.0,
+                                    normal: [0.0, 0.0, 0.0],
+                                }
+                            }
+                        } else if y <= 31 {
+                            GeometryPixel {
+                                depth: 63.0,
+                                normal: [0.0, -1.0 / 32.0, 0.0],
+                            }
+                        } else {
+                            GeometryPixel {
+                                depth: 0.0,
+                                normal: [0.0, 0.0, 0.0],
+                            }
+                        };
+                        assert_eq!(*p, g, "bad pixel at {x}, {y} [{j}]");
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn repeat_x() {
+            CTX.with(repeat_x_);
         }
     }
 }

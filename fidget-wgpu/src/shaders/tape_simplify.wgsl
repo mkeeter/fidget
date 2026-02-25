@@ -212,7 +212,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
 
 /// Allocates a new chunk, returning the start of the chunk
 fn alloc(chunk_size: u32) -> u32 {
-    return atomicAdd(&tape_data.offset, chunk_size);
+    return atomicAdd(&tape_data.offset, chunk_size) + tape_data.base_len;
 }
 
 /// Undo an allocation

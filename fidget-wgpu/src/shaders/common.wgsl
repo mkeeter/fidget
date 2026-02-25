@@ -35,24 +35,6 @@ struct TileListInput {
     active_tiles: array<ActiveTile>,
 }
 
-struct TapeData {
-    /// Offset of the first free word in `data`
-    ///
-    /// This must be initialized based on tape length
-    offset: atomic<u32>,
-
-    /// Original tape length (used when resetting `offset`)
-    bytecode_len: u32,
-
-    /// Total capacity of `data` (in words)
-    capacity: u32,
-
-    /// Flexible array member of tape data
-    ///
-    /// The first valid tape (at index 0) must be the root tape
-    data: array<u32>,
-}
-
 /// Single voxel, as a packed `(Z, tape index)` tuple
 ///
 /// The Z value occupies the upper 12 bits; the tape index is the lower 20.
