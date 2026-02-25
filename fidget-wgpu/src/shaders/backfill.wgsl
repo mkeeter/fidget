@@ -4,7 +4,8 @@
 
 // Things to clear
 @group(1) @binding(2) var<storage, read_write> tiles_out: TileListOutput;
-@group(1) @binding(3) var<storage, read_write> tile_hist: array<atomic<u32>>;
+@group(1) @binding(3) var<storage, read_write> tile_hist: array<u32>;
+@group(1) @binding(4) var<storage, read_write> tile_z_offset: array<u32>;
 
 override TILE_SIZE: u32;
 
@@ -22,6 +23,10 @@ fn backfill_main(
     let stride = num_workgroups.x * 64u;
     for (var i = global_id.x; i < arrayLength(&tile_hist); i += stride) {
         tile_hist[i] = 0u;
+    }
+    // Reset the tile Z offset (cooperatively)
+    for (var i = global_id.x; i < arrayLength(&tile_z_offset); i += stride) {
+        tile_z_offset[i] = 0u;
     }
 
     // Prepare to do the backfilling

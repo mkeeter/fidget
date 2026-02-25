@@ -41,6 +41,9 @@ struct TapeData {
     /// This must be initialized based on tape length
     offset: atomic<u32>,
 
+    /// Original tape length (used when resetting `offset`)
+    bytecode_len: u32,
+
     /// Total capacity of `data` (in words)
     capacity: u32,
 

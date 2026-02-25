@@ -57,7 +57,7 @@ fn repack_main(
     let z = t.tile / (size_tiles.x * size_tiles.y);
     let buffer_offset = cumsum(z);
     let count = atomicAdd(&tile_z_offset[z], 1u);
-    tiles_out.tiles[tiles_out.count - (buffer_offset - count)] = t;
+    tiles_out.tiles[tiles_out.count - buffer_offset + count] = t;
 
     // One thread gets to populate the dispatch array
     if global_id.x == 0u {
