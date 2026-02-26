@@ -1744,8 +1744,8 @@ impl<const N: usize> BackfillContext<N> {
             });
 
         // Dispatched once per parent tile, on the X axis only
-        let nx = render_size.width() as usize / (N * 4);
-        let ny = render_size.height() as usize / (N * 4);
+        let nx = render_size.width() as usize / N;
+        let ny = render_size.height() as usize / N;
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, &bind_group, &[]);
         compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
@@ -1766,11 +1766,19 @@ impl ClearContext {
         encoder: &mut wgpu::CommandEncoder,
     ) {
         encoder.clear_buffer(&shape.tape_buf, 0, Some(4));
-        encoder.clear_buffer(&buffers.tile64.zmin, 0, None);
-        encoder.clear_buffer(&buffers.tile16.zmin, 0, None);
-        encoder.clear_buffer(&buffers.tile4.zmin, 0, None);
+        self.clear_tile_buffers(&buffers.tile64, encoder);
+        self.clear_tile_buffers(&buffers.tile16, encoder);
+        self.clear_tile_buffers(&buffers.tile4, encoder);
         encoder.clear_buffer(&buffers.voxels, 0, None);
         encoder.clear_buffer(&buffers.geom, 0, None);
+    }
+
+    fn clear_tile_buffers<const N: usize>(
+        &self,
+        buffers: &TileBuffers<N>,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        encoder.clear_buffer(&buffers.zmin, 0, None);
     }
 }
 
@@ -2709,31 +2717,7 @@ mod test {
                 }
             }
 
-            // TEST TEST IS THIS BREAKING THINGS?
-            let print_buffer = |buf, size| {
-                let data = ctx.read_buffer::<Voxel>(buf);
-                for y in 0..size {
-                    for x in 0..size {
-                        let v = data[x + y * size];
-                        print!("{}", if v.z() != 0 { "##" } else { ".." });
-                        assert_eq!(
-                            v.tape_index(),
-                            0,
-                            "bad tape index at {x} {y}"
-                        );
-                    }
-                    println!();
-                }
-            };
-            let print_buffers = |state: &str| {
-                println!("{state}");
-                print_buffer(&buffers.voxels, 64);
-                print_buffer(&buffers.tile4.zmin, 16);
-                print_buffer(&buffers.tile16.zmin, 4);
-                print_buffer(&buffers.tile64.zmin, 1);
-                println!();
-            };
-            print_buffers("before");
+            // Do all of the backfill passes
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
             ctx.backfill4_ctx.run(
@@ -2745,7 +2729,6 @@ mod test {
             );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
-            print_buffers("after backfill4");
 
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
@@ -2758,7 +2741,6 @@ mod test {
             );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
-            print_buffers("after backfill16");
 
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
@@ -2771,7 +2753,6 @@ mod test {
             );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
-            print_buffers("after backfill64");
 
             ////////////////////////////////////////////////////////////////////
             // Normals!
@@ -2808,7 +2789,7 @@ mod test {
             let shape_y = ctx.shape(&VmShape::from(Tree::y()));
             let settings = RenderConfig::default();
 
-            for j in 0..5 {
+            for j in 0..10 {
                 let shape = if j % 2 == 0 { &shape_x } else { &shape_y };
                 let out = ctx.run(shape, &buffers, settings);
                 println!();
@@ -2854,6 +2835,85 @@ mod test {
         #[test]
         fn repeated_xy() {
             CTX.with(repeated_xy_);
+        }
+
+        fn repeated_x_(ctx: &Context) {
+            let size = VoxelSize::from(64);
+            let buffers = ctx.buffers(size, GpuSpec::High);
+            let shape = ctx.shape(&VmShape::from(Tree::x()));
+            let settings = RenderConfig::default();
+
+            for j in 0..5 {
+                let out = ctx.run(&shape, &buffers, settings);
+                println!();
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let p = &out[(y, x)];
+                        print!("{}", if p.depth == 0.0 { ".." } else { "##" });
+                    }
+                    println!();
+                }
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let p = &out[(y, x)];
+                        let g = if x <= 31 {
+                            GeometryPixel {
+                                depth: 63.0,
+                                normal: [1.0 / 32.0, 0.0, 0.0],
+                            }
+                        } else {
+                            GeometryPixel {
+                                depth: 0.0,
+                                normal: [0.0, 0.0, 0.0],
+                            }
+                        };
+                        assert_eq!(*p, g, "bad pixel at {x}, {y} [{j}]");
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn repeated_x() {
+            CTX.with(repeated_x_);
+        }
+
+        #[test]
+        fn repeated_x_with_fresh_context() {
+            let size = VoxelSize::from(64);
+            let settings = RenderConfig::default();
+
+            for j in 0..5 {
+                let ctx = get_context();
+                let buffers = ctx.buffers(size, GpuSpec::High);
+                let shape = ctx.shape(&VmShape::from(Tree::x()));
+                let out = ctx.run(&shape, &buffers, settings);
+                println!();
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let p = &out[(y, x)];
+                        print!("{}", if p.depth == 0.0 { ".." } else { "##" });
+                    }
+                    println!();
+                }
+                for y in 0..64 {
+                    for x in 0..64 {
+                        let p = &out[(y, x)];
+                        let g = if x <= 31 {
+                            GeometryPixel {
+                                depth: 63.0,
+                                normal: [1.0 / 32.0, 0.0, 0.0],
+                            }
+                        } else {
+                            GeometryPixel {
+                                depth: 0.0,
+                                normal: [0.0, 0.0, 0.0],
+                            }
+                        };
+                        assert_eq!(*p, g, "bad pixel at {x}, {y} [{j}]");
+                    }
+                }
+            }
         }
     }
 }

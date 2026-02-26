@@ -16,9 +16,8 @@ fn backfill_main(
     @builtin(num_workgroups) num_workgroups: vec3u,
 ) {
     // Reset the tile count
-    if global_id.x == 0u {
-        tiles_out.count = 0u;
-    }
+    tiles_out.count = 0u;
+
     // Reset the tile Z histogram (cooperatively)
     let stride = num_workgroups.x * 64u;
     for (var i = global_id.x; i < arrayLength(&tile_hist); i += stride) {
