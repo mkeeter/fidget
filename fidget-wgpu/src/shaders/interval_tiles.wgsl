@@ -110,12 +110,12 @@ fn interval_tile_main(
         // store a simplified tape for normal evaluation)
         // CAS loop, see interval_root for details
         let new_z = corner_pos.z + SUBTILE_SIZE - 1;
-        let new_value = (new_z << 20) | tape_start; // XXX handle overflow?
+        let new_value = (new_z << 20) | (tape_start / 2); // XXX handle overflow?
         atomicMax(&subtile_zmin[subtile_index_xy].value, new_value);
     } else {
         // Otherwise, enqueue the tile and add its Z position to the histogram
         let offset = atomicAdd(&subtiles_out.count, 1u);
-        subtiles_out.tiles[offset] = ActiveTile(subtile_index_xyz, next);
+        subtiles_out.tiles[offset] = ActiveTile(subtile_index_xyz, tape_start);
         atomicAdd(&subtile_hist[subtile_corner.z], 1);
     }
 }

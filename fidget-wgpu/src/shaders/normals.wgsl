@@ -30,7 +30,7 @@ fn normals_main(
     out = max(out, voxels[global_id.x + global_id.y * config.render_size[0]]);
 
     let z = out >> 20;
-    let tape_index = out & ((1 << 20) - 1);
+    let tape_index = (out & ((1 << 20) - 1)) * 2;
 
     // If this pixel hasn't yet been written in the heightmap, then return
     if z == 0 {

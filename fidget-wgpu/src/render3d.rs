@@ -207,7 +207,10 @@ impl RenderSize {
 }
 
 /// Number of `u32` words in the tape data flexible array
-const TAPE_DATA_CAPACITY: usize = 1024 * 1024 * 16; // 16M words, 64 MiB
+///
+/// This is limited based on how tapes are packed in the `Voxel` data type, we
+/// only have 20 bits available.
+const TAPE_DATA_CAPACITY: usize = 1024 * 1024 * 2; // 2M words, 8 MiB
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
@@ -1805,7 +1808,7 @@ mod test {
             self.0 >> 20
         }
         fn tape_index(&self) -> u32 {
-            self.0 & ((1 << 20) - 1)
+            (self.0 & ((1 << 20) - 1)) * 2
         }
     }
 

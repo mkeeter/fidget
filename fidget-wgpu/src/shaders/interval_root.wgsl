@@ -54,7 +54,7 @@ fn interval_root_main(
     if v[1] < 0.0 {
         let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
         let new_z = corner_pos.z + TILE_SIZE - 1;
-        let new_value = (new_z << 20) | next; // TODO next overflow
+        let new_value = (new_z << 20) | (next / 2); // TODO next overflow
         atomicMax(&tile64_zmin[tile_index_xy].value, new_value);
     } else {
         // Otherwise, enqueue the tile and add its Z position to the histogram
