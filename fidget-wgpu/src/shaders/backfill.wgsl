@@ -4,8 +4,9 @@
 
 // Things to clear
 @group(1) @binding(2) var<storage, read_write> tiles_out: TileListOutput;
-@group(1) @binding(3) var<storage, read_write> tile_hist: array<u32>;
-@group(1) @binding(4) var<storage, read_write> tile_z_offset: array<u32>;
+@group(1) @binding(3) var<storage, read_write> tiles_sorted: TileListOutput;
+@group(1) @binding(4) var<storage, read_write> tile_hist: array<u32>;
+@group(1) @binding(5) var<storage, read_write> tile_z_offset: array<u32>;
 
 override TILE_SIZE: u32;
 
@@ -17,6 +18,7 @@ fn backfill_main(
 ) {
     // Reset the tile count
     tiles_out.count = 0u;
+    tiles_sorted.count = 0u;
 
     // Reset the tile Z histogram (cooperatively)
     let stride = num_workgroups.x * 64u;

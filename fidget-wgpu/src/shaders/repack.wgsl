@@ -40,6 +40,9 @@ fn cumsum(z: u32) -> u32 {
 }
 
 /// Dispatched with one thread per position in `tiles` (rounded up)
+///
+/// This is convenient because it's the same dispatch size as the interval tiles
+/// kernel (which runs immediately before this one).
 @compute @workgroup_size(64, 1, 1)
 fn repack_main(
     @builtin(global_invocation_id) global_id: vec3u
@@ -63,15 +66,24 @@ fn repack_main(
     if global_id.x == 0u {
         var count = cumsum(size_tiles.z - 1);
         var d = 0u;
+        let backfill_wgs = vec3u(((size_tiles.x * size_tiles.y) + 63) / 64, 1, 1);
         while count > 0 && d < arrayLength(&dispatch) {
             let n = min(config.max_tiles_per_dispatch, count);
-            dispatch[d] = Dispatch(vec3u(n, 1u, 1u));
+            dispatch[d] = Dispatch(
+                vec3u(n, 1u, 1u), 0,
+                backfill_wgs, 0);
             count -= n;
+            d += 1;
+        }
+        // We need at least one Bonus Backfill, because it also performs cleanup
+        // of various counters and stuff (and is idempotent).
+        if d < arrayLength(&dispatch) {
+            dispatch[d] = Dispatch(vec3u(0, 0, 0), 0, backfill_wgs, 0);
             d += 1;
         }
         // Clear all subsequent dispatch stages
         while d < arrayLength(&dispatch) {
-            dispatch[d] = Dispatch(vec3u(0, 0, 0));
+            dispatch[d] = Dispatch(vec3u(0, 0, 0), 0, vec3u(0, 0, 0), 0);
             d += 1;
         }
     }

@@ -144,8 +144,10 @@ struct Config {
 #[repr(C)]
 struct Dispatch {
     /// Indirect dispatch size
-    wg_dispatch: [u32; 3],
-    _padding: u32,
+    tile_dispatch: [u32; 3],
+    _padding1: u32,
+    backfill_dispatch: [u32; 3],
+    _padding2: u32,
 }
 
 /// Z value and tape index packed into a single `u32` word
@@ -492,10 +494,11 @@ impl<const N: usize> RepackContext<N> {
         }
     }
 
-    fn run(
+    fn run<const M: usize>(
         &self,
         ctx: &Context,
         buffers: &TileBuffers<N>,
+        prev: Option<(usize, &TileBuffers<M>)>,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let repack_bind_group =
@@ -528,12 +531,28 @@ impl<const N: usize> RepackContext<N> {
 
         compute_pass.set_pipeline(&self.repack_pipeline);
         compute_pass.set_bind_group(1, &repack_bind_group, &[]);
-        // TODO this should be indirect
-        compute_pass.dispatch_workgroups(
-            buffers.max_tiles_per_dispatch() as u32,
-            1,
-            1,
-        );
+
+        if let Some((dispatch, prev)) = prev {
+            // If this is an intermediate repacking step, then launch enough
+            // workgroups to have one thread per generated tile (which is the
+            // same dispatch size as the previous **interval tiles** pass)
+            assert_eq!(M, N * 4);
+            compute_pass.dispatch_workgroups_indirect(
+                &prev.dispatch,
+                (dispatch * std::mem::size_of::<Dispatch>()) as u64,
+            );
+        } else {
+            // Otherwise, just launch workgroups based on the number of tiles in
+            // our own output buffer
+            compute_pass.dispatch_workgroups(
+                ((buffers.out.size() - 4) / 8)
+                    .div_ceil(64)
+                    .try_into()
+                    .unwrap(),
+                1,
+                1,
+            );
+        }
     }
 }
 
@@ -773,8 +792,9 @@ impl VoxelContext {
         compute_pass.set_pipeline(self.voxel_pipeline.get(shape.reg_count));
         compute_pass.set_bind_group(1, &bind_group, &[]);
 
-        // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
-        // workers in the Z direction.
+        // There's only a single dispatch for voxel rendering, because looping
+        // is done in the kernel itself (if there are more tiles than can be
+        // produced in a single dispatch)
         compute_pass.dispatch_workgroups_indirect(&buffers.tile4.dispatch, 0);
     }
 }
@@ -1136,8 +1156,12 @@ impl Context {
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(self, shape, buffers, &mut compute_pass);
-        self.repack64_ctx
-            .run(self, &buffers.tile64, &mut compute_pass);
+        self.repack64_ctx.run::<0>(
+            self,
+            &buffers.tile64,
+            None,
+            &mut compute_pass,
+        );
         for i in 0..buffers.tile64.max_dispatch_count() {
             self.interval16_ctx.run(
                 self,
@@ -1147,8 +1171,12 @@ impl Context {
                 i,
                 &mut compute_pass,
             );
-            self.repack16_ctx
-                .run(self, &buffers.tile16, &mut compute_pass);
+            self.repack16_ctx.run(
+                self,
+                &buffers.tile16,
+                Some((i, &buffers.tile64)),
+                &mut compute_pass,
+            );
             for j in 0..buffers.tile16.max_dispatch_count() {
                 self.interval4_ctx.run(
                     self,
@@ -1158,14 +1186,19 @@ impl Context {
                     j,
                     &mut compute_pass,
                 );
-                self.repack4_ctx
-                    .run(self, &buffers.tile4, &mut compute_pass);
+                self.repack4_ctx.run(
+                    self,
+                    &buffers.tile4,
+                    Some((j, &buffers.tile16)),
+                    &mut compute_pass,
+                );
                 self.voxel_ctx.run(self, buffers, shape, &mut compute_pass);
                 self.backfill4_ctx.run(
                     self,
                     buffers.render_size(),
                     &buffers.voxels,
                     &buffers.tile4,
+                    Some(0), // XXX is this okay?
                     &mut compute_pass,
                 );
             }
@@ -1174,6 +1207,7 @@ impl Context {
                 buffers.render_size(),
                 &buffers.tile4.zmin,
                 &buffers.tile16,
+                Some(i),
                 &mut compute_pass,
             );
         }
@@ -1182,6 +1216,7 @@ impl Context {
             buffers.render_size(),
             &buffers.tile16.zmin,
             &buffers.tile64,
+            None,
             &mut compute_pass,
         );
         self.normals_ctx
@@ -1668,8 +1703,9 @@ impl<const N: usize> BackfillContext<N> {
                     buffer_ro(0), // subtile_zmin
                     buffer_rw(1), // tile_zmin
                     buffer_rw(2), // tiles_out (to clear count)
-                    buffer_rw(3), // tile_hist (to clear counts)
-                    buffer_rw(4), // tile_z_offset (to clear counts)
+                    buffer_rw(3), // tiles_out (to clear count)
+                    buffer_rw(4), // tile_hist (to clear counts)
+                    buffer_rw(5), // tile_z_offset (to clear counts)
                 ],
             });
 
@@ -1716,6 +1752,7 @@ impl<const N: usize> BackfillContext<N> {
         render_size: RenderSize,
         subtile_zmin: &wgpu::Buffer,
         tile_buf: &TileBuffers<N>,
+        dispatch: Option<usize>,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let bind_group =
@@ -1737,10 +1774,14 @@ impl<const N: usize> BackfillContext<N> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: tile_buf.hist.as_entire_binding(),
+                        resource: tile_buf.sorted.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
+                        resource: tile_buf.hist.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
                         resource: tile_buf.z_to_offset.as_entire_binding(),
                     },
                 ],
@@ -1751,7 +1792,23 @@ impl<const N: usize> BackfillContext<N> {
         let ny = render_size.height() as usize / N;
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, &bind_group, &[]);
-        compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
+        if let Some(dispatch) = dispatch {
+            // If this is an intermediate backfill step, then it may not need to
+            // be dispatched at all; we'll use the `backfill_dispatch` member to
+            // do an indirect dispatch (or not)
+            compute_pass.dispatch_workgroups_indirect(
+                &tile_buf.dispatch,
+                (dispatch * std::mem::size_of::<Dispatch>()
+                    + std::mem::offset_of!(Dispatch, backfill_dispatch))
+                    as u64,
+            );
+        } else {
+            compute_pass.dispatch_workgroups(
+                (nx * ny).div_ceil(64) as u32,
+                1,
+                1,
+            );
+        }
     }
 }
 
@@ -1994,8 +2051,12 @@ mod test {
             // Next up: the repacking pass
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
-            ctx.repack64_ctx
-                .run(ctx, &buffers.tile64, &mut compute_pass);
+            ctx.repack64_ctx.run::<0>(
+                ctx,
+                &buffers.tile64,
+                None,
+                &mut compute_pass,
+            );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
@@ -2009,9 +2070,8 @@ mod test {
             let dispatch =
                 ctx.read_buffer::<Dispatch>(&buffers.tile64.dispatch);
             assert_eq!(dispatch.len(), 1);
-            for d in dispatch {
-                assert_eq!(d.wg_dispatch, [32 * 16, 1, 1]);
-            }
+            assert_eq!(dispatch[0].tile_dispatch, [32 * 16, 1, 1]);
+            assert_eq!(dispatch[0].backfill_dispatch, [16 * 16 / 64, 1, 1]);
 
             let sorted = ctx.read_buffer::<u8>(&buffers.tile64.sorted);
             let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
@@ -2120,8 +2180,12 @@ mod test {
             // Next up: the repacking pass for 16³ tiles
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
-            ctx.repack16_ctx
-                .run(ctx, &buffers.tile16, &mut compute_pass);
+            ctx.repack16_ctx.run(
+                ctx,
+                &buffers.tile16,
+                Some((0, &buffers.tile64)),
+                &mut compute_pass,
+            );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
@@ -2137,9 +2201,11 @@ mod test {
             let dispatch =
                 ctx.read_buffer::<Dispatch>(&buffers.tile16.dispatch);
             assert_eq!(dispatch.len(), buffers.tile16.max_dispatch_count());
-            assert_eq!(dispatch[0].wg_dispatch, [2 * 64 * 64, 1, 1]);
+            assert_eq!(dispatch[0].tile_dispatch, [2 * 64 * 64, 1, 1]);
+            assert_eq!(dispatch[0].backfill_dispatch, [64 * 64 / 64, 1, 1]);
             for d in &dispatch[1..] {
-                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+                assert_eq!(d.tile_dispatch, [0, 0, 0]);
+                assert_eq!(d.backfill_dispatch, [0, 0, 0]);
             }
 
             let sorted = ctx.read_buffer::<u8>(&buffers.tile16.sorted);
@@ -2252,7 +2318,12 @@ mod test {
             // Almost done!  Time for the repacking pass for 4³ tiles
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
-            ctx.repack4_ctx.run(ctx, &buffers.tile4, &mut compute_pass);
+            ctx.repack4_ctx.run(
+                ctx,
+                &buffers.tile4,
+                Some((0, &buffers.tile16)),
+                &mut compute_pass,
+            );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
@@ -2265,9 +2336,14 @@ mod test {
 
             let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
             assert_eq!(dispatch.len(), buffers.tile4.max_dispatch_count());
-            assert_eq!(dispatch[0].wg_dispatch, [MAX_TILES_PER_DISPATCH, 1, 1]);
+            assert_eq!(
+                dispatch[0].tile_dispatch,
+                [MAX_TILES_PER_DISPATCH, 1, 1]
+            );
+            assert_eq!(dispatch[0].backfill_dispatch, [65536 / 64, 1, 1]);
             for d in &dispatch[1..] {
-                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+                assert_eq!(d.tile_dispatch, [0, 0, 0]);
+                assert_eq!(d.backfill_dispatch, [0, 0, 0]);
             }
 
             let sorted = ctx.read_buffer::<u8>(&buffers.tile4.sorted);
@@ -2330,6 +2406,7 @@ mod test {
                 buffers.render_size(),
                 &buffers.voxels,
                 &buffers.tile4,
+                Some(0),
                 &mut compute_pass,
             );
             drop(compute_pass);
@@ -2432,8 +2509,12 @@ mod test {
             // Next up: the repacking pass
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
-            ctx.repack64_ctx
-                .run(ctx, &buffers.tile64, &mut compute_pass);
+            ctx.repack64_ctx.run::<0>(
+                ctx,
+                &buffers.tile64,
+                None,
+                &mut compute_pass,
+            );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
@@ -2448,7 +2529,8 @@ mod test {
                 ctx.read_buffer::<Dispatch>(&buffers.tile64.dispatch);
             assert_eq!(dispatch.len(), 1);
             for d in dispatch {
-                assert_eq!(d.wg_dispatch, [1, 1, 1]);
+                assert_eq!(d.tile_dispatch, [1, 1, 1]);
+                assert_eq!(d.backfill_dispatch, [1, 1, 1]);
             }
 
             let sorted = ctx.read_buffer::<u8>(&buffers.tile64.sorted);
@@ -2530,8 +2612,12 @@ mod test {
             // Next up: the repacking pass for 16³ tiles
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
-            ctx.repack16_ctx
-                .run(ctx, &buffers.tile16, &mut compute_pass);
+            ctx.repack16_ctx.run(
+                ctx,
+                &buffers.tile16,
+                Some((0, &buffers.tile64)),
+                &mut compute_pass,
+            );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
@@ -2547,9 +2633,11 @@ mod test {
             let dispatch =
                 ctx.read_buffer::<Dispatch>(&buffers.tile16.dispatch);
             assert_eq!(dispatch.len(), buffers.tile16.max_dispatch_count());
-            assert_eq!(dispatch[0].wg_dispatch, [16, 1, 1]);
+            assert_eq!(dispatch[0].tile_dispatch, [16, 1, 1]);
+            assert_eq!(dispatch[0].backfill_dispatch, [1, 1, 1]);
             for d in &dispatch[1..] {
-                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+                assert_eq!(d.tile_dispatch, [0, 0, 0]);
+                assert_eq!(d.backfill_dispatch, [0, 0, 0]);
             }
 
             let sorted = ctx.read_buffer::<u8>(&buffers.tile16.sorted);
@@ -2655,7 +2743,12 @@ mod test {
             // Almost done!  Time for the repacking pass for 4³ tiles
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
-            ctx.repack4_ctx.run(ctx, &buffers.tile4, &mut compute_pass);
+            ctx.repack4_ctx.run(
+                ctx,
+                &buffers.tile4,
+                Some((0, &buffers.tile16)),
+                &mut compute_pass,
+            );
             drop(compute_pass);
             ctx.queue.submit(Some(encoder.finish()));
 
@@ -2668,9 +2761,11 @@ mod test {
 
             let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
             assert_eq!(dispatch.len(), buffers.tile4.max_dispatch_count());
-            assert_eq!(dispatch[0].wg_dispatch, [256, 1, 1]);
+            assert_eq!(dispatch[0].tile_dispatch, [256, 1, 1]);
+            assert_eq!(dispatch[0].backfill_dispatch, [16 * 16 / 64, 1, 1]);
             for d in &dispatch[1..] {
-                assert_eq!(d.wg_dispatch, [0, 0, 0]);
+                assert_eq!(d.tile_dispatch, [0, 0, 0]);
+                assert_eq!(d.backfill_dispatch, [0, 0, 0]);
             }
 
             let sorted = ctx.read_buffer::<u8>(&buffers.tile4.sorted);
@@ -2728,6 +2823,7 @@ mod test {
                 buffers.render_size(),
                 &buffers.voxels,
                 &buffers.tile4,
+                Some(0),
                 &mut compute_pass,
             );
             drop(compute_pass);
@@ -2740,6 +2836,7 @@ mod test {
                 buffers.render_size(),
                 &buffers.tile4.zmin,
                 &buffers.tile16,
+                Some(0),
                 &mut compute_pass,
             );
             drop(compute_pass);
@@ -2752,6 +2849,7 @@ mod test {
                 buffers.render_size(),
                 &buffers.tile16.zmin,
                 &buffers.tile64,
+                Some(0),
                 &mut compute_pass,
             );
             drop(compute_pass);

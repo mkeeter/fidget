@@ -52,8 +52,12 @@ struct ActiveTile {
 
 /// Indirect dispatch plan for a round of interval tile dispatch
 struct Dispatch {
-    /// Indirect dispatch size
-    wg_dispatch: vec3u,
+    /// Tiles and repacking use the same dispatch size
+    tile_dispatch: vec3u,
+    _padding1: u32,
+    /// Dispatch size for the backfill shader
+    backfill_dispatch: vec3u,
+    _padding2: u32,
 }
 
 fn nan_f32() -> f32 {
