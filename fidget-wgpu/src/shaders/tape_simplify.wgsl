@@ -62,14 +62,10 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         } else if !live[op[1]] {
             // This is a dead node, so we skip it and pop its choice
             switch op[0] {
-                case OP_MIN_REG_IMM,
-                OP_MAX_REG_IMM,
-                OP_AND_REG_IMM,
-                OP_OR_REG_IMM,
-                OP_MIN_REG_REG,
-                OP_MAX_REG_REG,
-                OP_AND_REG_REG,
-                OP_OR_REG_REG: {
+                case OP_MIN,
+                OP_MAX,
+                OP_AND,
+                OP_OR: {
                     stack_pop(stack);
                 }
                 default: {
@@ -87,96 +83,71 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
             case OP_OUTPUT: {
                 // handled above
             }
-            case OP_INPUT, OP_COPY_IMM: {
+            case OP_INPUT {
                 // Nothing to do here, we already marked op[1] as unalive
             }
 
-            case OP_COPY_REG, // one input register
-            OP_NEG_REG,
-            OP_ABS_REG,
-            OP_RECIP_REG,
-            OP_SQRT_REG,
-            OP_SQUARE_REG,
-            OP_FLOOR_REG,
-            OP_CEIL_REG,
-            OP_ROUND_REG,
-            OP_SIN_REG,
-            OP_COS_REG,
-            OP_TAN_REG,
-            OP_ASIN_REG,
-            OP_ACOS_REG,
-            OP_ATAN_REG,
-            OP_EXP_REG,
-            OP_LN_REG,
-            OP_NOT_REG,
-            OP_ADD_REG_IMM, // one input register, one immediate
-            OP_MUL_REG_IMM,
-            OP_DIV_REG_IMM,
-            OP_SUB_REG_IMM,
-            OP_MOD_REG_IMM,
-            OP_ATAN_REG_IMM,
-            OP_COMPARE_REG_IMM,
-            OP_DIV_IMM_REG,
-            OP_SUB_IMM_REG,
-            OP_MOD_IMM_REG,
-            OP_ATAN_IMM_REG,
-            OP_COMPARE_IMM_REG: {
-                live[op[2]] = true;
-            }
-
-            // one input register, one immediate, and a choice
-            case OP_MIN_REG_IMM,
-            OP_MAX_REG_IMM,
-            OP_AND_REG_IMM,
-            OP_OR_REG_IMM:   {
-                switch stack_pop(stack) {
-                    case CHOICE_LEFT: {
-                        op[0] = OP_COPY_REG; // argument is already in op[2]
-                        live[op[2]] = true;
-                        // If this is a reassignment, skip it entirely
-                        if op[2] == op[1] {
-                            j += 2;
-                            continue;
-                        }
-                    }
-                    case CHOICE_RIGHT: {
-                        op[0] = OP_COPY_IMM; // argument is already in imm_u
-                    }
-                    default: { // should always be CHOICE_BOTH
-                        live[op[2]] = true;
-                    }
+            // One input register (or immediate)
+            case OP_COPY,
+            OP_NEG,
+            OP_ABS,
+            OP_RECIP,
+            OP_SQRT,
+            OP_SQUARE,
+            OP_FLOOR,
+            OP_CEIL,
+            OP_ROUND,
+            OP_SIN,
+            OP_COS,
+            OP_TAN,
+            OP_ASIN,
+            OP_ACOS,
+            OP_ATAN,
+            OP_EXP,
+            OP_LN,
+            OP_NOT: {
+                if op[2] != 255 {
+                    live[op[2]] = true;
                 }
             }
 
             // Two input registers
-            case OP_ADD_REG_REG,
-            OP_MUL_REG_REG,
-            OP_DIV_REG_REG,
-            OP_SUB_REG_REG,
-            OP_COMPARE_REG_REG,
-            OP_ATAN_REG_REG,
-            OP_MOD_REG_REG: {
-                live[op[2]] = true;
-                live[op[3]] = true;
+            case OP_ADD,
+            OP_MUL,
+            OP_DIV,
+            OP_SUB,
+            OP_COMPARE,
+            OP_ATAN2,
+            OP_MOD: {
+                if op[2] != 255 {
+                    live[op[2]] = true;
+                }
+                if op[3] != 255 {
+                    live[op[3]] = true;
+                }
             }
 
             // Two input registers, and a choice
-            case OP_MIN_REG_REG,
-            OP_MAX_REG_REG,
-            OP_AND_REG_REG,
-            OP_OR_REG_REG: {
+            case OP_MIN,
+            OP_MAX,
+            OP_AND,
+            OP_OR: {
                 switch stack_pop(stack) {
                     case CHOICE_LEFT: {
-                        op[0] = OP_COPY_REG; // argument is already in op[2]
-                        live[op[2]] = true;
+                        op[0] = OP_COPY; // argument is already in op[2]
+                        if op[2] != 255 {
+                            live[op[2]] = true;
+                        }
                         if op[2] == op[1] { // skip reassignment
                             j += 2;
                             continue;
                         }
                     }
                     case CHOICE_RIGHT: {
-                        op[0] = OP_COPY_REG;
-                        live[op[3]] = true;
+                        op[0] = OP_COPY;
+                        if op[3] != 255 {
+                            live[op[3]] = true;
+                        }
                         op[2] = op[3];
                         if op[2] == op[1] { // skip reassignment
                             j += 2;
@@ -184,8 +155,12 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                         }
                     }
                     default: { // should always be CHOICE_BOTH
-                        live[op[2]] = true;
-                        live[op[3]] = true;
+                        if op[2] != 255 {
+                            live[op[2]] = true;
+                        }
+                        if op[3] != 255 {
+                            live[op[3]] = true;
+                        }
                     }
                 }
             }

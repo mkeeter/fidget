@@ -1,6 +1,11 @@
 # 0.4.3 (in progress)
 - Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
     - This is even more experimental than the rest of Fidget!
+- Revamping `fidget-bytecode`
+    - Reserve register `u8::MAX` to represent an inline immediate
+    - Remove separate opcodes, e.g. `SubRegReg`, `SubRegImm`, and `SubImmReg`
+      now all generate `BytecodeOp::Sub` (using the reserved register as needed
+      for immediates).
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))

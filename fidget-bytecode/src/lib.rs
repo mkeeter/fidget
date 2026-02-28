@@ -74,7 +74,104 @@
 use fidget_core::{compiler::RegOp, vm::VmData};
 use zerocopy::IntoBytes;
 
-pub use fidget_core::compiler::RegOpDiscriminants as BytecodeOp;
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::EnumIter,
+    strum::EnumCount,
+    strum::IntoStaticStr,
+    strum::FromRepr,
+)]
+enum BytecodeOp {
+    Copy,
+    Neg,
+    Abs,
+    Recip,
+    Sqrt,
+    Square,
+    Floor,
+    Ceil,
+    Round,
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Exp,
+    Ln,
+    Not,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Atan2,
+    Compare,
+    Mod,
+    Min,
+    Max,
+    And,
+    Or,
+    Input,
+    Output,
+    Load,
+    Store,
+}
+
+impl From<RegOp> for BytecodeOp {
+    fn from(op: RegOp) -> Self {
+        match op {
+            RegOp::Input(..) => BytecodeOp::Input,
+            RegOp::Output(..) => BytecodeOp::Output,
+            RegOp::NegReg(..) => BytecodeOp::Neg,
+            RegOp::AbsReg(..) => BytecodeOp::Abs,
+            RegOp::RecipReg(..) => BytecodeOp::Recip,
+            RegOp::SqrtReg(..) => BytecodeOp::Sqrt,
+            RegOp::SquareReg(..) => BytecodeOp::Square,
+            RegOp::FloorReg(..) => BytecodeOp::Floor,
+            RegOp::CeilReg(..) => BytecodeOp::Ceil,
+            RegOp::RoundReg(..) => BytecodeOp::Round,
+            RegOp::SinReg(..) => BytecodeOp::Sin,
+            RegOp::CosReg(..) => BytecodeOp::Cos,
+            RegOp::TanReg(..) => BytecodeOp::Tan,
+            RegOp::AsinReg(..) => BytecodeOp::Asin,
+            RegOp::AcosReg(..) => BytecodeOp::Acos,
+            RegOp::AtanReg(..) => BytecodeOp::Atan,
+            RegOp::ExpReg(..) => BytecodeOp::Exp,
+            RegOp::LnReg(..) => BytecodeOp::Ln,
+            RegOp::NotReg(..) => BytecodeOp::Not,
+            RegOp::Load(..) => BytecodeOp::Load,
+            RegOp::Store(..) => BytecodeOp::Store,
+            RegOp::CopyImm(..) | RegOp::CopyReg(..) => BytecodeOp::Copy,
+
+            RegOp::AddRegReg(..) | RegOp::AddRegImm(..) => BytecodeOp::Add,
+            RegOp::MulRegReg(..) | RegOp::MulRegImm(..) => BytecodeOp::Mul,
+            RegOp::DivRegReg(..)
+            | RegOp::DivRegImm(..)
+            | RegOp::DivImmReg(..) => BytecodeOp::Div,
+            RegOp::SubRegReg(..)
+            | RegOp::SubRegImm(..)
+            | RegOp::SubImmReg(..) => BytecodeOp::Sub,
+            RegOp::AtanRegReg(..)
+            | RegOp::AtanRegImm(..)
+            | RegOp::AtanImmReg(..) => BytecodeOp::Atan2,
+            RegOp::MinRegReg(..) | RegOp::MinRegImm(..) => BytecodeOp::Min,
+            RegOp::MaxRegReg(..) | RegOp::MaxRegImm(..) => BytecodeOp::Max,
+            RegOp::CompareRegReg(..)
+            | RegOp::CompareRegImm(..)
+            | RegOp::CompareImmReg(..) => BytecodeOp::Compare,
+            RegOp::ModRegReg(..)
+            | RegOp::ModRegImm(..)
+            | RegOp::ModImmReg(..) => BytecodeOp::Mod,
+            RegOp::AndRegReg(..) | RegOp::AndRegImm(..) => BytecodeOp::And,
+            RegOp::OrRegReg(..) | RegOp::OrRegImm(..) => BytecodeOp::Or,
+        }
+    }
+}
 
 /// Serialized bytecode for external evaluation
 pub struct Bytecode {
@@ -96,6 +193,8 @@ impl Bytecode {
     }
 
     /// Maximum register index used by the tape
+    ///
+    /// This does not include the virtual register `0xFF` used for immediates
     pub fn reg_count(&self) -> u8 {
         self.reg_count
     }
@@ -111,16 +210,22 @@ impl Bytecode {
     }
 
     /// Builds a new bytecode object from VM data
+    ///
+    /// # Panics
+    /// If `N == 255` and all 256 registers are in use
     pub fn new<const N: usize>(t: &VmData<N>) -> Self {
         // The initial opcode is `OP_JUMP 0x0000_0000`
         let mut data = vec![u32::MAX, 0u32];
         let mut reg_count = 0u8;
         let mut mem_count = 0u32;
+        let mut failed = false;
         for op in t.iter_asm() {
-            let r = BytecodeOp::from(op);
-            let mut word = [r as u8, 0xFF, 0xFF, 0xFF];
+            let mut word = [0xFF; 4];
             let mut imm = None;
             let mut store_reg = |i, r| {
+                if r == u8::MAX {
+                    failed = true;
+                }
                 reg_count = reg_count.max(r); // update the max reg
                 word[i] = r;
             };
@@ -138,6 +243,7 @@ impl Bytecode {
 
                 RegOp::CopyImm(out, imm_f32) => {
                     store_reg(1, out);
+                    word[2] = u8::MAX;
                     imm = Some(imm_f32.to_bits());
                 }
                 RegOp::NegReg(out, reg)
@@ -165,21 +271,28 @@ impl Bytecode {
                 RegOp::AddRegImm(out, reg, imm_f32)
                 | RegOp::MulRegImm(out, reg, imm_f32)
                 | RegOp::DivRegImm(out, reg, imm_f32)
-                | RegOp::DivImmReg(out, reg, imm_f32)
-                | RegOp::SubImmReg(out, reg, imm_f32)
                 | RegOp::SubRegImm(out, reg, imm_f32)
                 | RegOp::AtanRegImm(out, reg, imm_f32)
-                | RegOp::AtanImmReg(out, reg, imm_f32)
                 | RegOp::MinRegImm(out, reg, imm_f32)
                 | RegOp::MaxRegImm(out, reg, imm_f32)
                 | RegOp::CompareRegImm(out, reg, imm_f32)
-                | RegOp::CompareImmReg(out, reg, imm_f32)
                 | RegOp::ModRegImm(out, reg, imm_f32)
-                | RegOp::ModImmReg(out, reg, imm_f32)
                 | RegOp::AndRegImm(out, reg, imm_f32)
                 | RegOp::OrRegImm(out, reg, imm_f32) => {
                     store_reg(1, out);
                     store_reg(2, reg);
+                    word[3] = u8::MAX;
+                    imm = Some(imm_f32.to_bits());
+                }
+
+                RegOp::DivImmReg(out, reg, imm_f32)
+                | RegOp::SubImmReg(out, reg, imm_f32)
+                | RegOp::AtanImmReg(out, reg, imm_f32)
+                | RegOp::CompareImmReg(out, reg, imm_f32)
+                | RegOp::ModImmReg(out, reg, imm_f32) => {
+                    store_reg(1, out);
+                    store_reg(3, reg);
+                    word[2] = u8::MAX;
                     imm = Some(imm_f32.to_bits());
                 }
 
@@ -198,10 +311,12 @@ impl Bytecode {
                     store_reg(2, lhs);
                     store_reg(3, rhs);
                 }
-            }
+            };
+            word[0] = BytecodeOp::from(op) as u8;
             data.push(u32::from_le_bytes(word));
             data.push(imm.unwrap_or(0xFF000000));
         }
+        assert!(!failed);
         // Add the final `OP_JUMP 0xFFFF_FFFF`
         data.extend([u32::MAX, u32::MAX]);
 
@@ -246,10 +361,7 @@ mod test {
             [BytecodeOp::Input as u8, 0, 0xFF, 0xFF]
         );
         assert_eq!(next(), 0); // input slot 0
-        assert_eq!(
-            next().to_le_bytes(),
-            [BytecodeOp::AddRegImm as u8, 0, 0, 0xFF]
-        );
+        assert_eq!(next().to_le_bytes(), [BytecodeOp::Add as u8, 0, 0, 0xFF]);
         assert_eq!(f32::from_bits(next()), 1.0);
         assert_eq!(
             next().to_le_bytes(),
