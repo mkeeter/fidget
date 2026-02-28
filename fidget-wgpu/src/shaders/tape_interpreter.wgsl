@@ -63,67 +63,71 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
     while true {
         count += 1;
         let op = unpack4xU8(tape_data.data[i]);
+        let lhs = reg[op[2]];
+        let rhs = reg[op[3]];
         let imm_u = tape_data.data[i + 1];
         let imm_v = build_imm(bitcast<f32>(imm_u));
+        var tmp = build_imm(0.0);
         i = i + 2;
         switch op[0] {
             case OP_OUTPUT: {
                 // XXX we're ignoring the output slot here
                 out.value = reg[op[1]];
+                continue;
             }
             case OP_INPUT: {
-                reg[op[1]] = inputs[imm_u];
+                tmp = inputs[imm_u];
             }
-            case OP_COPY_REG:    { reg[op[1]] = reg[op[2]]; }
-            case OP_COPY_IMM:    { reg[op[1]] = imm_v; }
-            case OP_NEG_REG:     { reg[op[1]] = op_neg(reg[op[2]]); }
-            case OP_ABS_REG:     { reg[op[1]] = op_abs(reg[op[2]]); }
-            case OP_RECIP_REG:   { reg[op[1]] = op_recip(reg[op[2]]); }
-            case OP_SQRT_REG:    { reg[op[1]] = op_sqrt(reg[op[2]]); }
-            case OP_SQUARE_REG:  { reg[op[1]] = op_square(reg[op[2]]); }
-            case OP_FLOOR_REG:   { reg[op[1]] = op_floor(reg[op[2]]); }
-            case OP_CEIL_REG:    { reg[op[1]] = op_ceil(reg[op[2]]); }
-            case OP_ROUND_REG:   { reg[op[1]] = op_round(reg[op[2]]); }
-            case OP_SIN_REG:     { reg[op[1]] = op_sin(reg[op[2]]); }
-            case OP_COS_REG:     { reg[op[1]] = op_cos(reg[op[2]]); }
-            case OP_TAN_REG:     { reg[op[1]] = op_tan(reg[op[2]]); }
-            case OP_ASIN_REG:    { reg[op[1]] = op_asin(reg[op[2]]); }
-            case OP_ACOS_REG:    { reg[op[1]] = op_acos(reg[op[2]]); }
-            case OP_ATAN_REG:    { reg[op[1]] = op_atan(reg[op[2]]); }
-            case OP_EXP_REG:     { reg[op[1]] = op_exp(reg[op[2]]); }
-            case OP_LN_REG:      { reg[op[1]] = op_log(reg[op[2]]); }
-            case OP_NOT_REG:     { reg[op[1]] = op_not(reg[op[2]]); }
-            case OP_ADD_REG_IMM:  { reg[op[1]] = op_add(reg[op[2]], imm_v); }
-            case OP_MUL_REG_IMM:  { reg[op[1]] = op_mul(reg[op[2]], imm_v); }
-            case OP_DIV_REG_IMM:  { reg[op[1]] = op_div(reg[op[2]], imm_v); }
-            case OP_SUB_REG_IMM:  { reg[op[1]] = op_sub(reg[op[2]], imm_v); }
-            case OP_MOD_REG_IMM:  { reg[op[1]] = op_mod(reg[op[2]], imm_v); }
-            case OP_ATAN_REG_IMM: { reg[op[1]] = op_atan2(reg[op[2]], imm_v); }
-            case OP_COMPARE_REG_IMM:  { reg[op[1]] = op_compare(reg[op[2]], imm_v); }
+            case OP_COPY_REG:    { tmp = lhs; }
+            case OP_COPY_IMM:    { tmp = imm_v; }
+            case OP_NEG_REG:     { tmp = op_neg(lhs); }
+            case OP_ABS_REG:     { tmp = op_abs(lhs); }
+            case OP_RECIP_REG:   { tmp = op_recip(lhs); }
+            case OP_SQRT_REG:    { tmp = op_sqrt(lhs); }
+            case OP_SQUARE_REG:  { tmp = op_square(lhs); }
+            case OP_FLOOR_REG:   { tmp = op_floor(lhs); }
+            case OP_CEIL_REG:    { tmp = op_ceil(lhs); }
+            case OP_ROUND_REG:   { tmp = op_round(lhs); }
+            case OP_SIN_REG:     { tmp = op_sin(lhs); }
+            case OP_COS_REG:     { tmp = op_cos(lhs); }
+            case OP_TAN_REG:     { tmp = op_tan(lhs); }
+            case OP_ASIN_REG:    { tmp = op_asin(lhs); }
+            case OP_ACOS_REG:    { tmp = op_acos(lhs); }
+            case OP_ATAN_REG:    { tmp = op_atan(lhs); }
+            case OP_EXP_REG:     { tmp = op_exp(lhs); }
+            case OP_LN_REG:      { tmp = op_log(lhs); }
+            case OP_NOT_REG:     { tmp = op_not(lhs); }
+            case OP_ADD_REG_IMM:  { tmp = op_add(lhs, imm_v); }
+            case OP_MUL_REG_IMM:  { tmp = op_mul(lhs, imm_v); }
+            case OP_DIV_REG_IMM:  { tmp = op_div(lhs, imm_v); }
+            case OP_SUB_REG_IMM:  { tmp = op_sub(lhs, imm_v); }
+            case OP_MOD_REG_IMM:  { tmp = op_mod(lhs, imm_v); }
+            case OP_ATAN_REG_IMM: { tmp = op_atan2(lhs, imm_v); }
+            case OP_COMPARE_REG_IMM:  { tmp = op_compare(lhs, imm_v); }
 
-            case OP_DIV_IMM_REG:      { reg[op[1]] = op_div(imm_v, reg[op[2]]); }
-            case OP_SUB_IMM_REG:      { reg[op[1]] = op_sub(imm_v, reg[op[2]]); }
-            case OP_MOD_IMM_REG:      { reg[op[1]] = op_mod(imm_v, reg[op[2]]); }
-            case OP_ATAN_IMM_REG:     { reg[op[1]] = op_atan2(imm_v, reg[op[2]]); }
-            case OP_COMPARE_IMM_REG:  { reg[op[1]] = op_compare(imm_v, reg[op[2]]); }
+            case OP_DIV_IMM_REG:      { tmp = op_div(imm_v, lhs); }
+            case OP_SUB_IMM_REG:      { tmp = op_sub(imm_v, lhs); }
+            case OP_MOD_IMM_REG:      { tmp = op_mod(imm_v, lhs); }
+            case OP_ATAN_IMM_REG:     { tmp = op_atan2(imm_v, lhs); }
+            case OP_COMPARE_IMM_REG:  { tmp = op_compare(imm_v, lhs); }
 
-            case OP_MIN_REG_IMM:  { reg[op[1]] = op_min(reg[op[2]], imm_v, stack); }
-            case OP_MAX_REG_IMM:  { reg[op[1]] = op_max(reg[op[2]], imm_v, stack); }
-            case OP_AND_REG_IMM:  { reg[op[1]] = op_and(reg[op[2]], imm_v, stack); }
-            case OP_OR_REG_IMM:   { reg[op[1]] = op_or(reg[op[2]], imm_v, stack); }
+            case OP_MIN_REG_IMM:  { tmp = op_min(lhs, imm_v, stack); }
+            case OP_MAX_REG_IMM:  { tmp = op_max(lhs, imm_v, stack); }
+            case OP_AND_REG_IMM:  { tmp = op_and(lhs, imm_v, stack); }
+            case OP_OR_REG_IMM:   { tmp = op_or(lhs, imm_v, stack); }
 
-            case OP_ADD_REG_REG:      { reg[op[1]] = op_add(reg[op[2]], reg[op[3]]); }
-            case OP_MUL_REG_REG:      { reg[op[1]] = op_mul(reg[op[2]], reg[op[3]]); }
-            case OP_DIV_REG_REG:      { reg[op[1]] = op_div(reg[op[2]], reg[op[3]]); }
-            case OP_SUB_REG_REG:      { reg[op[1]] = op_sub(reg[op[2]], reg[op[3]]); }
-            case OP_COMPARE_REG_REG:  { reg[op[1]] = op_compare(reg[op[2]], reg[op[3]]); }
-            case OP_ATAN_REG_REG:     { reg[op[1]] = op_atan2(reg[op[2]], reg[op[3]]); }
-            case OP_MOD_REG_REG:      { reg[op[1]] = op_mod(reg[op[2]], reg[op[3]]); }
+            case OP_ADD_REG_REG:      { tmp = op_add(lhs, rhs); }
+            case OP_MUL_REG_REG:      { tmp = op_mul(lhs, rhs); }
+            case OP_DIV_REG_REG:      { tmp = op_div(lhs, rhs); }
+            case OP_SUB_REG_REG:      { tmp = op_sub(lhs, rhs); }
+            case OP_COMPARE_REG_REG:  { tmp = op_compare(lhs, rhs); }
+            case OP_ATAN_REG_REG:     { tmp = op_atan2(lhs, rhs); }
+            case OP_MOD_REG_REG:      { tmp = op_mod(lhs, rhs); }
 
-            case OP_MIN_REG_REG:      { reg[op[1]] = op_min(reg[op[2]], reg[op[3]], stack); }
-            case OP_MAX_REG_REG:      { reg[op[1]] = op_max(reg[op[2]], reg[op[3]], stack); }
-            case OP_AND_REG_REG:      { reg[op[1]] = op_and(reg[op[2]], reg[op[3]], stack); }
-            case OP_OR_REG_REG:       { reg[op[1]] = op_or(reg[op[2]], reg[op[3]], stack); }
+            case OP_MIN_REG_REG:      { tmp = op_min(lhs, rhs, stack); }
+            case OP_MAX_REG_REG:      { tmp = op_max(lhs, rhs, stack); }
+            case OP_AND_REG_REG:      { tmp = op_and(lhs, rhs, stack); }
+            case OP_OR_REG_REG:       { tmp = op_or(lhs, rhs, stack); }
 
             case OP_LOAD, OP_STORE: {
                 // Not implemented!
@@ -142,12 +146,14 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
                 } else {
                     // Jump to a new tape position
                     i = imm_u;
+                    continue;
                 }
             }
             default: {
                 return out;
             }
         }
+        reg[op[1]] = tmp;
     }
     return out;
 }
