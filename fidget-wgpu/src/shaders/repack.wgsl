@@ -66,7 +66,7 @@ fn repack_main(
     if global_id.x == 0u {
         var count = cumsum(size_tiles.z - 1);
         var d = 0u;
-        let backfill_wgs = vec3u(((size_tiles.x * size_tiles.y) + 63) / 64, 1, 1);
+        let backfill_wgs = vec3u(((size_tiles.x * size_tiles.y * 16) + 63) / 64, 1, 1);
         while count > 0 && d < arrayLength(&dispatch) {
             let n = min(config.max_tiles_per_dispatch, count);
             dispatch[d] = Dispatch(
@@ -75,16 +75,6 @@ fn repack_main(
             count -= n;
             d += 1;
         }
-        // We need at least one Bonus Backfill, because it also performs cleanup
-        // of various counters and stuff (and is idempotent).
-        if d < arrayLength(&dispatch) {
-            dispatch[d] = Dispatch(vec3u(0, 0, 0), 0, backfill_wgs, 0);
-            d += 1;
-        }
-        // Clear all subsequent dispatch stages
-        while d < arrayLength(&dispatch) {
-            dispatch[d] = Dispatch(vec3u(0, 0, 0), 0, vec3u(0, 0, 0), 0);
-            d += 1;
-        }
+        // Subsequent dispatches are cleared by the backfill pass
     }
 }

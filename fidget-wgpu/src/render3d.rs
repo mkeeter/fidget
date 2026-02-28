@@ -545,6 +545,7 @@ impl<const N: usize> RepackContext<N> {
             // Otherwise, just launch workgroups based on the number of tiles in
             // our own output buffer
             compute_pass.dispatch_workgroups(
+                // Convert from bytes to tiles
                 ((buffers.out.size() - 4) / 8)
                     .div_ceil(64)
                     .try_into()
@@ -1163,6 +1164,7 @@ impl Context {
             &mut compute_pass,
         );
         for i in 0..buffers.tile64.max_dispatch_count() {
+            // Dispatching is indirect based on tile64.dispatch buffers
             self.interval16_ctx.run(
                 self,
                 shape,
@@ -1178,6 +1180,8 @@ impl Context {
                 &mut compute_pass,
             );
             for j in 0..buffers.tile16.max_dispatch_count() {
+                // Dispatching interval and repacking is indirect based on
+                // the tile16.dispatch buffers.
                 self.interval4_ctx.run(
                     self,
                     shape,
@@ -1192,13 +1196,19 @@ impl Context {
                     Some((j, &buffers.tile16)),
                     &mut compute_pass,
                 );
+
+                // Voxel evaluation is *philosophically* another loop of
+                // multiple dispatches (with a max wg count), but we do the
+                // looping in the compute shader instead for efficiency.
                 self.voxel_ctx.run(self, buffers, shape, &mut compute_pass);
+                // end of voxel_ctx virtual loop
+
                 self.backfill4_ctx.run(
                     self,
                     buffers.render_size(),
                     &buffers.voxels,
                     &buffers.tile4,
-                    Some(0), // XXX is this okay?
+                    Some((j, &buffers.tile16)),
                     &mut compute_pass,
                 );
             }
@@ -1207,11 +1217,11 @@ impl Context {
                 buffers.render_size(),
                 &buffers.tile4.zmin,
                 &buffers.tile16,
-                Some(i),
+                Some((i, &buffers.tile64)),
                 &mut compute_pass,
             );
         }
-        self.backfill64_ctx.run(
+        self.backfill64_ctx.run::<0>(
             self,
             buffers.render_size(),
             &buffers.tile16.zmin,
@@ -1703,9 +1713,9 @@ impl<const N: usize> BackfillContext<N> {
                     buffer_ro(0), // subtile_zmin
                     buffer_rw(1), // tile_zmin
                     buffer_rw(2), // tiles_out (to clear count)
-                    buffer_rw(3), // tiles_out (to clear count)
-                    buffer_rw(4), // tile_hist (to clear counts)
-                    buffer_rw(5), // tile_z_offset (to clear counts)
+                    buffer_rw(3), // tile_hist (to clear counts)
+                    buffer_rw(4), // tile_z_offset (to clear counts)
+                    buffer_rw(5), // dispatch (to clear counts)
                 ],
             });
 
@@ -1746,13 +1756,13 @@ impl<const N: usize> BackfillContext<N> {
         }
     }
 
-    fn run(
+    fn run<const M: usize>(
         &self,
         ctx: &Context,
         render_size: RenderSize,
         subtile_zmin: &wgpu::Buffer,
         tile_buf: &TileBuffers<N>,
-        dispatch: Option<usize>,
+        prev: Option<(usize, &TileBuffers<M>)>,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let bind_group =
@@ -1774,15 +1784,15 @@ impl<const N: usize> BackfillContext<N> {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: tile_buf.sorted.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
                         resource: tile_buf.hist.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 5,
+                        binding: 4,
                         resource: tile_buf.z_to_offset.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: tile_buf.dispatch.as_entire_binding(),
                     },
                 ],
             });
@@ -1792,12 +1802,13 @@ impl<const N: usize> BackfillContext<N> {
         let ny = render_size.height() as usize / N;
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, &bind_group, &[]);
-        if let Some(dispatch) = dispatch {
+        if let Some((dispatch, prev)) = prev {
             // If this is an intermediate backfill step, then it may not need to
             // be dispatched at all; we'll use the `backfill_dispatch` member to
             // do an indirect dispatch (or not)
+            assert_eq!(M, N * 4);
             compute_pass.dispatch_workgroups_indirect(
-                &tile_buf.dispatch,
+                &prev.dispatch,
                 (dispatch * std::mem::size_of::<Dispatch>()
                     + std::mem::offset_of!(Dispatch, backfill_dispatch))
                     as u64,
@@ -2071,7 +2082,10 @@ mod test {
                 ctx.read_buffer::<Dispatch>(&buffers.tile64.dispatch);
             assert_eq!(dispatch.len(), 1);
             assert_eq!(dispatch[0].tile_dispatch, [32 * 16, 1, 1]);
-            assert_eq!(dispatch[0].backfill_dispatch, [16 * 16 / 64, 1, 1]);
+            assert_eq!(
+                dispatch[0].backfill_dispatch,
+                [16 * 16 * 16 / 64, 1, 1]
+            );
 
             let sorted = ctx.read_buffer::<u8>(&buffers.tile64.sorted);
             let sorted = TileList::try_ref_from_bytes(&sorted).unwrap();
@@ -2202,7 +2216,10 @@ mod test {
                 ctx.read_buffer::<Dispatch>(&buffers.tile16.dispatch);
             assert_eq!(dispatch.len(), buffers.tile16.max_dispatch_count());
             assert_eq!(dispatch[0].tile_dispatch, [2 * 64 * 64, 1, 1]);
-            assert_eq!(dispatch[0].backfill_dispatch, [64 * 64 / 64, 1, 1]);
+            assert_eq!(
+                dispatch[0].backfill_dispatch,
+                [64 * 64 * 16 / 64, 1, 1]
+            );
             for d in &dispatch[1..] {
                 assert_eq!(d.tile_dispatch, [0, 0, 0]);
                 assert_eq!(d.backfill_dispatch, [0, 0, 0]);
@@ -2340,7 +2357,7 @@ mod test {
                 dispatch[0].tile_dispatch,
                 [MAX_TILES_PER_DISPATCH, 1, 1]
             );
-            assert_eq!(dispatch[0].backfill_dispatch, [65536 / 64, 1, 1]);
+            assert_eq!(dispatch[0].backfill_dispatch, [65536 * 16 / 64, 1, 1]);
             for d in &dispatch[1..] {
                 assert_eq!(d.tile_dispatch, [0, 0, 0]);
                 assert_eq!(d.backfill_dispatch, [0, 0, 0]);
@@ -2406,7 +2423,7 @@ mod test {
                 buffers.render_size(),
                 &buffers.voxels,
                 &buffers.tile4,
-                Some(0),
+                Some((0, &buffers.tile16)),
                 &mut compute_pass,
             );
             drop(compute_pass);
@@ -2634,7 +2651,7 @@ mod test {
                 ctx.read_buffer::<Dispatch>(&buffers.tile16.dispatch);
             assert_eq!(dispatch.len(), buffers.tile16.max_dispatch_count());
             assert_eq!(dispatch[0].tile_dispatch, [16, 1, 1]);
-            assert_eq!(dispatch[0].backfill_dispatch, [1, 1, 1]);
+            assert_eq!(dispatch[0].backfill_dispatch, [4, 1, 1]);
             for d in &dispatch[1..] {
                 assert_eq!(d.tile_dispatch, [0, 0, 0]);
                 assert_eq!(d.backfill_dispatch, [0, 0, 0]);
@@ -2762,7 +2779,10 @@ mod test {
             let dispatch = ctx.read_buffer::<Dispatch>(&buffers.tile4.dispatch);
             assert_eq!(dispatch.len(), buffers.tile4.max_dispatch_count());
             assert_eq!(dispatch[0].tile_dispatch, [256, 1, 1]);
-            assert_eq!(dispatch[0].backfill_dispatch, [16 * 16 / 64, 1, 1]);
+            assert_eq!(
+                dispatch[0].backfill_dispatch,
+                [16 * 16 * 16 / 64, 1, 1]
+            );
             for d in &dispatch[1..] {
                 assert_eq!(d.tile_dispatch, [0, 0, 0]);
                 assert_eq!(d.backfill_dispatch, [0, 0, 0]);
@@ -2823,7 +2843,7 @@ mod test {
                 buffers.render_size(),
                 &buffers.voxels,
                 &buffers.tile4,
-                Some(0),
+                Some((0, &buffers.tile16)),
                 &mut compute_pass,
             );
             drop(compute_pass);
@@ -2836,7 +2856,7 @@ mod test {
                 buffers.render_size(),
                 &buffers.tile4.zmin,
                 &buffers.tile16,
-                Some(0),
+                Some((0, &buffers.tile64)),
                 &mut compute_pass,
             );
             drop(compute_pass);
@@ -2844,12 +2864,12 @@ mod test {
 
             let mut encoder = ctx.new_encoder();
             let mut compute_pass = ctx.begin_compute_pass(&mut encoder);
-            ctx.backfill64_ctx.run(
+            ctx.backfill64_ctx.run::<0>(
                 ctx,
                 buffers.render_size(),
                 &buffers.tile16.zmin,
                 &buffers.tile64,
-                Some(0),
+                None,
                 &mut compute_pass,
             );
             drop(compute_pass);

@@ -4,9 +4,9 @@
 
 // Things to clear
 @group(1) @binding(2) var<storage, read_write> tiles_out: TileListOutput;
-@group(1) @binding(3) var<storage, read_write> tiles_sorted: TileListOutput;
-@group(1) @binding(4) var<storage, read_write> tile_hist: array<u32>;
-@group(1) @binding(5) var<storage, read_write> tile_z_offset: array<u32>;
+@group(1) @binding(3) var<storage, read_write> tile_hist: array<u32>;
+@group(1) @binding(4) var<storage, read_write> tile_z_offset: array<u32>;
+@group(1) @binding(5) var<storage, read_write> dispatch: array<Dispatch>;
 
 override TILE_SIZE: u32;
 
@@ -18,7 +18,6 @@ fn backfill_main(
 ) {
     // Reset the tile count
     tiles_out.count = 0u;
-    tiles_sorted.count = 0u;
 
     // Reset the tile Z histogram (cooperatively)
     let stride = num_workgroups.x * 64u;
@@ -28,6 +27,10 @@ fn backfill_main(
     // Reset the tile Z offset (cooperatively)
     for (var i = global_id.x; i < arrayLength(&tile_z_offset); i += stride) {
         tile_z_offset[i] = 0u;
+    }
+    // Reset the dispatch buffer
+    for (var i = global_id.x; i < arrayLength(&dispatch); i += stride) {
+        dispatch[i] = Dispatch(vec3u(0, 0, 0), 0, vec3u(0, 0, 0), 0);
     }
 
     // Prepare to do the backfilling
