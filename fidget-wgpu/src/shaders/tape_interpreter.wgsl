@@ -13,7 +13,12 @@ struct TapeData {
     /// Flexible array member of tape data
     ///
     /// The first valid tape (at index 0) must be the root tape
-    data: array<u32>,
+    data: array<TapeWord>,
+}
+
+struct TapeWord {
+    op: u32,
+    imm: u32,
 }
 
 const OP_JUMP: u32 = 0xFF;
@@ -64,10 +69,11 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
     var out = TapeResult(build_imm(nan_f32()), 0, 0);
     while true {
         count += 1;
-        let op = unpack4xU8(tape_data.data[i]);
+        let word = tape_data.data[i];
+        let op = unpack4xU8(word.op);
         let rhs_i = op[3];
         let lhs_i = op[2];
-        let imm_u = tape_data.data[i + 1];
+        let imm_u = word.imm;
         let imm_v = build_imm(bitcast<f32>(imm_u));
         if lhs_i == 255 {
             lhs = imm_v;
@@ -80,7 +86,7 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
             rhs = reg[rhs_i];
         }
         var tmp = build_imm(0.0);
-        i = i + 2;
+        i = i + 1;
         switch op[0] {
             case OP_OUTPUT: {
                 // XXX we're ignoring the output slot here

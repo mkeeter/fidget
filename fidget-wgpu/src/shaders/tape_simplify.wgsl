@@ -1,5 +1,5 @@
-/// Number of words to allocate for each tape chunk
-const CHUNK_SIZE: u32 = 128;
+/// Number of TapeWord objects (u32 x 2) to allocate for each tape chunk
+const CHUNK_SIZE: u32 = 64;
 
 fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
     // Bail out immediately if there were no choices in the tape
@@ -8,7 +8,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
     }
 
     var i: u32 = end;
-    let chunk_size = min(tape_len * 2, CHUNK_SIZE);
+    let chunk_size = min(tape_len, CHUNK_SIZE);
     var chunk_start = alloc(chunk_size);
     var j = chunk_start + chunk_size;
     if j > tape_data.capacity {
@@ -18,25 +18,24 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
 
     var live: array<bool, REG_COUNT>;
     while true {
-        i = i - 2;
-        j = j - 2; // reserve space
+        i = i - 1;
+        j = j - 1; // reserve space
 
-        var op = unpack4xU8(tape_data.data[i]);
-        let imm_u = tape_data.data[i + 1];
+        let word = tape_data.data[i];
+        var op = unpack4xU8(word.op);
+        let imm_u = word.imm;
 
         if op[0] == OP_JUMP {
             if imm_u == 0xFFFFFFFFu {
-                tape_data.data[j] = OP_JUMP;
-                tape_data.data[j + 1] = 0xFFFFFFFFu;
+                tape_data.data[j] = TapeWord(OP_JUMP, 0xFFFFFFFFu);
                 continue;
             } else if imm_u == 0u {
-                tape_data.data[j] = OP_JUMP;
-                tape_data.data[j + 1] = 0;
+                tape_data.data[j] = TapeWord(OP_JUMP, 0);
                 return j;
             } else {
                 // Jump to a new tape position
-                i = imm_u + 2;
-                j += 2; // no allocation happened, so unreserve space
+                i = imm_u + 1;
+                j += 1; // no allocation happened, so unreserve space
                 continue;
             }
         }
@@ -44,16 +43,14 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         // Allocate a new chunk if needed
         if j == chunk_start {
             chunk_start = alloc(chunk_size);
-            let nj = chunk_start + chunk_size - 2;
+            let nj = chunk_start + chunk_size - 1;
             if nj >= tape_data.capacity {
                 dealloc(chunk_size);
                 return 0u;
             }
-            tape_data.data[j] = OP_JUMP;
-            tape_data.data[j + 1] = nj - 2;
-            tape_data.data[nj] = OP_JUMP;
-            tape_data.data[nj + 1] = j + 2;
-            j = nj - 2;
+            tape_data.data[j] = TapeWord(OP_JUMP, nj - 1);
+            tape_data.data[nj] = TapeWord(OP_JUMP, j + 1);
+            j = nj - 1;
         }
 
         if op[0] == OP_OUTPUT {
@@ -72,7 +69,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                     // nothing to do here
                 }
             }
-            j += 2; // no allocation happened, so unreserve space
+            j += 1; // no allocation happened, so unreserve space
             continue;
         } else {
             // Mark the output register as unalive
@@ -139,7 +136,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                             live[op[2]] = true;
                         }
                         if op[2] == op[1] { // skip reassignment
-                            j += 2;
+                            j += 1;
                             continue;
                         }
                     }
@@ -150,7 +147,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
                         }
                         op[2] = op[3];
                         if op[2] == op[1] { // skip reassignment
-                            j += 2;
+                            j += 1;
                             continue;
                         }
                     }
@@ -179,8 +176,7 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
         }
 
         // Write the simplified expression back to the new tape
-        tape_data.data[j] = pack4xU8(op);
-        tape_data.data[j + 1] = imm_u;
+        tape_data.data[j] = TapeWord(pack4xU8(op), imm_u);
     }
     return 0u; // invalid
 }

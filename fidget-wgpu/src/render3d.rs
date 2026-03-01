@@ -208,11 +208,11 @@ impl RenderSize {
     }
 }
 
-/// Number of `u32` words in the tape data flexible array
+/// Number of [`TapeWord`] objects in the tape data flexible array
 ///
 /// This is limited based on how tapes are packed in the `Voxel` data type, we
 /// only have 20 bits available.
-const TAPE_DATA_CAPACITY: usize = 1024 * 1024 * 2; // 2M words, 8 MiB
+const TAPE_DATA_CAPACITY: usize = 1024 * 1024; // 1M TapeWord objects
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
@@ -1529,12 +1529,20 @@ pub struct RenderShape {
     reg_count: u8,
 }
 
+/// Doppelganger of the WGSL `struct TapeWord`
+#[repr(C)]
+struct TapeWord {
+    op: u32,
+    imm: u32,
+}
+
 impl RenderShape {
     fn new(device: &wgpu::Device, shape: &VmShape) -> Self {
         // The config buffer is statically sized
         let tape_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tape_data"),
-            size: 12 + (TAPE_DATA_CAPACITY * std::mem::size_of::<u32>()) as u64,
+            size: 12
+                + (TAPE_DATA_CAPACITY * std::mem::size_of::<TapeWord>()) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | DEBUG_FLAGS,
@@ -1555,9 +1563,9 @@ impl RenderShape {
             let mut buffer_view = tape_buf.slice(..).get_mapped_range_mut();
             let bytes = bytecode.as_bytes();
             buffer_view[0..4] // offset
-                .copy_from_slice((bytecode.len() as u32).as_bytes());
-            buffer_view[4..8] // offset
-                .copy_from_slice((bytecode.len() as u32).as_bytes());
+                .copy_from_slice((bytecode.len() as u32 / 2).as_bytes());
+            buffer_view[4..8] // base_len
+                .copy_from_slice((bytecode.len() as u32 / 2).as_bytes());
             buffer_view[8..12] // capacity
                 .copy_from_slice((TAPE_DATA_CAPACITY as u32).as_bytes());
             buffer_view[12..][..bytes.len()].copy_from_slice(bytes);

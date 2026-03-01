@@ -59,7 +59,7 @@ fn voxel_ray_main(
 
         if out.value.v < 0.0 {
             let new_z = corner_pos.z;
-            let new_value = (new_z << 20) | (tile.tape_index) / 2;
+            let new_value = (new_z << 20) | tile.tape_index;
             atomicMax(&result[pixel_index_xy].value, new_value);
         }
     }
