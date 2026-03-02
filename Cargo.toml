@@ -22,7 +22,7 @@ members = [
     # `cargo hakari` package
     "workspace-hack",
 ]
-exclude = ["demos/web-editor/crate"]
+exclude = ["demos/web-editor/crate", "demos/web-benchmark/crate"]
 
 [workspace.package]
 rust-version = "1.87"

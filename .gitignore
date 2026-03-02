@@ -3,5 +3,6 @@
 *.dot
 *.pdf
 *.svg
-*.png
 *.stl
+starling-rs
+/demos/web-benchmark

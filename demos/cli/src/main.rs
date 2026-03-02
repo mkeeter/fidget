@@ -320,8 +320,7 @@ fn run3d_wgpu(
     let cfg = fidget::wgpu::render3d::RenderConfig { world_to_model };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let buffers =
-        ctx.buffers(image_size, fidget::wgpu::render3d::GpuSpec::Custom(4096));
+    let buffers = ctx.buffers(image_size);
     let shape = ctx.shape(&shape);
     for _ in 0..settings.n {
         image = ctx.run(&shape, &buffers, cfg);

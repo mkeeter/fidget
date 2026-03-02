@@ -5,17 +5,20 @@
 
 @group(1) @binding(0) var<storage, read_write> tape_data: TapeData;
 
-/// Tiles which need to be subdivided and evaluated
-@group(1) @binding(1) var<storage, read_write> tile64_out: TileListOutput;
+// Dense root status buffer: one entry per (x, y, z) root tile.
+// High 2 bits encode status: 0 = empty, 1 = filled, 2 = ambiguous.
+// Low 20 bits encode tape index (for filled/ambiguous tiles).
+@group(1) @binding(1) var<storage, read_write> root_status: array<u32>;
 
-// Array of filled tiles, laid out in X/Y order
+// Array of filled tiles, laid out in X/Y order (kept for column shader)
 @group(1) @binding(2) var<storage, read_write> tile64_zmin: array<Voxel>;
-
-// Number of tiles for each Z value (used for a quasi-radix sort)
-@group(1) @binding(3) var<storage, read_write> tile64_hist: array<atomic<u32>>;
 
 /// Root tile size
 const TILE_SIZE: u32 = 64;
+
+const ROOT_EMPTY: u32 = 0u;
+const ROOT_FILLED: u32 = 1u;
+const ROOT_AMBIGUOUS: u32 = 2u;
 
 @compute @workgroup_size(4, 4, 4)
 fn interval_root_main(
@@ -31,6 +34,10 @@ fn interval_root_main(
         return;
     }
 
+    let tile_index_xyz = tile_corner.x +
+        tile_corner.y * size_tiles.x +
+        tile_corner.z * size_tiles.x * size_tiles.y;
+
     // Tile's lower z position, in voxels
     let corner_pos = tile_corner * TILE_SIZE;
 
@@ -44,6 +51,7 @@ fn interval_root_main(
 
     // If the tile is completely empty, then we're done!
     if v[0] > 0.0 {
+        root_status[tile_index_xyz] = ROOT_EMPTY;
         return;
     }
 
@@ -52,17 +60,15 @@ fn interval_root_main(
     let next = simplify_tape(out.pos, out.count, &stack);
 
     if v[1] < 0.0 {
+        // Filled tile
+        root_status[tile_index_xyz] = (ROOT_FILLED << 20) | next;
+
         let tile_index_xy = tile_corner.x + tile_corner.y * size_tiles.x;
         let new_z = corner_pos.z + TILE_SIZE - 1;
-        let new_value = (new_z << 20) | next; // TODO next overflow
+        let new_value = (new_z << 20) | next;
         atomicMax(&tile64_zmin[tile_index_xy].value, new_value);
     } else {
-        // Otherwise, enqueue the tile and add its Z position to the histogram
-        let tile_index_xyz = tile_corner.x +
-            tile_corner.y * size_tiles.x +
-            tile_corner.z * size_tiles.x * size_tiles.y;
-        let offset = atomicAdd(&tile64_out.count, 1u);
-        tile64_out.tiles[offset] = ActiveTile(tile_index_xyz, next);
-        atomicAdd(&tile64_hist[tile_corner.z], 1);
+        // Ambiguous tile
+        root_status[tile_index_xyz] = (ROOT_AMBIGUOUS << 20) | next;
     }
 }
