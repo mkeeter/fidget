@@ -336,7 +336,8 @@ impl SsaTape {
                 | SsaOp::ModRegReg(out, lhs, rhs)
                 | SsaOp::AndRegReg(out, lhs, rhs)
                 | SsaOp::AtanRegReg(out, lhs, rhs)
-                | SsaOp::OrRegReg(out, lhs, rhs) => {
+                | SsaOp::OrRegReg(out, lhs, rhs)
+                | SsaOp::CompareRegReg(out, lhs, rhs) => {
                     let op = match op {
                         SsaOp::AddRegReg(..) => "ADD",
                         SsaOp::MulRegReg(..) => "MUL",
@@ -348,6 +349,7 @@ impl SsaTape {
                         SsaOp::ModRegReg(..) => "MAX",
                         SsaOp::AndRegReg(..) => "AND",
                         SsaOp::OrRegReg(..) => "OR",
+                        SsaOp::CompareRegReg(..) => "COMPARE",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
@@ -366,7 +368,9 @@ impl SsaTape {
                 | SsaOp::ModRegImm(out, arg, imm)
                 | SsaOp::ModImmReg(out, arg, imm)
                 | SsaOp::AndRegImm(out, arg, imm)
-                | SsaOp::OrRegImm(out, arg, imm) => {
+                | SsaOp::OrRegImm(out, arg, imm)
+                | SsaOp::CompareRegImm(out, arg, imm)
+                | SsaOp::CompareImmReg(out, arg, imm) => {
                     let (op, swap) = match op {
                         SsaOp::AddRegImm(..) => ("ADD", false),
                         SsaOp::MulRegImm(..) => ("MUL", false),
@@ -382,6 +386,8 @@ impl SsaTape {
                         SsaOp::ModImmReg(..) => ("MOD", true),
                         SsaOp::AndRegImm(..) => ("AND", false),
                         SsaOp::OrRegImm(..) => ("OR", false),
+                        SsaOp::CompareRegImm(..) => ("COMPARE", false),
+                        SsaOp::CompareImmReg(..) => ("COMPARE", true),
                         _ => unreachable!(),
                     };
                     if swap {
@@ -389,15 +395,6 @@ impl SsaTape {
                     } else {
                         println!("${out} = {op} ${arg} {imm}");
                     }
-                }
-                SsaOp::CompareRegReg(out, lhs, rhs) => {
-                    println!("${out} = COMPARE {lhs} {rhs}")
-                }
-                SsaOp::CompareRegImm(out, arg, imm) => {
-                    println!("${out} = COMPARE {arg} {imm}")
-                }
-                SsaOp::CompareImmReg(out, arg, imm) => {
-                    println!("${out} = COMPARE {imm} {arg}")
                 }
                 SsaOp::CopyImm(out, imm) => {
                     println!("${out} = COPY {imm}");
