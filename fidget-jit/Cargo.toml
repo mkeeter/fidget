@@ -15,6 +15,7 @@ fidget-core.workspace = true
 workspace-hack.workspace = true
 
 arrayvec.workspace = true
+bitflags.workspace = true
 dynasmrt.workspace = true
 static_assertions.workspace = true
 

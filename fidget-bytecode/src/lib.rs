@@ -148,7 +148,6 @@ impl Bytecode {
                 | RegOp::FloorReg(out, reg)
                 | RegOp::CeilReg(out, reg)
                 | RegOp::RoundReg(out, reg)
-                | RegOp::CopyReg(out, reg)
                 | RegOp::SinReg(out, reg)
                 | RegOp::CosReg(out, reg)
                 | RegOp::TanReg(out, reg)
@@ -160,6 +159,16 @@ impl Bytecode {
                 | RegOp::NotReg(out, reg) => {
                     store_reg(1, out);
                     store_reg(2, reg);
+                }
+                RegOp::CopyReg(out, reg, fs) => {
+                    store_reg(1, out);
+                    store_reg(2, reg);
+                    imm = Some(u32::from_le_bytes([
+                        fs.out.bits(),
+                        0,
+                        fs.arg.bits(),
+                        0,
+                    ]))
                 }
 
                 RegOp::AddRegImm(out, reg, imm_f32)
@@ -183,20 +192,26 @@ impl Bytecode {
                     imm = Some(imm_f32.to_bits());
                 }
 
-                RegOp::AddRegReg(out, lhs, rhs)
-                | RegOp::MulRegReg(out, lhs, rhs)
-                | RegOp::DivRegReg(out, lhs, rhs)
-                | RegOp::SubRegReg(out, lhs, rhs)
-                | RegOp::AtanRegReg(out, lhs, rhs)
-                | RegOp::MinRegReg(out, lhs, rhs)
-                | RegOp::MaxRegReg(out, lhs, rhs)
-                | RegOp::CompareRegReg(out, lhs, rhs)
-                | RegOp::ModRegReg(out, lhs, rhs)
-                | RegOp::AndRegReg(out, lhs, rhs)
-                | RegOp::OrRegReg(out, lhs, rhs) => {
+                RegOp::AddRegReg(out, lhs, rhs, fs)
+                | RegOp::MulRegReg(out, lhs, rhs, fs)
+                | RegOp::DivRegReg(out, lhs, rhs, fs)
+                | RegOp::SubRegReg(out, lhs, rhs, fs)
+                | RegOp::AtanRegReg(out, lhs, rhs, fs)
+                | RegOp::MinRegReg(out, lhs, rhs, fs)
+                | RegOp::MaxRegReg(out, lhs, rhs, fs)
+                | RegOp::CompareRegReg(out, lhs, rhs, fs)
+                | RegOp::ModRegReg(out, lhs, rhs, fs)
+                | RegOp::AndRegReg(out, lhs, rhs, fs)
+                | RegOp::OrRegReg(out, lhs, rhs, fs) => {
                     store_reg(1, out);
                     store_reg(2, lhs);
                     store_reg(3, rhs);
+                    imm = Some(u32::from_le_bytes([
+                        fs.out.bits(),
+                        0,
+                        fs.lhs.bits(),
+                        fs.rhs.bits(),
+                    ]))
                 }
             }
             data.push(u32::from_le_bytes(word));

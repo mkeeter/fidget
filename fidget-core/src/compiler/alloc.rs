@@ -1,4 +1,4 @@
-use crate::compiler::{Lru, RegOp, RegTape, SsaOp};
+use crate::compiler::{BinaryFlags, Lru, RegOp, RegTape, SsaOp};
 
 #[derive(Copy, Clone, Debug)]
 enum Allocation {
@@ -257,7 +257,6 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::ExpReg(out, arg) => (out, arg, RegOp::ExpReg),
             SsaOp::LnReg(out, arg) => (out, arg, RegOp::LnReg),
             SsaOp::NotReg(out, arg) => (out, arg, RegOp::NotReg),
-            SsaOp::CopyReg(out, arg) => (out, arg, RegOp::CopyReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, op);
@@ -279,7 +278,6 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::FloorReg(..)
             | SsaOp::CeilReg(..)
             | SsaOp::RoundReg(..)
-            | SsaOp::CopyReg(..)
             | SsaOp::SinReg(..)
             | SsaOp::CosReg(..)
             | SsaOp::TanReg(..)
@@ -289,6 +287,12 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::ExpReg(..)
             | SsaOp::LnReg(..)
             | SsaOp::NotReg(..) => self.op_reg(op),
+
+            SsaOp::CopyReg(out, arg, fs) => {
+                self.op_reg_fn(out, arg, |out, arg| {
+                    RegOp::CopyReg(out, arg, fs)
+                })
+            }
 
             SsaOp::AddRegImm(..)
             | SsaOp::SubRegImm(..)
@@ -481,64 +485,73 @@ impl<const N: usize> RegisterAllocator<N> {
         //       |      |      | Afterwards, r_a and m_x are free, [m_a points
         //       |      |      | to the former r_a}
         //  -----|------|------|----------------------------------------------
-        let (out, lhs, rhs, op): (_, _, _, fn(u8, u8, u8) -> RegOp) = match op {
-            SsaOp::AddRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::AddRegReg)
+        type UnpackedBinaryOp = (
+            u32,
+            u32,
+            u32,
+            BinaryFlags,
+            fn(u8, u8, u8, BinaryFlags) -> RegOp,
+        );
+        let (out, lhs, rhs, fs, op): UnpackedBinaryOp = match op {
+            SsaOp::AddRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::AddRegReg)
             }
-            SsaOp::SubRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::SubRegReg)
+            SsaOp::SubRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::SubRegReg)
             }
-            SsaOp::MulRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::MulRegReg)
+            SsaOp::MulRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::MulRegReg)
             }
-            SsaOp::DivRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::DivRegReg)
+            SsaOp::DivRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::DivRegReg)
             }
-            SsaOp::AtanRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::AtanRegReg)
+            SsaOp::AtanRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::AtanRegReg)
             }
-            SsaOp::MinRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::MinRegReg)
+            SsaOp::MinRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::MinRegReg)
             }
-            SsaOp::MaxRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::MaxRegReg)
+            SsaOp::MaxRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::MaxRegReg)
             }
-            SsaOp::CompareRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::CompareRegReg)
+            SsaOp::CompareRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::CompareRegReg)
             }
-            SsaOp::ModRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::ModRegReg)
+            SsaOp::ModRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::ModRegReg)
             }
-            SsaOp::AndRegReg(out, lhs, rhs) => {
-                (out, lhs, rhs, RegOp::AndRegReg)
+            SsaOp::AndRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::AndRegReg)
             }
-            SsaOp::OrRegReg(out, lhs, rhs) => (out, lhs, rhs, RegOp::OrRegReg),
+            SsaOp::OrRegReg(out, lhs, rhs, fs) => {
+                (out, lhs, rhs, fs, RegOp::OrRegReg)
+            }
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
         match (self.get_allocation(lhs), self.get_allocation(rhs)) {
             (Allocation::Register(r_y), Allocation::Register(r_z)) => {
-                self.out.push(op(r_x, r_y, r_z));
+                self.out.push(op(r_x, r_y, r_z, fs));
                 self.release_reg(r_x);
             }
             (Allocation::Memory(m_y), Allocation::Register(r_z)) => {
                 let r_a = self.get_register();
                 self.push_store(r_a, m_y);
-                self.out.push(op(r_x, r_a, r_z));
+                self.out.push(op(r_x, r_a, r_z, fs));
                 self.release_reg(r_x);
                 self.bind_register(lhs, r_a);
             }
             (Allocation::Register(r_y), Allocation::Memory(m_z)) => {
                 let r_a = self.get_register();
                 self.push_store(r_a, m_z);
-                self.out.push(op(r_x, r_y, r_a));
+                self.out.push(op(r_x, r_y, r_a, fs));
                 self.release_reg(r_x);
                 self.bind_register(rhs, r_a);
             }
             (Allocation::Memory(m_y), Allocation::Memory(..)) if lhs == rhs => {
                 let r_a = self.get_register();
                 self.push_store(r_a, m_y);
-                self.out.push(op(r_x, r_a, r_a));
+                self.out.push(op(r_x, r_a, r_a, fs));
                 self.release_reg(r_x);
                 self.bind_register(lhs, r_a);
             }
@@ -548,27 +561,27 @@ impl<const N: usize> RegisterAllocator<N> {
 
                 self.push_store(r_a, m_y);
                 self.push_store(r_b, m_z);
-                self.out.push(op(r_x, r_a, r_b));
+                self.out.push(op(r_x, r_a, r_b, fs));
                 self.release_reg(r_x);
                 self.bind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Register(r_z)) => {
-                self.out.push(op(r_x, r_x, r_z));
+                self.out.push(op(r_x, r_x, r_z, fs));
                 self.rebind_register(lhs, r_x);
             }
             (Allocation::Register(r_y), Allocation::Unassigned) => {
-                self.out.push(op(r_x, r_y, r_x));
+                self.out.push(op(r_x, r_y, r_x, fs));
                 self.rebind_register(rhs, r_x);
             }
             (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
-                self.out.push(op(r_x, r_x, r_x));
+                self.out.push(op(r_x, r_x, r_x, fs));
                 self.rebind_register(lhs, r_x);
             }
             (Allocation::Unassigned, Allocation::Unassigned) => {
                 let r_a = self.get_register();
 
-                self.out.push(op(r_x, r_x, r_a));
+                self.out.push(op(r_x, r_x, r_a, fs));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
             }
@@ -578,7 +591,7 @@ impl<const N: usize> RegisterAllocator<N> {
                 assert!(lhs != rhs);
 
                 self.push_store(r_a, m_z);
-                self.out.push(op(r_x, r_x, r_a));
+                self.out.push(op(r_x, r_x, r_a, fs));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
             }
@@ -588,7 +601,7 @@ impl<const N: usize> RegisterAllocator<N> {
                 assert!(lhs != rhs);
 
                 self.push_store(r_a, m_y);
-                self.out.push(op(r_x, r_a, r_x));
+                self.out.push(op(r_x, r_a, r_x, fs));
                 self.bind_register(lhs, r_a);
                 self.rebind_register(rhs, r_x);
             }

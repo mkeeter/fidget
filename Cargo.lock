@@ -1550,6 +1550,7 @@ dependencies = [
 name = "fidget-core"
 version = "0.4.1"
 dependencies = [
+ "bitflags 2.10.0",
  "facet",
  "getrandom 0.2.16",
  "getrandom 0.3.4",
@@ -1558,6 +1559,7 @@ dependencies = [
  "rand 0.9.2",
  "rayon",
  "serde",
+ "static_assertions",
  "strum 0.27.2",
  "thiserror 2.0.17",
  "workspace-hack",
@@ -1578,6 +1580,7 @@ name = "fidget-jit"
 version = "0.4.2"
 dependencies = [
  "arrayvec",
+ "bitflags 2.10.0",
  "dynasmrt",
  "fidget-core",
  "libc",

@@ -1,7 +1,7 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
     Error,
-    compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
+    compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape, UnaryFlags},
     context::{Context, Node},
     var::VarMap,
     vm::Choice,
@@ -39,7 +39,7 @@ use std::sync::Arc;
 /// We can peek at the internals and see this register-allocated tape:
 /// ```
 /// use fidget_core::{
-///     compiler::RegOp,
+///     compiler::{RegOp, BinaryFlags},
 ///     context::{Context, Tree},
 ///     vm::VmData,
 ///     var::Var,
@@ -55,7 +55,10 @@ use std::sync::Arc;
 /// let vars = &data.vars; // map from var to index
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u32));
-/// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
+/// assert_eq!(
+///     iter.next().unwrap(),
+///     RegOp::AddRegReg(0, 0, 1, BinaryFlags::empty())
+/// );
 /// # Ok::<(), fidget_core::Error>(())
 /// ```
 ///
@@ -195,7 +198,7 @@ impl<const N: usize> VmData<N> {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
                 }
-                SsaOp::CopyReg(index, src) => {
+                SsaOp::CopyReg(index, src, fs) => {
                     // CopyReg effectively does
                     //      dst <= src
                     // If src has not yet been used (as we iterate backwards
@@ -206,9 +209,14 @@ impl<const N: usize> VmData<N> {
                             *index = new_index;
                             *src = new_src;
                         }
-                        None => {
+                        None if fs.is_empty() => {
                             workspace.set_active(*src, new_index);
                             continue;
+                        }
+                        None => {
+                            // TODO is this correct?
+                            *index = new_index;
+                            *src = workspace.get_or_insert_active(*src);
                         }
                     }
                 }
@@ -219,7 +227,11 @@ impl<const N: usize> VmData<N> {
                     match choice_iter.next().unwrap() {
                         Choice::Left => match workspace.active(*arg) {
                             Some(new_arg) => {
-                                op = SsaOp::CopyReg(new_index, new_arg);
+                                op = SsaOp::CopyReg(
+                                    new_index,
+                                    new_arg,
+                                    UnaryFlags::empty(),
+                                );
                             }
                             None => {
                                 workspace.set_active(*arg, new_index);
@@ -237,14 +249,21 @@ impl<const N: usize> VmData<N> {
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                SsaOp::MinRegReg(index, lhs, rhs)
-                | SsaOp::MaxRegReg(index, lhs, rhs)
-                | SsaOp::AndRegReg(index, lhs, rhs)
-                | SsaOp::OrRegReg(index, lhs, rhs) => {
+                SsaOp::MinRegReg(index, lhs, rhs, fs)
+                | SsaOp::MaxRegReg(index, lhs, rhs, fs)
+                | SsaOp::AndRegReg(index, lhs, rhs, fs)
+                | SsaOp::OrRegReg(index, lhs, rhs, fs) => {
                     match choice_iter.next().unwrap() {
                         Choice::Left => match workspace.active(*lhs) {
                             Some(new_lhs) => {
-                                op = SsaOp::CopyReg(new_index, new_lhs);
+                                op = SsaOp::CopyReg(
+                                    new_index,
+                                    new_lhs,
+                                    UnaryFlags {
+                                        out: fs.out,
+                                        arg: fs.lhs,
+                                    },
+                                );
                             }
                             None => {
                                 workspace.set_active(*lhs, new_index);
@@ -253,7 +272,14 @@ impl<const N: usize> VmData<N> {
                         },
                         Choice::Right => match workspace.active(*rhs) {
                             Some(new_rhs) => {
-                                op = SsaOp::CopyReg(new_index, new_rhs);
+                                op = SsaOp::CopyReg(
+                                    new_index,
+                                    new_rhs,
+                                    UnaryFlags {
+                                        out: fs.out,
+                                        arg: fs.rhs,
+                                    },
+                                );
                             }
                             None => {
                                 workspace.set_active(*rhs, new_index);
@@ -269,13 +295,13 @@ impl<const N: usize> VmData<N> {
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                SsaOp::AddRegReg(index, lhs, rhs)
-                | SsaOp::MulRegReg(index, lhs, rhs)
-                | SsaOp::SubRegReg(index, lhs, rhs)
-                | SsaOp::DivRegReg(index, lhs, rhs)
-                | SsaOp::AtanRegReg(index, lhs, rhs)
-                | SsaOp::CompareRegReg(index, lhs, rhs)
-                | SsaOp::ModRegReg(index, lhs, rhs) => {
+                SsaOp::AddRegReg(index, lhs, rhs, _fs)
+                | SsaOp::MulRegReg(index, lhs, rhs, _fs)
+                | SsaOp::SubRegReg(index, lhs, rhs, _fs)
+                | SsaOp::DivRegReg(index, lhs, rhs, _fs)
+                | SsaOp::AtanRegReg(index, lhs, rhs, _fs)
+                | SsaOp::CompareRegReg(index, lhs, rhs, _fs)
+                | SsaOp::ModRegReg(index, lhs, rhs, _fs) => {
                     *index = new_index;
                     *lhs = workspace.get_or_insert_active(*lhs);
                     *rhs = workspace.get_or_insert_active(*rhs);

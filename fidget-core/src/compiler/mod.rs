@@ -14,7 +14,10 @@ mod op;
 
 mod lru;
 pub(crate) use lru::Lru;
-pub use op::{RegOp, RegOpDiscriminants, SsaOp};
+pub use op::{
+    ApplyFlags, BinaryFlags, InputFlags, OutputFlags, RegOp,
+    RegOpDiscriminants, SsaOp, UnaryFlags,
+};
 
 mod reg_tape;
 mod ssa_tape;

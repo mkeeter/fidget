@@ -1,7 +1,7 @@
 //use crate::vm::{RegisterAllocator, Tape as VmTape};
 use crate::{
     Context, Error,
-    compiler::SsaOp,
+    compiler::{BinaryFlags, SsaOp},
     context::{BinaryOpcode, Node, Op, UnaryOpcode},
     var::VarMap,
 };
@@ -124,7 +124,7 @@ impl SsaTape {
                     let lhs = mapping[lhs];
                     let rhs = mapping[rhs];
 
-                    type RegFn = fn(u32, u32, u32) -> SsaOp;
+                    type RegFn = fn(u32, u32, u32, BinaryFlags) -> SsaOp;
                     type ImmFn = fn(u32, u32, f32) -> SsaOp;
                     let f: (RegFn, ImmFn, ImmFn) = match op {
                         BinaryOpcode::Add => (
@@ -199,7 +199,9 @@ impl SsaTape {
                     }
 
                     match (lhs, rhs) {
-                        (Slot::Reg(lhs), Slot::Reg(rhs)) => f.0(i, lhs, rhs),
+                        (Slot::Reg(lhs), Slot::Reg(rhs)) => {
+                            f.0(i, lhs, rhs, BinaryFlags::empty())
+                        }
                         (Slot::Reg(arg), Slot::Immediate(imm)) => {
                             f.1(i, arg, imm)
                         }
@@ -289,7 +291,7 @@ impl SsaTape {
                 | SsaOp::AbsReg(out, arg)
                 | SsaOp::RecipReg(out, arg)
                 | SsaOp::SqrtReg(out, arg)
-                | SsaOp::CopyReg(out, arg)
+                | SsaOp::CopyReg(out, arg, ..)
                 | SsaOp::SquareReg(out, arg)
                 | SsaOp::FloorReg(out, arg)
                 | SsaOp::CeilReg(out, arg)
@@ -327,17 +329,17 @@ impl SsaTape {
                     println!("${out} = {op} ${arg}");
                 }
 
-                SsaOp::AddRegReg(out, lhs, rhs)
-                | SsaOp::MulRegReg(out, lhs, rhs)
-                | SsaOp::DivRegReg(out, lhs, rhs)
-                | SsaOp::SubRegReg(out, lhs, rhs)
-                | SsaOp::MinRegReg(out, lhs, rhs)
-                | SsaOp::MaxRegReg(out, lhs, rhs)
-                | SsaOp::ModRegReg(out, lhs, rhs)
-                | SsaOp::AndRegReg(out, lhs, rhs)
-                | SsaOp::AtanRegReg(out, lhs, rhs)
-                | SsaOp::OrRegReg(out, lhs, rhs)
-                | SsaOp::CompareRegReg(out, lhs, rhs) => {
+                SsaOp::AddRegReg(out, lhs, rhs, _fs)
+                | SsaOp::MulRegReg(out, lhs, rhs, _fs)
+                | SsaOp::DivRegReg(out, lhs, rhs, _fs)
+                | SsaOp::SubRegReg(out, lhs, rhs, _fs)
+                | SsaOp::MinRegReg(out, lhs, rhs, _fs)
+                | SsaOp::MaxRegReg(out, lhs, rhs, _fs)
+                | SsaOp::ModRegReg(out, lhs, rhs, _fs)
+                | SsaOp::AndRegReg(out, lhs, rhs, _fs)
+                | SsaOp::AtanRegReg(out, lhs, rhs, _fs)
+                | SsaOp::OrRegReg(out, lhs, rhs, _fs)
+                | SsaOp::CompareRegReg(out, lhs, rhs, _fs) => {
                     let op = match op {
                         SsaOp::AddRegReg(..) => "ADD",
                         SsaOp::MulRegReg(..) => "MUL",

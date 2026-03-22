@@ -24,9 +24,10 @@
 //! ```
 
 use crate::mmap::{Mmap, MmapWriter};
+use bitflags::Flags;
 use fidget_core::{
     Error,
-    compiler::RegOp,
+    compiler::{BinaryFlags, InputFlags, OutputFlags, RegOp},
     context::{Context, Node},
     eval::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
@@ -265,6 +266,62 @@ trait Assembler {
     fn build_mul_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
         let imm = self.load_imm(imm);
         self.build_mul(out_reg, lhs_reg, imm);
+    }
+
+    fn build_binary_input_flags(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        fs: BinaryFlags,
+    ) -> (u8, u8) {
+        static_assertions::const_assert_eq!(InputFlags::FLAGS.len(), 3);
+        let lhs_tmp = IMM_REG.wrapping_sub(OFFSET);
+        let lhs_out =
+            self.build_unary_input_flags_with(lhs_reg, lhs_tmp, fs.lhs);
+
+        let rhs_tmp = if fs.lhs.is_empty() { lhs_tmp } else { out_reg };
+        let rhs_out =
+            self.build_unary_input_flags_with(rhs_reg, rhs_tmp, fs.rhs);
+        (lhs_out, rhs_out)
+    }
+
+    fn build_unary_input_flags(
+        &mut self,
+        arg_reg: u8,
+        flags: InputFlags,
+    ) -> u8 {
+        let arg_tmp = IMM_REG.wrapping_sub(OFFSET);
+        self.build_unary_input_flags_with(arg_reg, arg_tmp, flags)
+    }
+
+    fn build_unary_input_flags_with(
+        &mut self,
+        mut arg_reg: u8,
+        arg_tmp: u8,
+        flags: InputFlags,
+    ) -> u8 {
+        static_assertions::const_assert_eq!(InputFlags::FLAGS.len(), 3);
+        if flags.contains(InputFlags::SQUARE) {
+            self.build_square(arg_tmp, arg_reg);
+            arg_reg = arg_tmp;
+        }
+        if flags.contains(InputFlags::ABS) {
+            self.build_abs(arg_tmp, arg_reg);
+            arg_reg = arg_tmp;
+        }
+        if flags.contains(InputFlags::NEG) {
+            self.build_neg(arg_tmp, arg_reg);
+            arg_reg = arg_tmp;
+        }
+        arg_reg
+    }
+
+    fn build_output_flags(&mut self, out_reg: u8, flags: OutputFlags) {
+        static_assertions::const_assert_eq!(OutputFlags::FLAGS.len(), 1);
+        if flags.contains(OutputFlags::SQRT) {
+            self.build_sqrt(out_reg, out_reg);
+        }
     }
 
     /// Loads an immediate into a register, returning that register
@@ -726,8 +783,10 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::LnReg(out, arg) => {
                 asm.build_ln(out, arg);
             }
-            RegOp::CopyReg(out, arg) => {
+            RegOp::CopyReg(out, arg, fs) => {
+                let arg = asm.build_unary_input_flags(arg, fs.arg);
                 asm.build_copy(out, arg);
+                asm.build_output_flags(out, fs.out);
             }
             RegOp::SquareReg(out, arg) => {
                 asm.build_square(out, arg);
@@ -744,26 +803,47 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::NotReg(out, arg) => {
                 asm.build_not(out, arg);
             }
-            RegOp::AddRegReg(out, lhs, rhs) => {
+            RegOp::AddRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_add(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
-            RegOp::MulRegReg(out, lhs, rhs) => {
+            RegOp::MulRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_mul(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
-            RegOp::DivRegReg(out, lhs, rhs) => {
+            RegOp::DivRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_div(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
-            RegOp::AtanRegReg(out, lhs, rhs) => {
+            RegOp::AtanRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_atan2(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
-            RegOp::SubRegReg(out, lhs, rhs) => {
+            RegOp::SubRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_sub(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
-            RegOp::MinRegReg(out, lhs, rhs) => {
+            RegOp::MinRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_min(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
-            RegOp::MaxRegReg(out, lhs, rhs) => {
+            RegOp::MaxRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_max(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
             RegOp::AddRegImm(out, arg, imm) => {
                 asm.build_add_imm(out, arg, imm);
@@ -801,8 +881,11 @@ fn build_asm_fn_with_storage<A: Assembler>(
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
             }
-            RegOp::ModRegReg(out, lhs, rhs) => {
+            RegOp::ModRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_mod(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
             RegOp::ModRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
@@ -812,15 +895,21 @@ fn build_asm_fn_with_storage<A: Assembler>(
                 let reg = asm.load_imm(imm);
                 asm.build_mod(out, reg, arg);
             }
-            RegOp::AndRegReg(out, lhs, rhs) => {
+            RegOp::AndRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_and(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
             RegOp::AndRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_and(out, arg, reg);
             }
-            RegOp::OrRegReg(out, lhs, rhs) => {
+            RegOp::OrRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_or(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
             RegOp::OrRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
@@ -830,8 +919,11 @@ fn build_asm_fn_with_storage<A: Assembler>(
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
             }
-            RegOp::CompareRegReg(out, lhs, rhs) => {
+            RegOp::CompareRegReg(out, lhs, rhs, fs) => {
+                let (lhs, rhs) =
+                    asm.build_binary_input_flags(out, lhs, rhs, fs);
                 asm.build_compare(out, lhs, rhs);
+                asm.build_output_flags(out, fs.out);
             }
             RegOp::CompareRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);

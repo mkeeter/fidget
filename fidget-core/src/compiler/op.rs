@@ -1,5 +1,82 @@
 use serde::{Deserialize, Serialize};
 
+bitflags::bitflags! {
+    /// Flags associated with a single input to an operation
+    ///
+    /// Flags are applied in order starting at the LSB; for example, flags of
+    /// `0b111` would compute `neg(abs(square(v)))`.
+    #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct InputFlags: u8 {
+        /// Square the input
+        const SQUARE = 0b00000001;
+        /// Take the absolute value of the input
+        const ABS    = 0b00000010;
+        /// Negate the input
+        const NEG    = 0b00000100;
+    }
+}
+
+bitflags::bitflags! {
+    /// Flags associated with the output of an operation
+    #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct OutputFlags: u8 {
+        /// Take the square root of the output
+        const SQRT = 0b00000001;
+    }
+}
+
+/// Trait for types which can be modified by flags
+pub trait ApplyFlags<T> {
+    /// Applies the operation(s) specified by a set of bitflags
+    fn apply(&self, t: T) -> T;
+}
+
+/// Flags associated with a binary operation
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BinaryFlags {
+    /// Operations to apply to the output after the binary operation
+    pub out: OutputFlags,
+    /// Operations to apply to the first argument before the binary operation
+    pub lhs: InputFlags,
+    /// Operations to apply to the second argument before the binary operation
+    pub rhs: InputFlags,
+}
+
+impl BinaryFlags {
+    /// Returns a new set of flags with all flags unset
+    pub fn empty() -> Self {
+        Self {
+            out: OutputFlags::empty(),
+            lhs: InputFlags::empty(),
+            rhs: InputFlags::empty(),
+        }
+    }
+}
+
+/// Flags associated with a unary operation
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UnaryFlags {
+    /// Operations to apply to the output after the unary operation
+    pub out: OutputFlags,
+    /// Operations to apply to the input before the unary operation
+    pub arg: InputFlags,
+}
+
+impl UnaryFlags {
+    /// Returns a new set of flags with all flags unset
+    pub fn empty() -> Self {
+        Self {
+            out: OutputFlags::empty(),
+            arg: InputFlags::empty(),
+        }
+    }
+
+    /// Checks that all flags are unset
+    pub fn is_empty(&self) -> bool {
+        self.out.is_empty() && self.arg.is_empty()
+    }
+}
+
 /// Macro to generate a set of opcodes, using the given type for registers
 macro_rules! opcodes {
     (
@@ -29,7 +106,7 @@ macro_rules! opcodes {
             #[doc = "Read an input variable by index"]
             Input($t, u32),
             #[doc = "Copies the given register"]
-            CopyReg($t, $t),
+            CopyReg($t, $t, UnaryFlags),
             #[doc = "Copy an immediate to a register"]
             CopyImm($t, f32),
 
@@ -82,8 +159,6 @@ macro_rules! opcodes {
             SubImmReg($t, $t, f32),
             #[doc = "Subtract an immediate from a register"]
             SubRegImm($t, $t, f32),
-            #[doc = "Take the module (least nonnegative remainder) of two registers"]
-            ModRegReg($t, $t, $t),
             #[doc = "Take the module (least nonnegative remainder) of a register and an immediate"]
             ModRegImm($t, $t, f32),
             #[doc = "atan2 of a position `(y, x)` specified as register, immediate"]
@@ -111,27 +186,29 @@ macro_rules! opcodes {
 
             // RegReg opcodes (without a choice)
             #[doc = "Add two registers"]
-            AddRegReg($t, $t, $t),
+            AddRegReg($t, $t, $t, BinaryFlags),
             #[doc = "Multiply two registers"]
-            MulRegReg($t, $t, $t),
+            MulRegReg($t, $t, $t, BinaryFlags),
             #[doc = "Divides two registers"]
-            DivRegReg($t, $t, $t),
+            DivRegReg($t, $t, $t, BinaryFlags),
             #[doc = "Subtract one register from another"]
-            SubRegReg($t, $t, $t),
+            SubRegReg($t, $t, $t, BinaryFlags),
             #[doc = "Compares two registers"]
-            CompareRegReg($t, $t, $t),
+            CompareRegReg($t, $t, $t, BinaryFlags),
             #[doc = "atan2 of a position `(y, x)` specified as register, register"]
-            AtanRegReg($t, $t, $t),
+            AtanRegReg($t, $t, $t, BinaryFlags),
+            #[doc = "Take the module (least nonnegative remainder) of two registers"]
+            ModRegReg($t, $t, $t, BinaryFlags),
 
             // RegReg opcodes (with a choice)
             #[doc = "Take the minimum of two registers"]
-            MinRegReg($t, $t, $t),
+            MinRegReg($t, $t, $t, BinaryFlags),
             #[doc = "Take the maximum of two registers"]
-            MaxRegReg($t, $t, $t),
+            MaxRegReg($t, $t, $t, BinaryFlags),
             #[doc = "Logical `AND` (short-circuiting)\n\nThis is equivalent to `if lhs == 0 { lhs } else { rhs }`"]
-            AndRegReg($t, $t, $t),
+            AndRegReg($t, $t, $t, BinaryFlags),
             #[doc = "Logical `OR` (short-circuiting)\n\nThis is equivalent to `if lhs != 0 { lhs } else { rhs }`"]
-            OrRegReg($t, $t, $t),
+            OrRegReg($t, $t, $t, BinaryFlags),
 
             $(
                 $(#[$($a)*])*
@@ -150,6 +227,13 @@ opcodes!(
     /// - RHS register (or immediate for `*Imm`)
     ///
     /// Each "register" represents an SSA slot, which is never reused.
+    ///
+    /// Some operations also include flags which modify the input and output
+    /// values before the operation is performed.  For example,
+    /// `sqrt(square(x) + square(y))` can be implemented in a single
+    /// [`AddRegReg`](SsaOp::AddRegReg) opcode, with flags to square the inputs
+    /// and take the square root of the output.  See [`BinaryFlags`] and
+    /// [`UnaryFlags`] for details.
     #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
     pub enum SsaOp<u32> {
         // default variants
@@ -275,6 +359,9 @@ opcodes!(
     ///
     /// We have a maximum of 256 registers, though some tapes (e.g. ones
     /// targeting physical hardware) may choose to use fewer.
+    ///
+    /// Some operations include flags to modify the input and output before the
+    /// operation; see [`SsaOp`] for details.
     #[derive(
         Copy,
         Clone,
