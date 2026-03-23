@@ -355,7 +355,7 @@ impl SsaTape {
         };
         let mut keep = Vec::with_capacity(tape.len());
         for op in &mut tape {
-            // Skip newly-dead ops
+            // Skip newly-retired ops
             if op.output().is_some_and(|o| live[o as usize].is_none()) {
                 keep.push(false);
                 continue;
@@ -364,6 +364,7 @@ impl SsaTape {
             match op {
                 SsaOp::Output(arg, _) => {
                     live[*arg as usize].get_or_insert_with(&mut next_op);
+                    *arg = live[*arg as usize].unwrap();
                 }
                 SsaOp::Input(out, _) | SsaOp::CopyImm(out, _) => {
                     *out = live[*out as usize].unwrap()
@@ -613,7 +614,7 @@ mod test {
         let c9 = ctx.max(c8, c6).unwrap();
 
         let (tape, vs) = SsaTape::new(&ctx, &[c9]).unwrap();
-        assert_eq!(tape.len(), 9);
+        assert_eq!(tape.len(), 7);
         assert_eq!(vs.len(), 2);
     }
 

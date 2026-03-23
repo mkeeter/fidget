@@ -1616,7 +1616,7 @@ mod test {
         let c9 = ctx.max(c8, c6).unwrap();
 
         let tape = VmData::<255>::new(&ctx, &[c9]).unwrap();
-        assert_eq!(tape.len(), 9);
+        assert_eq!(tape.len(), 7);
         assert_eq!(tape.vars.len(), 2);
     }
 
