@@ -336,6 +336,7 @@ impl SsaTape {
             if use_count[o as usize] > 1 {
                 (o, InputFlags::empty())
             } else {
+                // TODO how to stack flags?
                 match reg_to_op[o as usize] {
                     SsaOp::SquareReg(_, arg) => (arg, InputFlags::SQUARE),
                     SsaOp::AbsReg(_, arg) => (arg, InputFlags::ABS),
@@ -437,11 +438,15 @@ impl SsaTape {
                 }
             }
         }
-        tape.into_iter()
+        let before = tape.len();
+        let tape: Vec<_> = tape
+            .into_iter()
             .zip(keep)
             .filter(|(_op, k)| *k)
             .map(|(op, _k)| op)
-            .collect()
+            .collect();
+        println!("{before} => {}", tape.len());
+        tape
     }
 
     /// Checks whether the tape is empty

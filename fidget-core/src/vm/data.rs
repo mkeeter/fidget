@@ -265,9 +265,21 @@ impl<const N: usize> VmData<N> {
                                     },
                                 );
                             }
-                            None => {
+                            None if fs.is_empty() => {
                                 workspace.set_active(*lhs, new_index);
                                 continue;
+                            }
+                            None => {
+                                let new_lhs =
+                                    workspace.get_or_insert_active(*lhs);
+                                op = SsaOp::CopyReg(
+                                    new_index,
+                                    new_lhs,
+                                    UnaryFlags {
+                                        out: fs.out,
+                                        arg: fs.lhs,
+                                    },
+                                );
                             }
                         },
                         Choice::Right => match workspace.active(*rhs) {
@@ -281,9 +293,21 @@ impl<const N: usize> VmData<N> {
                                     },
                                 );
                             }
-                            None => {
+                            None if fs.is_empty() => {
                                 workspace.set_active(*rhs, new_index);
                                 continue;
+                            }
+                            None => {
+                                let new_rhs =
+                                    workspace.get_or_insert_active(*rhs);
+                                op = SsaOp::CopyReg(
+                                    new_index,
+                                    new_rhs,
+                                    UnaryFlags {
+                                        out: fs.out,
+                                        arg: fs.rhs,
+                                    },
+                                );
                             }
                         },
                         Choice::Both => {
