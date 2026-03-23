@@ -1,7 +1,7 @@
 //use crate::vm::{RegisterAllocator, Tape as VmTape};
 use crate::{
     Context, Error,
-    compiler::{BinaryFlags, SsaOp},
+    compiler::{BinaryFlags, InputFlags, OutputFlags, SsaOp},
     context::{BinaryOpcode, Node, Op, UnaryOpcode},
     var::VarMap,
 };
@@ -245,6 +245,8 @@ impl SsaTape {
             tape.push(op);
         }
 
+        let tape = Self::compute_flags(tape);
+
         Ok((
             SsaTape {
                 tape,
@@ -253,6 +255,192 @@ impl SsaTape {
             },
             vars,
         ))
+    }
+
+    /// Takes a tape with no flags and returns one with flags
+    ///
+    /// # Panics
+    /// If the input tape has any flags set
+    pub fn compute_flags(mut tape: Vec<SsaOp>) -> Vec<SsaOp> {
+        // Build a list of use counts and map from output register to index in
+        // the tape where that register is written.
+        let mut use_count = vec![0; tape.len()];
+        let mut reg_to_op = vec![SsaOp::Input(0, 0); tape.len()];
+        for op in &tape {
+            if let Some(o) = op.output() {
+                reg_to_op[o as usize] = *op;
+            }
+            match op {
+                SsaOp::Output(arg, _) => use_count[*arg as usize] += 1,
+                SsaOp::Input(..) | SsaOp::CopyImm(..) => (),
+                SsaOp::NegReg(_, arg)
+                | SsaOp::AbsReg(_, arg)
+                | SsaOp::RecipReg(_, arg)
+                | SsaOp::SqrtReg(_, arg)
+                | SsaOp::SquareReg(_, arg)
+                | SsaOp::FloorReg(_, arg)
+                | SsaOp::CeilReg(_, arg)
+                | SsaOp::RoundReg(_, arg)
+                | SsaOp::SinReg(_, arg)
+                | SsaOp::CosReg(_, arg)
+                | SsaOp::TanReg(_, arg)
+                | SsaOp::AsinReg(_, arg)
+                | SsaOp::AcosReg(_, arg)
+                | SsaOp::AtanReg(_, arg)
+                | SsaOp::ExpReg(_, arg)
+                | SsaOp::LnReg(_, arg)
+                | SsaOp::NotReg(_, arg)
+                | SsaOp::AddRegImm(_, arg, _)
+                | SsaOp::MulRegImm(_, arg, _)
+                | SsaOp::DivRegImm(_, arg, _)
+                | SsaOp::DivImmReg(_, arg, _)
+                | SsaOp::SubImmReg(_, arg, _)
+                | SsaOp::SubRegImm(_, arg, _)
+                | SsaOp::AtanRegImm(_, arg, _)
+                | SsaOp::AtanImmReg(_, arg, _)
+                | SsaOp::MinRegImm(_, arg, _)
+                | SsaOp::MaxRegImm(_, arg, _)
+                | SsaOp::ModRegImm(_, arg, _)
+                | SsaOp::ModImmReg(_, arg, _)
+                | SsaOp::AndRegImm(_, arg, _)
+                | SsaOp::OrRegImm(_, arg, _)
+                | SsaOp::CompareRegImm(_, arg, _)
+                | SsaOp::CompareImmReg(_, arg, _) => {
+                    use_count[*arg as usize] += 1;
+                }
+
+                SsaOp::CopyReg(_, arg, fs) => {
+                    assert!(fs.is_empty());
+                    use_count[*arg as usize] += 1;
+                }
+
+                SsaOp::AddRegReg(_, lhs, rhs, fs)
+                | SsaOp::MulRegReg(_, lhs, rhs, fs)
+                | SsaOp::DivRegReg(_, lhs, rhs, fs)
+                | SsaOp::SubRegReg(_, lhs, rhs, fs)
+                | SsaOp::MinRegReg(_, lhs, rhs, fs)
+                | SsaOp::MaxRegReg(_, lhs, rhs, fs)
+                | SsaOp::ModRegReg(_, lhs, rhs, fs)
+                | SsaOp::AndRegReg(_, lhs, rhs, fs)
+                | SsaOp::AtanRegReg(_, lhs, rhs, fs)
+                | SsaOp::OrRegReg(_, lhs, rhs, fs)
+                | SsaOp::CompareRegReg(_, lhs, rhs, fs) => {
+                    assert!(fs.is_empty());
+                    use_count[*lhs as usize] += 1;
+                    use_count[*rhs as usize] += 1;
+                }
+            }
+        }
+
+        let get_input_flags = |o: u32| {
+            if use_count[o as usize] > 1 {
+                (o, InputFlags::empty())
+            } else {
+                match reg_to_op[o as usize] {
+                    SsaOp::SquareReg(_, arg) => (arg, InputFlags::SQUARE),
+                    SsaOp::AbsReg(_, arg) => (arg, InputFlags::ABS),
+                    SsaOp::NegReg(_, arg) => (arg, InputFlags::NEG),
+                    _ => (o, InputFlags::empty()),
+                }
+            }
+        };
+
+        // Combined liveness + remapping array.
+        let mut live = vec![None; tape.len()];
+        let mut next = 0u32;
+        let mut next_op = || {
+            let out = next;
+            next += 1;
+            out
+        };
+        let mut keep = Vec::with_capacity(tape.len());
+        for op in &mut tape {
+            // Skip newly-dead ops
+            if op.output().is_some_and(|o| live[o as usize].is_none()) {
+                keep.push(false);
+                continue;
+            }
+            keep.push(true);
+            match op {
+                SsaOp::Output(arg, _) => {
+                    live[*arg as usize].get_or_insert_with(&mut next_op);
+                }
+                SsaOp::Input(out, _) | SsaOp::CopyImm(out, _) => {
+                    *out = live[*out as usize].unwrap()
+                }
+                SsaOp::NegReg(out, arg)
+                | SsaOp::AbsReg(out, arg)
+                | SsaOp::RecipReg(out, arg)
+                | SsaOp::SqrtReg(out, arg)
+                | SsaOp::SquareReg(out, arg)
+                | SsaOp::FloorReg(out, arg)
+                | SsaOp::CeilReg(out, arg)
+                | SsaOp::RoundReg(out, arg)
+                | SsaOp::SinReg(out, arg)
+                | SsaOp::CosReg(out, arg)
+                | SsaOp::TanReg(out, arg)
+                | SsaOp::AsinReg(out, arg)
+                | SsaOp::AcosReg(out, arg)
+                | SsaOp::AtanReg(out, arg)
+                | SsaOp::ExpReg(out, arg)
+                | SsaOp::LnReg(out, arg)
+                | SsaOp::NotReg(out, arg)
+                | SsaOp::AddRegImm(out, arg, _)
+                | SsaOp::MulRegImm(out, arg, _)
+                | SsaOp::DivRegImm(out, arg, _)
+                | SsaOp::DivImmReg(out, arg, _)
+                | SsaOp::SubImmReg(out, arg, _)
+                | SsaOp::SubRegImm(out, arg, _)
+                | SsaOp::AtanRegImm(out, arg, _)
+                | SsaOp::AtanImmReg(out, arg, _)
+                | SsaOp::MinRegImm(out, arg, _)
+                | SsaOp::MaxRegImm(out, arg, _)
+                | SsaOp::ModRegImm(out, arg, _)
+                | SsaOp::ModImmReg(out, arg, _)
+                | SsaOp::AndRegImm(out, arg, _)
+                | SsaOp::OrRegImm(out, arg, _)
+                | SsaOp::CompareRegImm(out, arg, _)
+                | SsaOp::CompareImmReg(out, arg, _) => {
+                    *out = live[*out as usize].unwrap();
+                    live[*arg as usize].get_or_insert_with(&mut next_op);
+                    *arg = live[*arg as usize].unwrap();
+                }
+
+                SsaOp::CopyReg(out, arg, _fs) => {
+                    *out = live[*out as usize].unwrap();
+                    live[*arg as usize].get_or_insert_with(&mut next_op);
+                    *arg = live[*arg as usize].unwrap();
+                }
+
+                SsaOp::AddRegReg(out, lhs, rhs, fs)
+                | SsaOp::MulRegReg(out, lhs, rhs, fs)
+                | SsaOp::DivRegReg(out, lhs, rhs, fs)
+                | SsaOp::SubRegReg(out, lhs, rhs, fs)
+                | SsaOp::MinRegReg(out, lhs, rhs, fs)
+                | SsaOp::MaxRegReg(out, lhs, rhs, fs)
+                | SsaOp::ModRegReg(out, lhs, rhs, fs)
+                | SsaOp::AndRegReg(out, lhs, rhs, fs)
+                | SsaOp::AtanRegReg(out, lhs, rhs, fs)
+                | SsaOp::OrRegReg(out, lhs, rhs, fs)
+                | SsaOp::CompareRegReg(out, lhs, rhs, fs) => {
+                    *out = live[*out as usize].unwrap();
+                    let (new_lhs, flags) = get_input_flags(*lhs);
+                    live[new_lhs as usize].get_or_insert_with(&mut next_op);
+                    *lhs = live[new_lhs as usize].unwrap();
+                    fs.lhs = flags;
+
+                    let (new_rhs, flags) = get_input_flags(*rhs);
+                    live[new_rhs as usize].get_or_insert_with(&mut next_op);
+                    *rhs = live[new_rhs as usize].unwrap();
+                    fs.rhs = flags;
+                }
+            }
+        }
+        tape.into_iter()
+            .zip(keep)
+            .filter(|(_op, k)| *k)
+            .map(|(op, _k)| op)
+            .collect()
     }
 
     /// Checks whether the tape is empty

@@ -348,7 +348,9 @@ impl<const N: usize> RegisterAllocator<N> {
                 self.bind_register(out, r_a);
                 r_a
             }
-            Allocation::Unassigned => panic!("Cannot have unassigned output"),
+            Allocation::Unassigned => {
+                panic!("Cannot have unassigned output for {out}")
+            }
         }
     }
 

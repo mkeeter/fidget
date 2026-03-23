@@ -51,6 +51,11 @@ impl BinaryFlags {
             rhs: InputFlags::empty(),
         }
     }
+
+    /// Returns true if all flags are unset
+    pub fn is_empty(&self) -> bool {
+        self.out.is_empty() && self.lhs.is_empty() && self.rhs.is_empty()
+    }
 }
 
 /// Flags associated with a unary operation
