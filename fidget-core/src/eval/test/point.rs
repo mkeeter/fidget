@@ -236,7 +236,7 @@ where
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
 
-        for (x, y) in [(0.0, 1.0), (1.0, 3.0), (2.0, 8.0)] {
+        for (x, y) in [(0.0f32, 1.0f32), (1.0, 3.0), (2.0, 8.0)] {
             let (r, trace) = eval.eval(&tape, &vs(x, y)).unwrap();
             assert_eq!(r[0], x.sin() + y);
             assert!(trace.is_none());
@@ -253,9 +253,9 @@ where
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [2.0]);
-        assert_eq!(eval.eval(&tape, &vs(1.0, 3.0)).unwrap().0, [2.0]);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 3.5)).unwrap().0, [3.5]);
+        assert_eq!(eval.eval(&tape, &vs(1.0f32, 2.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(1.0f32, 3.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0f32, 3.5)).unwrap().0, [3.5]);
     }
 
     pub fn test_push() {
@@ -268,8 +268,8 @@ where
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [1.0]);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(1.0f32, 2.0)).unwrap().0, [1.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0f32, 2.0)).unwrap().0, [2.0]);
 
         let next = shape
             .simplify(
@@ -280,8 +280,8 @@ where
             .unwrap();
         let tape = next.point_tape(Default::default());
         let vs = bind_xy(&tape);
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [1.0]);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, [3.0]);
+        assert_eq!(eval.eval(&tape, &vs(1.0f32, 2.0)).unwrap().0, [1.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0f32, 2.0)).unwrap().0, [3.0]);
 
         let next = shape
             .simplify(
@@ -292,8 +292,8 @@ where
             .unwrap();
         let tape = next.point_tape(Default::default());
         let vs = bind_xy(&tape);
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [2.0]);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(1.0f32, 2.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0f32, 2.0)).unwrap().0, [2.0]);
 
         let min = ctx.min(x, 1.0).unwrap();
         let shape = F::new(&ctx, &[min]).unwrap();
@@ -349,7 +349,7 @@ where
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [6.0]);
+        assert_eq!(eval.eval(&tape, &vs(1.0f32, 2.0f32)).unwrap().0, [6.0]);
     }
 
     pub fn test_p_shape_var() {
@@ -366,16 +366,16 @@ where
 
         let mut eval = Shape::<F>::new_point_eval();
         let tape = s.ez_point_tape();
-        assert!(eval.eval(&tape, 1.0, 2.0, 0.0).is_err());
+        assert!(eval.eval(&tape, 1.0f32, 2.0, 0.0).is_err());
 
         let mut h = ShapeVars::new();
-        assert!(eval.eval_v(&tape, 1.0, 2.0, 0.0, &h).is_err());
+        assert!(eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &h).is_err());
 
         let index = v.index().unwrap();
-        h.insert(index, 3.0);
-        assert_eq!(eval.eval_v(&tape, 1.0, 2.0, 0.0, &h).unwrap().0, 6.0);
-        h.insert(index, 4.0);
-        assert_eq!(eval.eval_v(&tape, 1.0, 2.0, 0.0, &h).unwrap().0, 7.0);
+        h.insert(index, 3.0f32);
+        assert_eq!(eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0, 6.0);
+        h.insert(index, 4.0f32);
+        assert_eq!(eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0, 7.0);
     }
 
     pub fn test_p_stress_n(depth: usize) {
@@ -617,7 +617,7 @@ where
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
 
-        let (out, _trace) = eval.eval(&tape, &vs(1.0, 2.0)).unwrap();
+        let (out, _trace) = eval.eval(&tape, &vs(1.0f32, 2.0f32)).unwrap();
         assert_eq!(out[0], 1.0);
         assert_eq!(out[1], 2.0);
     }
