@@ -311,5 +311,8 @@ pub use fidget_raster as raster;
 #[cfg(feature = "gui")]
 pub use fidget_gui as gui;
 
+#[cfg(feature = "wgpu")]
+pub use fidget_wgpu as wgpu;
+
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub use fidget_jit as jit;

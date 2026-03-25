@@ -2,7 +2,7 @@
 name = "fidget"
 description = "Infrastructure for complex closed-form implicit surfaces"
 readme = "../README.md"
-version = "0.4.2"
+version = "0.4.3"
 
 edition.workspace = true
 license.workspace = true
@@ -20,6 +20,7 @@ fidget-raster   = { workspace = true, optional = true }
 fidget-rhai     = { workspace = true, optional = true }
 fidget-shapes   = { workspace = true, optional = true }
 fidget-solver   = { workspace = true, optional = true }
+fidget-wgpu     = { workspace = true, optional = true }
 
 document-features.workspace = true
 workspace-hack.workspace = true
@@ -37,6 +38,7 @@ default = [
     "rhai",
     "shapes",
     "solver",
+    "wgpu",
 ]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
@@ -65,6 +67,9 @@ raster = ["dep:fidget-raster"]
 
 ## Enables GUI abstractions in the [`fidget::gui`](crate::gui) module
 gui = ["dep:fidget-gui"]
+
+## Enables WGPU rendering in the [`fidget::wgpu`](crate::wgpu) module
+wgpu = ["dep:fidget-wgpu"]
 
 [[bench]]
 name = "render"

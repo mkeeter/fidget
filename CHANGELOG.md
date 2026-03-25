@@ -1,3 +1,7 @@
+# 0.4.3 (in progress)
+- Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
+    - This is even more experimental than the rest of Fidget!
+
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
 - Fixed memory corruption in a subset of x86 interval JIT functions, revealed
