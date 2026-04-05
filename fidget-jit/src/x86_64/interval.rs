@@ -683,6 +683,7 @@ impl Assembler for IntervalAssembler {
             ; E: // exit
             ; add rsi, 1
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // TODO: Godbolt uses unpcklps ?
