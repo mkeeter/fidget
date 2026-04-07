@@ -5,7 +5,6 @@ use eframe::{
     egui,
     egui_wgpu::{self, wgpu},
 };
-use env_logger::Env;
 use log::{debug, error, info};
 use nalgebra::Point2;
 use notify::{Event, EventKind, Watcher};
@@ -223,7 +222,8 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
     let args = Args::parse();
 
