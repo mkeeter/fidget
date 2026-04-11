@@ -24,7 +24,7 @@ members = [
 exclude = ["demos/web-editor/crate"]
 
 [workspace.package]
-rust-version = "1.87"
+rust-version = "1.92"
 edition = "2024"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
