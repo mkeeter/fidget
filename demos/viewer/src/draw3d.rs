@@ -49,7 +49,7 @@ impl Resources {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Nearest, // Use nearest for integer textures
                 min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                 ..Default::default()
             });
 
@@ -97,8 +97,8 @@ impl Resources {
         let geometry_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Geometry Render Pipeline Layout"),
-                bind_group_layouts: &[&geometry_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&geometry_bind_group_layout)],
+                immediate_size: 0u32,
             });
 
         // Create the Geometry render pipeline
@@ -141,7 +141,7 @@ impl Resources {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
             });
 
         // Create a buffer for render configuration
