@@ -600,7 +600,7 @@ impl DynasmLabelApi for MmapAssembler {
             c,
         ));
     }
-    fn bare_relocation(
+    fn value_relocation(
         &mut self,
         _target: usize,
         _field_offset: u8,

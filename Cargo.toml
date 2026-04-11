@@ -55,7 +55,7 @@ clap = { version = "4", features = ["derive"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-channel = "0.5"
 document-features = "0.2"
-dynasmrt = "4.0"
+dynasmrt = "5.0"
 eframe = { version = "0.34", features = ["wgpu"] }
 enum-map = "2.7.3"
 facet = { version = "0.44", features = ["reflect", "doc"] }
