@@ -424,10 +424,10 @@ impl Context {
             } else {
                 return Ok(b);
             }
-        } else if let Op::Const(v) = op_b {
-            if v.0 == 0.0 {
-                return Ok(a);
-            }
+        } else if let Op::Const(v) = op_b
+            && v.0 == 0.0
+        {
+            return Ok(a);
         }
         self.op_binary(a, b, BinaryOpcode::Or)
     }
@@ -1108,13 +1108,11 @@ impl Context {
                     if matches!(
                         t.as_ref(),
                         TreeOp::Unary(..) | TreeOp::Binary(..)
-                    ) {
-                        if let Some(p) =
-                            seen.get(&(*axes.last().unwrap(), Arc::as_ptr(t)))
-                        {
-                            stack.push(*p);
-                            continue;
-                        }
+                    ) && let Some(p) =
+                        seen.get(&(*axes.last().unwrap(), Arc::as_ptr(t)))
+                    {
+                        stack.push(*p);
+                        continue;
                     }
                     match t.as_ref() {
                         TreeOp::Const(c) => {
