@@ -67,12 +67,12 @@ log = "0.4"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 notify = "8.0"
 ordered-float = "5"
-rand = "0.9"
+rand = "0.10"
 rayon = "1.10"
 rhai = { version = "1.24", features = ["sync"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
-strum = { version = "0.27.2", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 strum_macros = { version = "0.27.2" } # see fidget#371
 thiserror = "2"
 wasm-bindgen = "0.2"
