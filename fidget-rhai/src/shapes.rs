@@ -215,7 +215,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
 ) -> Result<Tree, Box<EvalAltResult>> {
     let mut t = Some(Tree::from_dynamic(&ctx, t, None)?);
 
-    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
+    let mut builder = facet::Partial::alloc::<T>().unwrap();
     let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
@@ -277,7 +277,7 @@ fn build_binary<T: Facet<'static> + Into<Tree>>(
 
     let a = Tree::from_dynamic(&ctx, a, None)?;
     let b = Tree::from_dynamic(&ctx, b, None)?;
-    let t: T = facet::Partial::alloc_shape(T::SHAPE)
+    let t: T = facet::Partial::alloc::<T>()
         .unwrap()
         .set_nth_field(0, a)
         .unwrap()
@@ -298,7 +298,7 @@ fn build_from_map<T: Facet<'static> + Into<Tree>>(
     ctx: NativeCallContext,
     m: rhai::Map,
 ) -> Result<Tree, Box<EvalAltResult>> {
-    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
+    let mut builder = facet::Partial::alloc::<T>().unwrap();
     let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty else {
         panic!("must build a struct");
     };
@@ -357,7 +357,7 @@ macro_rules! reducer {
             let v = vec![$(
                 Tree::from_dynamic(&ctx, $v, None)?
             ),*];
-            let t: T = facet::Partial::alloc_shape(&T::SHAPE)
+            let t: T = facet::Partial::alloc::<T>()
                 .unwrap()
                 .set_nth_field(0, v)
                 .unwrap()
@@ -411,7 +411,7 @@ fn from_enum_map<T: Facet<'static> + Into<Tree>>(
         panic!("must build a struct");
     };
 
-    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
+    let mut builder = facet::Partial::alloc::<T>().unwrap();
 
     // Track which fields the shape actually uses, for upgrades
     let mut has_ty = enum_map::EnumMap::<Type, bool>::default();
@@ -516,7 +516,7 @@ fn from_value_list<T: Facet<'static> + Into<Tree>>(
     };
     assert_eq!(vs.len(), shape.fields.len(), "invalid field count");
 
-    let mut builder = facet::Partial::alloc_shape(T::SHAPE).unwrap();
+    let mut builder = facet::Partial::alloc::<T>().unwrap();
 
     for (i, (f, v)) in shape.fields.iter().zip(vs).enumerate() {
         let expected_tag = Type::try_from(f.shape().id).unwrap();

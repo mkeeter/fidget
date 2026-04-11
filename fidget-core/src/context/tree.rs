@@ -793,14 +793,13 @@ mod test {
 
     #[test]
     fn tree_poke() {
-        use facet::Facet;
         #[derive(facet::Facet)]
         struct Transform {
             tree: Tree,
             x: f64,
         }
 
-        let builder = facet::Partial::alloc_shape(Transform::SHAPE)
+        let builder = facet::Partial::alloc::<Transform>()
             .unwrap()
             .set_field("tree", Tree::x() + 2.0 * Tree::y())
             .unwrap()

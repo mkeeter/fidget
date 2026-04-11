@@ -446,10 +446,10 @@ impl ViewerApp {
         }
     }
 
-    fn draw_menu(&mut self, ctx: &egui::Context) -> bool {
+    fn draw_menu(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+        egui::Panel::top("menu").show_inside(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("Config", |ui| {
                     let mut mode_3d = match &self.mode {
                         RenderMode::TwoD { .. } => None,
@@ -591,15 +591,15 @@ impl ViewerApp {
 }
 
 impl eframe::App for ViewerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut render_changed = self.draw_menu(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let mut render_changed = self.draw_menu(ui);
         self.try_recv_image();
 
-        let rect = ctx.available_rect();
+        let rect = ui.content_rect();
         let size = rect.size();
         let image_size = fidget::render::ImageSize::new(
-            (size.x * ctx.pixels_per_point()) as u32,
-            (size.y * ctx.pixels_per_point()) as u32,
+            (size.x * ui.pixels_per_point()) as u32,
+            (size.y * ui.pixels_per_point()) as u32,
         );
 
         if image_size != self.image_size {
@@ -610,7 +610,7 @@ impl eframe::App for ViewerApp {
         // Draw the current image and/or error
         let r = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(egui::Color32::BLACK))
-            .show(ctx, |ui| self.paint_image(ui))
+            .show_inside(ui, |ui| self.paint_image(ui))
             .inner;
 
         // Handle pan and zoom
@@ -640,7 +640,7 @@ impl eframe::App for ViewerApp {
                 render_changed |= canvas.interact(
                     image_size,
                     cursor_state,
-                    ctx.input(|i| i.smooth_scroll_delta.y),
+                    ui.input(|i| i.smooth_scroll_delta.y),
                 );
             }
             RenderMode::ThreeD { canvas, .. } => {
@@ -682,7 +682,7 @@ impl eframe::App for ViewerApp {
                 render_changed |= canvas.interact(
                     image_size,
                     cursor_state,
-                    ctx.input(|i| i.smooth_scroll_delta.y),
+                    ui.input(|i| i.smooth_scroll_delta.y),
                 );
             }
         }

@@ -105,8 +105,8 @@ impl ConstraintsApp {
 }
 
 impl eframe::App for ConstraintsApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             let (response, painter) =
                 ui.allocate_painter(Vec2::new(SIZE, SIZE), Sense::hover());
 
@@ -154,7 +154,7 @@ impl eframe::App for ConstraintsApp {
                     changed |= dragged;
                     let new_pos = if dragged {
                         from_screen.transform_pos(
-                            point_response.interact_pointer_pos.unwrap(),
+                            point_response.interact_pointer_pos().unwrap(),
                         )
                     } else {
                         point_pos

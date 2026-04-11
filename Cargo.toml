@@ -24,7 +24,7 @@ members = [
 exclude = ["demos/web-editor/crate"]
 
 [workspace.package]
-rust-version = "1.87"
+rust-version = "1.92"
 edition = "2024"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
@@ -55,10 +55,10 @@ clap = { version = "4", features = ["derive"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-channel = "0.5"
 document-features = "0.2"
-dynasmrt = "4.0"
-eframe = { version = "0.31", features = ["wgpu"] }
+dynasmrt = "5.0"
+eframe = { version = "0.34", features = ["wgpu"] }
 enum-map = "2.7.3"
-facet = { version = "0.33", features = ["reflect", "doc"] }
+facet = { version = "0.44", features = ["reflect", "doc"] }
 env_logger = "0.11"
 heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -67,12 +67,12 @@ log = "0.4"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 notify = "8.0"
 ordered-float = "5"
-rand = "0.9"
+rand = "0.10"
 rayon = "1.10"
-rhai = { version = "1.23.4", features = ["sync"] }
+rhai = { version = "1.24", features = ["sync"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
-strum = { version = "0.27.2", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 strum_macros = { version = "0.27.2" } # see fidget#371
 thiserror = "2"
 wasm-bindgen = "0.2"
@@ -82,13 +82,13 @@ zerocopy = { version = "0.8", features = ["derive"] }
 
 # Local crates
 fidget.path     = "fidget"
-fidget-core     = { path = "fidget-core",     version = "=0.4.1" }
-fidget-bytecode = { path = "fidget-bytecode", version = "=0.4.1" }
-fidget-gui      = { path = "fidget-gui",      version = "=0.4.1" }
-fidget-jit      = { path = "fidget-jit",      version = "=0.4.2" }
-fidget-mesh     = { path = "fidget-mesh",     version = "=0.4.1" }
-fidget-raster   = { path = "fidget-raster",   version = "=0.4.2" }
-fidget-rhai     = { path = "fidget-rhai",     version = "=0.4.1" }
-fidget-shapes   = { path = "fidget-shapes",   version = "=0.4.1" }
-fidget-solver   = { path = "fidget-solver",   version = "=0.4.1" }
+fidget-core     = { path = "fidget-core",     version = "=0.4.3" }
+fidget-bytecode = { path = "fidget-bytecode", version = "=0.4.3" }
+fidget-gui      = { path = "fidget-gui",      version = "=0.4.3" }
+fidget-jit      = { path = "fidget-jit",      version = "=0.4.3" }
+fidget-mesh     = { path = "fidget-mesh",     version = "=0.4.3" }
+fidget-raster   = { path = "fidget-raster",   version = "=0.4.3" }
+fidget-rhai     = { path = "fidget-rhai",     version = "=0.4.3" }
+fidget-shapes   = { path = "fidget-shapes",   version = "=0.4.3" }
+fidget-solver   = { path = "fidget-solver",   version = "=0.4.3" }
 workspace-hack  = { path = "workspace-hack",  version = "0.1" }

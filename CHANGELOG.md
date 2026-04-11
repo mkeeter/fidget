@@ -1,6 +1,7 @@
 # 0.4.3 (unpublished)
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
   thanks [@Wulfsta](https://github.com/Wulfsta)
+- Bumped many dependencies
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
