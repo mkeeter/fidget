@@ -325,6 +325,23 @@ impl<P, S: ImageSizeLike> Image<P, S> {
         );
         row * self.width() + col
     }
+
+    /// Builds an image from its components
+    ///
+    /// Returns an error if `data` does not match the number of pixels in `size`
+    pub fn build(data: Vec<P>, size: S) -> Result<Self, BadPixelCount> {
+        let expected = u64::from(size.width()) * u64::from(size.height());
+        let actual = data.len();
+        if expected != actual as u64 {
+            return Err(BadPixelCount {
+                expected,
+                actual,
+                width: size.width(),
+                height: size.height(),
+            });
+        }
+        Ok(Self { data, size })
+    }
 }
 
 impl<P, S> Image<P, S> {
@@ -458,3 +475,47 @@ impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
 
 /// Three-channel color image
 pub type ColorImage = Image<[u8; 3]>;
+
+/// Error type for image builder
+#[derive(thiserror::Error, Debug, PartialEq)]
+#[error(
+    "bad pixel count: expected {expected} ({width} × {height}), got {actual}"
+)]
+pub struct BadPixelCount {
+    /// Expected pixel count from size
+    pub expected: u64,
+    /// Actual pixel count in data
+    pub actual: usize,
+    /// Expected width
+    pub width: u32,
+    /// Expected height
+    pub height: u32,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn image_construction() {
+        let i = Image::build(vec![1, 2, 3, 4, 5, 6], ImageSize::new(2, 3));
+        assert!(i.is_ok());
+
+        let i = Image::build(vec![1, 2, 3, 4, 5, 6], ImageSize::new(3, 2));
+        assert!(i.is_ok());
+
+        let i = Image::build(vec![1, 2, 3, 4, 5], ImageSize::new(2, 3));
+        let Err(e) = i else {
+            panic!("expected error, got valid image");
+        };
+        assert_eq!(
+            e,
+            BadPixelCount {
+                expected: 6,
+                actual: 5,
+                width: 2,
+                height: 3,
+            }
+        );
+    }
+}
