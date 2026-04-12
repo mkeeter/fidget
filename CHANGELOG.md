@@ -2,6 +2,16 @@
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
   thanks [@Wulfsta](https://github.com/Wulfsta)
 - Bumped many dependencies
+- Add `Image::build` function to build an image from a `Vec<T>` and
+  `ImageSizeLike`, returning an error if the data size is incorrect.
+- Revamping `fidget-bytecode`
+    - Reserve register `u8::MAX` to represent an inline immediate
+    - Remove separate opcodes, e.g. `SubRegReg`, `SubRegImm`, and `SubImmReg`
+      now all generate `BytecodeOp::Sub` (using the reserved register as needed
+      for immediates).
+- Add `PartialEq` for `GeometryPixel`
+- Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
+    - This is even more experimental than the rest of Fidget!
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))

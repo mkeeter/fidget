@@ -325,6 +325,23 @@ impl<P, S: ImageSizeLike> Image<P, S> {
         );
         row * self.width() + col
     }
+
+    /// Builds an image from its components
+    ///
+    /// Returns an error if `data` does not match the number of pixels in `size`
+    pub fn build(data: Vec<P>, size: S) -> Result<Self, BadPixelCount> {
+        let expected = size.width() as usize * size.height() as usize;
+        let actual = data.len();
+        if expected != actual {
+            return Err(BadPixelCount {
+                expected,
+                actual,
+                width: size.width(),
+                height: size.height(),
+            });
+        }
+        Ok(Self { data, size })
+    }
 }
 
 impl<P, S> Image<P, S> {
@@ -417,7 +434,9 @@ impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
 ///
 /// This type can be passed directly in a buffer to the GPU.
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable)]
+#[derive(
+    Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable, PartialEq,
+)]
 pub struct GeometryPixel {
     /// Z position of this pixel, in voxel units
     ///
@@ -458,3 +477,47 @@ impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
 
 /// Three-channel color image
 pub type ColorImage = Image<[u8; 3]>;
+
+/// Error type for image builder
+#[derive(thiserror::Error, Debug, PartialEq)]
+#[error(
+    "bad pixel count: expected {expected} ({width} × {height}), got {actual}"
+)]
+pub struct BadPixelCount {
+    /// Expected pixel count from size
+    expected: usize,
+    /// Actual pixel count in data
+    actual: usize,
+    /// Expected width
+    width: u32,
+    /// Expected height
+    height: u32,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn image_construction() {
+        let i = Image::build(vec![1, 2, 3, 4, 5, 6], ImageSize::new(2, 3));
+        assert!(i.is_ok());
+
+        let i = Image::build(vec![1, 2, 3, 4, 5, 6], ImageSize::new(3, 2));
+        assert!(i.is_ok());
+
+        let i = Image::build(vec![1, 2, 3, 4, 5], ImageSize::new(2, 3));
+        let Err(e) = i else {
+            panic!("expected error, got valid image");
+        };
+        assert_eq!(
+            e,
+            BadPixelCount {
+                expected: 6,
+                actual: 5,
+                width: 2,
+                height: 3,
+            }
+        );
+    }
+}
