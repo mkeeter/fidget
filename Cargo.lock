@@ -1532,7 +1532,9 @@ name = "fidget-bytecode"
 version = "0.4.3"
 dependencies = [
  "fidget-core",
+ "serde",
  "strum",
+ "thiserror 2.0.18",
  "workspace-hack",
  "zerocopy",
 ]
