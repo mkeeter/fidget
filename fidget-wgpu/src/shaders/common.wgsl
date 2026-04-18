@@ -25,12 +25,6 @@ struct Config {
     /// `tape_data_offset` should be reset to this value between strata
     root_tape_len: atomic<u32>,
 
-    /// Number of root tiles in a strata
-    strata_size: u32,
-
-    // Round to multiple of 8
-    _padding: u32,
-
     /// Tape data, tightly packed per-tile (flexible array member)
     tape_data: array<TapeWord>,
 }
@@ -71,9 +65,6 @@ fn nan_f32() -> f32 {
 /// this buffer is packed.
 @group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
 
-const TILE_TAPE_STRATA_SHIFT: u32 = 26;
-const TILE_TAPE_MASK: u32 = (1 << TILE_TAPE_STRATA_SHIFT) - 1;
-
 /// For a given position and recursion level, return the offset into `tile_tape`
 fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
     let size64 = config.render_size / 64;
@@ -93,19 +84,19 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
         return offset
             + corner_pos16.x
             + corner_pos16.y * size16.x
-            + (corner_pos16.z % (4 * config.strata_size)) * size16.x * size16.y;
+            + (corner_pos16.z % 4) * size16.x * size16.y;
     }
 
     let size4 = config.render_size / 4;
     offset += size16.x
         * size16.y
-        * 4 * config.strata_size;  // Z tiles
+        * 4;  // Z tiles
     if level == 4u {
         let corner_pos4 = corner_pos / 4;
         return offset
             + corner_pos4.x
             + corner_pos4.y * size4.x
-            + (corner_pos4.z % (16 * config.strata_size)) * size4.x * size4.y;
+            + (corner_pos4.z % 16) * size4.x * size4.y;
     }
 
     return 0;
