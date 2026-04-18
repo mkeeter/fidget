@@ -50,18 +50,16 @@ fn normals_main(
 /// position, e.g. preferring tapes specialized to 4x4x4 regions, then
 /// 16x16x16, then 64x64x64.
 fn get_tape_start(corner_pos: vec3u) -> u32 {
-    // The 4^3 and 16^3 tiles are reused between strata, so we have to check Z
     let index4 = get_tape_offset_for_level(corner_pos, 4u);
-    // that the Z position is valid for the current strata.
     let t4 = tile_tape[index4];
-    if t4 != 0 && t4 >> TILE_TAPE_STRATA_SHIFT == corner_pos.z / 4 {
-        return t4 & TILE_TAPE_MASK;
+    if t4 != 0 {
+        return t4;
     }
 
     let index16 = get_tape_offset_for_level(corner_pos, 16u);
     let t16 = tile_tape[index16];
-    if t16 != 0 && t16 >> TILE_TAPE_STRATA_SHIFT == corner_pos.z / 16 {
-        return t16 & TILE_TAPE_MASK;
+    if t16 != 0 {
+        return t16;
     }
 
     let index64 = get_tape_offset_for_level(corner_pos, 64u);
