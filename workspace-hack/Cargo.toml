@@ -42,6 +42,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
 fastrand = { version = "2" }
 half = { version = "2", default-features = false, features = ["num-traits"] }
+hashbrown = { version = "0.17" }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
@@ -55,6 +56,7 @@ syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "vis
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 fastrand = { version = "2" }
+hashbrown = { version = "0.17" }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
@@ -84,6 +86,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
 fastrand = { version = "2" }
 half = { version = "2", default-features = false, features = ["num-traits"] }
+hashbrown = { version = "0.17" }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
@@ -97,6 +100,7 @@ syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "vis
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 fastrand = { version = "2" }
+hashbrown = { version = "0.17" }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
