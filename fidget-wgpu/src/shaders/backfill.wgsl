@@ -4,17 +4,28 @@
 
 // Clear tile counters
 @group(1) @binding(2) var<storage, read_write> count_clear: array<u32, 4>;
+@group(1) @binding(3) var<storage, read_write> sort_clear: array<u32, 4>;
+@group(1) @binding(4) var<storage, read_write> z_hist: array<u32>;
 
 override TILE_SIZE: u32;
 
-// Dispatch size is one kernel per XY tile, each of which samples a 4x4 region
+// Dispatch is X-only, one thread per XY tile
+//
+// Each thread samples a 4x4 region (using nested loops), no cooperation
 @compute @workgroup_size(64)
 fn backfill_main(
-    @builtin(global_invocation_id) global_id: vec3u
+    @builtin(global_invocation_id) global_id: vec3u,
+    @builtin(num_workgroups) num_workgroups: vec3u,
 ) {
-    // Reset an unused counter
-    if global_id.x < 4 {
+    // Reset counters from the previous stage
+    for (var i = global_id.x; i < 4; i += num_workgroups.x * 64u) {
         count_clear[global_id.x] = 0u;
+        sort_clear[global_id.x] = 0u;
+    }
+
+    // Reset the histogram from the previous stage
+    for (var i = global_id.x; i < arrayLength(&z_hist); i += num_workgroups.x * 64u) {
+        z_hist[i] = 0u;
     }
 
     let SUBTILE_SIZE = TILE_SIZE / 4u;
