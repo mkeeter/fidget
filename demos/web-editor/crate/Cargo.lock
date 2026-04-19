@@ -2021,6 +2021,7 @@ dependencies = [
  "either",
  "fastrand",
  "half",
+ "hashbrown 0.17.0",
  "image",
  "indexmap",
  "libc",
