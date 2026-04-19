@@ -79,6 +79,7 @@ const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
 const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
 const DUMMY_STACK_SHADER: &str = include_str!("shaders/dummy_stack.wgsl");
 const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
+const REPACK_SHADER: &str = include_str!("shaders/repack.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
 const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
@@ -218,6 +219,14 @@ fn interval_root_shader(reg_count: u8) -> String {
     shader_code
 }
 
+/// Returns a shader for interval root tile repacking
+fn repack_shader() -> String {
+    let mut shader_code = String::new();
+    shader_code += REPACK_SHADER;
+    shader_code += COMMON_SHADER;
+    shader_code
+}
+
 /// Returns a shader for interval tile evaluation
 fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
@@ -341,6 +350,7 @@ impl RootContext {
                 label: None,
                 entries: &[
                     buffer_rw(0), // tiles_out
+                    buffer_rw(1), // tile64_zmin
                 ],
             });
 
@@ -389,10 +399,16 @@ impl RootContext {
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &self.bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffers.tile64.tiles.as_entire_binding(),
-                }],
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buffers.tile64.tiles.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: buffers.tile64.zmax.as_entire_binding(),
+                    },
+                ],
             });
 
         compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
@@ -402,6 +418,105 @@ impl RootContext {
         let nx = render_size.nx().div_ceil(4);
         let ny = render_size.ny().div_ceil(4);
         let nz = render_size.nz().div_ceil(4);
+        compute_pass.dispatch_workgroups(nx, ny, nz);
+    }
+}
+
+/// Repack context, which strata-sorts a list of 64³ tiles
+struct RepackContext {
+    /// Pipeline for 64³ tile packing
+    repack_pipeline: wgpu::ComputePipeline,
+
+    /// Bind group layout
+    bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl RepackContext {
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        // Create bind group layout and bind group
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_ro(0), // tiles_out
+                    buffer_ro(1), // tile64_zmin
+                    buffer_rw(2), // strata_tiles
+                ],
+            });
+
+        let repack_pipeline = {
+            let shader_code = repack_shader();
+            let pipeline_layout = device.create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[
+                        common_bind_group_layout,
+                        &bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                },
+            );
+            let shader_module =
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("repack"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("repack_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        };
+
+        Self {
+            bind_group_layout,
+            repack_pipeline,
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &Context,
+        buffers: &Buffers,
+        render_size: RenderSize,
+        compute_pass: &mut wgpu::ComputePass,
+    ) {
+        let bind_group =
+            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buffers.tile64.tiles.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: buffers.tile64.zmax.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buffers.tile64.strata.as_entire_binding(),
+                    },
+                ],
+            });
+
+        compute_pass.set_pipeline(&self.repack_pipeline);
+        compute_pass.set_bind_group(1, &bind_group, &[]);
+
+        // Workgroup is 64x1x1, so we divide on the X axis.  It doesn't matter
+        // much; we just need one thread per possible output tile from the
+        // previous stage, i.e. `(nx * ny * nz)` total threads.  This could be
+        // optimized further with indirect dispatch, but ehhhhhhh
+        let nx = render_size.nx().div_ceil(64);
+        let ny = render_size.ny();
+        let nz = render_size.nz();
         compute_pass.dispatch_workgroups(nx, ny, nz);
     }
 }
@@ -527,7 +642,7 @@ impl IntervalContext {
                         binding: 0,
                         resource: buffers
                             .tile64
-                            .tiles
+                            .strata
                             .slice(offset_bytes..)
                             .into(),
                     },
@@ -548,7 +663,7 @@ impl IntervalContext {
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group16, &[]);
         compute_pass
-            .dispatch_workgroups_indirect(&buffers.tile64.tiles, offset_bytes);
+            .dispatch_workgroups_indirect(&buffers.tile64.strata, offset_bytes);
 
         let bind_group4 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -783,6 +898,7 @@ pub struct Context {
     bind_group_layout: wgpu::BindGroupLayout,
 
     root_ctx: RootContext,
+    repack_ctx: RepackContext,
     interval_ctx: IntervalContext,
     voxel_ctx: VoxelContext,
     normals_ctx: NormalsContext,
@@ -825,8 +941,12 @@ impl<const N: usize> TileBuffers<N> {
 /// Root tile buffers store strata-packed tile lists
 #[derive(Clone)]
 struct RootTileBuffers<const N: usize> {
+    /// Initial output tiles
     tiles: wgpu::Buffer,
+    /// Strata-sorted output tiles
+    strata: wgpu::Buffer,
     zmin: wgpu::Buffer,
+    zmax: wgpu::Buffer,
 }
 
 impl<const N: usize> RootTileBuffers<N> {
@@ -837,25 +957,44 @@ impl<const N: usize> RootTileBuffers<N> {
         let ny = render_size.ny() as usize;
         let nz = render_size.nz() as usize;
 
+        // Allocate enough words to write all of the output tiles
+        let tiles = new_buffer::<u32>(
+            device,
+            format!("tiles_out{N}"),
+            // wg_dispatch: [u32; 3] (unused)
+            // count: u32,
+            4 + nx * ny * nz,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        // Note that this is allocated in bytes, rather than words
         let strata_size = strata_size_bytes(render_size);
         let total_size = strata_size * nz;
-
-        let tiles = new_buffer::<u8>(
-            // bytes
+        let strata = new_buffer::<u8>(
             device,
-            format!("active_tile{N}"),
-            // wg_dispatch: [u32; 3]
-            // count: u32,
+            format!("strata_tile{N}"),
             total_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
+
         let zmin = new_buffer::<u32>(
             device,
             format!("tile{N}_zmin"),
             nx * ny,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
-        Self { tiles, zmin }
+        let zmax = new_buffer::<u32>(
+            device,
+            format!("tile{N}_zmax"),
+            nx * ny,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+        Self {
+            tiles,
+            strata,
+            zmin,
+            zmax,
+        }
     }
 }
 
@@ -1065,6 +1204,7 @@ impl Context {
             });
 
         let root_ctx = RootContext::new(&device, &common_bind_group_layout);
+        let repack_ctx = RepackContext::new(&device, &common_bind_group_layout);
         let interval_ctx =
             IntervalContext::new(&device, &common_bind_group_layout);
         let voxel_ctx = VoxelContext::new(&device, &common_bind_group_layout);
@@ -1080,6 +1220,7 @@ impl Context {
             queue,
             bind_group_layout: common_bind_group_layout,
             root_ctx,
+            repack_ctx,
             interval_ctx,
             voxel_ctx,
             normals_ctx,
@@ -1222,10 +1363,13 @@ impl Context {
             render_size,
             &mut compute_pass,
         );
+        // Repack root tiles into strata
+        self.repack_ctx
+            .run(self, buffers, render_size, &mut compute_pass);
 
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         let strata_count = (render_size.depth() as usize).div_ceil(64);
-        for strata in (0..strata_count).rev() {
+        for strata in 0..strata_count {
             self.interval_ctx.run(
                 self,
                 buffers,
@@ -1466,7 +1610,7 @@ impl BackfillContext {
             &buffers.tile64.zmin,
             buffers
                 .tile64
-                .tiles
+                .strata
                 .slice(offset_bytes..offset_bytes + 16)
                 .into(),
         );
@@ -1615,12 +1759,19 @@ impl ClearContext {
     }
 
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
+        // Clear only the `count` member of the tile64 `tiles_out` buffer
+        encoder.clear_buffer(&buffers.tile64.tiles, 12, Some(4));
+
+        // Clear all of the heightmaps and output maps
         encoder.clear_buffer(&buffers.tile64.zmin, 0, None);
+        encoder.clear_buffer(&buffers.tile64.zmax, 0, None);
         encoder.clear_buffer(&buffers.tile16.zmin, 0, None);
         encoder.clear_buffer(&buffers.tile4.zmin, 0, None);
         encoder.clear_buffer(&buffers.voxels, 0, None);
         encoder.clear_buffer(&buffers.heightmap, 0, None);
         encoder.clear_buffer(&buffers.geom, 0, None);
+
+        // Clear the whole tile tape map (TODO is this needed?)
         encoder.clear_buffer(&buffers.tile_tapes, 0, None);
     }
 }
@@ -1656,6 +1807,7 @@ mod test {
             (interval_tiles_shader(16), "interval tiles"),
             (voxel_tiles_shader(16), "voxel tiles"),
             (normals_shader(16), "normals tiles"),
+            (repack_shader(), "repack"),
             (merge_shader(), "merge"),
             (backfill_shader(), "backfill"),
         ] {
