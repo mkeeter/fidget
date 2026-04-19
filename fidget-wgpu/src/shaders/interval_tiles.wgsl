@@ -9,6 +9,7 @@
 
 @group(1) @binding(2) var<storage, read_write> subtiles_out: TileListOutput;
 @group(1) @binding(3) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
+@group(1) @binding(4) var<storage, read_write> subtile_zhist: array<atomic<u32>>;
 
 /// Input tile size; one input tile maps to a 4x4x4 workgroup
 override TILE_SIZE: u32;
@@ -96,8 +97,10 @@ fn interval_tile_main(
             (subtile_corner.z * size_subtiles.x * size_subtiles.y);
         subtiles_out.active_tiles[offset] = subtile_index_xyz;
 
-        // Update the indirect dispatch count
-        let count = offset + 1u;
+        // Update the indirect dispatch count.  We'll divide by 64 here
+        // (rounding up) because each thread in the sorting pass handles a
+        // single tile, and we dispatch that pass with [64, 1, 1] workgroups
+        let count = ((offset + 1u) + 64u) / 64u;
         let wg_dispatch_x = min(count, 32768u);
         let wg_dispatch_y = (count + 32767u) / 32768u;
         atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
@@ -111,6 +114,14 @@ fn interval_tile_main(
     }
     let next_tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
     tile_tape[next_tape_offset] = tape_start;
+
+    // Update the cumsum histogram.  This is a little inefficient, because we're
+    // building the cumsum by iterating over the prefix (instead of doing a
+    // proper prefix sum), but the worst-case is iterating over 16 values.
+    let stz = (corner_pos.z % 64u) / SUBTILE_SIZE;
+    for (var i=0u; i <= stz; i += 1) {
+        atomicAdd(&subtile_zhist[i], 1u);
+    }
 }
 
 /// Allocates a new chunk, returning a past-the-end pointer
