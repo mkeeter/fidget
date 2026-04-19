@@ -18,7 +18,7 @@ fn backfill_main(
     @builtin(num_workgroups) num_workgroups: vec3u,
 ) {
     // Reset counters from the previous stage
-    for (var i = global_id.x; i < 4; i += num_workgroups.x * 64u) {
+    if global_id.x < 4 {
         count_clear[global_id.x] = 0u;
         sort_clear[global_id.x] = 0u;
     }

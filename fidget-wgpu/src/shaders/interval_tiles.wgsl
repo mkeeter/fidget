@@ -106,6 +106,15 @@ fn interval_tile_main(
         atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
         atomicMax(&subtiles_out.wg_size[1], wg_dispatch_y);
         atomicMax(&subtiles_out.wg_size[2], 1u);
+
+        // Update the cumsum histogram.  This is a little inefficient, because
+        // we're building the cumsum by iterating over the prefix (instead of
+        // doing a proper prefix sum), but the worst-case is iterating over 16
+        // values.
+        let stz = (corner_pos.z % 64u) / SUBTILE_SIZE;
+        for (var i=stz; i < arrayLength(&subtile_zhist); i += 1) {
+            atomicAdd(&subtile_zhist[i], 1u);
+        }
     }
 
     let next = simplify_tape(out.pos, out.count, &stack);
@@ -114,14 +123,6 @@ fn interval_tile_main(
     }
     let next_tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
     tile_tape[next_tape_offset] = tape_start;
-
-    // Update the cumsum histogram.  This is a little inefficient, because we're
-    // building the cumsum by iterating over the prefix (instead of doing a
-    // proper prefix sum), but the worst-case is iterating over 16 values.
-    let stz = (corner_pos.z % 64u) / SUBTILE_SIZE;
-    for (var i=0u; i <= stz; i += 1) {
-        atomicAdd(&subtile_zhist[i], 1u);
-    }
 }
 
 /// Allocates a new chunk, returning a past-the-end pointer

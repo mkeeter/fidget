@@ -688,7 +688,7 @@ impl IntervalContext {
                 module: &shader_module,
                 entry_point: Some("sort_main"),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("SUBTILE_SIZE", 16.0)],
+                    constants: &[("SUBTILE_SIZE", 4.0)],
                     ..Default::default()
                 },
                 cache: None,
@@ -1043,9 +1043,13 @@ pub struct Context {
 
 #[derive(Clone)]
 struct TileBuffers<const N: usize> {
+    /// Tiles written by the stage outputing N^3 tiles
     tiles: wgpu::Buffer,
+    /// Sorted version of [`tiles`](Self::tiles)
     sorted: wgpu::Buffer,
+    /// Minimum Z height at each XY tile
     zmin: wgpu::Buffer,
+    /// Histogram of Z values (used when sorting)
     z_hist: wgpu::Buffer,
 }
 
@@ -1062,7 +1066,9 @@ impl<const N: usize> TileBuffers<N> {
             // wg_dispatch: [u32; 3]
             // count: u32,
             4 + nx * ny * nz,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::INDIRECT
+                | wgpu::BufferUsages::COPY_SRC,
         );
         let sorted = new_buffer::<u32>(
             device,
@@ -1070,7 +1076,9 @@ impl<const N: usize> TileBuffers<N> {
             // wg_dispatch: [u32; 3]
             // count: u32,
             4 + nx * ny * nz,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::INDIRECT
+                | wgpu::BufferUsages::COPY_SRC,
         );
         let zmin = new_buffer::<u32>(
             device,
@@ -1083,7 +1091,9 @@ impl<const N: usize> TileBuffers<N> {
             device,
             format!("tile{N}_zhist"),
             nz,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
         );
 
         Self {
@@ -1417,6 +1427,14 @@ impl Context {
     ) -> GeometryBuffer {
         self.submit(shape, buffers, &settings);
         let buffer_slice = self.map_image(buffers);
+        let tiles = self.read_buffer::<u32>(&buffers.tile4.tiles);
+        println!("tile dispatch: {:?}", &tiles[..4]);
+        println!("tiles: {:?}", &tiles[4..][..tiles[3] as usize + 1]);
+        let sorted = self.read_buffer::<u32>(&buffers.tile4.sorted);
+        println!("sorted dispatch: {:?}", &sorted[..4]);
+        println!("sorted: {:?}", &sorted[4..][..sorted[3] as usize + 1]);
+        let z_hist = self.read_buffer::<u32>(&buffers.tile4.z_hist);
+        println!("z_hist: {:?}", &z_hist);
         self.read_mapped_image(buffers, &buffer_slice)
     }
 
@@ -1941,15 +1959,15 @@ impl ClearContext {
         encoder.clear_buffer(&buffers.tile64.zmin, 0, None);
         encoder.clear_buffer(&buffers.tile64.zmax, 0, None);
         encoder.clear_buffer(&buffers.tile16.zmin, 0, None);
-        encoder.clear_buffer(&buffers.tile16.z_hist, 0, None);
         encoder.clear_buffer(&buffers.tile4.zmin, 0, None);
-        encoder.clear_buffer(&buffers.tile4.z_hist, 0, None);
         encoder.clear_buffer(&buffers.voxels, 0, None);
         encoder.clear_buffer(&buffers.heightmap, 0, None);
         encoder.clear_buffer(&buffers.geom, 0, None);
 
         // Clear the whole tile tape map (TODO is this needed?)
         encoder.clear_buffer(&buffers.tile_tapes, 0, None);
+
+        // tiles / sorted counters and z_hist are cleared in backfill
     }
 }
 
