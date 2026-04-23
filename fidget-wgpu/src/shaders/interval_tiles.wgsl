@@ -112,7 +112,7 @@ fn interval_tile_main(
         // doing a proper prefix sum), but the worst-case is iterating over 16
         // values.
         let stz = (corner_pos.z % 64u) / SUBTILE_SIZE;
-        for (var i=stz; i < arrayLength(&subtile_zhist); i += 1) {
+        for (var i=0u; i <= stz; i += 1u) {
             atomicAdd(&subtile_zhist[i], 1u);
         }
     }
