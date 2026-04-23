@@ -11,13 +11,15 @@ fn voxel_ray_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
-    // Tile index is packed into two words of the workgroup ID, due to dispatch
-    // size limits on any single dimension.
-    let active_tile4_index = workgroup_id.x + workgroup_id.y * 32768;
-    if active_tile4_index >= tiles_in.count {
-        return;
+    for (var i=workgroup_id.x; i < tiles_in.count; i += 32768) {
+        voxel_tile_worker(i, local_id);
     }
+}
 
+fn voxel_tile_worker(
+    active_tile4_index: u32,
+    local_id: vec3u
+) {
     // Convert to a size in tile units
     let size64 = config.render_size / 64;
     let size16 = size64 * 4u;
