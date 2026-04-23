@@ -22,14 +22,15 @@ fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
-    // Tile index is packed into two words of the workgroup ID, due to dispatch
-    // size limits on any single dimension.  This means that it's possible to
-    // have more dispatches than active tiles.
-    let active_tile_index = workgroup_id.x + workgroup_id.y * 32768;
-    if active_tile_index >= tiles_in.count {
-        return;
+    for (var i=workgroup_id.x; i < tiles_in.count; i += 32768) {
+        interval_tile_worker(i, local_id);
     }
+}
 
+fn interval_tile_worker(
+    active_tile_index: u32,
+    local_id: vec3u
+) {
     // Convert to a size in tile units
     let size64 = config.render_size / 64;
     let size_tiles = size64 * (64 / TILE_SIZE);

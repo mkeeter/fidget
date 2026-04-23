@@ -43,12 +43,12 @@ fn repack_main(
     // the actual tile index is somewhere past the 4th word
     strata_tiles[i + 4 + offset] = t;
 
-    // write the workgroup sizes to the first 3 words in the `struct`
+    // Write the workgroup sizes to the first 3 words in the `struct`
+    // We dispatch a maximum of [32768, 1, 1] and iterate in the shader
     let count = offset + 1u;
     let wg_dispatch_x = min(count, 32768u);
-    let wg_dispatch_y = (count + 32767u) / 32768u;
     atomicMax(&strata_tiles[i], wg_dispatch_x);
-    atomicMax(&strata_tiles[i + 1], wg_dispatch_y);
+    atomicMax(&strata_tiles[i + 1], 1u);
     atomicMax(&strata_tiles[i + 2], 1u);
 }
 
