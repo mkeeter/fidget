@@ -1066,9 +1066,7 @@ impl<const N: usize> TileBuffers<N> {
             // wg_dispatch: [u32; 3]
             // count: u32,
             4 + nx * ny * nz,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::INDIRECT
-                | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
         let sorted = new_buffer::<u32>(
             device,
@@ -1076,9 +1074,7 @@ impl<const N: usize> TileBuffers<N> {
             // wg_dispatch: [u32; 3]
             // count: u32,
             4 + nx * ny * nz,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::INDIRECT
-                | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
         let zmin = new_buffer::<u32>(
             device,
@@ -1091,9 +1087,7 @@ impl<const N: usize> TileBuffers<N> {
             device,
             format!("tile{N}_zhist"),
             nz,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         Self {
@@ -1427,14 +1421,6 @@ impl Context {
     ) -> GeometryBuffer {
         self.submit(shape, buffers, &settings);
         let buffer_slice = self.map_image(buffers);
-        let tiles = self.read_buffer::<u32>(&buffers.tile4.tiles);
-        println!("tile dispatch: {:?}", &tiles[..4]);
-        println!("tiles: {:?}", &tiles[4..][..tiles[3] as usize + 1]);
-        let sorted = self.read_buffer::<u32>(&buffers.tile4.sorted);
-        println!("sorted dispatch: {:?}", &sorted[..4]);
-        println!("sorted: {:?}", &sorted[4..][..sorted[3] as usize + 1]);
-        let z_hist = self.read_buffer::<u32>(&buffers.tile4.z_hist);
-        println!("z_hist: {:?}", &z_hist);
         self.read_mapped_image(buffers, &buffer_slice)
     }
 
