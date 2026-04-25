@@ -20,7 +20,7 @@
 //! // This calls directly into that machine code!
 //! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0)?;
 //! assert_eq!(r, 0.1 + 0.3);
-//! # Ok::<(), fidget_core::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::mmap::{Mmap, MmapWriter};

@@ -66,9 +66,6 @@ pub mod types;
 pub mod var;
 pub mod vm;
 
-mod error;
-pub use error::Error;
-
 #[cfg(test)]
 mod test {
     use crate::context::*;

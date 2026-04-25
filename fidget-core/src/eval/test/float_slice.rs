@@ -153,7 +153,9 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         h.insert(v2.index().unwrap(), &[4.0, 5.0]);
         assert!(matches!(
             eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
-            Err(ShapeEvalError::BadVarIndex { .. })
+            Err(ShapeEvalError::Eval(BulkEvalError(
+                BulkArgError::BadVarSlice(..)
+            )))
         ));
     }
 

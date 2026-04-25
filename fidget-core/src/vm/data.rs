@@ -55,7 +55,7 @@ use std::sync::Arc;
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
-/// # Ok::<(), fidget_core::context::BadNode>(())
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
 /// Despite this peek at its internals, users are unlikely to touch `VmData`
