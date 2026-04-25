@@ -32,6 +32,7 @@ use crate::{
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     types::{Grad, Interval},
     var::{Var, VarIndex, VarMap},
+    vm::BadTrace,
 };
 use nalgebra::{Matrix4, Point3};
 use std::collections::HashMap;
@@ -185,7 +186,7 @@ impl<F: Function + Clone, T> Shape<F, T> {
         trace: &F::Trace,
         storage: F::Storage,
         workspace: &mut F::Workspace,
-    ) -> Result<Self, Error>
+    ) -> Result<Self, BadTrace>
     where
         Self: Sized,
     {
@@ -339,7 +340,7 @@ pub trait EzShape<F: Function> {
     ) -> ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape>;
 
     /// Computes a simplified tape using the given trace
-    fn ez_simplify(&self, trace: &F::Trace) -> Result<Self, Error>
+    fn ez_simplify(&self, trace: &F::Trace) -> Result<Self, BadTrace>
     where
         Self: Sized;
 }
@@ -369,7 +370,7 @@ impl<F: Function, T> EzShape<F> for Shape<F, T> {
         self.grad_slice_tape(Default::default())
     }
 
-    fn ez_simplify(&self, trace: &F::Trace) -> Result<Self, Error> {
+    fn ez_simplify(&self, trace: &F::Trace) -> Result<Self, BadTrace> {
         let mut workspace = Default::default();
         self.simplify(trace, Default::default(), &mut workspace)
     }

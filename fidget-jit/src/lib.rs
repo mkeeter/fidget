@@ -35,7 +35,7 @@ use fidget_core::{
     render::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
-    vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
+    vm::{BadTrace, Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
 };
 
 use dynasmrt::{
@@ -927,7 +927,7 @@ impl Function for JitFunction {
         trace: &Self::Trace,
         storage: Self::Storage,
         workspace: &mut Self::Workspace,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, BadTrace> {
         self.0.simplify(trace, storage, workspace).map(JitFunction)
     }
 

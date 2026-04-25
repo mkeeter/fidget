@@ -1,9 +1,9 @@
 //! Traits and data structures for function evaluation
 use crate::{
-    Error,
     context::{BadNode, Context, Node},
     types::{Grad, Interval},
     var::VarMap,
+    vm::BadTrace,
 };
 
 #[cfg(any(test, feature = "eval-tests"))]
@@ -173,7 +173,7 @@ pub trait Function: Send + Sync + Clone {
         trace: &Self::Trace,
         storage: Self::Storage,
         workspace: &mut Self::Workspace,
-    ) -> Result<Self, Error>
+    ) -> Result<Self, BadTrace>
     where
         Self: Sized;
 

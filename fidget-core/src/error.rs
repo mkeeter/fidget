@@ -4,10 +4,6 @@ use thiserror::Error;
 /// Universal error type for Fidget
 #[derive(Error, Debug)]
 pub enum Error {
-    /// Choice slice length does not match choice count
-    #[error("choice slice length ({0}) does not match choice count ({1})")]
-    BadChoiceSlice(usize, usize),
-
     /// Variable slice lengths are mismatched
     #[error("variable slice lengths are mismatched")]
     MismatchedSlices,
@@ -23,8 +19,4 @@ pub enum Error {
     /// Could not solve for matrix pseudo-inverse
     #[error("could not solve for matrix pseudo-inverse: {0}")]
     SingularMatrix(&'static str),
-
-    /// IO error; see inner code for details
-    #[error("io error: {0}")]
-    IoError(#[from] std::io::Error),
 }

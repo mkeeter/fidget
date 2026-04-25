@@ -1,6 +1,5 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
-    Error,
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{BadNode, Context, Node},
     var::VarMap,
@@ -126,12 +125,9 @@ impl<const N: usize> VmData<N> {
         choices: &[Choice],
         workspace: &mut VmWorkspace<M>,
         mut tape: VmData<M>,
-    ) -> Result<VmData<M>, Error> {
+    ) -> Result<VmData<M>, BadChoiceSlice> {
         if choices.len() != self.choice_count() {
-            return Err(Error::BadChoiceSlice(
-                choices.len(),
-                self.choice_count(),
-            ));
+            return Err(BadChoiceSlice(choices.len(), self.choice_count()));
         }
         tape.ssa.reset();
 
@@ -327,6 +323,11 @@ impl<const N: usize> VmData<N> {
         }
     }
 }
+
+/// Error type for simplification
+#[derive(thiserror::Error, Debug)]
+#[error("choice slice length ({0}) does not match choice count ({1})")]
+pub struct BadChoiceSlice(usize, usize);
 
 ////////////////////////////////////////////////////////////////////////////////
 

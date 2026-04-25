@@ -18,6 +18,7 @@ mod choice;
 mod data;
 
 pub use choice::Choice;
+use data::BadChoiceSlice;
 pub use data::{VmData, VmWorkspace};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -167,11 +168,16 @@ impl<const N: usize> GenericVmFunction<N> {
         trace: &VmTrace,
         storage: VmData<M>,
         workspace: &mut VmWorkspace<M>,
-    ) -> Result<GenericVmFunction<M>, Error> {
+    ) -> Result<GenericVmFunction<M>, BadTrace> {
         let d = self.0.simplify::<M>(trace.as_slice(), workspace, storage)?;
         Ok(GenericVmFunction(Arc::new(d)))
     }
 }
+
+/// Error type for simplification
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub struct BadTrace(#[from] BadChoiceSlice);
 
 impl<const N: usize> Function for GenericVmFunction<N> {
     type Storage = VmData<N>;
@@ -211,7 +217,7 @@ impl<const N: usize> Function for GenericVmFunction<N> {
         trace: &Self::Trace,
         storage: Self::Storage,
         workspace: &mut Self::Workspace,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, BadTrace> {
         self.simplify_with(trace, storage, workspace)
     }
 
