@@ -1,6 +1,5 @@
 //! Common types for all kinds of rendering
 use crate::{
-    Error,
     eval::{BulkEvaluator, Function, Trace, TracingEvaluator},
     shape::{Shape, ShapeTape},
 };
@@ -189,17 +188,36 @@ impl<F: Function, T> RenderHandle<F, T> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TileSizes(Vec<usize>);
 
+/// Universal error type for Fidget
+#[derive(thiserror::Error, Debug)]
+pub enum TileSizeError {
+    /// Each tile must be divisible by subsequent tiles
+    #[error("bad tile sizes; {0} is not divisible by {1}")]
+    BadTileSize(usize, usize),
+
+    /// Tile size list must be in descending order
+    #[error("bad tile order; {0} is not larger than {1}")]
+    BadTileOrder(usize, usize),
+
+    /// Tile size list must not be empty
+    #[error("tile size list must not be empty")]
+    EmptyTileSizes,
+}
+
 impl TileSizes {
     /// Builds a new tile size list, checking invariants
-    pub fn new(sizes: &[usize]) -> Result<Self, Error> {
+    pub fn new(sizes: &[usize]) -> Result<Self, TileSizeError> {
         if sizes.is_empty() {
-            return Err(Error::EmptyTileSizes);
+            return Err(TileSizeError::EmptyTileSizes);
         }
         for i in 1..sizes.len() {
             if sizes[i - 1] <= sizes[i] {
-                return Err(Error::BadTileOrder(sizes[i - 1], sizes[i]));
+                return Err(TileSizeError::BadTileOrder(
+                    sizes[i - 1],
+                    sizes[i],
+                ));
             } else if !sizes[i - 1].is_multiple_of(sizes[i]) {
-                return Err(Error::BadTileSize(sizes[i - 1], sizes[i]));
+                return Err(TileSizeError::BadTileSize(sizes[i - 1], sizes[i]));
             }
         }
         Ok(Self(sizes.to_vec()))

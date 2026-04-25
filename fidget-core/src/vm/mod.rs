@@ -2,7 +2,7 @@
 use crate::{
     Context, Error,
     compiler::RegOp,
-    context::Node,
+    context::{BadNode, Node},
     eval::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape, Trace,
         TracingEvaluator,
@@ -247,7 +247,7 @@ impl<const N: usize> RenderHints for GenericVmFunction<N> {
 }
 
 impl<const N: usize> MathFunction for GenericVmFunction<N> {
-    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, BadNode> {
         let d = VmData::new(ctx, nodes)?;
         Ok(Self(d.into()))
     }

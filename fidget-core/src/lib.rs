@@ -51,7 +51,7 @@
 //! //     ######################
 //! //       ##################
 //! //           ##########
-//! # Ok::<(), fidget_core::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 #![warn(missing_docs)]
 
@@ -71,7 +71,6 @@ pub use error::Error;
 
 #[cfg(test)]
 mod test {
-    use crate::Error;
     use crate::context::*;
     use crate::var::Var;
 
@@ -86,7 +85,7 @@ mod test {
         let b = ctx.constant(1.0);
         assert_eq!(a, b);
         assert_eq!(ctx.get_const(a).unwrap(), 1.0);
-        assert!(matches!(ctx.get_const(x1), Err(Error::NotAConst)));
+        assert!(matches!(ctx.get_const(x1), Err(ConstError::NotAConst)));
 
         let c = ctx.add(a, b).unwrap();
         assert_eq!(ctx.get_const(c).unwrap(), 2.0);

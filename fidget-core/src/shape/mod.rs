@@ -23,12 +23,12 @@
 //! let tape = shape.ez_point_tape();
 //! let (value, _trace) = eval.eval(&tape, 0.25, 0.0, 0.0)?;
 //! assert_eq!(value, 0.25);
-//! # Ok::<(), fidget_core::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::{
     Error,
-    context::{Context, Node, Tree},
+    context::{BadNode, Context, Node, Tree},
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     types::{Grad, Interval},
     var::{Var, VarIndex, VarMap},
@@ -381,7 +381,7 @@ impl<F: MathFunction> Shape<F> {
         ctx: &Context,
         node: Node,
         axes: [Var; 3],
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, BadNode> {
         let f = F::new(ctx, &[node])?;
         Ok(Self {
             f,
@@ -392,7 +392,7 @@ impl<F: MathFunction> Shape<F> {
     }
 
     /// Builds a new shape from the given node with default (X, Y, Z) axes
-    pub fn new(ctx: &Context, node: Node) -> Result<Self, Error>
+    pub fn new(ctx: &Context, node: Node) -> Result<Self, BadNode>
     where
         Self: Sized,
     {

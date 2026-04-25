@@ -1,5 +1,4 @@
 //! Container types with strongly-typed indexes.
-use crate::Error;
 use std::collections::HashMap;
 
 /// Stores a set of `(V, I)` tuples, with lookup in both directions.
@@ -68,19 +67,24 @@ where
     ///
     /// This is _usually_ the most recently inserted value, except when
     /// `insert` is called on a duplicate.
-    pub fn pop(&mut self) -> Result<V, Error> {
+    pub fn pop(&mut self) -> Result<V, EmptyMap> {
         match self.data.pop() {
             Some(v) => {
                 self.map.remove(&v);
                 Ok(v)
             }
-            None => Err(Error::EmptyMap),
+            None => Err(EmptyMap),
         }
     }
     pub fn keys(&self) -> impl Iterator<Item = I> {
         (0..self.data.len()).map(I::new)
     }
 }
+
+/// Error indicating that an [`IndexMap`] is empty
+#[derive(thiserror::Error, Debug)]
+#[error("`IndexMap` is empty")]
+pub struct EmptyMap;
 
 ////////////////////////////////////////////////////////////////////////////////
 

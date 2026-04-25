@@ -6,7 +6,7 @@
 //! (where [`Tape::vars`](crate::eval::Tape::vars) maps from `Var` to index in
 //! the argument list).
 use crate::Error;
-use crate::context::{Context, IntoNode, Node};
+use crate::context::{BadNode, Context, IntoNode, Node};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -88,7 +88,7 @@ impl std::fmt::Display for Var {
 }
 
 impl IntoNode for Var {
-    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode> {
         Ok(ctx.var(self))
     }
 }

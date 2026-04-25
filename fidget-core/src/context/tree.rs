@@ -1,6 +1,6 @@
 //! Context-free math trees
 use super::op::{BinaryOpcode, UnaryOpcode};
-use crate::{Error, var::Var};
+use crate::{context::NotAVar, var::Var};
 use std::{cmp::Ordering, sync::Arc};
 
 /// Opcode type for trees
@@ -336,9 +336,9 @@ impl Tree {
 }
 
 impl TryFrom<Tree> for Var {
-    type Error = Error;
-    fn try_from(t: Tree) -> Result<Var, Error> {
-        t.var().ok_or(Error::NotAVar)
+    type Error = NotAVar;
+    fn try_from(t: Tree) -> Result<Var, NotAVar> {
+        t.var().ok_or(NotAVar)
     }
 }
 

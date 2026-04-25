@@ -38,7 +38,7 @@
 //! let x = ctx.x();
 //! let y = ctx.y();
 //! let sum = ctx.add(x, y)?;
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), fidget::context::BadNode>(())
 //! ```
 //!
 //! This is efficient, but is awkward to write.  It's also possible to construct

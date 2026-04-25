@@ -2,7 +2,7 @@
 use crate::{
     Error,
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
-    context::{Context, Node},
+    context::{BadNode, Context, Node},
     var::VarMap,
     vm::Choice,
 };
@@ -56,7 +56,7 @@ use std::sync::Arc;
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
-/// # Ok::<(), fidget_core::Error>(())
+/// # Ok::<(), fidget_core::context::BadNode>(())
 /// ```
 ///
 /// Despite this peek at its internals, users are unlikely to touch `VmData`
@@ -76,7 +76,7 @@ pub struct VmData<const N: usize = { u8::MAX as usize }> {
 
 impl<const N: usize> VmData<N> {
     /// Builds a new tape for the given node
-    pub fn new(context: &Context, nodes: &[Node]) -> Result<Self, Error> {
+    pub fn new(context: &Context, nodes: &[Node]) -> Result<Self, BadNode> {
         let (ssa, vars) = SsaTape::new(context, nodes)?;
         let asm = RegTape::new::<N>(&ssa);
         Ok(Self {

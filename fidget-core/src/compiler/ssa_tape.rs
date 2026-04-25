@@ -1,8 +1,8 @@
 //use crate::vm::{RegisterAllocator, Tape as VmTape};
 use crate::{
-    Context, Error,
+    Context,
     compiler::SsaOp,
-    context::{BinaryOpcode, Node, Op, UnaryOpcode},
+    context::{BadNode, BinaryOpcode, Node, Op, UnaryOpcode},
     var::VarMap,
 };
 use serde::{Deserialize, Serialize};
@@ -35,8 +35,11 @@ impl SsaTape {
     /// Flattens a subtree of the graph into straight-line code.
     ///
     /// This should always succeed unless the `root` is from a different
-    /// `Context`, in which case `Error::BadNode` will be returned.
-    pub fn new(ctx: &Context, roots: &[Node]) -> Result<(Self, VarMap), Error> {
+    /// `Context`, in which case [`BadNode`] will be returned.
+    pub fn new(
+        ctx: &Context,
+        roots: &[Node],
+    ) -> Result<(Self, VarMap), BadNode> {
         let mut mapping = HashMap::new();
         let mut parent_count: HashMap<Node, usize> = HashMap::new();
         let mut slot_count = 0;
@@ -56,7 +59,7 @@ impl SsaTape {
             if !seen.insert(node) {
                 continue;
             }
-            let op = ctx.get_op(node).ok_or(Error::BadNode)?;
+            let op = ctx.get_op(node).ok_or(BadNode)?;
             let prev = match op {
                 Op::Const(c) => {
                     mapping.insert(node, Slot::Immediate(c.0 as f32))

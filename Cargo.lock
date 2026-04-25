@@ -1660,6 +1660,7 @@ dependencies = [
  "fidget-core",
  "nalgebra",
  "rand",
+ "thiserror 2.0.18",
  "workspace-hack",
 ]
 

@@ -27,7 +27,7 @@ use crate::mmap::{Mmap, MmapWriter};
 use fidget_core::{
     Error,
     compiler::RegOp,
-    context::{Context, Node},
+    context::{BadNode, Context, Node},
     eval::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
         TracingEvaluator,
@@ -968,7 +968,7 @@ impl RenderHints for JitFunction {
 }
 
 impl MathFunction for JitFunction {
-    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, BadNode> {
         GenericVmFunction::new(ctx, nodes).map(JitFunction)
     }
 }
