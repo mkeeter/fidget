@@ -10,9 +10,9 @@ use strum::IntoDiscriminant;
 
 use fidget_core::context::Tree;
 
-/// Error type for type construction
+/// Error type for axis construction
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum AxisError {
     /// Vector is too short to convert to an axis
     #[error("vector is too short to convert to an axis (length: {0})")]
     TooShort(f64),
@@ -24,15 +24,16 @@ pub enum Error {
     /// Could not normalize vector due to an invalid length
     #[error("could not normalize vector due to an invalid length")]
     BadLength,
+}
 
-    /// Wrong type
-    #[error("wrong type; expected {expected}, got {actual}")]
-    WrongType {
-        /// Expected type
-        expected: Type,
-        /// Actual type
-        actual: Type,
-    },
+/// Error type for conversions
+#[derive(thiserror::Error, Debug)]
+#[error("wrong type; expected {expected}, got {actual}")]
+pub struct WrongType {
+    /// Expected type
+    expected: Type,
+    /// Actual type
+    actual: Type,
 }
 
 /// 2D position
@@ -293,15 +294,15 @@ impl_all!(Vec4);
 pub struct Axis(Vec3);
 
 impl TryFrom<Vec3> for Axis {
-    type Error = Error;
+    type Error = AxisError;
     fn try_from(value: Vec3) -> Result<Self, Self::Error> {
         let norm = value.norm();
         if norm.is_nan() {
-            Err(Error::BadLength)
+            Err(AxisError::BadLength)
         } else if norm < 1e-8 {
-            Err(Error::TooShort(norm))
+            Err(AxisError::TooShort(norm))
         } else if norm > 1e8 {
-            Err(Error::TooLong(norm))
+            Err(AxisError::TooLong(norm))
         } else {
             Ok(Self(value / norm))
         }
@@ -412,12 +413,12 @@ impl Value {
 macro_rules! try_from_type {
     ($ty:ty, $name:ident) => {
         impl<'a> TryFrom<&'a Value> for &'a $ty {
-            type Error = $crate::types::Error;
+            type Error = $crate::types::WrongType;
             fn try_from(v: &'a Value) -> Result<&'a $ty, Self::Error> {
                 if let Value::$name(f) = v {
                     Ok(f)
                 } else {
-                    Err(Self::Error::WrongType {
+                    Err(Self::Error {
                         expected: Type::$name,
                         actual: v.discriminant(),
                     })
