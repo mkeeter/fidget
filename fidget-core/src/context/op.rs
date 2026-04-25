@@ -44,6 +44,65 @@ pub enum BinaryOpcode {
     Or,
 }
 
+impl BinaryOpcode {
+    /// Evaluates the opcode
+    pub fn eval(&self, a: f64, b: f64) -> f64 {
+        match self {
+            BinaryOpcode::Add => a + b,
+            BinaryOpcode::Sub => a - b,
+            BinaryOpcode::Mul => a * b,
+            BinaryOpcode::Div => a / b,
+            BinaryOpcode::Atan => a.atan2(b),
+            BinaryOpcode::Min => a.min(b),
+            BinaryOpcode::Max => a.max(b),
+            BinaryOpcode::Compare => a
+                .partial_cmp(&b)
+                .map(|i| i as i8 as f64)
+                .unwrap_or(f64::NAN),
+            BinaryOpcode::Mod => a.rem_euclid(b),
+            BinaryOpcode::And => {
+                if a == 0.0 {
+                    a
+                } else {
+                    b
+                }
+            }
+            BinaryOpcode::Or => {
+                if a != 0.0 {
+                    a
+                } else {
+                    b
+                }
+            }
+        }
+    }
+}
+
+impl UnaryOpcode {
+    /// Evaluates the opcode
+    pub fn eval(&self, a: f64) -> f64 {
+        match self {
+            UnaryOpcode::Neg => -a,
+            UnaryOpcode::Abs => a.abs(),
+            UnaryOpcode::Recip => 1.0 / a,
+            UnaryOpcode::Sqrt => a.sqrt(),
+            UnaryOpcode::Square => a * a,
+            UnaryOpcode::Floor => a.floor(),
+            UnaryOpcode::Ceil => a.ceil(),
+            UnaryOpcode::Round => a.round(),
+            UnaryOpcode::Sin => a.sin(),
+            UnaryOpcode::Cos => a.cos(),
+            UnaryOpcode::Tan => a.tan(),
+            UnaryOpcode::Asin => a.asin(),
+            UnaryOpcode::Acos => a.acos(),
+            UnaryOpcode::Atan => a.atan(),
+            UnaryOpcode::Exp => a.exp(),
+            UnaryOpcode::Ln => a.ln(),
+            UnaryOpcode::Not => (a == 0.0).into(),
+        }
+    }
+}
+
 /// An operation in a math expression
 ///
 /// `Op`s should be constructed by calling functions on

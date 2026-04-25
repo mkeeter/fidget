@@ -19,7 +19,7 @@ mod indexed;
 mod op;
 mod tree;
 
-use indexed::{EmptyMap, Index, IndexMap, IndexVec, define_index};
+use indexed::{Index, IndexMap, IndexVec, define_index};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 pub use tree::{Tree, TreeOp};
 
@@ -95,20 +95,6 @@ impl Context {
     /// Checks whether the given [`Node`] is valid in this context
     fn check_node(&self, node: Node) -> Result<(), BadNode> {
         self.get_op(node).ok_or(BadNode).map(|_| ())
-    }
-
-    /// Erases the most recently added node from the tree.
-    ///
-    /// A few caveats apply, so this must be used with caution:
-    /// - Existing handles to the node will be invalidated
-    /// - The most recently added node must be unique
-    ///
-    /// In practice, this is only used to delete temporary operation nodes
-    /// during constant folding.  Such nodes which have no handles (because
-    /// they are never returned) and are guaranteed to be unique (because we
-    /// never store them persistently).
-    fn pop(&mut self) -> Result<(), EmptyMap> {
-        self.ops.pop().map(|_| ())
     }
 
     /// Looks up the constant associated with the given node.
@@ -201,13 +187,10 @@ impl Context {
     /// folding.
     fn op_unary(&mut self, a: Node, op: UnaryOpcode) -> Result<Node, BadNode> {
         let op_a = *self.get_op(a).ok_or(BadNode)?;
-        let n = self.ops.insert(Op::Unary(op, a));
-        let out = if matches!(op_a, Op::Const(_)) {
-            let v = self.eval(n, &Default::default()).unwrap();
-            self.pop().unwrap(); // removes `n`
-            self.constant(v)
+        let out = if let Op::Const(a) = op_a {
+            self.constant(op.eval(a.0))
         } else {
-            n
+            self.ops.insert(Op::Unary(op, a))
         };
         Ok(out)
     }
@@ -219,33 +202,12 @@ impl Context {
         b: Node,
         op: BinaryOpcode,
     ) -> Result<Node, BadNode> {
-        self.op_binary_f(a, b, |lhs, rhs| Op::Binary(op, lhs, rhs))
-    }
-
-    /// Find or create a [Node] for a generic binary operation (represented by a
-    /// thunk), with constant folding.
-    fn op_binary_f<F>(
-        &mut self,
-        a: Node,
-        b: Node,
-        f: F,
-    ) -> Result<Node, BadNode>
-    where
-        F: Fn(Node, Node) -> Op,
-    {
         let op_a = *self.get_op(a).ok_or(BadNode)?;
         let op_b = *self.get_op(b).ok_or(BadNode)?;
-
-        // This call to `insert` should always insert the node, because we
-        // don't permanently store operations in the tree that could be
-        // constant-folded (indeed, we pop the node right afterwards)
-        let n = self.ops.insert(f(a, b));
-        let out = if matches!((op_a, op_b), (Op::Const(_), Op::Const(_))) {
-            let v = self.eval(n, &Default::default()).unwrap();
-            self.pop().unwrap(); // removes `n`
-            self.constant(v)
+        let out = if let (Op::Const(a), Op::Const(b)) = (op_a, op_b) {
+            self.constant(op.eval(a.0, b.0))
         } else {
-            n
+            self.ops.insert(Op::Binary(op, a, b))
         };
         Ok(out)
     }
@@ -862,58 +824,13 @@ impl Context {
             Op::Binary(op, a, b) => {
                 let a = get(*a)?;
                 let b = get(*b)?;
-                match op {
-                    BinaryOpcode::Add => a + b,
-                    BinaryOpcode::Sub => a - b,
-                    BinaryOpcode::Mul => a * b,
-                    BinaryOpcode::Div => a / b,
-                    BinaryOpcode::Atan => a.atan2(b),
-                    BinaryOpcode::Min => a.min(b),
-                    BinaryOpcode::Max => a.max(b),
-                    BinaryOpcode::Compare => a
-                        .partial_cmp(&b)
-                        .map(|i| i as i8 as f64)
-                        .unwrap_or(f64::NAN),
-                    BinaryOpcode::Mod => a.rem_euclid(b),
-                    BinaryOpcode::And => {
-                        if a == 0.0 {
-                            a
-                        } else {
-                            b
-                        }
-                    }
-                    BinaryOpcode::Or => {
-                        if a != 0.0 {
-                            a
-                        } else {
-                            b
-                        }
-                    }
-                }
+                op.eval(a, b)
             }
 
             // Unary operations
             Op::Unary(op, a) => {
                 let a = get(*a)?;
-                match op {
-                    UnaryOpcode::Neg => -a,
-                    UnaryOpcode::Abs => a.abs(),
-                    UnaryOpcode::Recip => 1.0 / a,
-                    UnaryOpcode::Sqrt => a.sqrt(),
-                    UnaryOpcode::Square => a * a,
-                    UnaryOpcode::Floor => a.floor(),
-                    UnaryOpcode::Ceil => a.ceil(),
-                    UnaryOpcode::Round => a.round(),
-                    UnaryOpcode::Sin => a.sin(),
-                    UnaryOpcode::Cos => a.cos(),
-                    UnaryOpcode::Tan => a.tan(),
-                    UnaryOpcode::Asin => a.asin(),
-                    UnaryOpcode::Acos => a.acos(),
-                    UnaryOpcode::Atan => a.atan(),
-                    UnaryOpcode::Exp => a.exp(),
-                    UnaryOpcode::Ln => a.ln(),
-                    UnaryOpcode::Not => (a == 0.0).into(),
-                }
+                op.eval(a)
             }
         };
 
