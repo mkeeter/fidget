@@ -1,6 +1,6 @@
 //! Simple virtual machine for shape evaluation
 use crate::{
-    Context, Error,
+    Context,
     compiler::RegOp,
     context::{BadNode, Node},
     eval::{
@@ -10,7 +10,7 @@ use crate::{
     render::{RenderHints, TileSizes},
     shape::Shape,
     types::{Grad, Interval},
-    var::VarMap,
+    var::{BulkArgError, TracingArgError, VarMap},
 };
 use std::sync::Arc;
 
@@ -177,7 +177,7 @@ impl<const N: usize> GenericVmFunction<N> {
 /// Error type for simplification
 #[derive(thiserror::Error, Debug)]
 #[error(transparent)]
-pub struct BadTrace(#[from] BadChoiceSlice);
+pub struct BadTrace(#[from] pub BadChoiceSlice);
 
 impl<const N: usize> Function for GenericVmFunction<N> {
     type Storage = VmData<N>;
@@ -314,6 +314,11 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
     }
 }
 
+/// Error type for tracing evaluation
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub struct TracingEvalError(#[from] pub TracingArgError);
+
 /// VM-based tracing evaluator for intervals
 #[derive(Default)]
 pub struct VmIntervalEval<const N: usize>(TracingVmEval<Interval>);
@@ -328,7 +333,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[Interval],
-    ) -> Result<(&[Interval], Option<&VmTrace>), Error> {
+    ) -> Result<(&[Interval], Option<&VmTrace>), TracingEvalError> {
         tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.data();
         self.0.resize_slots(tape);
@@ -561,7 +566,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[f32],
-    ) -> Result<(&[f32], Option<&VmTrace>), Error> {
+    ) -> Result<(&[f32], Option<&VmTrace>), TracingEvalError> {
         tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.data();
         self.0.resize_slots(tape);
@@ -858,6 +863,11 @@ struct BulkVmEval<T> {
     out: Vec<Vec<T>>,
 }
 
+/// Error type for bulk evaluation
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub struct BulkEvalError(#[from] pub BulkArgError);
+
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size
     fn resize_slots<const N: usize>(&mut self, tape: &VmData<N>, size: usize) {
@@ -888,7 +898,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<'_, f32>, Error> {
+    ) -> Result<BulkOutput<'_, f32>, BulkEvalError> {
         tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.data();
 
@@ -1202,7 +1212,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<'_, Grad>, Error> {
+    ) -> Result<BulkOutput<'_, Grad>, BulkEvalError> {
         tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.data();
         let size = vars.first().map(|v| v.len()).unwrap_or(0);

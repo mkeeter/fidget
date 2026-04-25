@@ -8,7 +8,7 @@
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.
 
-use crate::{Error, eval::Tape};
+use crate::{eval::Tape, vm::TracingEvalError};
 
 /// Evaluator for single values which simultaneously captures an execution trace
 ///
@@ -47,7 +47,7 @@ pub trait TracingEvaluator: Default {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<TracingResult<'_, Self::Data, Self::Trace>, Error>;
+    ) -> Result<TracingResult<'_, Self::Data, Self::Trace>, TracingEvalError>;
 
     /// Build a new empty evaluator
     fn new() -> Self {

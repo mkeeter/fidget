@@ -25,7 +25,6 @@
 
 use crate::mmap::{Mmap, MmapWriter};
 use fidget_core::{
-    Error,
     compiler::RegOp,
     context::{BadNode, Context, Node},
     eval::{
@@ -35,7 +34,10 @@ use fidget_core::{
     render::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
-    vm::{BadTrace, Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
+    vm::{
+        BadTrace, BulkEvalError, Choice, GenericVmFunction, TracingEvalError,
+        VmData, VmTrace, VmWorkspace,
+    },
 };
 
 use dynasmrt::{
@@ -1116,7 +1118,7 @@ impl TracingEvaluator for JitIntervalEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<(&[Self::Data], Option<&Self::Trace>), Error> {
+    ) -> Result<(&[Self::Data], Option<&Self::Trace>), TracingEvalError> {
         tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1136,7 +1138,7 @@ impl TracingEvaluator for JitPointEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<(&[Self::Data], Option<&Self::Trace>), Error> {
+    ) -> Result<(&[Self::Data], Option<&Self::Trace>), TracingEvalError> {
         tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1321,7 +1323,7 @@ impl BulkEvaluator for JitFloatSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<'_, f32>, Error> {
+    ) -> Result<BulkOutput<'_, f32>, BulkEvalError> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1340,7 +1342,7 @@ impl BulkEvaluator for JitGradSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<'_, Grad>, Error> {
+    ) -> Result<BulkOutput<'_, Grad>, BulkEvalError> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }

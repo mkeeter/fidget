@@ -27,12 +27,11 @@
 //! ```
 
 use crate::{
-    Error,
     context::{BadNode, Context, Node, Tree},
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     types::{Grad, Interval},
-    var::{Var, VarIndex, VarMap},
-    vm::BadTrace,
+    var::{BadVarSlice, BulkArgError, TracingArgError, Var, VarIndex, VarMap},
+    vm::{BadTrace, BulkEvalError, TracingEvalError},
 };
 use nalgebra::{Matrix4, Point3};
 use std::collections::HashMap;
@@ -453,6 +452,32 @@ impl<E: TracingEvaluator> Default for ShapeTracingEval<E> {
     }
 }
 
+/// Shape evaluation error
+#[derive(thiserror::Error, Debug)]
+pub enum ShapeEvalError<E> {
+    /// Variable index exceeds max var index for this tape
+    #[error(
+        "variable index ({index}) exceeds \
+         max var index for this tape ({max})"
+    )]
+    BadVarIndex {
+        /// Index provided by the caller
+        index: usize,
+        /// Maximum valid index
+        max: usize,
+    },
+
+    /// Error from the inner evaluator
+    #[error(transparent)]
+    Eval(#[from] E),
+}
+
+/// Error type for shape tracing evaluation
+pub type ShapeTracingEvalError = ShapeEvalError<TracingEvalError>;
+
+/// Error type for shape bulk evaluation
+pub type ShapeBulkEvalError = ShapeEvalError<BulkEvalError>;
+
 impl<E: TracingEvaluator> ShapeTracingEval<E>
 where
     <E as TracingEvaluator>::Data: Transformable,
@@ -470,7 +495,7 @@ where
         x: F,
         y: F,
         z: F,
-    ) -> Result<(E::Data, Option<&E::Trace>), Error> {
+    ) -> Result<(E::Data, Option<&E::Trace>), ShapeTracingEvalError> {
         let h = ShapeVars::<f32>::new();
         self.eval_v(tape, x, y, z, &h)
     }
@@ -486,7 +511,7 @@ where
         y: F,
         z: F,
         vars: &ShapeVars<V>,
-    ) -> Result<(E::Data, Option<&E::Trace>), Error> {
+    ) -> Result<(E::Data, Option<&E::Trace>), ShapeTracingEvalError> {
         assert_eq!(
             tape.tape.output_count(),
             1,
@@ -508,7 +533,12 @@ where
             - vs.get(&Var::Y).is_some() as usize
             - vs.get(&Var::Z).is_some() as usize;
         if expected_vars != vars.len() {
-            return Err(Error::BadVarSlice(vars.len(), expected_vars));
+            return Err(ShapeEvalError::Eval(TracingEvalError(
+                TracingArgError::BadVarSlice(BadVarSlice {
+                    actual: vars.len(),
+                    expected: expected_vars,
+                }),
+            )));
         }
 
         self.scratch.resize(tape.vars().len(), 0f32.into());
@@ -526,7 +556,10 @@ where
                 if i < self.scratch.len() {
                     self.scratch[i] = (*value).into();
                 } else {
-                    return Err(Error::BadVarIndex(i, self.scratch.len()));
+                    return Err(ShapeEvalError::BadVarIndex {
+                        index: i,
+                        max: self.scratch.len(),
+                    });
                 }
             } else {
                 // Passing in Bonus Variables is allowed (for now)
@@ -566,7 +599,7 @@ where
         x: &[E::Data],
         y: &[E::Data],
         z: &[E::Data],
-    ) -> Result<&[E::Data], Error> {
+    ) -> Result<&[E::Data], ShapeBulkEvalError> {
         let h: ShapeVars<&[E::Data]> = ShapeVars::new();
         self.eval_vs(tape, x, y, z, &h)
     }
@@ -580,7 +613,7 @@ where
         y: &[E::Data],
         z: &[E::Data],
         vars: &ShapeVars<V>,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, ShapeBulkEvalError> {
         assert_eq!(
             tape.tape.output_count(),
             1,
@@ -589,7 +622,9 @@ where
 
         // Make sure our scratch arrays are big enough for this evaluation
         if x.len() != y.len() || x.len() != z.len() {
-            return Err(Error::MismatchedSlices);
+            return Err(ShapeEvalError::Eval(BulkEvalError(
+                BulkArgError::MismatchedSlices,
+            )));
         }
         let n = x.len();
 
@@ -599,7 +634,12 @@ where
             - vs.get(&Var::Y).is_some() as usize
             - vs.get(&Var::Z).is_some() as usize;
         if expected_vars != vars.len() {
-            return Err(Error::BadVarSlice(vars.len(), expected_vars));
+            return Err(ShapeEvalError::Eval(BulkEvalError(
+                BulkArgError::BadVarSlice(BadVarSlice {
+                    actual: vars.len(),
+                    expected: expected_vars,
+                }),
+            )));
         }
 
         // We need at least one item in the scratch array to set evaluation
@@ -657,11 +697,13 @@ where
         y: &[E::Data],
         z: &[E::Data],
         vars: &ShapeVars<V>,
-    ) -> Result<&[E::Data], Error> {
+    ) -> Result<&[E::Data], ShapeBulkEvalError> {
         let n = self.setup(tape, x, y, z, vars)?;
 
         if vars.values().any(|vs| vs.len() != n) {
-            return Err(Error::MismatchedSlices);
+            return Err(ShapeEvalError::Eval(BulkEvalError(
+                BulkArgError::MismatchedSlices,
+            )));
         }
 
         let vs = tape.vars();
@@ -675,7 +717,10 @@ where
                     }
                     // TODO fast path if we can use the slices directly?
                 } else {
-                    return Err(Error::BadVarIndex(i, self.scratch.len()));
+                    return Err(ShapeEvalError::BadVarIndex {
+                        index: i,
+                        max: self.scratch.len(),
+                    });
                 }
             } else {
                 // Passing in Bonus Variables is allowed (for now)
@@ -702,7 +747,7 @@ where
         y: &[E::Data],
         z: &[E::Data],
         vars: &ShapeVars<G>,
-    ) -> Result<&[E::Data], Error> {
+    ) -> Result<&[E::Data], ShapeBulkEvalError> {
         self.setup(tape, x, y, z, vars)?;
         let vs = tape.vars();
         for (var, value) in vars {
@@ -710,7 +755,10 @@ where
                 if i < self.scratch.len() {
                     self.scratch[i].fill((*value).into());
                 } else {
-                    return Err(Error::BadVarIndex(i, self.scratch.len()));
+                    return Err(ShapeEvalError::BadVarIndex {
+                        index: i,
+                        max: self.scratch.len(),
+                    });
                 }
             } else {
                 // Passing in Bonus Variables is allowed (for now)

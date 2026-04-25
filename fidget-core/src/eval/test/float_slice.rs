@@ -7,11 +7,11 @@ use super::{
     CanonicalBinaryOp, CanonicalUnaryOp, bind_xyz, build_stress_fn, test_args,
 };
 use crate::{
-    Error,
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
-    shape::{EzShape, Shape, ShapeVars},
-    var::Var,
+    shape::{EzShape, Shape, ShapeEvalError, ShapeVars},
+    var::{BulkArgError, Var},
+    vm::BulkEvalError,
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -142,7 +142,9 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         h.insert(index, &[4.0, 5.0, 6.0]);
         assert!(matches!(
             eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
-            Err(Error::MismatchedSlices),
+            Err(ShapeEvalError::Eval(BulkEvalError(
+                BulkArgError::MismatchedSlices
+            ))),
         ));
 
         // Get a new var index that isn't valid for this tape
@@ -151,7 +153,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         h.insert(v2.index().unwrap(), &[4.0, 5.0]);
         assert!(matches!(
             eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
-            Err(Error::BadVarSlice(..))
+            Err(ShapeEvalError::BadVarIndex { .. })
         ));
     }
 

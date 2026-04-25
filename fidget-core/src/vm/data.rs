@@ -127,7 +127,10 @@ impl<const N: usize> VmData<N> {
         mut tape: VmData<M>,
     ) -> Result<VmData<M>, BadChoiceSlice> {
         if choices.len() != self.choice_count() {
-            return Err(BadChoiceSlice(choices.len(), self.choice_count()));
+            return Err(BadChoiceSlice {
+                actual: choices.len(),
+                expected: self.choice_count(),
+            });
         }
         tape.ssa.reset();
 
@@ -326,8 +329,14 @@ impl<const N: usize> VmData<N> {
 
 /// Error type for simplification
 #[derive(thiserror::Error, Debug)]
-#[error("choice slice length ({0}) does not match choice count ({1})")]
-pub struct BadChoiceSlice(usize, usize);
+#[error(
+    "choice slice length ({actual}) does not \
+     match choice count ({expected})"
+)]
+pub struct BadChoiceSlice {
+    actual: usize,
+    expected: usize,
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
