@@ -66,7 +66,7 @@ heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 log = "0.4"
-naga = { version = "26.0.0", features = ["wgsl-in"] }
+naga = { version = "29.0.0", features = ["wgsl-in"] }
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 notify = "8.0"
 ordered-float = "5"
@@ -81,7 +81,7 @@ strum_macros = { version = "0.27.2" } # see fidget#371
 thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-wgpu = "27.0.0"
+wgpu = "29.0.0"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Memory"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 

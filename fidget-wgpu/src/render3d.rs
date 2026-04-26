@@ -11,7 +11,7 @@
 //! arithmetic, we compute a **simplified tape** for each tile containing only
 //! portions of the expression which are active.
 //!
-//! After the root tile evaluation, tiles are sparse.  Tiles and tapes uses an
+//! After the root tile evaluation, tiles are sparse.  Tiles and tapes use an
 //! atomic bump allocator to claim portions of a fixed buffer.  The tile buffer
 //! is always sized to fit all possible tiles; the tape buffer can run out of
 //! space, in which case we fall back to the previous (unsimplified) tape.
@@ -369,10 +369,10 @@ impl RootContext {
                 &wgpu::PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[
-                        common_bind_group_layout,
-                        &bind_group_layout,
+                        Some(common_bind_group_layout),
+                        Some(&bind_group_layout),
                     ],
-                    push_constant_ranges: &[],
+                    immediate_size: 0u32,
                 },
             );
             let shader_module =
@@ -462,10 +462,10 @@ impl RepackContext {
                 &wgpu::PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[
-                        common_bind_group_layout,
-                        &bind_group_layout,
+                        Some(common_bind_group_layout),
+                        Some(&bind_group_layout),
                     ],
-                    push_constant_ranges: &[],
+                    immediate_size: 0u32,
                 },
             );
             let shader_module =
@@ -574,10 +574,10 @@ impl IntervalContext {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &interval_bind_group_layout,
+                    Some(common_bind_group_layout),
+                    Some(&interval_bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0u32,
             });
 
         let interval64_pipeline = RegPipeline::build(|reg_count| {
@@ -592,6 +592,9 @@ impl IntervalContext {
                     wgpu::ShaderRuntimeChecks {
                         bounds_checks: false,
                         force_loop_bounding: false,
+                        ray_query_initialization_tracking: false,
+                        task_shader_dispatch_tracking: false,
+                        mesh_shader_primitive_indices_clamp: false,
                     },
                 )
             };
@@ -620,6 +623,9 @@ impl IntervalContext {
                     wgpu::ShaderRuntimeChecks {
                         bounds_checks: false,
                         force_loop_bounding: false,
+                        ray_query_initialization_tracking: false,
+                        task_shader_dispatch_tracking: false,
+                        mesh_shader_primitive_indices_clamp: false,
                     },
                 )
             };
@@ -649,10 +655,10 @@ impl IntervalContext {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &sort_bind_group_layout,
+                    Some(common_bind_group_layout),
+                    Some(&sort_bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0u32,
             });
 
         let shader_code = sort_shader();
@@ -666,6 +672,9 @@ impl IntervalContext {
                 wgpu::ShaderRuntimeChecks {
                     bounds_checks: false,
                     force_loop_bounding: false,
+                    ray_query_initialization_tracking: false,
+                    task_shader_dispatch_tracking: false,
+                    mesh_shader_primitive_indices_clamp: false,
                 },
             )
         };
@@ -860,10 +869,10 @@ impl VoxelContext {
                 &wgpu::PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[
-                        common_bind_group_layout,
-                        &bind_group_layout,
+                        Some(common_bind_group_layout),
+                        Some(&bind_group_layout),
                     ],
-                    push_constant_ranges: &[],
+                    immediate_size: 0u32,
                 },
             );
             // SAFETY: The shader is careful, good luck
@@ -876,6 +885,9 @@ impl VoxelContext {
                     wgpu::ShaderRuntimeChecks {
                         bounds_checks: false,
                         force_loop_bounding: false,
+                        ray_query_initialization_tracking: false,
+                        task_shader_dispatch_tracking: false,
+                        mesh_shader_primitive_indices_clamp: false,
                     },
                 )
             };
@@ -960,10 +972,10 @@ impl NormalsContext {
                 &wgpu::PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[
-                        common_bind_group_layout,
-                        &bind_group_layout,
+                        Some(common_bind_group_layout),
+                        Some(&bind_group_layout),
                     ],
-                    push_constant_ranges: &[],
+                    immediate_size: 0u32,
                 },
             );
             let shader_module =
@@ -1198,10 +1210,11 @@ impl RenderShape {
 
         let offset = std::mem::size_of::<Config>();
         {
-            let mut buffer_view =
-                config_buf.slice(offset as u64..).get_mapped_range_mut();
             let bytes = bytecode.as_bytes();
-            buffer_view[..bytes.len()].copy_from_slice(bytes);
+            let mut buffer_view = config_buf
+                .slice(offset as u64..(offset + bytes.len()) as u64)
+                .get_mapped_range_mut();
+            buffer_view.copy_from_slice(bytes);
         }
         config_buf.unmap();
 
@@ -1481,7 +1494,7 @@ impl Context {
                     (config_len as u64).try_into().unwrap(),
                 )
                 .unwrap();
-            writer[0..config_len].copy_from_slice(config.as_bytes());
+            writer.copy_from_slice(config.as_bytes());
         }
 
         // Create a command encoder and dispatch the compute work
@@ -1687,10 +1700,10 @@ impl BackfillContext {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &bind_group_layout,
+                    Some(common_bind_group_layout),
+                    Some(&bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0u32,
             });
 
         // Compile the shader
@@ -1856,10 +1869,10 @@ impl MergeContext {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
-                    common_bind_group_layout,
-                    &bind_group_layout,
+                    Some(common_bind_group_layout),
+                    Some(&bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0u32,
             });
 
         // Compile the shader

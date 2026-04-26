@@ -1,6 +1,6 @@
 `fidget-wgpu` implements 3D rendering of Fidget tapes using WebGPU
 
-It is typically used through the [`fidget`](https://crates.io/crate/fidget)
+It is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it under the `wgpu` namespace
 
 [![» Crate](https://badgen.net/crates/v/fidget-wgpu)](https://crates.io/crates/fidget-wgpu)
