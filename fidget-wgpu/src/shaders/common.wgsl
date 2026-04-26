@@ -67,6 +67,8 @@ fn nan_f32() -> f32 {
 
 /// For a given position and recursion level, return the offset into `tile_tape`
 fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
+    var offset = 0u; // current position in the buffer
+
     let size64 = config.render_size / 64;
     if level == 64u {
         // 64^3 root tile tapes are densely packed
@@ -76,9 +78,9 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
             + corner_pos64.z * size64.x * size64.y;
         return index64;
     }
+    offset += size64.x * size64.y * size64.z;
 
     let size16 = config.render_size / 16;
-    var offset = size64.x * size64.y * size64.z;
     if level == 16u {
         let corner_pos16 = corner_pos / 16;
         return offset
@@ -86,11 +88,9 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
             + corner_pos16.y * size16.x
             + (corner_pos16.z % 4) * size16.x * size16.y;
     }
+    offset += size16.x * size16.y * 4;
 
     let size4 = config.render_size / 4;
-    offset += size16.x
-        * size16.y
-        * 4;  // Z tiles
     if level == 4u {
         let corner_pos4 = corner_pos / 4;
         return offset
@@ -99,5 +99,6 @@ fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
             + (corner_pos4.z % 16) * size4.x * size4.y;
     }
 
+    // invalid level, return the base tape
     return 0;
 }
