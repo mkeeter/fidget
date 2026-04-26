@@ -639,6 +639,7 @@ dependencies = [
  "fidget-core",
  "nalgebra",
  "rand",
+ "thiserror",
  "workspace-hack",
 ]
 
