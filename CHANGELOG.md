@@ -1,7 +1,4 @@
-# 0.4.3 (unpublished)
-- Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
-  thanks [@Wulfsta](https://github.com/Wulfsta)
-- Bumped many dependencies
+# 0.4.4 (unpublished)
 - Add `Image::build` function to build an image from a `Vec<T>` and
   `ImageSizeLike`, returning an error if the data size is incorrect.
 - Revamping `fidget-bytecode`
@@ -19,6 +16,11 @@
       code using `anyhow` (or similar) may not need to change
 - Fix a bug in bulk evaluator argument checks where mismatched slices could be
   allowed under some circumstances
+
+# 0.4.3
+- Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
+  thanks [@Wulfsta](https://github.com/Wulfsta)
+- Bumped many dependencies
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))
