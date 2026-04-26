@@ -48,17 +48,21 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
 fastrand = { version = "2", features = ["js"] }
 futures-core = { version = "0.3" }
-hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
-hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
 once_cell = { version = "1" }
+ordered-float = { version = "5" }
 phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+thiserror = { version = "2" }
+wgpu = { version = "29", features = ["fragile-send-sync-non-atomic-wasm", "webgl"] }
+wgpu-core = { version = "29", features = ["dx12", "fragile-send-sync-non-atomic-wasm", "gles", "metal", "portable-atomic", "renderdoc", "vulkan", "webgl", "wgsl"] }
+wgpu-hal = { version = "29", default-features = false, features = ["dx12", "fragile-send-sync-non-atomic-wasm", "gles", "portable-atomic", "renderdoc", "vulkan"] }
+wgpu-types = { version = "29", default-features = false, features = ["fragile-send-sync-non-atomic-wasm", "std", "web"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -76,10 +80,16 @@ syn = { version = "2", default-features = false, features = ["fold", "visit", "v
 [target.aarch64-apple-darwin.dependencies]
 anstream = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
-core-foundation = { version = "0.10" }
 half = { version = "2" }
+hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
 image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
 libc = { version = "0.2" }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSArray", "NSAttributedString", "NSBundle", "NSCoder", "NSData", "NSDate", "NSDictionary", "NSEnumerator", "NSError", "NSException", "NSFileWrapper", "NSFormatter", "NSGeometry", "NSItemProvider", "NSKeyValueObserving", "NSLocale", "NSNotification", "NSNull", "NSObjCRuntime", "NSObject", "NSProcessInfo", "NSRange", "NSSet", "NSString", "NSThread", "NSURL", "NSUndoManager", "NSUserActivity", "NSValue", "NSZone", "block2", "objc2-core-foundation", "std"] }
+thiserror = { version = "2" }
+wgpu = { version = "29", features = ["fragile-send-sync-non-atomic-wasm", "webgl"] }
+wgpu-core = { version = "29", features = ["dx12", "fragile-send-sync-non-atomic-wasm", "gles", "metal", "portable-atomic", "renderdoc", "vulkan", "webgl", "wgsl"] }
+wgpu-hal = { version = "29", default-features = false, features = ["fragile-send-sync-non-atomic-wasm", "metal", "portable-atomic"] }
+wgpu-types = { version = "29", default-features = false, features = ["fragile-send-sync-non-atomic-wasm", "std", "web"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -93,17 +103,21 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
 fastrand = { version = "2", features = ["js"] }
 futures-core = { version = "0.3" }
-hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
-hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 indexmap = { version = "2" }
 libc = { version = "0.2" }
 memchr = { version = "2" }
 once_cell = { version = "1" }
+ordered-float = { version = "5" }
 phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+thiserror = { version = "2" }
+wgpu = { version = "29", features = ["fragile-send-sync-non-atomic-wasm", "webgl"] }
+wgpu-core = { version = "29", features = ["dx12", "fragile-send-sync-non-atomic-wasm", "gles", "metal", "portable-atomic", "renderdoc", "vulkan", "webgl", "wgsl"] }
+wgpu-hal = { version = "29", default-features = false, features = ["dx12", "fragile-send-sync-non-atomic-wasm", "gles", "portable-atomic", "renderdoc", "vulkan"] }
+wgpu-types = { version = "29", default-features = false, features = ["fragile-send-sync-non-atomic-wasm", "std", "web"] }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }

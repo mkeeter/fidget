@@ -1440,7 +1440,7 @@ impl Context {
     /// Renders the image, with a blocking wait to read pixel data from the GPU
     ///
     /// This function is only relevant for the web target
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", doc))]
     pub async fn run_async(
         &mut self,
         shape: &RenderShape,
