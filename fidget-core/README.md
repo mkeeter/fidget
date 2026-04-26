@@ -1,7 +1,7 @@
 `fidget-core` implements core types, traits, and algorithms for complex
 closed-form implicit surfaces.
 
-It is typically used through the [`fidget`](https://crates.io/crate/fidget)
+It is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it wholesale in the root namespace.
 
 [![» Crate](https://badgen.net/crates/v/fidget-core)](https://crates.io/crates/fidget-core)

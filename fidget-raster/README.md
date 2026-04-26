@@ -1,7 +1,7 @@
 `fidget-raster` implements image rendering for complex closed-form implicit
 surfaces.
 
-t is typically used through the [`fidget`](https://crates.io/crate/fidget)
+t is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it under the `raster` namespace
 
 [![» Crate](https://badgen.net/crates/v/fidget-raster)](https://crates.io/crates/fidget-raster)
