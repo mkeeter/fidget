@@ -74,14 +74,18 @@ impl<'a, F: Function> Solver<'a, F> {
             .map(|(i, (v, _p))| (*v, i))
             .collect();
 
+        let var_count = vars
+            .len()
+            .max(grad_tapes.iter().map(|t| t.vars().len()).max().unwrap_or(0));
+
         // Build a scratch array with rows for each variable, and enough columns
         // to simultaneously compute all of the gradients that we need
         let input_grad =
             vec![
                 vec![Grad::from(0f32); grad_index.len().div_ceil(3)];
-                vars.len()
+                var_count
             ];
-        let input_point = vec![0f32; vars.len()];
+        let input_point = vec![0f32; var_count];
 
         Self {
             vars,
