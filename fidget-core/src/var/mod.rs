@@ -5,8 +5,7 @@
 //! it is wrapped in a [`Op::Input`](crate::context::Op::Input)) to evaluation
 //! (where [`Tape::vars`](crate::eval::Tape::vars) maps from `Var` to index in
 //! the argument list).
-use crate::Error;
-use crate::context::{Context, IntoNode, Node};
+use crate::context::{BadNode, Context, IntoNode, Node};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -88,7 +87,7 @@ impl std::fmt::Display for Var {
 }
 
 impl IntoNode for Var {
-    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode> {
         Ok(ctx.var(self))
     }
 }
@@ -149,11 +148,17 @@ impl VarMap {
     }
 
     /// Checks whether tracing arguments are valid
-    pub fn check_tracing_arguments<T>(&self, vars: &[T]) -> Result<(), Error> {
+    pub fn check_tracing_arguments<T>(
+        &self,
+        vars: &[T],
+    ) -> Result<(), TracingArgError> {
         if vars.len() < self.len() {
             // It's okay to be passed extra vars, because expressions may have
             // been simplified.
-            Err(Error::BadVarSlice(vars.len(), self.len()))
+            Err(TracingArgError::BadVarSlice(BadVarSlice {
+                actual: vars.len(),
+                expected: self.len(),
+            }))
         } else {
             Ok(())
         }
@@ -163,22 +168,58 @@ impl VarMap {
     pub fn check_bulk_arguments<T, V: std::ops::Deref<Target = [T]>>(
         &self,
         vars: &[V],
-    ) -> Result<(), Error> {
+    ) -> Result<(), BulkArgError> {
         // It's fine if the caller has given us extra variables (e.g. due to
         // tape simplification), but it must have given us enough.
         if vars.len() < self.len() {
-            Err(Error::BadVarSlice(vars.len(), self.len()))
+            Err(BulkArgError::BadVarSlice(BadVarSlice {
+                actual: vars.len(),
+                expected: self.len(),
+            }))
         } else {
             let Some(n) = vars.first().map(|v| v.len()) else {
                 return Ok(());
             };
-            if vars.iter().any(|v| v.len() == n) {
+            if vars.iter().all(|v| v.len() == n) {
                 Ok(())
             } else {
-                Err(Error::MismatchedSlices)
+                Err(BulkArgError::MismatchedSlices)
             }
         }
     }
+}
+
+/// Error type for when variable slice length does not match expected count
+#[derive(thiserror::Error, Debug)]
+#[error(
+    "variable slice length ({actual}) does not match \
+     expected count ({expected})"
+)]
+pub struct BadVarSlice {
+    /// Slice length provided by the user
+    pub actual: usize,
+    /// Expected slice length
+    pub expected: usize,
+}
+
+/// Error type for checking bulk arguments for evaluation
+#[derive(thiserror::Error, Debug)]
+pub enum BulkArgError {
+    /// Variable slice length does not match expected count
+    #[error(transparent)]
+    BadVarSlice(BadVarSlice),
+
+    /// Variable slice lengths are mismatched
+    #[error("variable slice lengths are mismatched")]
+    MismatchedSlices,
+}
+
+/// Error type for checking tracing arguments for evaluation
+#[derive(thiserror::Error, Debug)]
+pub enum TracingArgError {
+    /// Variable slice length does not match expected count
+    #[error(transparent)]
+    BadVarSlice(BadVarSlice),
 }
 
 impl std::ops::Index<&Var> for VarMap {

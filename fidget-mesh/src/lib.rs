@@ -40,7 +40,7 @@
 //! // let mut f = std::fs::File::create("out.stl")?;
 //! # let mut f = vec![];
 //! mesh.write_stl(&mut f)?;
-//! # Ok::<(), std::io::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 #![warn(missing_docs)]
 

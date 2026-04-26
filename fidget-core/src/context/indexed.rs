@@ -1,5 +1,4 @@
 //! Container types with strongly-typed indexes.
-use crate::Error;
 use std::collections::HashMap;
 
 /// Stores a set of `(V, I)` tuples, with lookup in both directions.
@@ -64,19 +63,6 @@ where
         })
     }
 
-    /// Removes the last value stored in the container.
-    ///
-    /// This is _usually_ the most recently inserted value, except when
-    /// `insert` is called on a duplicate.
-    pub fn pop(&mut self) -> Result<V, Error> {
-        match self.data.pop() {
-            Some(v) => {
-                self.map.remove(&v);
-                Ok(v)
-            }
-            None => Err(Error::EmptyMap),
-        }
-    }
     pub fn keys(&self) -> impl Iterator<Item = I> {
         (0..self.data.len()).map(I::new)
     }

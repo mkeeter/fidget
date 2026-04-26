@@ -1,9 +1,9 @@
 //! Traits and data structures for function evaluation
 use crate::{
-    Error,
-    context::{Context, Node},
+    context::{BadNode, Context, Node},
     types::{Grad, Interval},
     var::VarMap,
+    vm::BadTrace,
 };
 
 #[cfg(any(test, feature = "eval-tests"))]
@@ -14,8 +14,8 @@ mod bulk;
 mod tracing;
 
 // Reexport a few types
-pub use bulk::{BulkEvaluator, BulkOutput};
-pub use tracing::TracingEvaluator;
+pub use bulk::{BulkEvalError, BulkEvaluator, BulkOutput};
+pub use tracing::{TracingEvalError, TracingEvaluator};
 
 /// A tape represents something that can be evaluated by an evaluator
 ///
@@ -173,7 +173,7 @@ pub trait Function: Send + Sync + Clone {
         trace: &Self::Trace,
         storage: Self::Storage,
         workspace: &mut Self::Workspace,
-    ) -> Result<Self, Error>
+    ) -> Result<Self, BadTrace>
     where
         Self: Sized;
 
@@ -199,7 +199,7 @@ pub trait Function: Send + Sync + Clone {
 /// A [`Function`] which can be built from a math expression
 pub trait MathFunction: Function {
     /// Builds a new function from the given context and node
-    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error>
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, BadNode>
     where
         Self: Sized;
 }

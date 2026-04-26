@@ -11,6 +11,14 @@
       for immediates).
     - This also removes the `enum RegOpDiscriminants` from `fidget_core`
 - Add `PartialEq` for `GeometryPixel`
+- Major refactoring of error types
+    - `fidget::Error` is removed in favor of fine-grained error types
+    - The error type for a function now represents all of the errors that it can
+      return (and no others)
+    - All errors still implement standard error traits, so application-level
+      code using `anyhow` (or similar) may not need to change
+- Fix a bug in bulk evaluator argument checks where mismatched slices could be
+  allowed under some circumstances
 
 # 0.4.2
 - Change `depth` member in `GeometryPixel` from `u32` to `f32` ([#381](https://github.com/mkeeter/fidget/pull/381))

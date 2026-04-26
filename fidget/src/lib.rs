@@ -38,7 +38,7 @@
 //! let x = ctx.x();
 //! let y = ctx.y();
 //! let sum = ctx.add(x, y)?;
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! This is efficient, but is awkward to write.  It's also possible to construct
@@ -119,7 +119,7 @@
 //! use fidget::{
 //!     context::Tree,
 //!     shape::{Shape, EzShape},
-//!     vm::VmShape
+//!     vm::VmShape,
 //! };
 //!
 //! let tree = Tree::x() + Tree::y();
@@ -133,7 +133,7 @@
 //!     &[0.0, 0.0, 0.0, 0.0], // Z
 //! )?;
 //! assert_eq!(out, &[2.0, 4.0, 6.0, 8.0]);
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! # Shape simplification
@@ -162,7 +162,7 @@
 //!     [0.0, 0.0], // Z
 //! )?;
 //! assert_eq!(out, [0.0, 1.0].into());
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! In the evaluation region `x = [0, 1]; y = [2, 3]`, `x` is **strictly less
@@ -193,7 +193,7 @@
 //! // (same code as above)
 //! let new_shape = shape.ez_simplify(trace.unwrap())?;
 //! assert_eq!(new_shape.size(), 2); // just the X term, then the output
-//! # Ok::<(), fidget::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! Remember that this simplified tape is only valid for points (or intervals)
@@ -250,7 +250,6 @@
 //! //     ######################
 //! //       ##################
 //! //           ##########
-//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! # Meshing

@@ -1,7 +1,6 @@
 //! Solver for systems of equations expressed as sets of [Function] objects
 #![warn(missing_docs)]
 use fidget_core::{
-    Error,
     eval::{BulkEvaluator, Function, Tape, TracingEvaluator},
     types::Grad,
     var::Var,
@@ -16,6 +15,11 @@ pub enum Parameter {
     /// Fixed variable at the given value
     Fixed(f32),
 }
+
+/// Error indicating that we could not solve for matrix pseudo-inverse
+#[derive(thiserror::Error, Debug)]
+#[error("could not solve for matrix pseudo-inverse: {0}")]
+pub struct SingularMatrix(&'static str);
 
 /// Workspace for solvers
 struct Solver<'a, F: Function> {
@@ -70,14 +74,18 @@ impl<'a, F: Function> Solver<'a, F> {
             .map(|(i, (v, _p))| (*v, i))
             .collect();
 
+        let var_count = vars
+            .len()
+            .max(grad_tapes.iter().map(|t| t.vars().len()).max().unwrap_or(0));
+
         // Build a scratch array with rows for each variable, and enough columns
         // to simultaneously compute all of the gradients that we need
         let input_grad =
             vec![
                 vec![Grad::from(0f32); grad_index.len().div_ceil(3)];
-                vars.len()
+                var_count
             ];
-        let input_point = vec![0f32; vars.len()];
+        let input_point = vec![0f32; var_count];
 
         Self {
             vars,
@@ -101,16 +109,14 @@ impl<'a, F: Function> Solver<'a, F> {
         cur: &[f32],
         jacobian: &mut nalgebra::DMatrix<f32>,
         result: &mut nalgebra::DVector<f32>,
-    ) -> Result<(), Error> {
+    ) {
         for (ti, tape) in self.grad_tapes.iter().enumerate() {
             // Update the values in the gradient evaluation array
             for (v, p) in self.vars {
                 let Some(i) = tape.vars().get(v) else {
                     continue;
                 };
-                let Some(slice) = self.input_grad.get_mut(i) else {
-                    return Err(Error::BadVarIndex(i, self.input_grad.len()));
-                };
+                let slice = &mut self.input_grad[i];
                 match p {
                     Parameter::Free(..) => {
                         let gi = self.grad_index[v];
@@ -129,7 +135,7 @@ impl<'a, F: Function> Solver<'a, F> {
                 };
             }
             // Do the actual gradient evaluation
-            let out = self.grad_eval.eval(tape, &self.input_grad)?;
+            let out = self.grad_eval.eval(tape, &self.input_grad).unwrap();
 
             // Populate this row of the Jacobian
             for gi in 0..self.grad_index.len() {
@@ -137,10 +143,9 @@ impl<'a, F: Function> Solver<'a, F> {
             }
             result[ti] = out[0][0].v;
         }
-        Ok(())
     }
 
-    fn get_err(&mut self, cur: &[f32], delta: &[f32]) -> Result<f32, Error> {
+    fn get_err(&mut self, cur: &[f32], delta: &[f32]) -> f32 {
         let mut err = 0f32;
         for tape in self.point_tapes.iter() {
             // Update the free values in the gradient evaluation array
@@ -151,9 +156,7 @@ impl<'a, F: Function> Solver<'a, F> {
                 let Some(i) = tape.vars().get(v) else {
                     continue;
                 };
-                let Some(f) = self.input_point.get_mut(i) else {
-                    return Err(Error::BadVarIndex(i, self.input_point.len()));
-                };
+                let f = &mut self.input_point[i];
                 match p {
                     Parameter::Free(..) => {
                         let gi = self.grad_index[v];
@@ -165,10 +168,11 @@ impl<'a, F: Function> Solver<'a, F> {
                 };
             }
             // Do the actual gradient evaluation
-            let (out, _t) = self.point_eval.eval(tape, &self.input_point)?;
+            let (out, _t) =
+                self.point_eval.eval(tape, &self.input_point).unwrap();
             err += out[0].powi(2); // TODO: consolidate into a single tape
         }
-        Ok(err)
+        err
     }
 }
 
@@ -187,7 +191,7 @@ impl<'a, F: Function> Solver<'a, F> {
 pub fn solve<F: Function>(
     eqs: &[F],
     vars: &HashMap<Var, Parameter>,
-) -> Result<HashMap<Var, f32>, Error> {
+) -> Result<HashMap<Var, f32>, SingularMatrix> {
     let tapes = eqs
         .iter()
         .map(|f| f.grad_slice_tape(Default::default()))
@@ -220,7 +224,7 @@ pub fn solve<F: Function>(
     let mut prev_err = f32::INFINITY;
     let mut err_buf = [0f32; 4];
     for i in 0.. {
-        solver.get_jacobian(&cur, &mut jacobian, &mut result)?;
+        solver.get_jacobian(&cur, &mut jacobian, &mut result);
 
         // Early exit if we're done
         if result.iter().all(|v| *v == 0.0) {
@@ -241,9 +245,9 @@ pub fn solve<F: Function>(
             let delta = adjusted
                 .svd(true, true)
                 .solve(&jt_r, f32::EPSILON)
-                .map_err(Error::SingularMatrix)?;
+                .map_err(SingularMatrix)?;
 
-            let err = solver.get_err(&cur, delta.as_slice())?;
+            let err = solver.get_err(&cur, delta.as_slice());
             if err > prev_err {
                 // Keep going in this inner loop, taking smaller steps
                 damping *= 1.5;

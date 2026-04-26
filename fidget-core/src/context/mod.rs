@@ -23,7 +23,7 @@ use indexed::{Index, IndexMap, IndexVec, define_index};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 pub use tree::{Tree, TreeOp};
 
-use crate::{Error, var::Var};
+use crate::var::Var;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
@@ -93,33 +93,19 @@ impl Context {
     }
 
     /// Checks whether the given [`Node`] is valid in this context
-    fn check_node(&self, node: Node) -> Result<(), Error> {
-        self.get_op(node).ok_or(Error::BadNode).map(|_| ())
-    }
-
-    /// Erases the most recently added node from the tree.
-    ///
-    /// A few caveats apply, so this must be used with caution:
-    /// - Existing handles to the node will be invalidated
-    /// - The most recently added node must be unique
-    ///
-    /// In practice, this is only used to delete temporary operation nodes
-    /// during constant folding.  Such nodes which have no handles (because
-    /// they are never returned) and are guaranteed to be unique (because we
-    /// never store them persistently).
-    fn pop(&mut self) -> Result<(), Error> {
-        self.ops.pop().map(|_| ())
+    fn check_node(&self, node: Node) -> Result<(), BadNode> {
+        self.get_op(node).ok_or(BadNode).map(|_| ())
     }
 
     /// Looks up the constant associated with the given node.
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not a constant, returns `Ok(None)`.
-    pub fn get_const(&self, n: Node) -> Result<f64, Error> {
+    pub fn get_const(&self, n: Node) -> Result<f64, ConstError> {
         match self.get_op(n) {
             Some(Op::Const(c)) => Ok(c.0),
-            Some(_) => Err(Error::NotAConst),
-            _ => Err(Error::BadNode),
+            Some(_) => Err(ConstError::NotAConst),
+            None => Err(ConstError::BadNode(BadNode)),
         }
     }
 
@@ -127,11 +113,11 @@ impl Context {
     ///
     /// If the node is invalid for this tree or not an `Op::Input`, returns an
     /// error.
-    pub fn get_var(&self, n: Node) -> Result<Var, Error> {
+    pub fn get_var(&self, n: Node) -> Result<Var, VarError> {
         match self.get_op(n) {
             Some(Op::Input(v)) => Ok(*v),
-            Some(..) => Err(Error::NotAVar),
-            _ => Err(Error::BadNode),
+            Some(..) => Err(VarError::NotAVar(NotAVar)),
+            None => Err(VarError::BadNode(BadNode)),
         }
     }
 
@@ -199,15 +185,12 @@ impl Context {
     // Helper functions to create nodes with constant folding
     /// Find or create a [Node] for the given unary operation, with constant
     /// folding.
-    fn op_unary(&mut self, a: Node, op: UnaryOpcode) -> Result<Node, Error> {
-        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
-        let n = self.ops.insert(Op::Unary(op, a));
-        let out = if matches!(op_a, Op::Const(_)) {
-            let v = self.eval(n, &Default::default())?;
-            self.pop().unwrap(); // removes `n`
-            self.constant(v)
+    fn op_unary(&mut self, a: Node, op: UnaryOpcode) -> Result<Node, BadNode> {
+        let op_a = *self.get_op(a).ok_or(BadNode)?;
+        let out = if let Op::Const(a) = op_a {
+            self.constant(op.eval(a.0))
         } else {
-            n
+            self.ops.insert(Op::Unary(op, a))
         };
         Ok(out)
     }
@@ -218,29 +201,13 @@ impl Context {
         a: Node,
         b: Node,
         op: BinaryOpcode,
-    ) -> Result<Node, Error> {
-        self.op_binary_f(a, b, |lhs, rhs| Op::Binary(op, lhs, rhs))
-    }
-
-    /// Find or create a [Node] for a generic binary operation (represented by a
-    /// thunk), with constant folding.
-    fn op_binary_f<F>(&mut self, a: Node, b: Node, f: F) -> Result<Node, Error>
-    where
-        F: Fn(Node, Node) -> Op,
-    {
-        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
-        let op_b = *self.get_op(b).ok_or(Error::BadNode)?;
-
-        // This call to `insert` should always insert the node, because we
-        // don't permanently store operations in the tree that could be
-        // constant-folded (indeed, we pop the node right afterwards)
-        let n = self.ops.insert(f(a, b));
-        let out = if matches!((op_a, op_b), (Op::Const(_), Op::Const(_))) {
-            let v = self.eval(n, &Default::default())?;
-            self.pop().unwrap(); // removes `n`
-            self.constant(v)
+    ) -> Result<Node, BadNode> {
+        let op_a = *self.get_op(a).ok_or(BadNode)?;
+        let op_b = *self.get_op(b).ok_or(BadNode)?;
+        let out = if let (Op::Const(a), Op::Const(b)) = (op_a, op_b) {
+            self.constant(op.eval(a.0, b.0))
         } else {
-            n
+            self.ops.insert(Op::Binary(op, a, b))
         };
         Ok(out)
     }
@@ -252,7 +219,7 @@ impl Context {
         a: Node,
         b: Node,
         op: BinaryOpcode,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         self.op_binary(a.min(b), a.max(b), op)
     }
 
@@ -268,7 +235,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a: Node = a.into_node(self)?;
         let b: Node = b.into_node(self)?;
         if a == b {
@@ -295,7 +262,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
         if a == b {
@@ -323,7 +290,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
         if a == b {
@@ -344,7 +311,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
         if a == b {
@@ -378,11 +345,11 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
 
-        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
+        let op_a = *self.get_op(a).ok_or(BadNode)?;
         if let Op::Const(v) = op_a {
             if v.0 == 0.0 { Ok(a) } else { Ok(b) }
         } else {
@@ -412,12 +379,12 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
 
-        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
-        let op_b = *self.get_op(b).ok_or(Error::BadNode)?;
+        let op_a = *self.get_op(a).ok_or(BadNode)?;
+        let op_b = *self.get_op(b).ok_or(BadNode)?;
         if let Op::Const(v) = op_a {
             if v.0 != 0.0 {
                 return Ok(a);
@@ -435,7 +402,7 @@ impl Context {
     /// Builds a logical negation node
     ///
     /// The output is 1 if the argument is 0, and 0 otherwise.
-    pub fn not<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn not<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Not)
     }
@@ -448,7 +415,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, -2.0);
     /// ```
-    pub fn neg<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn neg<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Neg)
     }
@@ -461,7 +428,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 0.5);
     /// ```
-    pub fn recip<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn recip<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Recip)
     }
@@ -476,7 +443,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, -2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0);
     /// ```
-    pub fn abs<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn abs<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Abs)
     }
@@ -489,7 +456,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 4.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0);
     /// ```
-    pub fn sqrt<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn sqrt<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Sqrt)
     }
@@ -502,49 +469,49 @@ impl Context {
     /// let v = ctx.eval_xyz(op, std::f64::consts::PI / 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 1.0);
     /// ```
-    pub fn sin<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn sin<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Sin)
     }
 
     /// Builds a node which calculates the cosine of its input (in radians)
-    pub fn cos<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn cos<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Cos)
     }
 
     /// Builds a node which calculates the tangent of its input (in radians)
-    pub fn tan<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn tan<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Tan)
     }
 
     /// Builds a node which calculates the arcsine of its input (in radians)
-    pub fn asin<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn asin<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Asin)
     }
 
     /// Builds a node which calculates the arccosine of its input (in radians)
-    pub fn acos<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn acos<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Acos)
     }
 
     /// Builds a node which calculates the arctangent of its input (in radians)
-    pub fn atan<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn atan<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Atan)
     }
 
     /// Builds a node which calculates the exponent of its input
-    pub fn exp<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn exp<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Exp)
     }
 
     /// Builds a node which calculates the natural log of its input
-    pub fn ln<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn ln<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Ln)
     }
@@ -559,7 +526,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 4.0);
     /// ```
-    pub fn square<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn square<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Square)
     }
@@ -572,7 +539,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 1.0);
     /// ```
-    pub fn floor<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn floor<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Floor)
     }
@@ -585,7 +552,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0);
     /// ```
-    pub fn ceil<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn ceil<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Ceil)
     }
@@ -602,7 +569,7 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 1.5, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0); // rounds away from 0.0 if ambiguous
     /// ```
-    pub fn round<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+    pub fn round<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Round)
     }
@@ -620,7 +587,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
 
@@ -644,7 +611,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
 
@@ -668,7 +635,7 @@ impl Context {
         &mut self,
         y: A,
         x: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let y = y.into_node(self)?;
         let x = x.into_node(self)?;
 
@@ -694,7 +661,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
         self.op_binary(a, b, BinaryOpcode::Compare)
@@ -718,7 +685,7 @@ impl Context {
         &mut self,
         lhs: A,
         rhs: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let lhs = lhs.into_node(self)?;
         let rhs = rhs.into_node(self)?;
         let cmp = self.op_binary(rhs, lhs, BinaryOpcode::Compare)?;
@@ -743,7 +710,7 @@ impl Context {
         &mut self,
         lhs: A,
         rhs: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let lhs = lhs.into_node(self)?;
         let rhs = rhs.into_node(self)?;
         let cmp = self.op_binary(rhs, lhs, BinaryOpcode::Compare)?;
@@ -756,7 +723,7 @@ impl Context {
         &mut self,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
         self.op_binary(a, b, BinaryOpcode::Mod)
@@ -784,7 +751,7 @@ impl Context {
         condition: Condition,
         a: A,
         b: B,
-    ) -> Result<Node, Error> {
+    ) -> Result<Node, BadNode> {
         let condition = condition.into_node(self)?;
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
@@ -817,7 +784,7 @@ impl Context {
         x: f64,
         y: f64,
         z: f64,
-    ) -> Result<f64, Error> {
+    ) -> Result<f64, EvalError> {
         let vars = [(Var::X, x), (Var::Y, y), (Var::Z, z)]
             .into_iter()
             .collect();
@@ -832,7 +799,7 @@ impl Context {
         &self,
         root: Node,
         vars: &HashMap<Var, f64>,
-    ) -> Result<f64, Error> {
+    ) -> Result<f64, EvalError> {
         let mut cache = vec![None; self.ops.len()].into();
         self.eval_inner(root, vars, &mut cache)
     }
@@ -842,73 +809,28 @@ impl Context {
         node: Node,
         vars: &HashMap<Var, f64>,
         cache: &mut IndexVec<Option<f64>, Node>,
-    ) -> Result<f64, Error> {
+    ) -> Result<f64, EvalError> {
         if node.0 >= cache.len() {
-            return Err(Error::BadNode);
+            return Err(EvalError::BadNode(BadNode));
         }
         if let Some(v) = cache[node] {
             return Ok(v);
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
-        let v = match self.get_op(node).ok_or(Error::BadNode)? {
-            Op::Input(v) => *vars.get(v).ok_or(Error::MissingVar(*v))?,
+        let v = match self.get_op(node).ok_or(EvalError::BadNode(BadNode))? {
+            Op::Input(v) => *vars.get(v).ok_or(EvalError::MissingVar(*v))?,
             Op::Const(c) => c.0,
 
             Op::Binary(op, a, b) => {
                 let a = get(*a)?;
                 let b = get(*b)?;
-                match op {
-                    BinaryOpcode::Add => a + b,
-                    BinaryOpcode::Sub => a - b,
-                    BinaryOpcode::Mul => a * b,
-                    BinaryOpcode::Div => a / b,
-                    BinaryOpcode::Atan => a.atan2(b),
-                    BinaryOpcode::Min => a.min(b),
-                    BinaryOpcode::Max => a.max(b),
-                    BinaryOpcode::Compare => a
-                        .partial_cmp(&b)
-                        .map(|i| i as i8 as f64)
-                        .unwrap_or(f64::NAN),
-                    BinaryOpcode::Mod => a.rem_euclid(b),
-                    BinaryOpcode::And => {
-                        if a == 0.0 {
-                            a
-                        } else {
-                            b
-                        }
-                    }
-                    BinaryOpcode::Or => {
-                        if a != 0.0 {
-                            a
-                        } else {
-                            b
-                        }
-                    }
-                }
+                op.eval(a, b)
             }
 
             // Unary operations
             Op::Unary(op, a) => {
                 let a = get(*a)?;
-                match op {
-                    UnaryOpcode::Neg => -a,
-                    UnaryOpcode::Abs => a.abs(),
-                    UnaryOpcode::Recip => 1.0 / a,
-                    UnaryOpcode::Sqrt => a.sqrt(),
-                    UnaryOpcode::Square => a * a,
-                    UnaryOpcode::Floor => a.floor(),
-                    UnaryOpcode::Ceil => a.ceil(),
-                    UnaryOpcode::Round => a.round(),
-                    UnaryOpcode::Sin => a.sin(),
-                    UnaryOpcode::Cos => a.cos(),
-                    UnaryOpcode::Tan => a.tan(),
-                    UnaryOpcode::Asin => a.asin(),
-                    UnaryOpcode::Acos => a.acos(),
-                    UnaryOpcode::Atan => a.atan(),
-                    UnaryOpcode::Exp => a.exp(),
-                    UnaryOpcode::Ln => a.ln(),
-                    UnaryOpcode::Not => (a == 0.0).into(),
-                }
+                op.eval(a)
             }
         };
 
@@ -936,7 +858,7 @@ impl Context {
     ///
     /// This representation is loosely defined and only intended for use in
     /// quick experiments.
-    pub fn from_text<R: Read>(r: R) -> Result<(Self, Node), Error> {
+    pub fn from_text<R: Read>(r: R) -> Result<(Self, Node), ParseError> {
         let reader = BufReader::new(r);
         let mut ctx = Self::new();
         let mut seen = BTreeMap::new();
@@ -954,7 +876,7 @@ impl Context {
                 let txt = iter.next().unwrap();
                 seen.get(txt)
                     .cloned()
-                    .ok_or_else(|| Error::UnknownVariable(txt.to_string()))
+                    .ok_or_else(|| ParseError::UnknownVariable(txt.to_string()))
             };
             let node = match opcode {
                 "const" => ctx.constant(iter.next().unwrap().parse().unwrap()),
@@ -988,14 +910,14 @@ impl Context {
                 "mod" => ctx.modulo(pop()?, pop()?)?,
                 "and" => ctx.and(pop()?, pop()?)?,
                 "or" => ctx.or(pop()?, pop()?)?,
-                op => return Err(Error::UnknownOpcode(op.to_owned())),
+                op => return Err(ParseError::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
             last = Some(node);
         }
         match last {
             Some(node) => Ok((ctx, node)),
-            None => Err(Error::EmptyFile),
+            None => Err(ParseError::EmptyFile),
         }
     }
 
@@ -1249,9 +1171,9 @@ impl Context {
     }
 
     /// Converts from a context-specific node into a standalone [`Tree`]
-    pub fn export(&self, n: Node) -> Result<Tree, Error> {
+    pub fn export(&self, n: Node) -> Result<Tree, BadNode> {
         if self.get_op(n).is_none() {
-            return Err(Error::BadNode);
+            return Err(BadNode);
         }
 
         // Do recursion on the heap to avoid stack overflows for deep trees
@@ -1327,9 +1249,9 @@ impl Context {
     }
 
     /// Takes the symbolic derivative of a node with respect to a variable
-    pub fn deriv(&mut self, n: Node, v: Var) -> Result<Node, Error> {
+    pub fn deriv(&mut self, n: Node, v: Var) -> Result<Node, BadNode> {
         if self.get_op(n).is_none() {
-            return Err(Error::BadNode);
+            return Err(BadNode);
         }
 
         // Do recursion on the heap to avoid stack overflows for deep trees
@@ -1542,6 +1464,72 @@ impl Context {
     }
 }
 
+/// Error indicating that a node is missing from the context
+#[derive(thiserror::Error, Debug)]
+#[error("node is not present in this `Context`")]
+pub struct BadNode;
+
+/// Error type for [`Context::from_text`]
+#[derive(thiserror::Error, Debug)]
+pub enum ParseError {
+    /// Unknown opcode {0}
+    #[error("unknown opcode {0}")]
+    UnknownOpcode(String),
+
+    /// Unknown variable {0}
+    #[error("unknown variable {0}")]
+    UnknownVariable(String),
+
+    /// Node is missing from the context
+    #[error(transparent)]
+    BadNode(#[from] BadNode),
+
+    /// Empty file
+    #[error("empty file")]
+    EmptyFile,
+}
+
+/// Error for getting a constant from a node
+#[derive(thiserror::Error, Debug)]
+pub enum ConstError {
+    /// The given node is not a constant
+    #[error("node is not a constant")]
+    NotAConst,
+
+    /// Node is missing from the context
+    #[error(transparent)]
+    BadNode(#[from] BadNode),
+}
+
+/// Error indicating that the node is not a [`Var`]
+#[derive(thiserror::Error, Debug)]
+#[error("node does not have an associated variable")]
+pub struct NotAVar;
+
+/// Error for getting a [`Var`] from a node
+#[derive(thiserror::Error, Debug)]
+pub enum VarError {
+    /// Node is not a [`Var`]
+    #[error(transparent)]
+    NotAVar(#[from] NotAVar),
+
+    /// Node is missing from the context
+    #[error(transparent)]
+    BadNode(#[from] BadNode),
+}
+
+/// Error during tree-walking evaluation
+#[derive(thiserror::Error, Debug)]
+pub enum EvalError {
+    /// Variable is missing in the evaluation map
+    #[error("variable {0} is missing in the evaluation map")]
+    MissingVar(Var),
+
+    /// Node is missing from the context
+    #[error(transparent)]
+    BadNode(#[from] BadNode),
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Helper trait for things that can be converted into a [`Node`] given a
 /// [`Context`].
@@ -1561,24 +1549,24 @@ impl Context {
 /// ```
 pub trait IntoNode {
     /// Converts the given values into a node
-    fn into_node(self, ctx: &mut Context) -> Result<Node, Error>;
+    fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode>;
 }
 
 impl IntoNode for Node {
-    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode> {
         ctx.check_node(self)?;
         Ok(self)
     }
 }
 
 impl IntoNode for f32 {
-    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode> {
         Ok(ctx.constant(self as f64))
     }
 }
 
 impl IntoNode for f64 {
-    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode> {
         Ok(ctx.constant(self))
     }
 }

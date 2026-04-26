@@ -20,22 +20,21 @@
 //! // This calls directly into that machine code!
 //! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0)?;
 //! assert_eq!(r, 0.1 + 0.3);
-//! # Ok::<(), fidget_core::Error>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::mmap::{Mmap, MmapWriter};
 use fidget_core::{
-    Error,
     compiler::RegOp,
-    context::{Context, Node},
+    context::{BadNode, Context, Node},
     eval::{
-        BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
-        TracingEvaluator,
+        BulkEvalError, BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
+        TracingEvalError, TracingEvaluator,
     },
     render::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
-    vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
+    vm::{BadTrace, Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
 };
 
 use dynasmrt::{
@@ -927,7 +926,7 @@ impl Function for JitFunction {
         trace: &Self::Trace,
         storage: Self::Storage,
         workspace: &mut Self::Workspace,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, BadTrace> {
         self.0.simplify(trace, storage, workspace).map(JitFunction)
     }
 
@@ -968,7 +967,7 @@ impl RenderHints for JitFunction {
 }
 
 impl MathFunction for JitFunction {
-    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, BadNode> {
         GenericVmFunction::new(ctx, nodes).map(JitFunction)
     }
 }
@@ -1116,7 +1115,7 @@ impl TracingEvaluator for JitIntervalEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<(&[Self::Data], Option<&Self::Trace>), Error> {
+    ) -> Result<(&[Self::Data], Option<&Self::Trace>), TracingEvalError> {
         tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1136,7 +1135,7 @@ impl TracingEvaluator for JitPointEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<(&[Self::Data], Option<&Self::Trace>), Error> {
+    ) -> Result<(&[Self::Data], Option<&Self::Trace>), TracingEvalError> {
         tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1321,7 +1320,7 @@ impl BulkEvaluator for JitFloatSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<'_, f32>, Error> {
+    ) -> Result<BulkOutput<'_, f32>, BulkEvalError> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1340,7 +1339,7 @@ impl BulkEvaluator for JitGradSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<BulkOutput<'_, Grad>, Error> {
+    ) -> Result<BulkOutput<'_, Grad>, BulkEvalError> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
