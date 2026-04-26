@@ -180,7 +180,7 @@ impl VarMap {
             let Some(n) = vars.first().map(|v| v.len()) else {
                 return Ok(());
             };
-            if vars.iter().any(|v| v.len() == n) {
+            if vars.iter().all(|v| v.len() == n) {
                 Ok(())
             } else {
                 Err(BulkArgError::MismatchedSlices)

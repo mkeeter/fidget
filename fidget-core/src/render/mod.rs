@@ -188,7 +188,7 @@ impl<F: Function, T> RenderHandle<F, T> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TileSizes(Vec<usize>);
 
-/// Universal error type for Fidget
+/// Error type when constructing a [`TileSizes`] list
 #[derive(thiserror::Error, Debug)]
 pub enum TileSizeError {
     /// Each tile must be divisible by subsequent tiles
