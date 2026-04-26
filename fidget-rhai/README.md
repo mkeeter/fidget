@@ -1,6 +1,6 @@
 `fidget-rhai` adds Rhai bindings to Fidget types.
 
-It is typically used through the [`fidget`](https://crates.io/crate/fidget)
+It is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it under the `rhai` namespace
 
 [![» Crate](https://badgen.net/crates/v/fidget-rhai)](https://crates.io/crates/fidget-rhai)

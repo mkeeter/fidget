@@ -1,6 +1,6 @@
 `fidget-bytecode` implements a `u32` bytecode tape for math expressions.
 
-It is typically used through the [`fidget`](https://crates.io/crate/fidget)
+It is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it under the `bytecode` namespace
 
 [![» Crate](https://badgen.net/crates/v/fidget-bytecode)](https://crates.io/crates/fidget-bytecode)

@@ -1,6 +1,6 @@
 `fidget-gui` implements platform-independent GUI abstractions.
 
-It is typically used through the [`fidget`](https://crates.io/crate/fidget)
+It is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it under the `gui` namespace
 
 [![» Crate](https://badgen.net/crates/v/fidget-gui)](https://crates.io/crates/fidget-gui)

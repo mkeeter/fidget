@@ -1,6 +1,6 @@
 `fidget-mesh` implements meshing of complex closed-form implicit surfaces.
 
-It is typically used through the [`fidget`](https://crates.io/crate/fidget)
+It is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it under the `mesh` namespace
 
 [![» Crate](https://badgen.net/crates/v/fidget-mesh)](https://crates.io/crates/fidget-mesh)

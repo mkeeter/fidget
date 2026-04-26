@@ -1,6 +1,6 @@
 `fidget-jit` implements native JIT compilation of math expressions.
 
-It is typically used through the [`fidget`](https://crates.io/crate/fidget)
+It is typically used through the [`fidget`](https://crates.io/crates/fidget)
 crate, which imports it under the `jit` namespace
 
 [![» Crate](https://badgen.net/crates/v/fidget-jit)](https://crates.io/crates/fidget-jit)
