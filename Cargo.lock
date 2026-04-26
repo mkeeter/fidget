@@ -1690,7 +1690,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-wgpu"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "fidget-bytecode",
  "fidget-core",
@@ -5568,12 +5568,10 @@ dependencies = [
  "bytemuck",
  "clap",
  "clap_builder",
- "core-foundation 0.10.1",
  "either",
  "fastrand",
  "futures-core",
  "half",
- "hashbrown 0.15.5",
  "hashbrown 0.16.1",
  "hashbrown 0.17.0",
  "image",
@@ -5582,7 +5580,9 @@ dependencies = [
  "log",
  "memchr",
  "num-traits",
+ "objc2-foundation 0.3.2",
  "once_cell",
+ "ordered-float",
  "phf_shared",
  "proc-macro2",
  "quote",
@@ -5593,6 +5593,11 @@ dependencies = [
  "serde_core",
  "smallvec 1.15.1",
  "syn",
+ "thiserror 2.0.18",
+ "wgpu",
+ "wgpu-core",
+ "wgpu-hal",
+ "wgpu-types",
  "zerocopy",
 ]
 
