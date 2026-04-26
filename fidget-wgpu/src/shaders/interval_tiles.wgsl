@@ -20,9 +20,11 @@ override SUBTILE_SIZE: u32;
 @compute @workgroup_size(4, 4, 4)
 fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
+    @builtin(num_workgroups) num_workgroups: vec3u,
     @builtin(local_invocation_id) local_id: vec3u
 ) {
-    for (var i=workgroup_id.x; i < tiles_in.count; i += 32768) {
+    // We dispatch with workgroups only on the X axis
+    for (var i=workgroup_id.x; i < tiles_in.count; i += num_workgroups.x) {
         interval_tile_worker(i, local_id);
     }
 }
