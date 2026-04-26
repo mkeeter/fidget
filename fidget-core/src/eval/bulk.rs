@@ -6,7 +6,12 @@
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.
 
-use crate::{eval::Tape, vm::BulkEvalError};
+use crate::{eval::Tape, var::BulkArgError};
+
+/// Error type for bulk evaluation
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub struct BulkEvalError(#[from] pub BulkArgError);
 
 /// Trait for bulk evaluation returning the given type `T`
 ///

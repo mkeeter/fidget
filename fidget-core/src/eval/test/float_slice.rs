@@ -8,10 +8,9 @@ use super::{
 };
 use crate::{
     context::Context,
-    eval::{BulkEvaluator, Function, MathFunction, Tape},
+    eval::{BulkEvalError, BulkEvaluator, Function, MathFunction, Tape},
     shape::{EzShape, Shape, ShapeEvalError, ShapeVars},
     var::{BulkArgError, Var},
-    vm::BulkEvalError,
 };
 
 /// Helper struct to put constrains on our `Shape` object

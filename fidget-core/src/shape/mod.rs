@@ -28,10 +28,13 @@
 
 use crate::{
     context::{BadNode, Context, Node, Tree},
-    eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
+    eval::{
+        BulkEvalError, BulkEvaluator, Function, MathFunction, Tape,
+        TracingEvalError, TracingEvaluator,
+    },
     types::{Grad, Interval},
     var::{BadVarSlice, BulkArgError, TracingArgError, Var, VarIndex, VarMap},
-    vm::{BadTrace, BulkEvalError, TracingEvalError},
+    vm::BadTrace,
 };
 use nalgebra::{Matrix4, Point3};
 use std::collections::HashMap;

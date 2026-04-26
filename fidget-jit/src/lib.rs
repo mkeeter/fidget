@@ -28,16 +28,13 @@ use fidget_core::{
     compiler::RegOp,
     context::{BadNode, Context, Node},
     eval::{
-        BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
-        TracingEvaluator,
+        BulkEvalError, BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
+        TracingEvalError, TracingEvaluator,
     },
     render::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
-    vm::{
-        BadTrace, BulkEvalError, Choice, GenericVmFunction, TracingEvalError,
-        VmData, VmTrace, VmWorkspace,
-    },
+    vm::{BadTrace, Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
 };
 
 use dynasmrt::{

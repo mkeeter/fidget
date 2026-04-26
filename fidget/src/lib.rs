@@ -119,7 +119,7 @@
 //! use fidget::{
 //!     context::Tree,
 //!     shape::{Shape, EzShape},
-//!     vm::{VmShape, BulkEvalError},
+//!     vm::VmShape,
 //! };
 //!
 //! let tree = Tree::x() + Tree::y();

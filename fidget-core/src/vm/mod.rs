@@ -4,13 +4,13 @@ use crate::{
     compiler::RegOp,
     context::{BadNode, Node},
     eval::{
-        BulkEvaluator, BulkOutput, Function, MathFunction, Tape, Trace,
-        TracingEvaluator,
+        BulkEvalError, BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
+        Trace, TracingEvalError, TracingEvaluator,
     },
     render::{RenderHints, TileSizes},
     shape::Shape,
     types::{Grad, Interval},
-    var::{BulkArgError, TracingArgError, VarMap},
+    var::VarMap,
 };
 use std::sync::Arc;
 
@@ -313,11 +313,6 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
         self.choices.fill(Choice::Unknown);
     }
 }
-
-/// Error type for tracing evaluation
-#[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-pub struct TracingEvalError(#[from] pub TracingArgError);
 
 /// VM-based tracing evaluator for intervals
 #[derive(Default)]
@@ -862,11 +857,6 @@ struct BulkVmEval<T> {
     /// Output array
     out: Vec<Vec<T>>,
 }
-
-/// Error type for bulk evaluation
-#[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-pub struct BulkEvalError(#[from] pub BulkArgError);
 
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size

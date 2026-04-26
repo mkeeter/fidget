@@ -14,8 +14,8 @@ mod bulk;
 mod tracing;
 
 // Reexport a few types
-pub use bulk::{BulkEvaluator, BulkOutput};
-pub use tracing::TracingEvaluator;
+pub use bulk::{BulkEvalError, BulkEvaluator, BulkOutput};
+pub use tracing::{TracingEvalError, TracingEvaluator};
 
 /// A tape represents something that can be evaluated by an evaluator
 ///
