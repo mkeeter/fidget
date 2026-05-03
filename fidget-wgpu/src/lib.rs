@@ -1,4 +1,5 @@
 //! Shader generation and WGPU-based image rendering
+#![warn(missing_docs)]
 pub mod render3d;
 pub(crate) mod util;
 

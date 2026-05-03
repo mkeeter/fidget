@@ -1261,7 +1261,16 @@ pub struct Buffers {
     geom: wgpu::Buffer,
 
     /// Result buffer that can be read back from the host
+    ///
+    /// This is mostly image pixels (as [`GeometryPixel`] values), but also
+    /// contains two trailing `u64` values for timestamps.
     image: wgpu::Buffer,
+
+    /// Query set for timestamps
+    timestamps: wgpu::QuerySet,
+
+    /// Buffer into which we resolve the query
+    ts_buf: wgpu::Buffer,
 }
 
 impl Buffers {
@@ -1304,13 +1313,26 @@ impl Buffers {
         let image = new_buffer::<GeometryPixel>(
             device,
             "image",
-            image_pixels,
+            image_pixels + 1, // bonus 16 bytes for query
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        );
+
+        let ts_buf = new_buffer::<u64>(
+            device,
+            "ts",
+            2,
+            wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
         );
 
         let tile64 = RootTileBuffers::new(device, render_size);
         let tile16 = TileBuffers::new(device, render_size);
         let tile4 = TileBuffers::new(device, render_size);
+
+        let timestamps = device.create_query_set(&wgpu::QuerySetDescriptor {
+            label: Some("timestamp query set"),
+            ty: wgpu::QueryType::Timestamp,
+            count: 2,
+        });
 
         Self {
             image_size,
@@ -1322,6 +1344,8 @@ impl Buffers {
             heightmap,
             geom,
             image,
+            timestamps,
+            ts_buf,
         }
     }
 
@@ -1362,9 +1386,24 @@ impl Buffers {
     }
 }
 
+/// Error returned when constructing a context
+#[derive(Debug, thiserror::Error)]
+pub enum ContextError {
+    /// Context must have `TIMESTAMP_QUERY` feature enabled
+    #[error("WebGPU context must have TIMESTAMP_QUERY feature enabled")]
+    RequiresTimestampQuery,
+}
+
 impl Context {
     /// Build a new 3D rendering context, given a device and queue
-    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+    pub fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+    ) -> Result<Self, ContextError> {
+        if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            return Err(ContextError::RequiresTimestampQuery);
+        }
+
         // Create bind group layout and bind group
         let common_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1387,7 +1426,7 @@ impl Context {
         let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
         let clear_ctx = ClearContext::new();
 
-        Self {
+        Ok(Self {
             device,
             queue,
             bind_group_layout: common_bind_group_layout,
@@ -1399,7 +1438,7 @@ impl Context {
             backfill_ctx,
             merge_ctx,
             clear_ctx,
-        }
+        })
     }
 
     /// Builds a new [`Buffers`] object for the given render size
@@ -1432,7 +1471,7 @@ impl Context {
     ) -> GeometryBuffer {
         self.submit(shape, buffers, &settings);
         let image = self.map_image(buffers);
-        self.read_mapped_image(image)
+        image.image()
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1481,8 +1520,9 @@ impl Context {
         };
 
         {
-            // We load the `Config` and the initial tape; the rest of the tape
-            // buffer is uninitialized (filled in by the GPU)
+            // We load the `Config`; the rest of the tape is already populated
+            // in the buffer, and the remaining portion of the buffer is
+            // uninitialized (filled in by the GPU).
             let config_len = std::mem::size_of_val(&config);
             let mut writer = self
                 .queue
@@ -1506,7 +1546,11 @@ impl Context {
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
-                timestamp_writes: None,
+                timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                    query_set: &buffers.timestamps,
+                    beginning_of_pass_write_index: Some(0),
+                    end_of_pass_write_index: Some(1),
+                }),
             });
 
         // Build the common config buffer
@@ -1570,6 +1614,22 @@ impl Context {
         }
         drop(compute_pass);
 
+        // Resolve the raw GPU ticks into the resolve buffer, then copy them
+        // into the last 16 bytes of the image buffer
+        encoder.resolve_query_set(
+            &buffers.timestamps,
+            0..2,
+            &buffers.ts_buf,
+            0,
+        );
+        encoder.copy_buffer_to_buffer(
+            &buffers.ts_buf,
+            0,
+            &buffers.image,
+            buffers.geom.size(), // offset past the image data
+            buffers.ts_buf.size(),
+        );
+
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
         encoder.copy_buffer_to_buffer(
             &buffers.geom,
@@ -1593,7 +1653,11 @@ impl Context {
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
-        MappedImage { buffers, slice }
+        MappedImage {
+            buffers,
+            slice,
+            ns_per_tick: self.queue.get_timestamp_period(),
+        }
     }
 
     /// Asynchronously maps the image buffer
@@ -1607,17 +1671,6 @@ impl Context {
         slice.map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
         MappedImage { buffers, slice }
-    }
-
-    /// Reads a mapped image
-    pub fn read_mapped_image(&self, image: MappedImage) -> GeometryBuffer {
-        // Get the pixel-populated image
-        let result =
-            <[GeometryPixel]>::ref_from_bytes(&image.slice.get_mapped_range())
-                .unwrap()
-                .to_owned();
-
-        GeometryBuffer::build(result, image.buffers.image_size).unwrap()
     }
 
     /// Debug function to read a buffer to a `Vec<T>`
@@ -1658,11 +1711,43 @@ impl Context {
 pub struct MappedImage<'a> {
     buffers: &'a Buffers,
     slice: wgpu::BufferSlice<'a>,
+
+    /// Nanoseconds per tick, for resolving timestamps
+    ns_per_tick: f32,
 }
 
 impl Drop for MappedImage<'_> {
     fn drop(&mut self) {
         self.buffers.image.unmap();
+    }
+}
+
+impl MappedImage<'_> {
+    /// Returns the image's data
+    pub fn image(&self) -> GeometryBuffer {
+        // Get the pixel-populated image
+        let result = <[GeometryPixel]>::ref_from_bytes(
+            &self.slice.get_mapped_range()[..self.image_bytes()],
+        )
+        .unwrap()
+        .to_owned();
+        GeometryBuffer::build(result, self.buffers.image_size).unwrap()
+    }
+
+    /// Returns the time spent in the compute pass
+    pub fn time(&self) -> std::time::Duration {
+        let slice = self.slice.get_mapped_range();
+        let ts = <[u64]>::ref_from_bytes(&slice[self.image_bytes()..]).unwrap();
+        std::time::Duration::from_nanos(
+            (ts[1].saturating_sub(ts[0]) as f64 * self.ns_per_tick as f64)
+                as u64,
+        )
+    }
+
+    fn image_bytes(&self) -> usize {
+        (self.buffers.image_size.width() as usize)
+            * (self.buffers.image_size.height() as usize)
+            * std::mem::size_of::<GeometryPixel>()
     }
 }
 
