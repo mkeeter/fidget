@@ -310,25 +310,33 @@ fn run3d_wgpu(
             .await
             .map_err(anyhow::Error::from)?;
         let out = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::TIMESTAMP_QUERY,
+                ..wgpu::DeviceDescriptor::default()
+            })
             .await?;
         Ok::<_, anyhow::Error>(out)
     })?;
 
-    let mut ctx = fidget::wgpu::render3d::Context::new(device, queue);
+    let mut ctx = fidget::wgpu::render3d::Context::new(device, queue)?;
     let image_size = fidget::render::VoxelSize::from(settings.size);
     let cfg = fidget::wgpu::render3d::RenderConfig { world_to_model };
     let mut image = Default::default();
     let start = std::time::Instant::now();
     let buffers = ctx.buffers(image_size);
     let shape = ctx.shape(&shape)?;
+    let mut compute_pass_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        image = ctx.run(&shape, &buffers, cfg);
+        ctx.submit(&shape, &buffers, &cfg);
+        let img = ctx.map_image(&buffers);
+        compute_pass_time += img.time();
+        image = img.image();
     }
     info!(
-        "Rendered {}x at {:?} ms/frame",
+        "Rendered {}× at {:.2?} ms/frame ({:.2?} ms/compute pass)",
         settings.n,
-        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
+        compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
     Ok(image)
 }
