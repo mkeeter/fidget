@@ -41,7 +41,7 @@ fn repack_main(
     let offset = atomicAdd(&strata_tiles[i + 3], 1u);
 
     // the actual tile index is somewhere past the 4th word
-    strata_tiles[i + 4 + offset] = t;
+    atomicStore(&strata_tiles[i + 4 + offset], t);
 
     // Write the workgroup sizes to the first 3 words in the `struct`
     // We dispatch a maximum of [32768, 1, 1] and iterate in the shader
