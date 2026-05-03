@@ -294,7 +294,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         image = cfg.run(shape.clone()).unwrap();
     }
     info!(
-        "Rendered {}x at {:?} ms/frame",
+        "Rendered {}× at {:?} ms/frame",
         settings.n,
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
@@ -635,7 +635,7 @@ fn main() -> Result<()> {
             };
 
             info!(
-                "Rendered {}x at {:?} ms/frame",
+                "Rendered {}× at {:?} ms/frame",
                 settings.n,
                 start.elapsed().as_micros() as f64
                     / 1000.0
@@ -771,7 +771,7 @@ fn main() -> Result<()> {
                 }
             };
             info!(
-                "Rendered {}x at {:?} ms/iter",
+                "Rendered {}× at {:?} ms/iter",
                 settings.n,
                 start.elapsed().as_micros() as f64
                     / 1000.0
