@@ -199,7 +199,7 @@ impl RenderSize {
 }
 
 /// Number of [`TapeWord`] words in the tape data flexible array
-const TAPE_DATA_CAPACITY: usize = 1024 * 1024 * 8; // 8M words, 64 MiB
+const TAPE_DATA_CAPACITY: usize = 131072; // 128K words, 1 MiB
 
 #[repr(C)]
 struct TapeWord {
@@ -1109,6 +1109,18 @@ impl<const N: usize> TileBuffers<N> {
             z_hist,
         }
     }
+
+    /// Returns the number of bytes allocated in these buffers
+    pub fn size(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let TileBuffers {
+            tiles,
+            sorted,
+            zmin,
+            z_hist,
+        } = self;
+        tiles.size() + sorted.size() + zmin.size() + z_hist.size()
+    }
 }
 
 /// Root tile buffers store strata-packed tile lists
@@ -1168,6 +1180,18 @@ impl<const N: usize> RootTileBuffers<N> {
             zmin,
             zmax,
         }
+    }
+
+    /// Returns the number of bytes allocated to buffers
+    pub fn size(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let RootTileBuffers {
+            tiles,
+            strata,
+            zmin,
+            zmax,
+        } = self;
+        tiles.size() + strata.size() + zmin.size() + zmax.size()
     }
 }
 
@@ -1383,6 +1407,33 @@ impl Buffers {
         let nz = render_size.nz() as usize;
         nx * ny * nz
             + (nx * ny) * ((64usize / 16).pow(3) + (64usize / 4).pow(3))
+    }
+
+    /// Returns total allocated size (in bytes)
+    pub fn size(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let Buffers {
+            image_size: _,
+            tile_tapes,
+            tile64,
+            tile16,
+            tile4,
+            voxels,
+            heightmap,
+            geom,
+            image,
+            timestamps: _,
+            ts_buf,
+        } = self;
+        tile_tapes.size()
+            + tile64.size()
+            + tile16.size()
+            + tile4.size()
+            + voxels.size()
+            + heightmap.size()
+            + geom.size()
+            + image.size()
+            + ts_buf.size()
     }
 }
 
