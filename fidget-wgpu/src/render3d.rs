@@ -1199,29 +1199,13 @@ impl<const N: usize> RootTileBuffers<N> {
 ///
 /// This object is constructed by [`Context::shape`] and may only be used with
 /// that particular [`Context`].
-#[derive(Clone)]
 pub struct RenderShape {
-    config_buf: wgpu::Buffer,
     axes: [u32; 3],
-    bytecode_len: u32,
-    reg_count: u8,
+    bytecode: Bytecode,
 }
 
 impl RenderShape {
-    fn new(
-        device: &wgpu::Device,
-        shape: &VmShape,
-    ) -> Result<Self, ReservedRegister> {
-        // The config buffer is statically sized
-        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: (std::mem::size_of::<Config>()
-                + TAPE_DATA_CAPACITY * std::mem::size_of::<TapeWord>())
-                as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: true,
-        });
-
+    fn new(shape: &VmShape) -> Result<Self, ReservedRegister> {
         // Generate bytecode for the root tape
         let vars = shape.inner().vars();
         let bytecode = Bytecode::new(shape.inner().data())?;
@@ -1232,22 +1216,7 @@ impl RenderShape {
             .axes()
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
 
-        let offset = std::mem::size_of::<Config>();
-        {
-            let bytes = bytecode.as_bytes();
-            let mut buffer_view = config_buf
-                .slice(offset as u64..(offset + bytes.len()) as u64)
-                .get_mapped_range_mut();
-            buffer_view.copy_from_slice(bytes);
-        }
-        config_buf.unmap();
-
-        Ok(Self {
-            config_buf,
-            axes,
-            bytecode_len: bytecode.len().try_into().unwrap(),
-            reg_count: bytecode.reg_count(),
-        })
+        Ok(Self { axes, bytecode })
     }
 }
 
@@ -1257,6 +1226,9 @@ impl RenderShape {
 /// that particular [`Context`].
 #[derive(Clone)]
 pub struct Buffers {
+    /// Config and tape data buffer
+    config_buf: wgpu::Buffer,
+
     /// Image render size
     ///
     /// Note that the tile buffers below round up to the nearest root tile
@@ -1299,6 +1271,16 @@ pub struct Buffers {
 
 impl Buffers {
     fn new(device: &wgpu::Device, image_size: VoxelSize) -> Self {
+        // The config buffer is statically sized
+        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("config"),
+            size: (std::mem::size_of::<Config>()
+                + TAPE_DATA_CAPACITY * std::mem::size_of::<TapeWord>())
+                as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let render_size = RenderSize::from(image_size);
         let render_pixels = render_size.pixels();
         let voxels = new_buffer::<u32>(
@@ -1359,6 +1341,7 @@ impl Buffers {
         });
 
         Self {
+            config_buf,
             image_size,
             tile_tapes,
             tile64,
@@ -1414,6 +1397,7 @@ impl Buffers {
         // Destructure to make sure we take all members into account
         let Buffers {
             image_size: _,
+            config_buf,
             tile_tapes,
             tile64,
             tile16,
@@ -1425,7 +1409,8 @@ impl Buffers {
             timestamps: _,
             ts_buf,
         } = self;
-        tile_tapes.size()
+        config_buf.size()
+            + tile_tapes.size()
             + tile64.size()
             + tile16.size()
             + tile4.size()
@@ -1507,7 +1492,7 @@ impl Context {
         &self,
         shape: &VmShape,
     ) -> Result<RenderShape, ReservedRegister> {
-        RenderShape::new(&self.device, shape)
+        RenderShape::new(shape)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1566,24 +1551,29 @@ impl Context {
                 buffers.image_size.height(),
                 buffers.image_size.depth(),
             ],
-            tape_data_offset: shape.bytecode_len,
-            root_tape_len: shape.bytecode_len,
+            tape_data_offset: shape.bytecode.len().try_into().unwrap(),
+            root_tape_len: shape.bytecode.len().try_into().unwrap(),
         };
 
         {
-            // We load the `Config`; the rest of the tape is already populated
-            // in the buffer, and the remaining portion of the buffer is
-            // uninitialized (filled in by the GPU).
+            // We load the `Config` and shape tape data.
             let config_len = std::mem::size_of_val(&config);
             let mut writer = self
                 .queue
                 .write_buffer_with(
-                    &shape.config_buf,
+                    &buffers.config_buf,
                     0,
-                    (config_len as u64).try_into().unwrap(),
+                    ((config_len + shape.bytecode.as_bytes().len()) as u64)
+                        .try_into()
+                        .unwrap(),
                 )
                 .unwrap();
-            writer.copy_from_slice(config.as_bytes());
+            writer
+                .slice(..config_len)
+                .copy_from_slice(config.as_bytes());
+            writer
+                .slice(config_len..)
+                .copy_from_slice(shape.bytecode.as_bytes());
         }
 
         // Create a command encoder and dispatch the compute work
@@ -1612,7 +1602,7 @@ impl Context {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: shape.config_buf.as_entire_binding(),
+                        resource: buffers.config_buf.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -1626,7 +1616,7 @@ impl Context {
         self.root_ctx.run(
             self,
             buffers,
-            shape.reg_count,
+            shape.bytecode.reg_count(),
             render_size,
             &mut compute_pass,
         );
@@ -1641,13 +1631,13 @@ impl Context {
                 self,
                 buffers,
                 strata,
-                shape.reg_count,
+                shape.bytecode.reg_count(),
                 &mut compute_pass,
             );
             self.voxel_ctx.run(
                 self,
                 buffers,
-                shape.reg_count,
+                shape.bytecode.reg_count(),
                 &mut compute_pass,
             );
 
@@ -1656,7 +1646,7 @@ impl Context {
             self.normals_ctx.run(
                 self,
                 buffers,
-                shape.reg_count,
+                shape.bytecode.reg_count(),
                 &mut compute_pass,
             );
 
