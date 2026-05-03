@@ -1486,7 +1486,7 @@ impl Context {
     ) -> GeometryBuffer {
         self.submit(shape, buffers, &settings);
         let image = self.map_image_async(buffers).await;
-        self.read_mapped_image(image)
+        image.image()
     }
 
     /// Submits a single image to be rendered using GPU acceleration
@@ -1670,7 +1670,11 @@ impl Context {
         let (tx, rx) = flume::bounded(0);
         slice.map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
-        MappedImage { buffers, slice }
+        MappedImage {
+            buffers,
+            slice,
+            ns_per_tick: self.queue.get_timestamp_period(),
+        }
     }
 
     /// Debug function to read a buffer to a `Vec<T>`
