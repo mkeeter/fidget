@@ -1431,8 +1431,8 @@ impl Context {
         settings: RenderConfig,
     ) -> GeometryBuffer {
         self.submit(shape, buffers, &settings);
-        let buffer_slice = self.map_image(buffers);
-        self.read_mapped_image(buffers, &buffer_slice)
+        let image = self.map_image(buffers);
+        self.read_mapped_image(image)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1446,12 +1446,12 @@ impl Context {
         settings: RenderConfig,
     ) -> GeometryBuffer {
         self.submit(shape, buffers, &settings);
-        let buffer_slice = self.map_image_async(buffers).await;
-        self.read_mapped_image(buffers, &buffer_slice)
+        let image = self.map_image_async(buffers).await;
+        self.read_mapped_image(image)
     }
 
     /// Submits a single image to be rendered using GPU acceleration
-    fn submit(
+    pub fn submit(
         &mut self,
         shape: &RenderShape,
         buffers: &Buffers,
@@ -1587,49 +1587,37 @@ impl Context {
     ///
     /// This is a blocking function suitable for use on the desktop
     #[cfg(not(target_arch = "wasm32"))]
-    fn map_image<'a>(&self, buffers: &'a Buffers) -> wgpu::BufferSlice<'a> {
-        // Map result buffer and read back the data
-        let buffer_slice = buffers.image.slice(..);
-        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+    pub fn map_image<'a>(&self, buffers: &'a Buffers) -> MappedImage<'a> {
+        let slice = buffers.image.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
-        buffer_slice
+        MappedImage { buffers, slice }
     }
 
     /// Asynchronously maps the image buffer
     #[cfg(target_arch = "wasm32")]
-    async fn map_image_async<'a>(
+    pub async fn map_image_async<'a>(
         &self,
         buffers: &'a Buffers,
-    ) -> wgpu::BufferSlice<'a> {
-        // Map result buffer and read back the data
-        let buffer_slice = buffers.image.slice(..);
-        let (tx, rx) = flume::bounded(0); // rendezvous! TODO is this good?
-        buffer_slice
-            .map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
+    ) -> MappedImage<'a> {
+        let slice = buffers.image.slice(..);
+        let (tx, rx) = flume::bounded(0);
+        slice.map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
-        buffer_slice
+        MappedImage { buffers, slice }
     }
 
-    /// Reads a mapped image from `self.buffers.image`
-    ///
-    /// # Panics
-    /// If we have not yet called `submit` (to submit the job to the GPU) and
-    /// either `map_image` or `map_image_async` (to map the image buffer).
-    fn read_mapped_image(
-        &self,
-        buffers: &Buffers,
-        buffer_slice: &wgpu::BufferSlice,
-    ) -> GeometryBuffer {
+    /// Reads a mapped image
+    pub fn read_mapped_image(&self, image: MappedImage) -> GeometryBuffer {
         // Get the pixel-populated image
         let result =
-            <[GeometryPixel]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+            <[GeometryPixel]>::ref_from_bytes(&image.slice.get_mapped_range())
                 .unwrap()
                 .to_owned();
-        buffers.image.unmap();
 
-        GeometryBuffer::build(result, buffers.image_size).unwrap()
+        GeometryBuffer::build(result, image.buffers.image_size).unwrap()
     }
 
     /// Debug function to read a buffer to a `Vec<T>`
@@ -1663,6 +1651,18 @@ impl Context {
             .to_vec();
         scratch.unmap();
         result
+    }
+}
+
+/// Handle to a mapped image, which unmaps the image when dropped
+pub struct MappedImage<'a> {
+    buffers: &'a Buffers,
+    slice: wgpu::BufferSlice<'a>,
+}
+
+impl Drop for MappedImage<'_> {
+    fn drop(&mut self) {
+        self.buffers.image.unmap();
     }
 }
 
