@@ -1468,6 +1468,9 @@ name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+dependencies = [
+ "getrandom 0.3.4",
+]
 
 [[package]]
 name = "fax"
@@ -1522,6 +1525,7 @@ dependencies = [
  "fidget-rhai",
  "fidget-shapes",
  "fidget-solver",
+ "fidget-wgpu",
  "nalgebra",
  "rayon",
  "workspace-hack",
@@ -1551,9 +1555,11 @@ dependencies = [
  "log",
  "nalgebra",
  "ordered-float",
+ "pollster",
  "rayon",
  "rhai",
  "strum",
+ "wgpu",
  "workspace-hack",
 ]
 
@@ -1683,6 +1689,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "fidget-wgpu"
+version = "0.4.4"
+dependencies = [
+ "fidget-bytecode",
+ "fidget-core",
+ "fidget-raster",
+ "flume",
+ "heck",
+ "log",
+ "naga",
+ "nalgebra",
+ "strum",
+ "thiserror 2.0.18",
+ "wgpu",
+ "workspace-hack",
+ "zerocopy",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1696,6 +1721,18 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+]
+
+[[package]]
+name = "flume"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be"
+dependencies = [
+ "fastrand",
+ "futures-core",
+ "futures-sink",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -1805,6 +1842,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "futures-sink"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c39754e157331b013978ec91992bde1ac089843443c49cbc7f46150b0fad0893"
 
 [[package]]
 name = "futures-task"
@@ -2794,7 +2837,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 dependencies = [
- "spin",
+ "spin 0.5.2",
 ]
 
 [[package]]
@@ -4138,6 +4181,15 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "spin"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+dependencies = [
+ "lock_api",
+]
 
 [[package]]
 name = "spirv"
@@ -5511,28 +5563,41 @@ dependencies = [
  "ahash",
  "anstream",
  "approx",
+ "arrayvec",
  "bitflags 2.11.1",
  "bytemuck",
  "clap",
  "clap_builder",
  "either",
  "fastrand",
+ "futures-core",
  "half",
+ "hashbrown 0.16.1",
  "hashbrown 0.17.0",
  "image",
  "indexmap",
  "libc",
+ "log",
  "memchr",
  "num-traits",
+ "objc2-foundation 0.3.2",
  "once_cell",
+ "ordered-float",
  "phf_shared",
  "proc-macro2",
  "quote",
+ "raw-window-handle",
  "regex",
  "regex-automata",
  "serde",
  "serde_core",
+ "smallvec 1.15.1",
  "syn",
+ "thiserror 2.0.18",
+ "wgpu",
+ "wgpu-core",
+ "wgpu-hal",
+ "wgpu-types",
  "zerocopy",
 ]
 
