@@ -341,11 +341,11 @@ struct RootContext {
 /// Per-strata offset in the root tiles list
 ///
 /// This must be equivalent to `strata_size_bytes` in the interval root shader
-fn strata_size_bytes(render_size: RenderSize) -> usize {
-    let nx = render_size.nx() as usize;
-    let ny = render_size.ny() as usize;
+fn strata_size_bytes(render_size: RenderSize) -> u64 {
+    let nx = u64::from(render_size.nx());
+    let ny = u64::from(render_size.ny());
     // Snap to `min_storage_buffer_offset_alignment`
-    ((nx * ny + 4) * std::mem::size_of::<u32>()).next_multiple_of(256)
+    ((nx * ny + 4) * std::mem::size_of::<u32>() as u64).next_multiple_of(256)
 }
 
 impl RootContext {
@@ -717,11 +717,12 @@ impl IntervalContext {
         &self,
         ctx: &Context,
         buffers: &Buffers,
-        strata: usize,
+        strata: u64,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let offset_bytes = (strata * buffers.strata_size_bytes()) as u64;
+        let strata_bytes = buffers.strata_size_bytes();
+        let offset_bytes = strata * strata_bytes;
         let bind_group16 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -732,7 +733,8 @@ impl IntervalContext {
                         resource: buffers
                             .tile64
                             .strata
-                            .slice(offset_bytes..)
+                            .data
+                            .slice(offset_bytes..offset_bytes + strata_bytes)
                             .into(),
                     },
                     wgpu::BindGroupEntry {
@@ -755,8 +757,10 @@ impl IntervalContext {
             });
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group16, &[]);
-        compute_pass
-            .dispatch_workgroups_indirect(&buffers.tile64.strata, offset_bytes);
+        compute_pass.dispatch_workgroups_indirect(
+            &buffers.tile64.strata.data,
+            offset_bytes,
+        );
 
         let bind_group_sort16 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -779,7 +783,8 @@ impl IntervalContext {
             });
         compute_pass.set_pipeline(&self.sort16_pipeline);
         compute_pass.set_bind_group(1, &bind_group_sort16, &[]);
-        compute_pass.dispatch_workgroups_indirect(&buffers.tile16.tiles, 0);
+        compute_pass
+            .dispatch_workgroups_indirect(&buffers.tile16.tiles.data, 0);
 
         let bind_group4 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -810,7 +815,8 @@ impl IntervalContext {
             });
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, &bind_group4, &[]);
-        compute_pass.dispatch_workgroups_indirect(&buffers.tile16.sorted, 0);
+        compute_pass
+            .dispatch_workgroups_indirect(&buffers.tile16.sorted.data, 0);
 
         let bind_group_sort4 =
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -833,7 +839,7 @@ impl IntervalContext {
             });
         compute_pass.set_pipeline(&self.sort4_pipeline);
         compute_pass.set_bind_group(1, &bind_group_sort4, &[]);
-        compute_pass.dispatch_workgroups_indirect(&buffers.tile4.tiles, 0);
+        compute_pass.dispatch_workgroups_indirect(&buffers.tile4.tiles.data, 0);
     }
 }
 
@@ -939,7 +945,8 @@ impl VoxelContext {
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
-        compute_pass.dispatch_workgroups_indirect(&buffers.tile4.sorted, 0);
+        compute_pass
+            .dispatch_workgroups_indirect(&buffers.tile4.sorted.data, 0);
     }
 }
 
@@ -1053,52 +1060,51 @@ pub struct Context {
     clear_ctx: ClearContext,
 }
 
-#[derive(Clone)]
-struct TileBuffers<const N: usize> {
+struct TileBuffers<const N: u64> {
     /// Tiles written by the stage outputing N^3 tiles
-    tiles: wgpu::Buffer,
+    tiles: Buffer,
     /// Sorted version of [`tiles`](Self::tiles)
-    sorted: wgpu::Buffer,
+    sorted: Buffer,
     /// Minimum Z height at each XY tile
-    zmin: wgpu::Buffer,
+    zmin: Buffer,
     /// Histogram of Z values (used when sorting)
-    z_hist: wgpu::Buffer,
+    z_hist: Buffer,
 }
 
-impl<const N: usize> TileBuffers<N> {
+impl<const N: u64> TileBuffers<N> {
     /// Returns a new `TileBuffers` object
     fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
-        let nx = render_size.width() as usize / N;
-        let ny = render_size.height() as usize / N;
+        let nx = u64::from(render_size.width()) / N;
+        let ny = u64::from(render_size.height()) / N;
         let nz = 64 / N;
 
-        let tiles = new_buffer::<u32>(
+        let tiles = Buffer::new(
             device,
             format!("active_tile{N}"),
             // wg_dispatch: [u32; 3]
             // count: u32,
-            4 + nx * ny * nz,
+            (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
-        let sorted = new_buffer::<u32>(
+        let sorted = Buffer::new(
             device,
             format!("sorted_tile{N}"),
             // wg_dispatch: [u32; 3]
             // count: u32,
-            4 + nx * ny * nz,
+            (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
-        let zmin = new_buffer::<u32>(
+        let zmin = Buffer::new(
             device,
             format!("tile{N}_zmin"),
-            nx * ny,
+            (nx * ny) * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let z_hist = new_buffer::<u32>(
+        let z_hist = Buffer::new(
             device,
             format!("tile{N}_zhist"),
-            nz,
+            nz * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -1110,7 +1116,9 @@ impl<const N: usize> TileBuffers<N> {
         }
     }
 
-    /// Returns the number of bytes allocated in these buffers
+    /// Returns the number of bytes in use by these buffers
+    ///
+    /// See [`self.capacity`](Self::capacity) for total bytes allocated
     pub fn size(&self) -> u64 {
         // Destructure to make sure we take all members into account
         let TileBuffers {
@@ -1121,57 +1129,70 @@ impl<const N: usize> TileBuffers<N> {
         } = self;
         tiles.size() + sorted.size() + zmin.size() + z_hist.size()
     }
+
+    /// Returns the number of bytes allocated by these buffers
+    pub fn capacity(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let TileBuffers {
+            tiles,
+            sorted,
+            zmin,
+            z_hist,
+        } = self;
+        tiles.capacity()
+            + sorted.capacity()
+            + zmin.capacity()
+            + z_hist.capacity()
+    }
 }
 
 /// Root tile buffers store strata-packed tile lists
-#[derive(Clone)]
 struct RootTileBuffers<const N: usize> {
     /// Initial output tiles
-    tiles: wgpu::Buffer,
+    tiles: Buffer,
     /// Strata-sorted output tiles
-    strata: wgpu::Buffer,
-    zmin: wgpu::Buffer,
-    zmax: wgpu::Buffer,
+    strata: Buffer,
+    zmin: Buffer,
+    zmax: Buffer,
 }
 
 impl<const N: usize> RootTileBuffers<N> {
     /// Build a new root tiles buffer, which stores strata-packed tile lists
     fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
         assert_eq!(N, 64);
-        let nx = render_size.nx() as usize;
-        let ny = render_size.ny() as usize;
-        let nz = render_size.nz() as usize;
+        let nx = u64::from(render_size.nx());
+        let ny = u64::from(render_size.ny());
+        let nz = u64::from(render_size.nz());
 
         // Allocate enough words to write all of the output tiles
-        let tiles = new_buffer::<u32>(
+        let tiles = Buffer::new(
             device,
             format!("tiles_out{N}"),
             // wg_dispatch: [u32; 3] (unused)
             // count: u32,
-            4 + nx * ny * nz,
+            (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        // Note that this is allocated in bytes, rather than words
         let strata_size = strata_size_bytes(render_size);
         let total_size = strata_size * nz;
-        let strata = new_buffer::<u8>(
+        let strata = Buffer::new(
             device,
             format!("strata_tile{N}"),
             total_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
 
-        let zmin = new_buffer::<u32>(
+        let zmin = Buffer::new(
             device,
             format!("tile{N}_zmin"),
-            nx * ny,
+            nx * ny * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
-        let zmax = new_buffer::<u32>(
+        let zmax = Buffer::new(
             device,
             format!("tile{N}_zmax"),
-            nx * ny,
+            nx * ny * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
         Self {
@@ -1182,7 +1203,7 @@ impl<const N: usize> RootTileBuffers<N> {
         }
     }
 
-    /// Returns the number of bytes allocated to buffers
+    /// Returns the number of bytes in use by buffers
     pub fn size(&self) -> u64 {
         // Destructure to make sure we take all members into account
         let RootTileBuffers {
@@ -1192,6 +1213,18 @@ impl<const N: usize> RootTileBuffers<N> {
             zmax,
         } = self;
         tiles.size() + strata.size() + zmin.size() + zmax.size()
+    }
+
+    /// Returns the number of bytes allocated to buffers
+    pub fn capacity(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let RootTileBuffers {
+            tiles,
+            strata,
+            zmin,
+            zmax,
+        } = self;
+        tiles.capacity() + strata.capacity() + zmin.capacity() + zmax.capacity()
     }
 }
 
@@ -1224,7 +1257,6 @@ impl RenderShape {
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
 /// that particular [`Context`].
-#[derive(Clone)]
 pub struct Buffers {
     /// Config and tape data buffer
     config_buf: wgpu::Buffer,
@@ -1236,7 +1268,7 @@ pub struct Buffers {
     image_size: VoxelSize,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: wgpu::Buffer,
+    tile_tapes: Buffer,
 
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers<64>,
@@ -1248,25 +1280,84 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxels
-    voxels: wgpu::Buffer,
+    voxels: Buffer,
 
     /// Combined Z height buffer, at the target image size
-    heightmap: wgpu::Buffer,
+    heightmap: Buffer,
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
-    geom: wgpu::Buffer,
+    geom: Buffer,
 
     /// Result buffer that can be read back from the host
     ///
     /// This is mostly image pixels (as [`GeometryPixel`] values), but also
     /// contains two trailing `u64` values for timestamps.
-    image: wgpu::Buffer,
+    image: Buffer,
 
     /// Query set for timestamps
     timestamps: wgpu::QuerySet,
 
     /// Buffer into which we resolve the query
     ts_buf: wgpu::Buffer,
+}
+
+/// Handle around a growable GPU buffer which pretends to be smaller
+struct Buffer {
+    /// Current active size, which may be smaller than the buffer's capacity
+    size: u64,
+    /// Actual GPU buffer
+    data: wgpu::Buffer,
+    /// Buffer label (to be used when reallocating)
+    name: String,
+}
+
+impl Buffer {
+    fn new(
+        device: &wgpu::Device,
+        name: String,
+        size: u64,
+        usage: wgpu::BufferUsages,
+    ) -> Self {
+        let data = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(name.as_str()),
+            size,
+            usage,
+            mapped_at_creation: false,
+        });
+        Self { data, size, name }
+    }
+
+    /// Binds the active slice of the buffer
+    fn as_entire_binding(&self) -> wgpu::BindingResource<'_> {
+        self.data.slice(0..self.size).into()
+    }
+
+    /// Returns the active buffer size
+    fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Returns the total buffer capacity, which may be larger than its size
+    fn capacity(&self) -> u64 {
+        self.data.size()
+    }
+
+    /// Maps the active portion of the buffer for reading
+    fn map_async(
+        &self,
+        callback: impl FnOnce(Result<(), wgpu::BufferAsyncError>)
+        + wgpu::WasmNotSend
+        + 'static,
+    ) -> wgpu::BufferSlice<'_> {
+        let slice = self.data.slice(0..self.size);
+        slice.map_async(wgpu::MapMode::Read, callback);
+        slice
+    }
+
+    /// Clears the active portion of the buffer
+    fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
+        encoder.clear_buffer(&self.data, 0, Some(self.size));
+    }
 }
 
 impl Buffers {
@@ -1283,43 +1374,44 @@ impl Buffers {
 
         let render_size = RenderSize::from(image_size);
         let render_pixels = render_size.pixels();
-        let voxels = new_buffer::<u32>(
+        let voxels = Buffer::new(
             device,
-            "voxels",
-            render_pixels,
+            "voxels".to_string(),
+            (render_pixels * std::mem::size_of::<u32>()) as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         let tile_tape_words = Self::tile_tape_words(render_size);
-        let tile_tapes = new_buffer::<u32>(
+        let tile_tapes = Buffer::new(
             device,
-            "tile tape",
-            tile_tape_words,
+            "tile tape".to_string(),
+            tile_tape_words * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         let image_pixels =
-            image_size.width() as usize * image_size.height() as usize;
-        let heightmap = new_buffer::<u32>(
+            u64::from(image_size.width()) * u64::from(image_size.height());
+        let heightmap = Buffer::new(
             device,
-            "heightmap",
-            image_pixels,
+            "heightmap".to_string(),
+            image_pixels * std::mem::size_of::<u32>() as u64,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
         );
-        let geom = new_buffer::<GeometryPixel>(
+        let geom = Buffer::new(
             device,
-            "geom",
-            image_pixels,
+            "geom".to_string(),
+            image_pixels * std::mem::size_of::<GeometryPixel>() as u64,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
         );
-        let image = new_buffer::<GeometryPixel>(
+        let image = Buffer::new(
             device,
-            "image",
-            image_pixels + 1, // bonus 16 bytes for query
+            "image".to_string(),
+            // Allocate an extra 16 bytes for timestamp queries
+            16 + image_pixels * std::mem::size_of::<GeometryPixel>() as u64,
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
 
@@ -1360,7 +1452,7 @@ impl Buffers {
         self.image_size.into()
     }
 
-    fn strata_size_bytes(&self) -> usize {
+    fn strata_size_bytes(&self) -> u64 {
         strata_size_bytes(self.render_size())
     }
 
@@ -1384,15 +1476,43 @@ impl Buffers {
     /// | index | index | index | ... |     16² XY tiles × 4  Z positions
     /// | index | index | index | ... |     4²  XY tiles × 16 Z positions
     /// ```
-    fn tile_tape_words(render_size: RenderSize) -> usize {
-        let nx = render_size.nx() as usize;
-        let ny = render_size.ny() as usize;
-        let nz = render_size.nz() as usize;
-        nx * ny * nz
-            + (nx * ny) * ((64usize / 16).pow(3) + (64usize / 4).pow(3))
+    fn tile_tape_words(render_size: RenderSize) -> u64 {
+        let nx = u64::from(render_size.nx());
+        let ny = u64::from(render_size.ny());
+        let nz = u64::from(render_size.nz());
+        nx * ny * nz + (nx * ny) * ((64u64 / 16).pow(3) + (64u64 / 4).pow(3))
     }
 
     /// Returns total allocated size (in bytes)
+    pub fn capacity(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let Buffers {
+            image_size: _,
+            config_buf,
+            tile_tapes,
+            tile64,
+            tile16,
+            tile4,
+            voxels,
+            heightmap,
+            geom,
+            image,
+            timestamps: _,
+            ts_buf,
+        } = self;
+        config_buf.size()
+            + tile_tapes.capacity()
+            + tile64.capacity()
+            + tile16.capacity()
+            + tile4.capacity()
+            + voxels.capacity()
+            + heightmap.capacity()
+            + geom.capacity()
+            + image.capacity()
+            + ts_buf.size()
+    }
+
+    /// Returns total active size (in bytes)
     pub fn size(&self) -> u64 {
         // Destructure to make sure we take all members into account
         let Buffers {
@@ -1625,7 +1745,7 @@ impl Context {
             .run(self, buffers, render_size, &mut compute_pass);
 
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
-        let strata_count = (render_size.depth() as usize).div_ceil(64);
+        let strata_count = u64::from(render_size.depth()).div_ceil(64);
         for strata in 0..strata_count {
             self.interval_ctx.run(
                 self,
@@ -1666,16 +1786,16 @@ impl Context {
         encoder.copy_buffer_to_buffer(
             &buffers.ts_buf,
             0,
-            &buffers.image,
+            &buffers.image.data,
             buffers.geom.size(), // offset past the image data
             buffers.ts_buf.size(),
         );
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
         encoder.copy_buffer_to_buffer(
-            &buffers.geom,
+            &buffers.geom.data,
             0,
-            &buffers.image,
+            &buffers.image.data,
             0,
             buffers.geom.size(),
         );
@@ -1689,8 +1809,7 @@ impl Context {
     /// This is a blocking function suitable for use on the desktop
     #[cfg(not(target_arch = "wasm32"))]
     pub fn map_image<'a>(&self, buffers: &'a Buffers) -> MappedImage<'a> {
-        let slice = buffers.image.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
+        let slice = buffers.image.map_async(|_| {});
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
@@ -1707,9 +1826,8 @@ impl Context {
         &self,
         buffers: &'a Buffers,
     ) -> MappedImage<'a> {
-        let slice = buffers.image.slice(..);
         let (tx, rx) = flume::bounded(0);
-        slice.map_async(wgpu::MapMode::Read, move |_| tx.send(()).unwrap());
+        let slice = buffers.image.map_async(move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
         MappedImage {
             buffers,
@@ -1763,7 +1881,7 @@ pub struct MappedImage<'a> {
 
 impl Drop for MappedImage<'_> {
     fn drop(&mut self) {
-        self.buffers.image.unmap();
+        self.buffers.image.data.unmap();
     }
 }
 
@@ -1871,22 +1989,23 @@ impl BackfillContext {
         &self,
         ctx: &Context,
         buffers: &Buffers,
-        strata: usize,
+        strata: u64,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let render_size = buffers.render_size();
-        let offset_bytes = (strata * strata_size_bytes(render_size)) as u64;
+        let offset_bytes = strata * strata_size_bytes(render_size);
 
         let nx = render_size.nx() as usize;
         let ny = render_size.ny() as usize;
 
         let bind_group4 = self.create_bind_group(
             ctx,
-            &buffers.voxels,
-            &buffers.tile4.zmin,
-            buffers.tile4.tiles.slice(0..16).into(),
-            buffers.tile4.sorted.slice(0..16).into(),
-            &buffers.tile4.z_hist, // cleared multiple times, that's okay
+            buffers.voxels.as_entire_binding(),
+            buffers.tile4.zmin.as_entire_binding(),
+            buffers.tile4.tiles.data.slice(0..16).into(),
+            buffers.tile4.sorted.data.slice(0..16).into(),
+            // tile4.z_hist is cleared multiple times, that's okay
+            buffers.tile4.z_hist.as_entire_binding(),
         );
         compute_pass.set_pipeline(&self.pipeline4);
         compute_pass.set_bind_group(1, &bind_group4, &[]);
@@ -1898,11 +2017,11 @@ impl BackfillContext {
 
         let bind_group16 = self.create_bind_group(
             ctx,
-            &buffers.tile4.zmin,
-            &buffers.tile16.zmin,
-            buffers.tile16.tiles.slice(0..16).into(),
-            buffers.tile16.sorted.slice(0..16).into(),
-            &buffers.tile4.z_hist,
+            buffers.tile4.zmin.as_entire_binding(),
+            buffers.tile16.zmin.as_entire_binding(),
+            buffers.tile16.tiles.data.slice(0..16).into(),
+            buffers.tile16.sorted.data.slice(0..16).into(),
+            buffers.tile4.z_hist.as_entire_binding(),
         );
         compute_pass.set_pipeline(&self.pipeline16);
         compute_pass.set_bind_group(1, &bind_group16, &[]);
@@ -1914,15 +2033,16 @@ impl BackfillContext {
 
         let bind_group64 = self.create_bind_group(
             ctx,
-            &buffers.tile16.zmin,
-            &buffers.tile64.zmin,
+            buffers.tile16.zmin.as_entire_binding(),
+            buffers.tile64.zmin.as_entire_binding(),
             buffers
                 .tile64
                 .strata
+                .data
                 .slice(offset_bytes..offset_bytes + 16)
                 .into(),
-            buffers.tile4.sorted.slice(0..16).into(), // cleared again
-            &buffers.tile16.z_hist,
+            buffers.tile4.sorted.data.slice(0..16).into(), // cleared again
+            buffers.tile16.z_hist.as_entire_binding(),
         );
         compute_pass.set_pipeline(&self.pipeline64);
         compute_pass.set_bind_group(1, &bind_group64, &[]);
@@ -1932,11 +2052,11 @@ impl BackfillContext {
     fn create_bind_group(
         &self,
         ctx: &Context,
-        subtile_zmin: &wgpu::Buffer,
-        tile_zmin: &wgpu::Buffer,
+        subtile_zmin: wgpu::BindingResource,
+        tile_zmin: wgpu::BindingResource,
         tile_clear: wgpu::BindingResource,
         sorted_clear: wgpu::BindingResource,
-        z_hist: &wgpu::Buffer,
+        z_hist: wgpu::BindingResource,
     ) -> wgpu::BindGroup {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -1944,11 +2064,11 @@ impl BackfillContext {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: subtile_zmin.as_entire_binding(),
+                    resource: subtile_zmin,
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: tile_zmin.as_entire_binding(),
+                    resource: tile_zmin,
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -1960,7 +2080,7 @@ impl BackfillContext {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: z_hist.as_entire_binding(),
+                    resource: z_hist,
                 },
             ],
         })
@@ -2080,19 +2200,19 @@ impl ClearContext {
 
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
         // Clear only the `count` member of the tile64 `tiles_out` buffer
-        encoder.clear_buffer(&buffers.tile64.tiles, 12, Some(4));
+        encoder.clear_buffer(&buffers.tile64.tiles.data, 12, Some(4));
 
         // Clear all of the heightmaps and output maps
-        encoder.clear_buffer(&buffers.tile64.zmin, 0, None);
-        encoder.clear_buffer(&buffers.tile64.zmax, 0, None);
-        encoder.clear_buffer(&buffers.tile16.zmin, 0, None);
-        encoder.clear_buffer(&buffers.tile4.zmin, 0, None);
-        encoder.clear_buffer(&buffers.voxels, 0, None);
-        encoder.clear_buffer(&buffers.heightmap, 0, None);
-        encoder.clear_buffer(&buffers.geom, 0, None);
+        buffers.tile64.zmin.clear(encoder);
+        buffers.tile64.zmax.clear(encoder);
+        buffers.tile16.zmin.clear(encoder);
+        buffers.tile4.zmin.clear(encoder);
+        buffers.voxels.clear(encoder);
+        buffers.heightmap.clear(encoder);
+        buffers.geom.clear(encoder);
 
         // Clear the whole tile tape map (TODO is this needed?)
-        encoder.clear_buffer(&buffers.tile_tapes, 0, None);
+        buffers.tile_tapes.clear(encoder);
 
         // tiles / sorted counters and z_hist are cleared in backfill
     }
