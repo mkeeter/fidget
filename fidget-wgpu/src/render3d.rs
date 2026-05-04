@@ -1068,45 +1068,39 @@ struct TileBuffers<const N: u64> {
     /// Minimum Z height at each XY tile
     zmin: Buffer,
     /// Histogram of Z values (used when sorting)
-    z_hist: Buffer,
+    z_hist: wgpu::Buffer,
 }
 
 impl<const N: u64> TileBuffers<N> {
     /// Returns a new `TileBuffers` object
     fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
-        let nx = u64::from(render_size.width()) / N;
-        let ny = u64::from(render_size.height()) / N;
-        let nz = 64 / N;
-
+        let tile_buf_size = Self::tile_buf_size(render_size);
         let tiles = Buffer::new(
             device,
             format!("active_tile{N}"),
-            // wg_dispatch: [u32; 3]
-            // count: u32,
-            (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64,
+            tile_buf_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
         let sorted = Buffer::new(
             device,
             format!("sorted_tile{N}"),
-            // wg_dispatch: [u32; 3]
-            // count: u32,
-            (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64,
+            tile_buf_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
         let zmin = Buffer::new(
             device,
             format!("tile{N}_zmin"),
-            (nx * ny) * std::mem::size_of::<u32>() as u64,
+            Self::zmin_buf_size(render_size),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let z_hist = Buffer::new(
-            device,
-            format!("tile{N}_zhist"),
-            nz * std::mem::size_of::<u32>() as u64,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        );
+        // z_hist never changes size, since it's based on `N`
+        let z_hist = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("tile{N}_zhist")),
+            size: (64 / N) * std::mem::size_of::<u32>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         Self {
             tiles,
@@ -1114,6 +1108,34 @@ impl<const N: u64> TileBuffers<N> {
             zmin,
             z_hist,
         }
+    }
+
+    fn tile_buf_size(render_size: RenderSize) -> u64 {
+        let nx = u64::from(render_size.width()) / N;
+        let ny = u64::from(render_size.height()) / N;
+        let nz = 64 / N;
+        // wg_dispatch: [u32; 3]
+        // count: u32,
+        (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64
+    }
+
+    fn zmin_buf_size(render_size: RenderSize) -> u64 {
+        let nx = u64::from(render_size.width()) / N;
+        let ny = u64::from(render_size.height()) / N;
+        (nx * ny) * std::mem::size_of::<u32>() as u64
+    }
+
+    fn grow_to_fit(&mut self, device: &wgpu::Device, render_size: RenderSize) {
+        let TileBuffers {
+            tiles,
+            sorted,
+            zmin,
+            z_hist: _, // never changes, it'll always be like this
+        } = self;
+        let tile_buf_size = Self::tile_buf_size(render_size);
+        tiles.grow_to_fit(device, tile_buf_size);
+        sorted.grow_to_fit(device, tile_buf_size);
+        zmin.grow_to_fit(device, Self::zmin_buf_size(render_size));
     }
 
     /// Returns the number of bytes in use by these buffers
@@ -1139,10 +1161,7 @@ impl<const N: u64> TileBuffers<N> {
             zmin,
             z_hist,
         } = self;
-        tiles.capacity()
-            + sorted.capacity()
-            + zmin.capacity()
-            + z_hist.capacity()
+        tiles.capacity() + sorted.capacity() + zmin.capacity() + z_hist.size()
     }
 }
 
@@ -1160,39 +1179,33 @@ impl<const N: usize> RootTileBuffers<N> {
     /// Build a new root tiles buffer, which stores strata-packed tile lists
     fn new(device: &wgpu::Device, render_size: RenderSize) -> Self {
         assert_eq!(N, 64);
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        let nz = u64::from(render_size.nz());
 
         // Allocate enough words to write all of the output tiles
         let tiles = Buffer::new(
             device,
             format!("tiles_out{N}"),
-            // wg_dispatch: [u32; 3] (unused)
-            // count: u32,
-            (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64,
+            Self::tiles_buf_size(render_size),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let strata_size = strata_size_bytes(render_size);
-        let total_size = strata_size * nz;
         let strata = Buffer::new(
             device,
             format!("strata_tile{N}"),
-            total_size,
+            Self::strata_buf_size(render_size),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
         );
 
+        let z_buf_size = Self::z_buf_size(render_size);
         let zmin = Buffer::new(
             device,
             format!("tile{N}_zmin"),
-            nx * ny * std::mem::size_of::<u32>() as u64,
+            z_buf_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
         let zmax = Buffer::new(
             device,
             format!("tile{N}_zmax"),
-            nx * ny * std::mem::size_of::<u32>() as u64,
+            z_buf_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
         Self {
@@ -1201,6 +1214,43 @@ impl<const N: usize> RootTileBuffers<N> {
             zmin,
             zmax,
         }
+    }
+
+    fn tiles_buf_size(render_size: RenderSize) -> u64 {
+        let nx = u64::from(render_size.nx());
+        let ny = u64::from(render_size.ny());
+        let nz = u64::from(render_size.nz());
+        // wg_dispatch: [u32; 3] (unused)
+        // count: u32,
+        (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64
+    }
+
+    fn strata_buf_size(render_size: RenderSize) -> u64 {
+        let nz = u64::from(render_size.nz());
+        let strata_size = strata_size_bytes(render_size);
+        strata_size * nz
+    }
+
+    fn z_buf_size(render_size: RenderSize) -> u64 {
+        let nx = u64::from(render_size.nx());
+        let ny = u64::from(render_size.ny());
+        nx * ny * std::mem::size_of::<u32>() as u64
+    }
+
+    /// Grows all of the buffers to fit a particular render size
+    fn grow_to_fit(&mut self, device: &wgpu::Device, render_size: RenderSize) {
+        // Destructure to make sure we take all members into account
+        let RootTileBuffers {
+            tiles,
+            strata,
+            zmin,
+            zmax,
+        } = self;
+        tiles.grow_to_fit(device, Self::tiles_buf_size(render_size));
+        strata.grow_to_fit(device, Self::strata_buf_size(render_size));
+        let z_buf_size = Self::z_buf_size(render_size);
+        zmin.grow_to_fit(device, z_buf_size);
+        zmax.grow_to_fit(device, z_buf_size);
     }
 
     /// Returns the number of bytes in use by buffers
@@ -1327,6 +1377,25 @@ impl Buffer {
         Self { data, size, name }
     }
 
+    /// Grows the buffer to fix a particular size in bytes
+    ///
+    /// If the buffer already fits that size, then no allocation is performed,
+    /// but we always update the internal `size` member (e.g. so that
+    /// [`as_entire_binding`](Self::as_entire_binding) returns the correct
+    /// subset of the buffer).
+    fn grow_to_fit(&mut self, device: &wgpu::Device, size: u64) {
+        if size > self.capacity() {
+            let usage = self.data.usage();
+            self.data = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(self.name.as_str()),
+                size,
+                usage,
+                mapped_at_creation: false,
+            });
+        }
+        self.size = size;
+    }
+
     /// Binds the active slice of the buffer
     fn as_entire_binding(&self) -> wgpu::BindingResource<'_> {
         self.data.slice(0..self.size).into()
@@ -1373,28 +1442,24 @@ impl Buffers {
         });
 
         let render_size = RenderSize::from(image_size);
-        let render_pixels = render_size.pixels();
         let voxels = Buffer::new(
             device,
             "voxels".to_string(),
-            (render_pixels * std::mem::size_of::<u32>()) as u64,
+            Self::voxels_buf_size(render_size),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let tile_tape_words = Self::tile_tape_words(render_size);
         let tile_tapes = Buffer::new(
             device,
             "tile tape".to_string(),
-            tile_tape_words * std::mem::size_of::<u32>() as u64,
+            Self::tile_tapes_buf_size(render_size),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let image_pixels =
-            u64::from(image_size.width()) * u64::from(image_size.height());
         let heightmap = Buffer::new(
             device,
             "heightmap".to_string(),
-            image_pixels * std::mem::size_of::<u32>() as u64,
+            Self::heightmap_buf_size(image_size),
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
@@ -1402,7 +1467,7 @@ impl Buffers {
         let geom = Buffer::new(
             device,
             "geom".to_string(),
-            image_pixels * std::mem::size_of::<GeometryPixel>() as u64,
+            Self::geom_buf_size(image_size),
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
@@ -1410,8 +1475,7 @@ impl Buffers {
         let image = Buffer::new(
             device,
             "image".to_string(),
-            // Allocate an extra 16 bytes for timestamp queries
-            16 + image_pixels * std::mem::size_of::<GeometryPixel>() as u64,
+            Self::image_buf_size(image_size),
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
 
@@ -1456,7 +1520,7 @@ impl Buffers {
         strata_size_bytes(self.render_size())
     }
 
-    /// Returns the number of `u32` words in the `tile_tapes` buffer
+    /// Returns the number of bytes in the `tile_tapes` buffer
     /// The tile tape array is... complicated
     ///
     /// The first `nx * ny * nz` words are tape indices for the root tiles
@@ -1476,11 +1540,73 @@ impl Buffers {
     /// | index | index | index | ... |     16² XY tiles × 4  Z positions
     /// | index | index | index | ... |     4²  XY tiles × 16 Z positions
     /// ```
-    fn tile_tape_words(render_size: RenderSize) -> u64 {
+    fn tile_tapes_buf_size(render_size: RenderSize) -> u64 {
         let nx = u64::from(render_size.nx());
         let ny = u64::from(render_size.ny());
         let nz = u64::from(render_size.nz());
-        nx * ny * nz + (nx * ny) * ((64u64 / 16).pow(3) + (64u64 / 4).pow(3))
+        nx * ny * nz
+            + (nx * ny)
+                * ((64u64 / 16).pow(3) + (64u64 / 4).pow(3))
+                * std::mem::size_of::<u32>() as u64
+    }
+
+    fn voxels_buf_size(render_size: RenderSize) -> u64 {
+        let render_pixels = render_size.pixels();
+        (render_pixels * std::mem::size_of::<u32>()) as u64
+    }
+
+    /// Returns the size in bytes for the `geom` buffers
+    fn geom_buf_size(image_size: VoxelSize) -> u64 {
+        let image_pixels =
+            u64::from(image_size.width()) * u64::from(image_size.height());
+        image_pixels * std::mem::size_of::<GeometryPixel>() as u64
+    }
+
+    fn image_buf_size(image_size: VoxelSize) -> u64 {
+        // Allocate an extra 16 bytes for timestamp queries
+        Self::geom_buf_size(image_size) + 16
+    }
+
+    /// Returns the size in bytes for the `heightmap` buffer
+    fn heightmap_buf_size(image_size: VoxelSize) -> u64 {
+        let image_pixels =
+            u64::from(image_size.width()) * u64::from(image_size.height());
+
+        image_pixels * std::mem::size_of::<u32>() as u64
+    }
+
+    /// Resizes to render the target image size
+    ///
+    /// Internal buffers are resized to fit (only getting larger)
+    pub fn set_image_size(
+        &mut self,
+        device: &wgpu::Device,
+        image_size: VoxelSize,
+    ) {
+        let render_size = RenderSize::from(image_size);
+        let Buffers {
+            image_size: image_size_ref,
+            config_buf: _,
+            tile_tapes,
+            tile64,
+            tile16,
+            tile4,
+            voxels,
+            heightmap,
+            geom,
+            image,
+            timestamps: _,
+            ts_buf: _,
+        } = self;
+        *image_size_ref = image_size;
+        tile_tapes.grow_to_fit(device, Self::tile_tapes_buf_size(render_size));
+        tile64.grow_to_fit(device, render_size);
+        tile16.grow_to_fit(device, render_size);
+        tile4.grow_to_fit(device, render_size);
+        voxels.grow_to_fit(device, Self::voxels_buf_size(render_size));
+        heightmap.grow_to_fit(device, Self::heightmap_buf_size(image_size));
+        geom.grow_to_fit(device, Self::geom_buf_size(image_size));
+        image.grow_to_fit(device, Self::image_buf_size(image_size));
     }
 
     /// Returns total allocated size (in bytes)
