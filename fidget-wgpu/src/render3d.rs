@@ -1192,7 +1192,9 @@ impl<const N: usize> RootTileBuffers<N> {
             device,
             format!("strata_tile{N}"),
             Self::strata_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::INDIRECT
+                | wgpu::BufferUsages::COPY_DST,
         );
 
         let z_buf_size = Self::z_buf_size(render_size);
@@ -1518,6 +1520,7 @@ impl Buffers {
         self.image_size.into()
     }
 
+    /// Returns the size of one strata (in bytes)
     fn strata_size_bytes(&self) -> u64 {
         strata_size_bytes(self.render_size())
     }
@@ -2335,6 +2338,19 @@ impl ClearContext {
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
         // Clear only the `count` member of the tile64 `tiles_out` buffer
         encoder.clear_buffer(&buffers.tile64.tiles.data, 12, Some(4));
+
+        // The render pass clears the per-strata counters, but those counters
+        // may now be at a different location in memory if we're using the
+        // buffers for multiple renders of different sizes!  To be safe, we'll
+        // also clear them here:
+        let strata_size_bytes = buffers.strata_size_bytes();
+        for s in 0..buffers.render_size().nz() {
+            encoder.clear_buffer(
+                &buffers.tile64.strata.data,
+                u64::from(s) * strata_size_bytes,
+                Some(16),
+            );
+        }
 
         // Clear all of the heightmaps and output maps
         buffers.tile64.zmin.clear(encoder);
