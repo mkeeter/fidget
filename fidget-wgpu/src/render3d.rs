@@ -1368,6 +1368,7 @@ impl Buffer {
         size: u64,
         usage: wgpu::BufferUsages,
     ) -> Self {
+        assert_eq!(size % 4, 0);
         let data = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name.as_str()),
             size,
@@ -1384,6 +1385,7 @@ impl Buffer {
     /// [`as_entire_binding`](Self::as_entire_binding) returns the correct
     /// subset of the buffer).
     fn grow_to_fit(&mut self, device: &wgpu::Device, size: u64) {
+        assert_eq!(size % 4, 0);
         if size > self.capacity() {
             let usage = self.data.usage();
             self.data = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1544,10 +1546,8 @@ impl Buffers {
         let nx = u64::from(render_size.nx());
         let ny = u64::from(render_size.ny());
         let nz = u64::from(render_size.nz());
-        nx * ny * nz
-            + (nx * ny)
-                * ((64u64 / 16).pow(3) + (64u64 / 4).pow(3))
-                * std::mem::size_of::<u32>() as u64
+        (nx * ny * nz + (nx * ny) * ((64u64 / 16).pow(3) + (64u64 / 4).pow(3)))
+            * std::mem::size_of::<u32>() as u64
     }
 
     fn voxels_buf_size(render_size: RenderSize) -> u64 {
@@ -1993,6 +1993,14 @@ impl Context {
             .to_vec();
         scratch.unmap();
         result
+    }
+
+    /// Resizes buffers for the given image size
+    ///
+    /// Buffer allocations may grow but do not shrink; delete and recreated
+    /// buffers if their capacity exceeds their size to a significant degree.
+    pub fn resize_buffers(&self, buffers: &mut Buffers, image_size: VoxelSize) {
+        buffers.set_image_size(&self.device, image_size);
     }
 }
 
