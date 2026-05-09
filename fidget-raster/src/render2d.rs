@@ -33,6 +33,16 @@ impl Scratch {
 ///
 /// This is either a single distance value or a description of a fill; both
 /// cases are packed into an `f32` (using `NaN`-boxing in the latter case).
+///
+/// The `NaN`-boxing is transparent to the user; for the curious, it is
+/// implemented by splitting the mantissa into three components:
+///
+/// - Bit 0 indicates the sign of the fill (1 for inside, 0 for outside)
+/// - Bits 1-9 indicate the depth at which evaluation terminated, which is
+///   useful for certain debug visualizations
+/// - Bits 10-18 are a fixed bit pattern, which both ensures that the value is
+///   treated as `NaN` in the `[empty, depth 0]` case (rather than infinity) and
+///   distinguishes from `NaN` values generated during normal evaluation
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DistancePixel(f32);
 
@@ -48,7 +58,7 @@ impl DistancePixel {
 
     /// Checks whether the pixel is inside or outside the model
     ///
-    /// This will return `false` if the distance value is `NAN`
+    /// This will return `false` if the distance value is a non-boxed `NaN`
     #[inline]
     pub fn inside(self) -> bool {
         match self.fill() {
