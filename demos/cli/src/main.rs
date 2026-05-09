@@ -279,7 +279,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         None => Some(fidget::render::ThreadPool::Global),
     };
     let threads = threads.as_ref();
-    let cfg = fidget::raster::VoxelRenderConfig {
+    let cfg = fidget::raster::voxel::RenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
         threads,
@@ -446,7 +446,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             )),
             None => Some(fidget::render::ThreadPool::Global),
         };
-        let cfg = fidget::raster::ImageRenderConfig {
+        let cfg = fidget::raster::pixel::RenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
             threads: threads.as_ref(),

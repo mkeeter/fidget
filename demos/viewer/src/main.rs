@@ -12,7 +12,10 @@ use notify::{Event, EventKind, Watcher};
 
 use fidget::{
     gui::{Canvas2, Canvas3, CursorState, DragMode, View2, View3},
-    raster::{GeometryPixel, ImageRenderConfig, VoxelRenderConfig},
+    raster::{
+        pixel::RenderConfig as ImageRenderConfig,
+        voxel::{GeometryPixel, RenderConfig as VoxelRenderConfig},
+    },
 };
 
 use std::{error::Error, path::Path};

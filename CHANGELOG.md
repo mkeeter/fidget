@@ -1,4 +1,14 @@
 # 0.4.4 (unpublished)
+- Reorganize types in `fidget::raster`
+    - `render2d` and `render3d` modules are renamed to `pixel` and `voxel`,
+      respectively
+    - `ImageRenderConfig` and `VoxelRenderConfig` are both renamed to
+      `RenderConfig` (in different namespaces)
+    - Renamed `DistancePixel` to `RawDistancePixel`; added an unpacked `enum
+      DistancePixel` (instead of using `Result<f32, PixelFill>` as a weird
+      `Either` type
+    - The `GeometryBuffer` type is now `voxel::Image`; similarly,
+      `Image<DistancePixel>` is now `pixel::Image`
 - Add `Image::build` function to build an image from a `Vec<T>` and
   `ImageSizeLike`, returning an error if the data size is incorrect.
 - Revamping `fidget-bytecode`

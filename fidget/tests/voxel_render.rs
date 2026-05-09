@@ -3,7 +3,7 @@ use fidget::{
     context::Tree,
     eval::{Function, MathFunction},
     gui::View3,
-    raster::VoxelRenderConfig,
+    raster::voxel::RenderConfig,
     render::VoxelSize,
     shape::{Shape, ShapeVars},
     var::Var,
@@ -19,7 +19,7 @@ fn sphere_var<F: Function + MathFunction>() {
 
     let size = 32;
     for scale in [1.0, 0.5] {
-        let cfg = VoxelRenderConfig {
+        let cfg = RenderConfig {
             image_size: VoxelSize::from(size),
             world_to_model: View3::from_center_and_scale(
                 Vector3::zeros(),

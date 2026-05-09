@@ -3,7 +3,7 @@ use fidget::{
     Context,
     eval::{Function, MathFunction},
     gui::View2,
-    raster::ImageRenderConfig,
+    raster::pixel::RenderConfig,
     render::ImageSize,
     shape::{Shape, ShapeVars},
     var::Var,
@@ -34,7 +34,7 @@ impl Cfg {
         expected: &'static str,
     ) {
         let width = if self.wide { 64 } else { 32 };
-        let cfg = ImageRenderConfig {
+        let cfg = RenderConfig {
             image_size: ImageSize::new(width, 32),
             world_to_model: world_to_model * self.view.world_to_model(),
             ..Default::default()
@@ -369,7 +369,7 @@ fn check_neg_infinity<F: Function + MathFunction>() {
     let root = ctx.constant(-f64::INFINITY);
     let shape = Shape::<F>::new(&ctx, root).unwrap();
 
-    let cfg = ImageRenderConfig {
+    let cfg = RenderConfig {
         image_size: ImageSize::new(256, 256),
         pixel_perfect: true,
         threads: None,
@@ -423,7 +423,7 @@ render_tests!(jit, fidget::jit::JitFunction);
 /// Test generating `world_to_model` matrices from a `View2`
 #[test]
 fn test_camera_render_config() {
-    let config = ImageRenderConfig {
+    let config = RenderConfig {
         image_size: ImageSize::from(512),
         world_to_model: View2::from_center_and_scale(
             nalgebra::Vector2::new(0.5, 0.5),
@@ -446,7 +446,7 @@ fn test_camera_render_config() {
         Point2::new(1.0, 0.0)
     );
 
-    let config = ImageRenderConfig {
+    let config = RenderConfig {
         image_size: ImageSize::from(512),
         world_to_model: View2::from_center_and_scale(
             nalgebra::Vector2::new(0.5, 0.5),

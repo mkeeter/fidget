@@ -1,28 +1,42 @@
 //! 2D and 3D rendering
 //!
 //! To render something, build a configuration object then call its `run`
-//! function, e.g. [`ImageRenderConfig::run`] and [`VoxelRenderConfig::run`].
+//! function, e.g. [`pixel::RenderConfig::run`] and
+//! [`voxel::RenderConfig::run`].
 #![warn(missing_docs)]
-use crate::config::Tile;
 use fidget_core::{
     eval::Function,
     render::{ImageSize, RenderHandle, ThreadPool, TileSizes, VoxelSize},
     shape::{Shape, ShapeVars},
 };
-use nalgebra::Point2;
+use nalgebra::{Const, OPoint, Point2, Vector2};
 use rayon::prelude::*;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
-
-mod config;
-mod render2d;
-mod render3d;
 
 pub mod effects;
-pub use config::{ImageRenderConfig, VoxelRenderConfig};
-pub use render2d::DistancePixel;
+pub mod pixel;
+pub mod voxel;
 
-use render2d::render as render2d;
-use render3d::render as render3d;
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Tile<const N: usize> {
+    /// Corner of this tile, in global screen (pixel) coordinates
+    pub corner: OPoint<usize, Const<N>>,
+}
+
+impl<const N: usize> Tile<N> {
+    /// Build a new tile from its global coordinates
+    #[inline]
+    pub(crate) fn new(corner: OPoint<usize, Const<N>>) -> Tile<N> {
+        Tile { corner }
+    }
+
+    /// Converts a relative position within the tile into a global position
+    ///
+    /// This function operates in pixel space, using the `.xy` coordinates
+    pub(crate) fn add(&self, pos: Vector2<usize>) -> Point2<usize> {
+        let corner = Point2::new(self.corner[0], self.corner[1]);
+        corner + pos
+    }
+}
 
 /// Helper struct to borrow from [`TileSizes`]
 ///
@@ -173,7 +187,7 @@ pub(crate) trait RenderWorker<'a, F: Function, T> {
         &mut self,
         shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
-        tile: config::Tile<2>,
+        tile: Tile<2>,
     ) -> Self::Output;
 }
 
@@ -429,44 +443,6 @@ impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
         &mut self.data[index]
     }
 }
-
-/// Pixel type for a [`GeometryBuffer`]
-///
-/// This type can be passed directly in a buffer to the GPU.
-#[repr(C)]
-#[derive(
-    Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable, PartialEq,
-)]
-pub struct GeometryPixel {
-    /// Z position of this pixel, in voxel units
-    ///
-    /// The fractional component is always zero. Empty pixels always have a
-    /// depth of 0.
-    pub depth: f32,
-    /// Function gradients at this pixel
-    pub normal: [f32; 3],
-}
-
-impl GeometryPixel {
-    /// Converts the normal into a normalized RGB value
-    pub fn to_color(&self) -> [u8; 3] {
-        let [dx, dy, dz] = self.normal;
-        let s = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
-        if s != 0.0 {
-            let scale = u8::MAX as f32 / s;
-            [
-                (dx.abs() * scale) as u8,
-                (dy.abs() * scale) as u8,
-                (dz.abs() * scale) as u8,
-            ]
-        } else {
-            [0; 3]
-        }
-    }
-}
-
-/// Image containing depth and normal at each pixel
-pub type GeometryBuffer = Image<GeometryPixel, VoxelSize>;
 
 impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
     /// Returns the image depth in voxels
