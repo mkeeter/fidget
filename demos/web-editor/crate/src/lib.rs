@@ -268,7 +268,8 @@ impl JsCancelToken {
     }
 
     /// # Safety
-    /// The pointer must have been released by [`get_ptr`](Self::get_ptr)
+    /// The pointer must have been released by [`get_ptr`](Self::get_ptr), and
+    /// may only be claimed once.
     #[wasm_bindgen]
     pub unsafe fn from_ptr(ptr: *const std::sync::atomic::AtomicBool) -> Self {
         let token = unsafe { CancelToken::from_raw(ptr) };

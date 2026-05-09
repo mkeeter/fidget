@@ -128,7 +128,7 @@ impl Scratch {
 /// - Bit 0 indicates the sign of the fill (1 for inside, 0 for outside)
 /// - Bits 1-9 indicate the depth at which evaluation terminated, which is
 ///   useful for certain debug visualizations
-/// - Bits 10-18 are a fixed bit pattern, which both ensures that the value is
+/// - Bits 10-17 are a fixed bit pattern, which both ensures that the value is
 ///   treated as `NaN` in the `[empty, depth 0]` case (rather than infinity) and
 ///   distinguishes from `NaN` values generated during normal evaluation
 #[derive(Copy, Clone, Debug, Default)]
@@ -154,9 +154,8 @@ impl RawDistancePixel {
 
     /// Checks whether the pixel is inside or outside the model
     ///
-    /// Distances of exactly `0.0` are treated as inside (i.e. returning
-    /// `true`).  Non-boxed `NaN` values are treated as outside (i.e. returning
-    /// `false`).
+    /// Distances of exactly `0.0` and non-boxed `NaN` values are treated as
+    /// outside (i.e. returning `false`).
     #[inline]
     pub fn inside(self) -> bool {
         match self.unpack() {

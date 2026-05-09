@@ -1,12 +1,13 @@
 # 0.4.4 (unpublished)
-- Big reorganiaztion of `fidget::raster`
+- Big reorganization of `fidget::raster`
     - `render2d` and `render3d` modules are renamed to `pixel` and `voxel`,
       respectively
     - `ImageRenderConfig` and `VoxelRenderConfig` are both renamed to
       `RenderConfig` (in different namespaces)
     - Similarly, each namespace contains an `Image` and `RenderSize` type
       definition.  `voxel::Image` replaces `GeometryBuffer`; `pixel::Image` is
-      equivalent to `fidget::raster::Image<DistancePixel>`.
+      equivalent to `fidget::raster::Image<DistancePixel>` in the previous code
+      (but see the next point about renaming!)
     - Renamed `DistancePixel` to `RawDistancePixel`; added an unpacked `enum
       DistancePixel` (instead of using `Result<f32, PixelFill>` as a weird
       `Either` type
