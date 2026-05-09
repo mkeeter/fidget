@@ -1,33 +1,48 @@
 //! 2D and 3D rendering
 //!
 //! To render something, build a configuration object then call its `run`
-//! function, e.g. [`ImageRenderConfig::run`] and [`VoxelRenderConfig::run`].
+//! function, e.g. [`pixel::RenderConfig::run`] and
+//! [`voxel::RenderConfig::run`].
 #![warn(missing_docs)]
-use crate::config::Tile;
 use fidget_core::{
     eval::Function,
-    render::{ImageSize, RenderHandle, ThreadPool, TileSizes, VoxelSize},
+    render::{ImageSize, RenderHandle, ThreadPool, TileSizes},
     shape::{Shape, ShapeVars},
 };
-use nalgebra::Point2;
+use nalgebra::{Const, OPoint, Point2, Vector2};
 use rayon::prelude::*;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
-
-mod config;
-mod render2d;
-mod render3d;
 
 pub mod effects;
-pub use config::{ImageRenderConfig, VoxelRenderConfig};
-pub use render2d::DistancePixel;
+pub mod pixel;
+pub mod voxel;
 
-use render2d::render as render2d;
-use render3d::render as render3d;
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Tile<const N: usize> {
+    /// Corner of this tile, in global screen (pixel) coordinates
+    pub corner: OPoint<usize, Const<N>>,
+}
+
+impl<const N: usize> Tile<N> {
+    /// Build a new tile from its global coordinates
+    #[inline]
+    pub(crate) fn new(corner: OPoint<usize, Const<N>>) -> Tile<N> {
+        Tile { corner }
+    }
+
+    /// Converts a relative position within the tile into a global position
+    ///
+    /// This function operates in pixel space, using the `.xy` coordinates
+    pub(crate) fn add(&self, pos: Vector2<usize>) -> Point2<usize> {
+        let corner = Point2::new(self.corner[0], self.corner[1]);
+        corner + pos
+    }
+}
 
 /// Helper struct to borrow from [`TileSizes`]
 ///
 /// This object has the same guarantees as `TileSizes`, but trims items off the
 /// front of the `Vec<usize>` based on the image size.
+#[derive(Copy, Clone)]
 pub(crate) struct TileSizesRef<'a>(&'a [usize]);
 
 impl<'a> std::ops::Index<usize> for TileSizesRef<'a> {
@@ -84,14 +99,13 @@ pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F, T>, T>(
     shape: Shape<F, T>,
     vars: &ShapeVars<f32>,
     config: &'a W::Config,
+    tile_sizes: TileSizesRef<'a>,
 ) -> Option<Vec<(Tile<2>, W::Output)>>
 where
     W::Config: Send + Sync,
     T: Sync,
 {
     use rayon::prelude::*;
-
-    let tile_sizes = config.tile_sizes();
 
     let mut tiles = vec![];
     let t = tile_sizes[0];
@@ -109,15 +123,16 @@ where
     let mut rh = RenderHandle::new(shape);
 
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
+    let ts = tile_sizes;
     let init = || {
         let rh = rh.clone();
-        let worker = W::new(config);
+        let worker = W::new(config, ts);
         (worker, rh)
     };
 
     match config.threads() {
         None => {
-            let mut worker = W::new(config);
+            let mut worker = W::new(config, tile_sizes);
             tiles
                 .into_iter()
                 .map(|tile| {
@@ -153,7 +168,6 @@ where
 pub(crate) trait RenderConfig {
     fn width(&self) -> u32;
     fn height(&self) -> u32;
-    fn tile_sizes(&self) -> TileSizesRef<'_>;
     fn threads(&self) -> Option<&ThreadPool>;
     fn is_cancelled(&self) -> bool;
 }
@@ -166,14 +180,14 @@ pub(crate) trait RenderWorker<'a, F: Function, T> {
     /// Build a new worker
     ///
     /// Workers are typically built on a per-thread basis
-    fn new(cfg: &'a Self::Config) -> Self;
+    fn new(cfg: &'a Self::Config, tile_sizes: TileSizesRef<'a>) -> Self;
 
     /// Render a single tile, returning a worker-dependent output
     fn render_tile(
         &mut self,
         shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
-        tile: config::Tile<2>,
+        tile: Tile<2>,
     ) -> Self::Output;
 }
 
@@ -189,6 +203,9 @@ pub(crate) trait RenderWorker<'a, F: Function, T> {
 ///        |             |
 ///        V--------------
 ///   height (rows)
+///
+/// Users will likely be using one of the image typedefs ([`voxel::Image`] and
+/// [`pixel::Image`]).
 /// ```
 #[derive(Clone)]
 pub struct Image<P, S = ImageSize> {
@@ -196,7 +213,7 @@ pub struct Image<P, S = ImageSize> {
     size: S,
 }
 
-/// Helper trait to make images generic across [`ImageSize`] and [`VoxelSize`]
+/// Helper trait to make images generic across image size types
 pub trait ImageSizeLike {
     /// Returns the width of the region, in pixels / voxels
     fn width(&self) -> u32;
@@ -204,7 +221,7 @@ pub trait ImageSizeLike {
     fn height(&self) -> u32;
 }
 
-impl ImageSizeLike for ImageSize {
+impl ImageSizeLike for pixel::RenderSize {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -213,7 +230,7 @@ impl ImageSizeLike for ImageSize {
     }
 }
 
-impl ImageSizeLike for VoxelSize {
+impl ImageSizeLike for voxel::RenderSize {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -430,45 +447,7 @@ impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
     }
 }
 
-/// Pixel type for a [`GeometryBuffer`]
-///
-/// This type can be passed directly in a buffer to the GPU.
-#[repr(C)]
-#[derive(
-    Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable, PartialEq,
-)]
-pub struct GeometryPixel {
-    /// Z position of this pixel, in voxel units
-    ///
-    /// The fractional component is always zero. Empty pixels always have a
-    /// depth of 0.
-    pub depth: f32,
-    /// Function gradients at this pixel
-    pub normal: [f32; 3],
-}
-
-impl GeometryPixel {
-    /// Converts the normal into a normalized RGB value
-    pub fn to_color(&self) -> [u8; 3] {
-        let [dx, dy, dz] = self.normal;
-        let s = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
-        if s != 0.0 {
-            let scale = u8::MAX as f32 / s;
-            [
-                (dx.abs() * scale) as u8,
-                (dy.abs() * scale) as u8,
-                (dz.abs() * scale) as u8,
-            ]
-        } else {
-            [0; 3]
-        }
-    }
-}
-
-/// Image containing depth and normal at each pixel
-pub type GeometryBuffer = Image<GeometryPixel, VoxelSize>;
-
-impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
+impl<P: Default + Copy + Clone> Image<P, voxel::RenderSize> {
     /// Returns the image depth in voxels
     pub fn depth(&self) -> usize {
         self.size.depth() as usize

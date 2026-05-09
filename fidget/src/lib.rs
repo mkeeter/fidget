@@ -208,16 +208,15 @@
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     render::ImageSize,
-//!     raster::ImageRenderConfig,
+//!     raster::pixel::{RenderConfig, RenderSize},
 //!     vm::VmShape,
 //! };
 //!
 //! let x = Tree::x();
 //! let y = Tree::y();
 //! let tree = (x.square() + y.square()).sqrt() - 1.0;
-//! let cfg = ImageRenderConfig {
-//!     image_size: ImageSize::from(32),
+//! let cfg = RenderConfig {
+//!     image_size: RenderSize::from(32),
 //!     ..Default::default()
 //! };
 //! let shape = VmShape::from(tree);

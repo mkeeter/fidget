@@ -1,7 +1,7 @@
 use fidget::{
     context::{Context, Tree},
     gui::{Canvas2, Canvas3, DragMode, View2, View3},
-    raster::{GeometryBuffer, ImageRenderConfig, VoxelRenderConfig},
+    raster::{pixel, voxel},
     render::{CancelToken, ImageSize, ThreadPool, TileSizes, VoxelSize},
     var::Var,
     vm::{VmData, VmShape},
@@ -59,10 +59,10 @@ pub fn render_2d(
         view: View2,
         cancel: CancelToken,
     ) -> Option<Vec<u8>> {
-        let cfg = ImageRenderConfig {
+        let cfg = pixel::RenderConfig {
             image_size: ImageSize::from(image_size as u32),
             threads: Some(&ThreadPool::Global),
-            tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
+            tile_sizes: Some(TileSizes::new(&[64, 16, 8]).unwrap()),
             pixel_perfect: false,
             world_to_model: view.world_to_model(),
             cancel,
@@ -124,11 +124,11 @@ fn render_3d_inner(
     image_size: usize,
     view: View3,
     cancel: CancelToken,
-) -> Option<GeometryBuffer> {
-    let cfg = VoxelRenderConfig {
+) -> Option<voxel::Image> {
+    let cfg = voxel::RenderConfig {
         image_size: VoxelSize::from(image_size as u32),
         threads: Some(&ThreadPool::Global),
-        tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
+        tile_sizes: Some(TileSizes::new(&[128, 64, 32, 16, 8]).unwrap()),
         world_to_model: view.world_to_model(),
         cancel,
     };
@@ -251,6 +251,7 @@ pub struct JsCancelToken(CancelToken);
 
 #[wasm_bindgen]
 impl JsCancelToken {
+    #[expect(clippy::new_without_default)]
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self(CancelToken::new())
@@ -266,6 +267,9 @@ impl JsCancelToken {
         self.0.clone().into_raw()
     }
 
+    /// # Safety
+    /// The pointer must have been released by [`get_ptr`](Self::get_ptr), and
+    /// may only be claimed once.
     #[wasm_bindgen]
     pub unsafe fn from_ptr(ptr: *const std::sync::atomic::AtomicBool) -> Self {
         let token = unsafe { CancelToken::from_raw(ptr) };

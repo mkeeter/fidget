@@ -1,5 +1,5 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use fidget::render::{ImageSize, RenderHints, ThreadPool};
+use fidget::render::{ImageSize, ThreadPool};
 use std::hint::black_box;
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
@@ -14,9 +14,8 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
     let mut group =
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
     for size in [256, 512, 768, 1024, 1280, 1546, 1792, 2048] {
-        let cfg = &fidget::raster::ImageRenderConfig {
+        let cfg = &fidget::raster::pixel::RenderConfig {
             image_size: fidget::render::ImageSize::from(size),
-            tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
             ..Default::default()
         };
         group.bench_function(BenchmarkId::new("vm", size), move |b| {
@@ -28,9 +27,8 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
 
         #[cfg(feature = "jit")]
         {
-            let cfg = &fidget::raster::ImageRenderConfig {
+            let cfg = &fidget::raster::pixel::RenderConfig {
                 image_size: fidget::render::ImageSize::from(size),
-                tile_sizes: fidget::jit::JitFunction::tile_sizes_2d(),
                 ..Default::default()
             };
             group.bench_function(BenchmarkId::new("jit", size), move |b| {
@@ -67,9 +65,8 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
             Some(ThreadPool::Custom(i)) => i.current_num_threads().to_string(),
             Some(ThreadPool::Global) => "N".to_string(),
         };
-        let cfg = &fidget::raster::ImageRenderConfig {
+        let cfg = &fidget::raster::pixel::RenderConfig {
             image_size: ImageSize::from(1024),
-            tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
             threads,
             ..Default::default()
         };
@@ -81,9 +78,8 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         });
         #[cfg(feature = "jit")]
         {
-            let cfg = &fidget::raster::ImageRenderConfig {
+            let cfg = &fidget::raster::pixel::RenderConfig {
                 image_size: ImageSize::from(1024),
-                tile_sizes: fidget::jit::JitFunction::tile_sizes_2d(),
                 threads,
                 ..Default::default()
             };

@@ -3,7 +3,7 @@ use eframe::{
     egui,
     egui_wgpu::{self, wgpu},
 };
-use fidget::raster::GeometryPixel;
+use fidget::raster::voxel::GeometryPixel;
 use zerocopy::{Immutable, IntoBytes};
 
 /// Configuration for 3D rendering with geometry data

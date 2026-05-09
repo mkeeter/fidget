@@ -1,17 +1,149 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    GeometryBuffer, GeometryPixel, RenderConfig, RenderWorker, TileSizesRef,
-    VoxelSize,
-    config::{Tile, VoxelRenderConfig},
+    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
+    Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
+    render::{CancelToken, RenderHints, ThreadPool, TileSizes},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
 
-use nalgebra::{Point3, Vector2, Vector3};
+use nalgebra::{Matrix4, Point3, Vector2, Vector3};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
+
+/// Image containing depth and normal at each pixel
+pub type Image = GenericImage<GeometryPixel, RenderSize>;
+
+/// Size type for 3D rendering
+pub type RenderSize = fidget_core::render::VoxelSize;
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Settings for 3D rendering
+pub struct RenderConfig<'a> {
+    /// Render size
+    ///
+    /// The resulting image will have the given width and height; depth sets the
+    /// number of voxels to evaluate within each pixel of the image (stacked
+    /// into a column going into the screen).
+    pub image_size: RenderSize,
+
+    /// World-to-model transform
+    pub world_to_model: Matrix4<f32>,
+
+    /// Tile sizes to use during evaluation.
+    ///
+    /// If this is `None`, then evaluation will use
+    /// [`RenderHints::tile_sizes_3d`] to select based on evaluator type.
+    pub tile_sizes: Option<TileSizes>,
+
+    /// Thread pool to use for rendering
+    ///
+    /// If this is `None`, then rendering is done in a single thread; otherwise,
+    /// the provided pool is used.
+    pub threads: Option<&'a ThreadPool>,
+
+    /// Token to cancel rendering
+    pub cancel: CancelToken,
+}
+
+impl Default for RenderConfig<'_> {
+    fn default() -> Self {
+        Self {
+            image_size: RenderSize::from(512),
+            tile_sizes: None,
+            world_to_model: Matrix4::identity(),
+            threads: Some(&ThreadPool::Global),
+            cancel: CancelToken::new(),
+        }
+    }
+}
+
+impl RenderConfigLike for RenderConfig<'_> {
+    fn width(&self) -> u32 {
+        self.image_size.width()
+    }
+    fn height(&self) -> u32 {
+        self.image_size.height()
+    }
+    fn threads(&self) -> Option<&ThreadPool> {
+        self.threads
+    }
+    fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+}
+
+impl RenderConfig<'_> {
+    /// Render a shape in 3D using this configuration
+    ///
+    /// Returns an [`Image`] of pixel data, or `None` if rendering was
+    /// cancelled.
+    ///
+    /// In the resulting image, saturated pixels (i.e. pixels in the image which
+    /// are fully occupied up to the camera) are represented with `depth =
+    /// self.image_size.depth()` and a normal of `[0, 0, 1]`.
+    pub fn run<F: Function + RenderHints>(
+        &self,
+        shape: Shape<F>,
+    ) -> Option<Image> {
+        self.run_with_vars::<F>(shape, &ShapeVars::new())
+    }
+
+    /// Render a shape in 3D using this configuration and variables
+    pub fn run_with_vars<F: Function + RenderHints>(
+        &self,
+        shape: Shape<F>,
+        vars: &ShapeVars<f32>,
+    ) -> Option<Image> {
+        render(shape, vars, self)
+    }
+
+    /// Returns the combined screen-to-model transform matrix
+    pub fn mat(&self) -> Matrix4<f32> {
+        self.world_to_model * self.image_size.screen_to_world()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Pixel type for a [`voxel::Image`](Image)
+///
+/// This type can be passed directly in a buffer to the GPU.
+#[repr(C)]
+#[derive(
+    Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable, PartialEq,
+)]
+pub struct GeometryPixel {
+    /// Z position of this pixel, in voxel units
+    ///
+    /// The fractional component is always zero. Empty pixels always have a
+    /// depth of 0.
+    pub depth: f32,
+    /// Function gradients at this pixel
+    pub normal: [f32; 3],
+}
+
+impl GeometryPixel {
+    /// Converts the normal into a normalized RGB value
+    pub fn to_color(&self) -> [u8; 3] {
+        let [dx, dy, dz] = self.normal;
+        let s = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
+        if s != 0.0 {
+            let scale = u8::MAX as f32 / s;
+            [
+                (dx.abs() * scale) as u8,
+                (dy.abs() * scale) as u8,
+                (dz.abs() * scale) as u8,
+            ]
+        } else {
+            [0; 3]
+        }
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -51,7 +183,7 @@ impl Scratch {
 
 struct Worker<'a, F: Function> {
     tile_sizes: TileSizesRef<'a>,
-    image_size: VoxelSize,
+    image_size: RenderSize,
 
     /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
@@ -65,15 +197,14 @@ struct Worker<'a, F: Function> {
     workspace: F::Workspace,
 
     /// Output images for this specific tile
-    out: GeometryBuffer,
+    out: Image,
 }
 
 impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
-    type Config = VoxelRenderConfig<'a>;
-    type Output = GeometryBuffer;
+    type Config = RenderConfig<'a>;
+    type Output = Image;
 
-    fn new(cfg: &'a Self::Config) -> Self {
-        let tile_sizes = cfg.tile_sizes();
+    fn new(cfg: &'a Self::Config, tile_sizes: TileSizesRef<'a>) -> Self {
         let buf_size = tile_sizes.last();
         let scratch = Scratch::new(buf_size);
         Worker {
@@ -96,11 +227,11 @@ impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
         &mut self,
         shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
-        tile: super::config::Tile<2>,
+        tile: Tile<2>,
     ) -> Self::Output {
         // Prepare local tile data to fill out
         let root_tile_size = self.tile_sizes[0];
-        self.out = GeometryBuffer::new(VoxelSize::from(root_tile_size as u32));
+        self.out = Image::new(RenderSize::from(root_tile_size as u32));
         for k in (0..self.image_size[2].div_ceil(root_tile_size as u32)).rev() {
             let tile = Tile::new(Point3::new(
                 tile.corner.x,
@@ -340,21 +471,30 @@ impl<F: Function> Worker<'_, F> {
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
 ///
-/// Returns a [`GeometryBuffer`] of pixels, or `None` if rendering was cancelled
-/// (using the [`VoxelRenderConfig::cancel`] token)
-pub fn render<F: Function>(
+/// Returns a [`Image`] of pixels, or `None` if rendering was cancelled
+/// (using the [`RenderConfig::cancel`] token)
+pub fn render<F: Function + RenderHints>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
-    config: &VoxelRenderConfig,
-) -> Option<GeometryBuffer> {
+    config: &RenderConfig,
+) -> Option<Image> {
     let shape = shape.with_transform(config.mat());
 
-    let tiles = super::render_tiles::<F, Worker<F>, _>(shape, vars, config)?;
-    let tile_sizes = config.tile_sizes();
+    let max_size = config.width().max(config.height()) as usize;
+    let default_tile_sizes;
+    let tile_sizes = if let Some(ts) = &config.tile_sizes {
+        TileSizesRef::new(ts, max_size)
+    } else {
+        default_tile_sizes = F::tile_sizes_3d();
+        TileSizesRef::new(&default_tile_sizes, max_size)
+    };
+    let tiles = super::render_tiles::<F, Worker<F>, _>(
+        shape, vars, config, tile_sizes,
+    )?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
-    let mut image = GeometryBuffer::new(config.image_size);
+    let mut image = Image::new(config.image_size);
     for (tile, out) in tiles {
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -386,7 +526,7 @@ pub fn render<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use fidget_core::{Context, render::VoxelSize, vm::VmShape};
+    use fidget_core::{Context, vm::VmShape};
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
@@ -395,8 +535,8 @@ mod test {
         let x = ctx.x();
         let shape = VmShape::new(&ctx, x).unwrap();
 
-        let cfg = VoxelRenderConfig {
-            image_size: VoxelSize::from(128), // very small!
+        let cfg = RenderConfig {
+            image_size: RenderSize::from(128), // very small!
             ..Default::default()
         };
         let image = cfg.run(shape).unwrap();
@@ -409,8 +549,8 @@ mod test {
         let x = ctx.x();
         let shape = VmShape::new(&ctx, x).unwrap();
 
-        let cfg = VoxelRenderConfig {
-            image_size: VoxelSize::new(64, 64, 64),
+        let cfg = RenderConfig {
+            image_size: RenderSize::new(64, 64, 64),
             ..Default::default()
         };
         let cancel = cfg.cancel.clone();

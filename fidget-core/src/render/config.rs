@@ -71,7 +71,7 @@ impl CancelToken {
     ///
     /// # Safety
     /// The pointer must have been previously returned by a call to
-    /// [`CancelToken::into_raw`].
+    /// [`CancelToken::into_raw`], and may only be reclaimed once.
     #[doc(hidden)]
     pub unsafe fn from_raw(ptr: *const AtomicBool) -> Self {
         let a = unsafe { Arc::from_raw(ptr) };

@@ -12,7 +12,10 @@ use notify::{Event, EventKind, Watcher};
 
 use fidget::{
     gui::{Canvas2, Canvas3, CursorState, DragMode, View2, View3},
-    raster::{GeometryPixel, ImageRenderConfig, VoxelRenderConfig},
+    raster::{
+        pixel::RenderConfig as ImageRenderConfig,
+        voxel::{GeometryPixel, RenderConfig as VoxelRenderConfig},
+    },
 };
 
 use std::{error::Error, path::Path};
@@ -174,7 +177,6 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 ) -> Vec<[u8; 4]> {
     let config = ImageRenderConfig {
         image_size,
-        tile_sizes: F::tile_sizes_2d(),
         world_to_model: view.world_to_model(),
         pixel_perfect: matches!(mode, Mode2D::Sdf),
         ..Default::default()
@@ -208,7 +210,6 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 ) -> Vec<GeometryPixel> {
     let config = VoxelRenderConfig {
         image_size,
-        tile_sizes: F::tile_sizes_3d(),
         world_to_model: view.world_to_model(),
         ..Default::default()
     };

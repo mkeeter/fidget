@@ -1,8 +1,8 @@
 //! Post-processing effects for rendered images
 
 use super::{
-    ColorImage, DistancePixel, GeometryBuffer, GeometryPixel, Image, ImageSize,
-    ThreadPool,
+    ColorImage, Image, ImageSize, ThreadPool, pixel, pixel::DistancePixel,
+    voxel,
 };
 use nalgebra::{
     Const, Matrix3, MatrixXx2, MatrixXx3, OMatrix, RowVector2, RowVector3,
@@ -15,11 +15,11 @@ use rand::prelude::*;
 /// # Panics
 /// If the images have different widths or heights
 pub fn denoise_normals(
-    image: &GeometryBuffer,
+    image: &voxel::Image,
     threads: Option<&ThreadPool>,
-) -> GeometryBuffer {
+) -> voxel::Image {
     let radius = 2;
-    let mut out = GeometryBuffer::new(image.size());
+    let mut out = voxel::Image::new(image.size());
     out.apply_effect(
         |x, y| {
             let depth = image[(y, x)].depth;
@@ -28,7 +28,7 @@ pub fn denoise_normals(
             } else {
                 [0.0; 3]
             };
-            GeometryPixel { depth, normal }
+            voxel::GeometryPixel { depth, normal }
         },
         threads,
     );
@@ -40,7 +40,7 @@ pub fn denoise_normals(
 /// # Panics
 /// If the images have different widths or heights
 pub fn apply_shading(
-    image: &GeometryBuffer,
+    image: &voxel::Image,
     ssao: bool,
     threads: Option<&ThreadPool>,
 ) -> ColorImage {
@@ -71,7 +71,7 @@ pub fn apply_shading(
 /// # Panics
 /// If the images have different widths or heights
 pub fn compute_ssao(
-    image: &GeometryBuffer,
+    image: &voxel::Image,
     threads: Option<&ThreadPool>,
 ) -> Image<f32> {
     let ssao_kernel = ssao_kernel(64);
@@ -116,7 +116,7 @@ pub fn blur_ssao(
 
 /// Compute shading for a single pixel
 fn shade_pixel(
-    image: &GeometryBuffer,
+    image: &voxel::Image,
     ssao: Option<&Image<f32>>,
     x: usize,
     y: usize,
@@ -155,14 +155,14 @@ fn shade_pixel(
 ///
 /// Returns NAN if the pixel is empty (i.e. its depth is 0)
 fn compute_pixel_ssao(
-    image: &GeometryBuffer,
+    image: &voxel::Image,
     x: usize,
     y: usize,
     kernel: &OMatrix<f32, nalgebra::Dyn, Const<3>>,
     noise: &OMatrix<f32, nalgebra::Dyn, Const<2>>,
 ) -> f32 {
     let pos = (y, x);
-    let GeometryPixel {
+    let voxel::GeometryPixel {
         normal: [nx, ny, nz],
         depth: d,
     } = image[pos];
@@ -227,7 +227,7 @@ fn compute_pixel_ssao(
 
 /// If the pixel has a back-facing normal, then pick a normal from neighbors
 fn denoise_pixel(
-    image: &GeometryBuffer,
+    image: &voxel::Image,
     x: usize,
     y: usize,
     denoise_radius: isize,
@@ -409,7 +409,7 @@ pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
 /// Filled pixels are `[255u8; 4]`; empty pixels are `[0u8; 4]` (i.e.
 /// transparent) if `transparent` is set or `[0, 0, 0, 255]` otherwise.
 pub fn to_rgba_bitmap(
-    image: Image<DistancePixel>,
+    image: pixel::Image,
     transparent: bool,
     threads: Option<&ThreadPool>,
 ) -> Image<[u8; 4]> {
@@ -432,13 +432,13 @@ pub fn to_rgba_bitmap(
 
 /// Converts a [`DistancePixel`] image into a debug visualization
 pub fn to_debug_bitmap(
-    image: Image<DistancePixel>,
+    image: pixel::Image,
     threads: Option<&ThreadPool>,
 ) -> Image<[u8; 4]> {
     let mut out = Image::new(image.size());
     out.apply_effect(
-        |x, y| match image[(y, x)].distance() {
-            Ok(v) => {
+        |x, y| match image[(y, x)].unpack() {
+            DistancePixel::Value(v) => {
                 if v < 0.0 {
                     [255u8; 4]
                 } else {
@@ -446,7 +446,7 @@ pub fn to_debug_bitmap(
                 }
             }
             // Debug color scheme for fill regions
-            Err(f) => match (f.depth, f.inside) {
+            DistancePixel::Fill { depth, inside } => match (depth, inside) {
                 (0, true) => [255, 0, 0, 255],
                 (0, false) => [50, 0, 0, 255],
                 (1, true) => [0, 255, 0, 255],
@@ -470,14 +470,14 @@ pub fn to_debug_bitmap(
 ///
 /// `NAN` distance pixels are shown in pure red (`[255, 0, 0]`).
 pub fn to_rgba_distance(
-    image: Image<DistancePixel>,
+    image: pixel::Image,
     threads: Option<&ThreadPool>,
 ) -> Image<[u8; 4]> {
     let mut out = Image::new(image.size());
     out.apply_effect(
-        |x, y| match image[(y, x)].distance() {
-            Ok(f) if f.is_nan() => [255, 0, 0, 255],
-            Ok(f) => {
+        |x, y| match image[(y, x)].unpack() {
+            DistancePixel::Value(f) if f.is_nan() => [255, 0, 0, 255],
+            DistancePixel::Value(f) => {
                 let r = 1.0 - 0.1f32.copysign(f);
                 let g = 1.0 - 0.4f32.copysign(f);
                 let b = 1.0 - 0.7f32.copysign(f);
@@ -501,8 +501,8 @@ pub fn to_rgba_distance(
                 [run(r), run(g), run(b), 255]
             }
             // Pick a single orange / blue for fill regions
-            Err(f) => {
-                if f.inside {
+            DistancePixel::Fill { inside, .. } => {
+                if inside {
                     [184, 235, 255, 255]
                 } else {
                     [217, 144, 72, 255]

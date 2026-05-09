@@ -1,15 +1,103 @@
 //! 2D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    Image, RenderConfig, RenderWorker, TileSizesRef,
-    config::{ImageRenderConfig, Tile},
+    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
+    Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
+    render::{CancelToken, RenderHints, ThreadPool, TileSizes},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
 };
-use nalgebra::{Point2, Vector2};
+use nalgebra::{Matrix3, Point2, Vector2};
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Image type for 2D rendering
+pub type Image = GenericImage<RawDistancePixel>;
+
+/// Size for 2D rendering
+pub type RenderSize = fidget_core::render::ImageSize;
+
+/// Settings for 2D rendering
+pub struct RenderConfig<'a> {
+    /// Render size
+    pub image_size: RenderSize,
+
+    /// World-to-model transform
+    pub world_to_model: Matrix3<f32>,
+
+    /// Render the distance values of individual pixels
+    pub pixel_perfect: bool,
+
+    /// Tile sizes to use during evaluation.
+    ///
+    /// If this is `None`, then evaluation will use
+    /// [`RenderHints::tile_sizes_2d`] to select based on evaluator type.
+    pub tile_sizes: Option<TileSizes>,
+
+    /// Thread pool to use for rendering
+    ///
+    /// If this is `None`, then rendering is done in a single thread; otherwise,
+    /// the provided pool is used.
+    pub threads: Option<&'a ThreadPool>,
+
+    /// Token to cancel rendering
+    pub cancel: CancelToken,
+}
+
+impl Default for RenderConfig<'_> {
+    fn default() -> Self {
+        Self {
+            image_size: RenderSize::from(512),
+            tile_sizes: None,
+            world_to_model: Matrix3::identity(),
+            pixel_perfect: false,
+            threads: Some(&ThreadPool::Global),
+            cancel: CancelToken::new(),
+        }
+    }
+}
+
+impl RenderConfigLike for RenderConfig<'_> {
+    fn width(&self) -> u32 {
+        self.image_size.width()
+    }
+    fn height(&self) -> u32 {
+        self.image_size.height()
+    }
+    fn threads(&self) -> Option<&ThreadPool> {
+        self.threads
+    }
+    fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+}
+
+impl RenderConfig<'_> {
+    /// Render a shape in 2D using this configuration
+    pub fn run<F: Function + RenderHints>(
+        &self,
+        shape: Shape<F>,
+    ) -> Option<Image> {
+        self.run_with_vars::<F>(shape, &ShapeVars::new())
+    }
+
+    /// Render a shape in 2D using this configuration and variables
+    pub fn run_with_vars<F: Function + RenderHints>(
+        &self,
+        shape: Shape<F>,
+        vars: &ShapeVars<f32>,
+    ) -> Option<Image> {
+        render(shape, vars, self)
+    }
+
+    /// Returns the combined screen-to-model transform matrix
+    pub fn mat(&self) -> Matrix3<f32> {
+        self.world_to_model * self.image_size.screen_to_world()
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -29,31 +117,50 @@ impl Scratch {
     }
 }
 
-/// A pixel in a 2D image
+/// A raw pixel in a 2D image
 ///
 /// This is either a single distance value or a description of a fill; both
 /// cases are packed into an `f32` (using `NaN`-boxing in the latter case).
+///
+/// The `NaN`-boxing is transparent to the user; for the curious, it is
+/// implemented by splitting the mantissa into three components:
+///
+/// - Bit 0 indicates the sign of the fill (1 for inside, 0 for outside)
+/// - Bits 1-9 indicate the depth at which evaluation terminated, which is
+///   useful for certain debug visualizations
+/// - Bits 10-17 are a fixed bit pattern, which both ensures that the value is
+///   treated as `NaN` in the `[empty, depth 0]` case (rather than infinity) and
+///   distinguishes from `NaN` values generated during normal evaluation
 #[derive(Copy, Clone, Debug, Default)]
-pub struct DistancePixel(f32);
+pub struct RawDistancePixel(f32);
 
+/// Unpacked data from a [`RawDistancePixel`]
 #[derive(Copy, Clone, Debug)]
-pub struct PixelFill {
-    pub depth: u8,
-    pub inside: bool,
+pub enum DistancePixel {
+    /// The pixel represents a pseudo-distance value
+    Value(f32),
+    /// The pixel is from a fill region and no distance is available
+    Fill {
+        /// Recursion depth which wrote the pixel
+        depth: u8,
+        /// Is the pixel inside or outside the image
+        inside: bool,
+    },
 }
 
-impl DistancePixel {
+impl RawDistancePixel {
     const KEY: u32 = 0b1111_0110 << 9;
     const KEY_MASK: u32 = 0b1111_1111 << 9;
 
     /// Checks whether the pixel is inside or outside the model
     ///
-    /// This will return `false` if the distance value is `NAN`
+    /// Distances of exactly `0.0` and non-boxed `NaN` values are treated as
+    /// outside (i.e. returning `false`).
     #[inline]
     pub fn inside(self) -> bool {
-        match self.fill() {
-            Ok(f) => f.inside,
-            Err(v) => v < 0.0,
+        match self.unpack() {
+            DistancePixel::Fill { inside, .. } => inside,
+            DistancePixel::Value(v) => v < 0.0,
         }
     }
 
@@ -67,41 +174,37 @@ impl DistancePixel {
         (bits & Self::KEY_MASK) != Self::KEY
     }
 
-    /// Returns the distance value (if present)
+    /// Unpacks into a [`DistancePixel`]
     #[inline]
-    pub fn distance(self) -> Result<f32, PixelFill> {
-        match self.fill() {
-            Ok(v) => Err(v),
-            Err(v) => Ok(v),
-        }
-    }
-
-    /// Returns the fill details (if present)
-    #[inline]
-    pub fn fill(self) -> Result<PixelFill, f32> {
+    pub fn unpack(self) -> DistancePixel {
         if self.is_distance() {
-            Err(self.0)
+            DistancePixel::Value(self.0)
         } else {
             let bits = self.0.to_bits();
             let inside = (bits & 1) == 1;
             let depth = (bits >> 1) as u8;
-            Ok(PixelFill { inside, depth })
+            DistancePixel::Fill { inside, depth }
         }
     }
 }
 
-impl From<PixelFill> for DistancePixel {
+impl From<DistancePixel> for RawDistancePixel {
     #[inline]
-    fn from(p: PixelFill) -> Self {
-        let bits = 0x7FC00000
-            | (u32::from(p.depth) << 1)
-            | u32::from(p.inside)
-            | Self::KEY;
-        DistancePixel(f32::from_bits(bits))
+    fn from(p: DistancePixel) -> Self {
+        match p {
+            DistancePixel::Value(f) => Self::from(f),
+            DistancePixel::Fill { depth, inside } => {
+                let bits = 0x7FC00000
+                    | (u32::from(depth) << 1)
+                    | u32::from(inside)
+                    | Self::KEY;
+                Self(f32::from_bits(bits))
+            }
+        }
     }
 }
 
-impl From<f32> for DistancePixel {
+impl From<f32> for RawDistancePixel {
     #[inline]
     fn from(p: f32) -> Self {
         // Canonicalize the NAN value to avoid colliding with a fill
@@ -132,14 +235,13 @@ struct Worker<'a, F: Function> {
     /// Tile being rendered
     ///
     /// This is a root tile, i.e. width and height of `config.tile_sizes[0]`
-    image: Image<DistancePixel>,
+    image: Image,
 }
 
 impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
-    type Config = ImageRenderConfig<'a>;
-    type Output = Image<DistancePixel>;
-    fn new(cfg: &'a Self::Config) -> Self {
-        let tile_sizes = cfg.tile_sizes();
+    type Config = RenderConfig<'a>;
+    type Output = Image;
+    fn new(cfg: &'a Self::Config, tile_sizes: TileSizesRef<'a>) -> Self {
         Worker::<F> {
             scratch: Scratch::new(tile_sizes.last().pow(2)),
             pixel_perfect: cfg.pixel_perfect,
@@ -157,7 +259,7 @@ impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
         &mut self,
         shape: &mut RenderHandle<F, T>,
         vars: &ShapeVars<f32>,
-        tile: super::config::Tile<2>,
+        tile: Tile<2>,
     ) -> Self::Output {
         self.image = Image::new((self.tile_sizes[0] as u32).into());
         self.render_tile_recurse(shape, vars, 0, tile);
@@ -189,12 +291,12 @@ impl<F: Function> Worker<'_, F> {
 
         if !self.pixel_perfect {
             let pixel = if i.upper() < 0.0 {
-                Some(PixelFill {
+                Some(DistancePixel::Fill {
                     inside: true,
                     depth: depth as u8,
                 })
             } else if i.lower() > 0.0 {
-                Some(PixelFill {
+                Some(DistancePixel::Fill {
                     inside: false,
                     depth: depth as u8,
                 })
@@ -293,22 +395,33 @@ impl<F: Function> Worker<'_, F> {
 /// perform evaluation).
 ///
 /// Returns an `Image<DistancePixel>` of pixel data if rendering succeeds, or
-/// `None` if rendering was cancelled (using the [`ImageRenderConfig::cancel`]
+/// `None` if rendering was cancelled (using the [`RenderConfig::cancel`]
 /// token)
-pub fn render<F: Function>(
+pub fn render<F: Function + RenderHints>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
-    config: &ImageRenderConfig,
-) -> Option<Image<DistancePixel>> {
+    config: &RenderConfig,
+) -> Option<Image> {
     // Convert to a 4x4 matrix and apply to the shape
     let mat = config.mat();
     let mat = mat.insert_row(2, 0.0);
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.with_transform(mat);
 
-    let tiles =
-        super::render_tiles::<F, Worker<F>, _>(shape.clone(), vars, config)?;
-    let tile_sizes = config.tile_sizes();
+    let max_size = config.width().max(config.height()) as usize;
+    let default_tile_sizes;
+    let tile_sizes = if let Some(ts) = &config.tile_sizes {
+        TileSizesRef::new(ts, max_size)
+    } else {
+        default_tile_sizes = F::tile_sizes_2d();
+        TileSizesRef::new(&default_tile_sizes, max_size)
+    };
+    let tiles = super::render_tiles::<F, Worker<F>, _>(
+        shape.clone(),
+        vars,
+        config,
+        tile_sizes,
+    )?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -332,9 +445,7 @@ pub fn render<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use fidget_core::{
-        Context, render::ImageSize, shape::Shape, vm::VmFunction,
-    };
+    use fidget_core::{Context, shape::Shape, vm::VmFunction};
 
     const HI: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../models/hi.vm"));
@@ -344,13 +455,58 @@ mod test {
         let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
         let shape = Shape::<VmFunction>::new(&ctx, root).unwrap();
 
-        let cfg = ImageRenderConfig {
-            image_size: ImageSize::new(64, 64),
+        let cfg = RenderConfig {
+            image_size: RenderSize::new(64, 64),
             ..Default::default()
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
         let out = cfg.run(shape);
         assert!(out.is_none());
+    }
+
+    #[test]
+    fn test_default_render_config() {
+        let config = RenderConfig {
+            image_size: RenderSize::from(512),
+            ..Default::default()
+        };
+        let mat = config.mat();
+        assert_eq!(
+            mat.transform_point(&Point2::new(0.0, -1.0)),
+            Point2::new(-1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, -1.0)),
+            Point2::new(1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 511.0)),
+            Point2::new(1.0, -1.0)
+        );
+
+        let config = RenderConfig {
+            image_size: RenderSize::from(575),
+            ..Default::default()
+        };
+        let mat = config.mat();
+        assert_eq!(
+            mat.transform_point(&Point2::new(0.0, -1.0)),
+            Point2::new(-1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(
+                config.image_size.width() as f32,
+                -1.0
+            )),
+            Point2::new(1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(
+                config.image_size.width() as f32,
+                config.image_size.height() as f32 - 1.0,
+            )),
+            Point2::new(1.0, -1.0)
+        );
     }
 }
