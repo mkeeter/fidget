@@ -281,7 +281,6 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     let threads = threads.as_ref();
     let cfg = fidget::raster::voxel::RenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
-        tile_sizes: F::tile_sizes_3d(),
         threads,
         world_to_model,
         ..Default::default()
@@ -448,7 +447,6 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         };
         let cfg = fidget::raster::pixel::RenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
-            tile_sizes: F::tile_sizes_2d(),
             threads: threads.as_ref(),
             pixel_perfect: matches!(mode, RenderMode2D::Sdf),
             world_to_model,

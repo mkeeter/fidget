@@ -177,7 +177,6 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 ) -> Vec<[u8; 4]> {
     let config = ImageRenderConfig {
         image_size,
-        tile_sizes: F::tile_sizes_2d(),
         world_to_model: view.world_to_model(),
         pixel_perfect: matches!(mode, Mode2D::Sdf),
         ..Default::default()
@@ -211,7 +210,6 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 ) -> Vec<GeometryPixel> {
     let config = VoxelRenderConfig {
         image_size,
-        tile_sizes: F::tile_sizes_3d(),
         world_to_model: view.world_to_model(),
         ..Default::default()
     };

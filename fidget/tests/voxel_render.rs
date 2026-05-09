@@ -3,14 +3,14 @@ use fidget::{
     context::Tree,
     eval::{Function, MathFunction},
     gui::View3,
-    raster::voxel::RenderConfig,
-    render::VoxelSize,
+    raster::voxel::{RenderConfig, RenderSize},
+    render::RenderHints,
     shape::{Shape, ShapeVars},
     var::Var,
 };
 use nalgebra::Vector3;
 
-fn sphere_var<F: Function + MathFunction>() {
+fn sphere_var<F: Function + MathFunction + RenderHints>() {
     let (x, y, z) = Tree::axes();
     let v = Var::new();
     let c = Tree::from(v);
@@ -20,7 +20,7 @@ fn sphere_var<F: Function + MathFunction>() {
     let size = 32;
     for scale in [1.0, 0.5] {
         let cfg = RenderConfig {
-            image_size: VoxelSize::from(size),
+            image_size: RenderSize::from(size),
             world_to_model: View3::from_center_and_scale(
                 Vector3::zeros(),
                 scale,

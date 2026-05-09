@@ -3,8 +3,8 @@ use fidget::{
     Context,
     eval::{Function, MathFunction},
     gui::View2,
-    raster::pixel::RenderConfig,
-    render::ImageSize,
+    raster::pixel::{RenderConfig, RenderSize},
+    render::RenderHints,
     shape::{Shape, ShapeVars},
     var::Var,
 };
@@ -23,11 +23,15 @@ struct Cfg {
 }
 
 impl Cfg {
-    fn test<F: Function>(&self, shape: Shape<F>, expected: &'static str) {
+    fn test<F: Function + RenderHints>(
+        &self,
+        shape: Shape<F>,
+        expected: &'static str,
+    ) {
         self.test_with_mat(shape, nalgebra::Matrix3::identity(), expected);
     }
 
-    fn test_with_mat<F: Function>(
+    fn test_with_mat<F: Function + RenderHints>(
         &self,
         shape: Shape<F>,
         world_to_model: nalgebra::Matrix3<f32>,
@@ -35,7 +39,7 @@ impl Cfg {
     ) {
         let width = if self.wide { 64 } else { 32 };
         let cfg = RenderConfig {
-            image_size: ImageSize::new(width, 32),
+            image_size: RenderSize::new(width, 32),
             world_to_model: world_to_model * self.view.world_to_model(),
             ..Default::default()
         };
@@ -61,7 +65,7 @@ impl Cfg {
     }
 }
 
-fn check_hi<F: Function + MathFunction>() {
+fn check_hi<F: Function + MathFunction + RenderHints>() {
     let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
     let shape = Shape::<F>::new(&ctx, root).unwrap();
     const EXPECTED: &str = "
@@ -100,7 +104,7 @@ fn check_hi<F: Function + MathFunction>() {
     Cfg::default().test(shape, EXPECTED);
 }
 
-fn check_hi_wide<F: Function + MathFunction>() {
+fn check_hi_wide<F: Function + MathFunction + RenderHints>() {
     let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
     let shape = Shape::<F>::new(&ctx, root).unwrap();
     const EXPECTED: &str = "
@@ -143,7 +147,7 @@ fn check_hi_wide<F: Function + MathFunction>() {
     .test(shape, EXPECTED);
 }
 
-fn check_hi_transformed<F: Function + MathFunction>() {
+fn check_hi_transformed<F: Function + MathFunction + RenderHints>() {
     let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
     let shape = Shape::<F>::new(&ctx, root).unwrap();
     let mut mat = nalgebra::Matrix3::<f32>::identity();
@@ -185,7 +189,7 @@ fn check_hi_transformed<F: Function + MathFunction>() {
     Cfg::default().test_with_mat(shape, mat, EXPECTED);
 }
 
-fn check_hi_bounded<F: Function + MathFunction>() {
+fn check_hi_bounded<F: Function + MathFunction + RenderHints>() {
     let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
     let shape = Shape::<F>::new(&ctx, root).unwrap();
     const EXPECTED: &str = "
@@ -230,7 +234,7 @@ fn check_hi_bounded<F: Function + MathFunction>() {
     .test(shape, EXPECTED);
 }
 
-fn check_quarter<F: Function + MathFunction>() {
+fn check_quarter<F: Function + MathFunction + RenderHints>() {
     let (ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
     let shape = Shape::<F>::new(&ctx, root).unwrap();
     const EXPECTED: &str = "
@@ -269,7 +273,7 @@ fn check_quarter<F: Function + MathFunction>() {
     Cfg::default().test(shape, EXPECTED);
 }
 
-fn check_circle_var<F: Function + MathFunction>() {
+fn check_circle_var<F: Function + MathFunction + RenderHints>() {
     let mut ctx = Context::new();
     let x = ctx.x();
     let y = ctx.y();
@@ -364,13 +368,13 @@ fn check_circle_var<F: Function + MathFunction>() {
     .test(shape, EXPECTED_05);
 }
 
-fn check_neg_infinity<F: Function + MathFunction>() {
+fn check_neg_infinity<F: Function + MathFunction + RenderHints>() {
     let mut ctx = Context::new();
     let root = ctx.constant(-f64::INFINITY);
     let shape = Shape::<F>::new(&ctx, root).unwrap();
 
     let cfg = RenderConfig {
-        image_size: ImageSize::new(256, 256),
+        image_size: RenderSize::new(256, 256),
         pixel_perfect: true,
         threads: None,
         ..Default::default()
@@ -424,7 +428,7 @@ render_tests!(jit, fidget::jit::JitFunction);
 #[test]
 fn test_camera_render_config() {
     let config = RenderConfig {
-        image_size: ImageSize::from(512),
+        image_size: RenderSize::from(512),
         world_to_model: View2::from_center_and_scale(
             nalgebra::Vector2::new(0.5, 0.5),
             0.5,
@@ -447,7 +451,7 @@ fn test_camera_render_config() {
     );
 
     let config = RenderConfig {
-        image_size: ImageSize::from(512),
+        image_size: RenderSize::from(512),
         world_to_model: View2::from_center_and_scale(
             nalgebra::Vector2::new(0.5, 0.5),
             0.25,

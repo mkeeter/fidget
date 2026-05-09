@@ -6,7 +6,7 @@
 #![warn(missing_docs)]
 use fidget_core::{
     eval::Function,
-    render::{ImageSize, RenderHandle, ThreadPool, TileSizes, VoxelSize},
+    render::{ImageSize, RenderHandle, ThreadPool, TileSizes},
     shape::{Shape, ShapeVars},
 };
 use nalgebra::{Const, OPoint, Point2, Vector2};
@@ -42,6 +42,7 @@ impl<const N: usize> Tile<N> {
 ///
 /// This object has the same guarantees as `TileSizes`, but trims items off the
 /// front of the `Vec<usize>` based on the image size.
+#[derive(Copy, Clone)]
 pub(crate) struct TileSizesRef<'a>(&'a [usize]);
 
 impl<'a> std::ops::Index<usize> for TileSizesRef<'a> {
@@ -98,14 +99,13 @@ pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F, T>, T>(
     shape: Shape<F, T>,
     vars: &ShapeVars<f32>,
     config: &'a W::Config,
+    tile_sizes: TileSizesRef<'a>,
 ) -> Option<Vec<(Tile<2>, W::Output)>>
 where
     W::Config: Send + Sync,
     T: Sync,
 {
     use rayon::prelude::*;
-
-    let tile_sizes = config.tile_sizes();
 
     let mut tiles = vec![];
     let t = tile_sizes[0];
@@ -123,15 +123,16 @@ where
     let mut rh = RenderHandle::new(shape);
 
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
+    let ts = tile_sizes;
     let init = || {
         let rh = rh.clone();
-        let worker = W::new(config);
+        let worker = W::new(config, ts);
         (worker, rh)
     };
 
     match config.threads() {
         None => {
-            let mut worker = W::new(config);
+            let mut worker = W::new(config, tile_sizes);
             tiles
                 .into_iter()
                 .map(|tile| {
@@ -167,7 +168,6 @@ where
 pub(crate) trait RenderConfig {
     fn width(&self) -> u32;
     fn height(&self) -> u32;
-    fn tile_sizes(&self) -> TileSizesRef<'_>;
     fn threads(&self) -> Option<&ThreadPool>;
     fn is_cancelled(&self) -> bool;
 }
@@ -180,7 +180,7 @@ pub(crate) trait RenderWorker<'a, F: Function, T> {
     /// Build a new worker
     ///
     /// Workers are typically built on a per-thread basis
-    fn new(cfg: &'a Self::Config) -> Self;
+    fn new(cfg: &'a Self::Config, tile_sizes: TileSizesRef<'a>) -> Self;
 
     /// Render a single tile, returning a worker-dependent output
     fn render_tile(
@@ -203,6 +203,9 @@ pub(crate) trait RenderWorker<'a, F: Function, T> {
 ///        |             |
 ///        V--------------
 ///   height (rows)
+///
+/// Users will likely be using one of the image typedefs ([`voxel::Image`] and
+/// [`pixel::Image`]).
 /// ```
 #[derive(Clone)]
 pub struct Image<P, S = ImageSize> {
@@ -210,7 +213,7 @@ pub struct Image<P, S = ImageSize> {
     size: S,
 }
 
-/// Helper trait to make images generic across [`ImageSize`] and [`VoxelSize`]
+/// Helper trait to make images generic across image size types
 pub trait ImageSizeLike {
     /// Returns the width of the region, in pixels / voxels
     fn width(&self) -> u32;
@@ -218,7 +221,7 @@ pub trait ImageSizeLike {
     fn height(&self) -> u32;
 }
 
-impl ImageSizeLike for ImageSize {
+impl ImageSizeLike for pixel::RenderSize {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -227,7 +230,7 @@ impl ImageSizeLike for ImageSize {
     }
 }
 
-impl ImageSizeLike for VoxelSize {
+impl ImageSizeLike for voxel::RenderSize {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -444,7 +447,7 @@ impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
     }
 }
 
-impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
+impl<P: Default + Copy + Clone> Image<P, voxel::RenderSize> {
     /// Returns the image depth in voxels
     pub fn depth(&self) -> usize {
         self.size.depth() as usize
