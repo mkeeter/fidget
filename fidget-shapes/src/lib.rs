@@ -650,6 +650,8 @@ pub fn visit_shapes<V: ShapeVisitor>(visitor: &mut V) {
     visitor.visit::<ReflectX>();
     visitor.visit::<ReflectY>();
     visitor.visit::<ReflectZ>();
+    visitor.visit::<ReflectXY>();
+    visitor.visit::<RepeatX>();
     visitor.visit::<Rotate>();
     visitor.visit::<RotateX>();
     visitor.visit::<RotateY>();
