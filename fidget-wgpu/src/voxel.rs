@@ -67,7 +67,7 @@
 //!
 //! ## Sync and async operation
 
-use crate::{opcode_constants, util::new_buffer};
+use crate::opcode_constants;
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{eval::Function, render::VoxelSize, vm::VmShape};
 use fidget_raster::voxel::{GeometryPixel, Image};
@@ -1483,12 +1483,13 @@ impl Buffers {
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
 
-        let ts_buf = new_buffer::<u64>(
-            device,
-            "ts",
-            2,
-            wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
-        );
+        let ts_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ts"),
+            size: 2 * std::mem::size_of::<u64>() as u64,
+            usage: wgpu::BufferUsages::QUERY_RESOLVE
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
 
         let tile64 = RootTileBuffers::new(device, render_size);
         let tile16 = TileBuffers::new(device, render_size);
