@@ -70,7 +70,7 @@
 use crate::{opcode_constants, util::new_buffer};
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{eval::Function, render::VoxelSize, vm::VmShape};
-use fidget_raster::{GeometryBuffer, GeometryPixel};
+use fidget_raster::voxel::{GeometryPixel, Image};
 use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -1753,7 +1753,7 @@ impl Context {
         shape: &RenderShape,
         buffers: &Buffers,
         settings: RenderConfig,
-    ) -> GeometryBuffer {
+    ) -> Image {
         self.submit(shape, buffers, &settings);
         let image = self.map_image(buffers);
         image.image()
@@ -1768,7 +1768,7 @@ impl Context {
         shape: &RenderShape,
         buffers: &Buffers,
         settings: RenderConfig,
-    ) -> GeometryBuffer {
+    ) -> Image {
         self.submit(shape, buffers, &settings);
         let image = self.map_image_async(buffers).await;
         image.image()
@@ -2024,14 +2024,14 @@ impl Drop for MappedImage<'_> {
 
 impl MappedImage<'_> {
     /// Returns the image's data
-    pub fn image(&self) -> GeometryBuffer {
+    pub fn image(&self) -> Image {
         // Get the pixel-populated image
         let result = <[GeometryPixel]>::ref_from_bytes(
             &self.slice.get_mapped_range()[..self.image_bytes()],
         )
         .unwrap()
         .to_owned();
-        GeometryBuffer::build(result, self.buffers.image_size).unwrap()
+        Image::build(result, self.buffers.image_size).unwrap()
     }
 
     /// Returns the time spent in the compute pass

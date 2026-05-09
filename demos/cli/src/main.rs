@@ -270,19 +270,8 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
-     mode: RenderMode3D,
- ) -> Vec<u8> {
-     let threads = match settings.threads {
-         Some(n) if n.get() == 1 => None,
-         Some(n) => Some(fidget::render::ThreadPool::Custom(
-             rayon::ThreadPoolBuilder::new()
-                 .num_threads(n.get())
-                 .build()
-                 .unwrap(),
-         )),
-         None => Some(fidget::render::ThreadPool::Global),
-     };
-     let threads = threads.as_ref();
+    threads: Option<&fidget::render::ThreadPool>,
+) -> fidget::raster::voxel::Image {
     let cfg = fidget::raster::voxel::RenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         threads,
@@ -308,7 +297,7 @@ fn run3d_wgpu(
     shape: fidget::vm::VmShape,
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
-) -> Result<fidget::raster::GeometryBuffer> {
+) -> Result<fidget::raster::voxel::Image> {
     // Build a WGPU context
     let instance = wgpu::Instance::default();
     let (device, queue) = pollster::block_on(async move {
@@ -352,7 +341,7 @@ fn run3d_wgpu(
 }
 
 fn postprocess3d(
-    image: fidget::raster::GeometryBuffer,
+    image: fidget::raster::voxel::Image,
     mode: RenderMode3D,
     threads: Option<&fidget::render::ThreadPool>,
 ) -> Vec<u8> {
