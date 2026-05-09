@@ -310,13 +310,13 @@ impl From<Reflect> for Tree {
     }
 }
 
-/// Reflection about the X axis
+/// Reflection on the X axis
 #[derive(Clone, Facet)]
 pub struct ReflectX {
     /// Shape to reflect
     pub shape: Tree,
 
-    /// Plane about which to reflect the shape
+    /// X offset
     #[facet(default = 0.0)]
     pub offset: f64,
 }
@@ -334,13 +334,37 @@ impl From<ReflectX> for Tree {
     }
 }
 
-/// Reflection about the Y axis
+/// Reflection about the `X = Y` line
+#[derive(Clone, Facet)]
+pub struct ReflectXY {
+    /// Shape to reflect
+    pub shape: Tree,
+
+    /// Plane about which to reflect the shape
+    #[facet(default = 0.0)]
+    pub offset: f64,
+}
+
+impl From<ReflectXY> for Tree {
+    fn from(v: ReflectXY) -> Self {
+        Reflect {
+            shape: v.shape,
+            plane: Plane {
+                axis: Axis::try_from(Vec3::new(-1.0, 1.0, 0.0)).unwrap(),
+                offset: v.offset,
+            },
+        }
+        .into()
+    }
+}
+
+/// Reflection on the Y axis
 #[derive(Clone, Facet)]
 pub struct ReflectY {
     /// Shape to reflect
     pub shape: Tree,
 
-    /// Plane about which to reflect the shape
+    /// Y offset
     #[facet(default = 0.0)]
     pub offset: f64,
 }
@@ -358,13 +382,13 @@ impl From<ReflectY> for Tree {
     }
 }
 
-/// Reflection about the Z axis
+/// Reflection on the Z axis
 #[derive(Clone, Facet)]
 pub struct ReflectZ {
     /// Shape to reflect
     pub shape: Tree,
 
-    /// Plane about which to reflect the shape
+    /// Z offset
     #[facet(default = 0.0)]
     pub offset: f64,
 }
@@ -574,6 +598,32 @@ impl From<LoftZ> for Tree {
     }
 }
 
+/// Repeat a shape in the X axis
+///
+/// This uses the modulo operator, which may introduce discontinuities; shapes
+/// should be designed to have the same value at `x = ±radius`.
+#[derive(Clone, Facet)]
+pub struct RepeatX {
+    /// Shape to repeat
+    pub shape: Tree,
+    /// Radius of the region to repeat
+    #[facet(default = 1.0)]
+    pub radius: f64,
+    /// X position about which to repeat
+    #[facet(default = 0.0)]
+    pub offset: f64,
+}
+
+impl From<RepeatX> for Tree {
+    fn from(value: RepeatX) -> Self {
+        let (x, y, z) = Tree::axes();
+        let r = value.radius - value.offset;
+        value
+            .shape
+            .remap_xyz(((x + r).modulo(value.radius * 2.0)) - r, y, z)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Trait for a type which can visit each of the shapes in our library
@@ -765,5 +815,60 @@ mod test {
         }
         let mut v = ValidateVisitor;
         v.visit::<BadShapeEnum>();
+    }
+
+    #[test]
+    fn repeat_x() {
+        let c = Circle {
+            center: Vec2::new(0.0, 0.0),
+            radius: 0.5,
+        };
+        let r = RepeatX {
+            shape: c.clone().into(),
+            radius: 1.0,
+            offset: 0.0,
+        };
+        let mut ctx = Context::new();
+        let c = ctx.import(&c.into());
+        let r = ctx.import(&r.into());
+
+        // Check the three repetitions closest to the center
+        for i in 0..=1000 {
+            let x = (i as f64 / 1000.0) - (1000.0 - i as f64) / 1000.0;
+            let vc = ctx.eval_xyz(c, x, 0.0, 0.0).unwrap();
+            let err = (vc - ctx.eval_xyz(r, x, 0.0, 0.0).unwrap()).abs();
+            assert!(err < 1e-6, "bad err {err} at {x}");
+            let err = (vc - ctx.eval_xyz(r, x + 2.0, 0.0, 0.0).unwrap()).abs();
+            assert!(err < 1e-6, "bad err {err} at {x} (+1)");
+            let err = (vc - ctx.eval_xyz(r, x - 2.0, 0.0, 0.0).unwrap()).abs();
+            assert!(err < 1e-6, "bad err {err} at {x} (-1)");
+        }
+
+        // Test with a circle centered at x = 1, with a smaller repeat radius
+        let c = Circle {
+            center: Vec2::new(1.0, 0.0),
+            radius: 0.5,
+        };
+        let r = RepeatX {
+            shape: c.clone().into(),
+            radius: 0.75,
+            offset: 1.0,
+        };
+        let mut ctx = Context::new();
+        let c = ctx.import(&c.into());
+        let r = ctx.import(&r.into());
+
+        // Check the three repetitions closest to the center
+        for i in 0..=1000 {
+            let x = 0.75 * ((i as f64 / 1000.0) - (1000.0 - i as f64) / 1000.0)
+                + 1.0;
+            let vc = ctx.eval_xyz(c, x, 0.0, 0.0).unwrap();
+            let err = (vc - ctx.eval_xyz(r, x, 0.0, 0.0).unwrap()).abs();
+            assert!(err < 1e-6, "bad err {err} at {x}");
+            let err = (vc - ctx.eval_xyz(r, x + 1.5, 0.0, 0.0).unwrap()).abs();
+            assert!(err < 1e-6, "bad err {err} at {x} (+1)");
+            let err = (vc - ctx.eval_xyz(r, x - 1.5, 0.0, 0.0).unwrap()).abs();
+            assert!(err < 1e-6, "bad err {err} at {x} (-1)");
+        }
     }
 }
