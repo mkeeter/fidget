@@ -322,7 +322,7 @@ fn run3d_wgpu(
     let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let buffers = ctx.buffers(image_size);
+    let buffers = ctx.buffers(image_size)?;
     let shape = ctx.shape(&shape)?;
     let mut compute_pass_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {

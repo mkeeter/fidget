@@ -40,6 +40,7 @@
   operation
 - Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
     - This is even more experimental than the rest of Fidget!
+- Add `VarMap::iter` to iterate over `(var, index)` tuples
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
