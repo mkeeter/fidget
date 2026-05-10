@@ -1,6 +1,7 @@
 //! GPU-accelerated 3D rendering
 //!
 //! # Theory
+//!
 //! This module implements an algorithm similar to the one described in
 //! [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces (Keeter '20)](https://www.mattkeeter.com/research/mpr/).
 //! The rest of this section is intended for people who have read that paper
@@ -17,12 +18,14 @@
 //! space, in which case we fall back to the previous (unsimplified) tape.
 //!
 //! ## Changes versus MPR
+//!
 //! There are a few notable changes compared to the MPR paper and reference
 //! implementation.
 //!
 //! First, modern GPU APIs support indirect dispatch based on buffers on the GPU
 //! itself.  This saves a round-trip: the 64³ shader can compute a dispatch size
-//! for the 16³ shader and store it in a buffer.
+//! for the 16³ shader and store it in a buffer (and so on for subsequent
+//! stages).
 //!
 //! In a more significant change, evaluation is broken into **strata**:
 //!
@@ -45,27 +48,45 @@
 //! There are four core objects, each with different lifetimes
 //!
 //! - [`Context`] contains all of the pipelines used for 3D rendering.  It
-//!   is expensive to build and should be constructed once per thread / worker.
-//! - [`RenderShape`] contains a GPU buffer with serialized bytecode to render a
-//!   particular shape.  It is somewhat expensive to build and should only be
-//!   constructed when a shape changes (i.e. not once per frame)
+//!   is very expensive to build and should be constructed once per thread /
+//!   worker.
+//! - [`RenderShape`] contains serialized bytecode to render a particular shape.
+//!   Best practice is to rebuild it only when a shape changes (i.e. not once
+//!   per frame), although in practice it's pretty fast to construct.
 //! - [`Buffers`] contains GPU buffers needed for rendering at a particular
-//!   image size.  It is somewhat expensive to build and should only be
-//!   constructed when the target image size changes (i.e. not once per frame).
-//!   It may be wise to store a small cache of "image size → `Buffers`".
+//!   image size.  It is primarily expensive in GPU memory, as it contains
+//!   several full-frame buffers.  Best practice is to construct one [`Buffers`]
+//!   object per worker context (or per simultaneous render); if image sizes
+//!   change, it can be resized with [`Buffers::set_image_size`] (which will grow
+//!   buffers, but does not shrink them).  Systems with high variability in
+//!   image size may want to periodically compare [`size`](Buffers::size) versus
+//!   [`capacity`](Buffers::capacity) and fully reallocate buffers (by
+//!   constructing a new `Buffers` object) if they get too out of whack.
 //! - [`RenderConfig`] sets the transform matrix for rendering.  This is cheap
 //!   to construct and could be built once per frame
 //!
-//! Usage is pretty simple:
+//! With all that out of the way, usage is pretty simple:
 //! - Build a [`Context`]
 //! - Use [`Context::shape`] to convert from a [`VmShape`] to a [`RenderShape`]
 //! - Use [`Context::buffers`] to get [`Buffers`] at a particular image size
 //! - Call [`Context::run`] or [`Context::run_async`] to get an image
 //!
-//! Right now, there's no support for operating solely on the GPU; both `run`
-//! functions read back the resulting buffer into CPU memory.
-//!
 //! ## Sync and async operation
+//!
+//! GPU operations are asynchronous; operations are submitted to a queue, and
+//! are completed at some point in the future.  [`Context::run`] blocks until
+//! operations are complete, but is only valid on the desktop; it uses
+//! [`wgpu::Device::poll`], which is a no-op on the web.
+//! [`Context::run_async`] is the async equivalent, and is only valid in WebGPU.
+//! These functions are feature-flagged and available depending on compile
+//! target (native versus WebAssembly).
+//!
+//! Lower-level building blocks are also available: [`Context::submit`] submits
+//! the render operations to the GPU, and [`Context::map_image`] /
+//! [`Context::map_image_async`] map the image buffer back to the GPU.
+//!
+//! To reuse the image buffer within a more complex GPU pipeline (without
+//! copying to the host), see [`Buffers::image_storage_buffer`].
 
 use crate::opcode_constants;
 use fidget_bytecode::{Bytecode, ReservedRegister};
@@ -113,7 +134,7 @@ impl Default for RenderConfig {
 /// Doppelganger of the WGSL `struct Config`
 ///
 /// Fields are carefully ordered to require no internal padding (enforced by
-/// zerocopy derives)
+/// `zerocopy` derives)
 #[derive(Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
 #[repr(C)]
 struct Config {
@@ -199,7 +220,7 @@ impl RenderSize {
 }
 
 /// Number of [`TapeWord`] words in the tape data flexible array
-const TAPE_DATA_CAPACITY: usize = 131072; // 128K words, 1 MiB
+const TAPE_DATA_CAPACITY: usize = 8 * 1024 * 1024; // 8M words, 64 MiB
 
 #[repr(C)]
 struct TapeWord {
@@ -281,6 +302,7 @@ fn backfill_shader() -> String {
     BACKFILL_SHADER.to_owned() + COMMON_SHADER
 }
 
+/// Helper function to make a read-only buffer binding
 fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
@@ -294,6 +316,7 @@ fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+/// Helper function to make a read-write buffer binding
 fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
@@ -322,8 +345,15 @@ impl RegPipeline {
     }
 
     /// Returns the pipeline with sufficient registers to render `reg_count`
+    ///
+    /// # Panics
+    /// If `reg_count` is 256 (which is not allowed in bytecode tapes)
     fn get(&self, reg_count: u8) -> &wgpu::ComputePipeline {
-        let (r, v) = self.0.range(reg_count..).next().unwrap();
+        let (r, v) = self
+            .0
+            .range(reg_count..)
+            .next()
+            .expect("bytecode tape cannot use more than 255 registers");
         assert!(*r >= reg_count);
         v
     }
@@ -1310,14 +1340,14 @@ impl RenderShape {
 /// This object is constructed by [`Context::buffers`] and may only be used with
 /// that particular [`Context`].
 pub struct Buffers {
-    /// Config and tape data buffer
-    config_buf: wgpu::Buffer,
-
     /// Image render size
     ///
     /// Note that the tile buffers below round up to the nearest root tile
     /// (64³ voxels).
     image_size: VoxelSize,
+
+    /// Config and tape data buffer
+    config_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
     tile_tapes: Buffer,
@@ -1351,6 +1381,32 @@ pub struct Buffers {
 
     /// Buffer into which we resolve the query
     ts_buf: wgpu::Buffer,
+}
+
+impl Buffers {
+    /// Returns the current image size
+    pub fn image_size(&self) -> VoxelSize {
+        self.image_size
+    }
+
+    /// Returns the image storage buffer and its valid size (in bytes)
+    ///
+    /// This is intended for subsequent shaders which want to use the
+    /// [`GeometryPixel`] image data without copying to the host.
+    ///
+    /// The buffer is configured with  `STORAGE | COPY_SRC | COPY_DST`; note
+    /// that it is not valid for `MAP_READ` operations.  To map the
+    /// CPU-accessible image buffer, see [`Context::map_image`] and
+    /// [`Context::map_image_async`].
+    ///
+    /// The buffer is necessarily larger than the image data; at the very least,
+    /// it contains two extra `u64` timestamp values, and it may be even larger
+    /// if the [`Buffers`] object has been resized over time.  The caller should
+    /// use the second member in the tuple when binding the buffer, and may also
+    /// want to use [`Buffers::image_size`].
+    pub fn image_storage_buffer(&self) -> (&wgpu::Buffer, u64) {
+        (&self.geom.data, self.geom.size)
+    }
 }
 
 /// Handle around a growable GPU buffer which pretends to be smaller
@@ -1582,11 +1638,7 @@ impl Buffers {
     /// Resizes to render the target image size
     ///
     /// Internal buffers are resized to fit (only getting larger)
-    pub fn set_image_size(
-        &mut self,
-        device: &wgpu::Device,
-        image_size: VoxelSize,
-    ) {
+    fn set_image_size(&mut self, device: &wgpu::Device, image_size: VoxelSize) {
         let render_size = RenderSize::from(image_size);
         let Buffers {
             image_size: image_size_ref,
@@ -1951,7 +2003,7 @@ impl Context {
     }
 
     /// Asynchronously maps the image buffer
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", doc))]
     pub async fn map_image_async<'a>(
         &self,
         buffers: &'a Buffers,
@@ -1999,11 +2051,15 @@ impl Context {
         result
     }
 
-    /// Resizes buffers for the given image size
+    /// Resizes buffers to the given image size
     ///
     /// Buffer allocations may grow but do not shrink; delete and recreated
     /// buffers if their capacity exceeds their size to a significant degree.
-    pub fn resize_buffers(&self, buffers: &mut Buffers, image_size: VoxelSize) {
+    pub fn set_buffers_image_size(
+        &self,
+        buffers: &mut Buffers,
+        image_size: VoxelSize,
+    ) {
         buffers.set_image_size(&self.device, image_size);
     }
 }
