@@ -24,9 +24,8 @@ fn merge_main(
     let size16 = size64 * 4u;
     let size4 = size16 * 4u;
 
-    var out = heightmap[pixel_index];
     let index64 = global_id.x / 64 + global_id.y / 64 * size64.x;
-    out = max(out, tile64_zmin[index64]);
+    var out = tile64_zmin[index64];
 
     let index16 = global_id.x / 16 + global_id.y / 16 * size16.x;
     out = max(out, tile16_zmin[index16]);
@@ -36,5 +35,6 @@ fn merge_main(
 
     out = max(out, voxels[global_id.x + global_id.y * config.render_size.x]);
 
-    heightmap[pixel_index] = out;
+    // Clamp to image z size
+    heightmap[pixel_index] = min(out, config.image_size.z);
 }

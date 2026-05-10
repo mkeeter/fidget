@@ -3,7 +3,7 @@
 @group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
 @group(1) @binding(1) var<storage, read> tile4_zmin: array<u32>;
 
-/// Output array, image size
+/// Output array, render size (image size rounded up to multiple of 64 voxels)
 @group(1) @binding(2) var<storage, read_write> result: array<atomic<u32>>;
 
 @compute @workgroup_size(4, 4, 4)

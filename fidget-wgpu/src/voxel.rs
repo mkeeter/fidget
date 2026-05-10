@@ -460,7 +460,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     shader_code
 }
 
-/// Returns a shader for interval tile evaluation
+/// Returns a shader for voxel tile evaluation
 fn voxel_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
@@ -471,7 +471,7 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
     shader_code
 }
 
-/// Returns a shader for interval tile evaluation
+/// Returns a shader for normals evaluation
 fn normals_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
@@ -579,7 +579,7 @@ impl RootContext {
                 label: None,
                 entries: &[
                     buffer_rw(0), // tiles_out
-                    buffer_rw(1), // tile64_zmin
+                    buffer_rw(1), // tile64_zmax
                 ],
             });
 
@@ -631,11 +631,11 @@ impl RootContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile64.tiles.as_entire_binding(),
+                        resource: buffers.tile64.tiles.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.tile64.zmax.as_entire_binding(),
+                        resource: buffers.tile64.zmax.bind_active(),
                     },
                 ],
             });
@@ -723,15 +723,15 @@ impl RepackContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile64.tiles.as_entire_binding(),
+                        resource: buffers.tile64.tiles.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.tile64.zmax.as_entire_binding(),
+                        resource: buffers.tile64.zmax.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile64.strata.as_entire_binding(),
+                        resource: buffers.tile64.strata.bind_active(),
                     },
                 ],
             });
@@ -959,15 +959,15 @@ impl IntervalContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.tile64.zmin.as_entire_binding(),
+                        resource: buffers.tile64.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile16.tiles.as_entire_binding(),
+                        resource: buffers.tile16.tiles.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: buffers.tile16.zmin.as_entire_binding(),
+                        resource: buffers.tile16.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
@@ -989,7 +989,7 @@ impl IntervalContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile16.tiles.as_entire_binding(),
+                        resource: buffers.tile16.tiles.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -997,7 +997,7 @@ impl IntervalContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile16.sorted.as_entire_binding(),
+                        resource: buffers.tile16.sorted.bind_active(),
                     },
                 ],
             });
@@ -1013,19 +1013,19 @@ impl IntervalContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile16.sorted.as_entire_binding(),
+                        resource: buffers.tile16.sorted.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.tile16.zmin.as_entire_binding(),
+                        resource: buffers.tile16.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile4.tiles.as_entire_binding(),
+                        resource: buffers.tile4.tiles.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: buffers.tile4.zmin.as_entire_binding(),
+                        resource: buffers.tile4.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
@@ -1045,7 +1045,7 @@ impl IntervalContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile4.tiles.as_entire_binding(),
+                        resource: buffers.tile4.tiles.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -1053,7 +1053,7 @@ impl IntervalContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile4.sorted.as_entire_binding(),
+                        resource: buffers.tile4.sorted.bind_active(),
                     },
                 ],
             });
@@ -1147,15 +1147,15 @@ impl VoxelContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile4.sorted.as_entire_binding(),
+                        resource: buffers.tile4.sorted.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.tile4.zmin.as_entire_binding(),
+                        resource: buffers.tile4.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.voxels.as_entire_binding(),
+                        resource: buffers.voxels.bind_active(),
                     },
                 ],
             });
@@ -1240,11 +1240,11 @@ impl NormalsContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.heightmap.as_entire_binding(),
+                        resource: buffers.heightmap.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.geom.as_entire_binding(),
+                        resource: buffers.geom.bind_active(),
                     },
                 ],
             });
@@ -1421,7 +1421,7 @@ impl<const N: u64> TileBuffers<N> {
 }
 
 /// Root tile buffers store strata-packed tile lists
-struct RootTileBuffers<const N: usize> {
+struct RootTileBuffers {
     /// Initial output tiles
     tiles: Buffer,
     /// Strata-sorted output tiles
@@ -1430,13 +1430,14 @@ struct RootTileBuffers<const N: usize> {
     zmax: Buffer,
 }
 
-impl<const N: usize> RootTileBuffers<N> {
+impl RootTileBuffers {
     /// Build a new root tiles buffer, which stores strata-packed tile lists
     fn new(
         device: &wgpu::Device,
         render_size: TileRenderSize,
     ) -> Result<Self, RootTileBuffersError> {
-        assert_eq!(N, 64);
+        // Root tile buffers are always 64³ voxels
+        const N: usize = 64;
 
         // Allocate enough words to write all of the output tiles
         let tiles = Buffer::new(
@@ -1646,7 +1647,7 @@ pub struct Buffers {
     tile_tapes: Buffer,
 
     /// Root tile Z heights (64³)
-    tile64: RootTileBuffers<64>,
+    tile64: RootTileBuffers,
 
     /// Z heights for filled first-stage tiles (16^3)
     tile16: TileBuffers<16>,
@@ -1674,6 +1675,37 @@ pub struct Buffers {
 
     /// Buffer into which we resolve the query
     ts_buf: wgpu::Buffer,
+
+    /// Cached bind groups
+    bind_groups: BindGroups,
+}
+
+#[derive(Default)]
+struct BindGroups {
+    common: std::cell::OnceCell<wgpu::BindGroup>,
+    // todo
+}
+
+impl BindGroups {
+    /// Returns the common bind group
+    fn common(&self, buffers: &Buffers, ctx: &Context) -> &wgpu::BindGroup {
+        self.common.get_or_init(|| {
+            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buffers.config_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: buffers.tile_tapes.bind_active(),
+                    },
+                ],
+            })
+        })
+    }
 }
 
 impl Buffers {
@@ -1744,11 +1776,11 @@ impl Buffer {
         buf_ty.check(size)
     }
 
-    /// Grows the buffer to fix a particular size in bytes
+    /// Grows the buffer to fit a particular size in bytes
     ///
     /// If the buffer already fits that size, then no allocation is performed,
     /// but we always update the internal `size` member (e.g. so that
-    /// [`as_entire_binding`](Self::as_entire_binding) returns the correct
+    /// [`bind_active`](Self::bind_active) returns the correct
     /// subset of the buffer).
     fn grow_to_fit(
         &mut self,
@@ -1770,8 +1802,8 @@ impl Buffer {
         Ok(())
     }
 
-    /// Binds the active slice of the buffer
-    fn as_entire_binding(&self) -> wgpu::BindingResource<'_> {
+    /// Returns a binding resource for the active slice of the buffer
+    fn bind_active(&self) -> wgpu::BindingResource<'_> {
         self.data.slice(0..self.size).into()
     }
 
@@ -1937,6 +1969,7 @@ impl Buffers {
             image,
             timestamps,
             ts_buf,
+            bind_groups: Default::default(),
         })
     }
 
@@ -1950,6 +1983,7 @@ impl Buffers {
     }
 
     /// Returns the number of bytes in the `tile_tapes` buffer
+    ///
     /// The tile tape array is... complicated
     ///
     /// The first `nx * ny * nz` words are tape indices for the root tiles
@@ -2024,7 +2058,12 @@ impl Buffers {
             image,
             timestamps: _,
             ts_buf: _,
+            bind_groups,
         } = self;
+        // Clear our cached bind groups if the image sizes is changing
+        if *image_size_ref != image_size {
+            *bind_groups = Default::default();
+        }
         *image_size_ref = image_size;
         tile_tapes
             .grow_to_fit(device, Self::tile_tapes_buf_size(render_size))
@@ -2102,6 +2141,7 @@ impl Buffers {
             image,
             timestamps: _,
             ts_buf,
+            bind_groups: _,
         } = self;
         config_buf.size()
             + tile_tapes.capacity()
@@ -2131,6 +2171,7 @@ impl Buffers {
             image,
             timestamps: _,
             ts_buf,
+            bind_groups: _,
         } = self;
         config_buf.size()
             + tile_tapes.size()
@@ -2226,9 +2267,9 @@ impl Context {
     /// This function is not present when built for the `wasm32` target
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
-        &mut self,
+        &self,
         shape: &RenderShape,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         settings: RenderConfig,
     ) -> Image {
         self.submit(shape, buffers, &settings);
@@ -2241,7 +2282,7 @@ impl Context {
     /// This function is only relevant for the web target
     #[cfg(any(target_arch = "wasm32", doc))]
     pub async fn run_async(
-        &mut self,
+        &self,
         shape: &RenderShape,
         buffers: &Buffers,
         settings: RenderConfig,
@@ -2253,7 +2294,7 @@ impl Context {
 
     /// Submits a single image to be rendered using GPU acceleration
     pub fn submit(
-        &mut self,
+        &self,
         shape: &RenderShape,
         buffers: &Buffers,
         settings: &RenderConfig,
@@ -2321,22 +2362,8 @@ impl Context {
             });
 
         // Build the common config buffer
-        let bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.config_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile_tapes.as_entire_binding(),
-                    },
-                ],
-            });
-        compute_pass.set_bind_group(0, &bind_group, &[]);
+        let bind_group = buffers.bind_groups.common(buffers, self);
+        compute_pass.set_bind_group(0, bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
@@ -2412,9 +2439,11 @@ impl Context {
 
     /// Synchronously maps the image buffer
     ///
+    /// The buffers are borrowed exclusively to avoid double-mapping
+    ///
     /// This is a blocking function suitable for use on the desktop
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn map_image<'a>(&self, buffers: &'a Buffers) -> MappedImage<'a> {
+    pub fn map_image<'a>(&self, buffers: &'a mut Buffers) -> MappedImage<'a> {
         let slice = buffers.image.map_async(|_| {});
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
@@ -2427,10 +2456,14 @@ impl Context {
     }
 
     /// Asynchronously maps the image buffer
+    ///
+    /// The buffers are borrowed exclusively to avoid double-mapping
+    ///
+    /// This is an `async` function suitable for use in WebAssembly.
     #[cfg(any(target_arch = "wasm32", doc))]
     pub async fn map_image_async<'a>(
         &self,
-        buffers: &'a Buffers,
+        buffers: &'a mut Buffers,
     ) -> MappedImage<'a> {
         let (tx, rx) = flume::bounded(0);
         let slice = buffers.image.map_async(move |_| tx.send(()).unwrap());
@@ -2477,7 +2510,7 @@ impl Context {
 
     /// Resizes buffers to the given image size
     ///
-    /// Buffer allocations may grow but do not shrink; delete and recreated
+    /// Buffer allocations may grow but do not shrink; delete and recreate
     /// buffers if their capacity exceeds their size to a significant degree.
     pub fn set_buffers_image_size(
         &self,
@@ -2516,6 +2549,9 @@ impl MappedImage<'_> {
     }
 
     /// Returns the time spent in the compute pass
+    ///
+    /// This may be 0 on platforms which advertise `TIMESTAMP_QUERY` but do not
+    /// actually populate timestamps.
     pub fn time(&self) -> std::time::Duration {
         let slice = self.slice.get_mapped_range();
         let ts = <[u64]>::ref_from_bytes(&slice[self.image_bytes()..]).unwrap();
@@ -2554,7 +2590,7 @@ impl BackfillContext {
                     buffer_ro(0), // subtile_zmin
                     buffer_rw(1), // tile_zmin
                     buffer_rw(2), // count_clear
-                    buffer_rw(3), // sorted_clear
+                    buffer_rw(3), // sort_clear
                     buffer_rw(4), // z_hist
                 ],
             });
@@ -2618,8 +2654,8 @@ impl BackfillContext {
 
         let bind_group4 = self.create_bind_group(
             ctx,
-            buffers.voxels.as_entire_binding(),
-            buffers.tile4.zmin.as_entire_binding(),
+            buffers.voxels.bind_active(),
+            buffers.tile4.zmin.bind_active(),
             buffers.tile4.tiles.data.slice(0..16).into(),
             buffers.tile4.sorted.data.slice(0..16).into(),
             // tile4.z_hist is cleared multiple times, that's okay
@@ -2635,8 +2671,8 @@ impl BackfillContext {
 
         let bind_group16 = self.create_bind_group(
             ctx,
-            buffers.tile4.zmin.as_entire_binding(),
-            buffers.tile16.zmin.as_entire_binding(),
+            buffers.tile4.zmin.bind_active(),
+            buffers.tile16.zmin.bind_active(),
             buffers.tile16.tiles.data.slice(0..16).into(),
             buffers.tile16.sorted.data.slice(0..16).into(),
             buffers.tile4.z_hist.as_entire_binding(),
@@ -2651,8 +2687,8 @@ impl BackfillContext {
 
         let bind_group64 = self.create_bind_group(
             ctx,
-            buffers.tile16.zmin.as_entire_binding(),
-            buffers.tile64.zmin.as_entire_binding(),
+            buffers.tile16.zmin.bind_active(),
+            buffers.tile64.zmin.bind_active(),
             buffers
                 .tile64
                 .strata
@@ -2779,23 +2815,23 @@ impl MergeContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile64.zmin.as_entire_binding(),
+                        resource: buffers.tile64.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: buffers.tile16.zmin.as_entire_binding(),
+                        resource: buffers.tile16.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile4.zmin.as_entire_binding(),
+                        resource: buffers.tile4.zmin.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: buffers.voxels.as_entire_binding(),
+                        resource: buffers.voxels.bind_active(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: buffers.heightmap.as_entire_binding(),
+                        resource: buffers.heightmap.bind_active(),
                     },
                 ],
             });

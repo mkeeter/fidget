@@ -103,7 +103,7 @@ fn interval_tile_worker(
         // Update the indirect dispatch count.  We'll divide by 64 here
         // (rounding up) because each thread in the sorting pass handles a
         // single tile, and we dispatch that pass with [64, 1, 1] workgroups
-        let count = ((offset + 1u) + 64u) / 64u;
+        let count = ((offset + 1u) + 63u) / 64u;
         let wg_dispatch_x = min(count, 32768u);
         let wg_dispatch_y = (count + 32767u) / 32768u;
         atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
