@@ -106,6 +106,7 @@ const SORT_SHADER: &str = include_str!("shaders/sort.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
 const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
+const CLEAR_SHADER: &str = include_str!("shaders/clear.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
@@ -492,6 +493,11 @@ fn backfill_shader() -> String {
     BACKFILL_SHADER.to_owned() + COMMON_SHADER
 }
 
+/// Returns a shader for clearing counters in between strata passes
+fn clear_shader() -> String {
+    CLEAR_SHADER.to_owned() + COMMON_SHADER
+}
+
 /// Helper function to make a read-only buffer binding
 fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -528,20 +534,6 @@ fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
         ty: wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Storage { read_only: false },
             has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
-}
-
-/// Helper function to make a read-write buffer binding with dynamic offset
-fn buffer_rw_dyn(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: true, // <-- this is different!
             min_binding_size: None,
         },
         count: None,
@@ -1149,6 +1141,7 @@ pub struct Context {
     normals_ctx: NormalsContext,
     backfill_ctx: BackfillContext,
     merge_ctx: MergeContext,
+    reset_ctx: ResetContext,
     clear_ctx: ClearContext,
 }
 
@@ -1568,6 +1561,7 @@ struct BindGroups {
     sort4: std::cell::OnceCell<wgpu::BindGroup>,
     voxel: std::cell::OnceCell<wgpu::BindGroup>,
     normals: std::cell::OnceCell<wgpu::BindGroup>,
+    clear: std::cell::OnceCell<wgpu::BindGroup>,
 }
 
 impl BindGroups {
@@ -1596,10 +1590,6 @@ impl BindGroups {
                 ctx,
                 buffers.voxels.bind_active(),
                 buffers.tile4.zmin.bind_active(),
-                buffers.tile4.tiles.data.slice(0..16).into(),
-                buffers.tile4.sorted.data.slice(0..16).into(),
-                // tile4.z_hist is cleared multiple times, that's okay
-                buffers.tile4.z_hist.as_entire_binding(),
             )
         })
     }
@@ -1610,9 +1600,6 @@ impl BindGroups {
                 ctx,
                 buffers.tile4.zmin.bind_active(),
                 buffers.tile16.zmin.bind_active(),
-                buffers.tile16.tiles.data.slice(0..16).into(),
-                buffers.tile16.sorted.data.slice(0..16).into(),
-                buffers.tile4.z_hist.as_entire_binding(),
             )
         })
     }
@@ -1623,14 +1610,6 @@ impl BindGroups {
                 ctx,
                 buffers.tile16.zmin.bind_active(),
                 buffers.tile64.zmin.bind_active(),
-                buffers
-                    .tile64
-                    .strata
-                    .data
-                    .slice(0..16) // dynamic offset!
-                    .into(),
-                buffers.tile4.sorted.data.slice(0..16).into(), // cleared again
-                buffers.tile16.z_hist.as_entire_binding(),
             )
         })
     }
@@ -1639,9 +1618,6 @@ impl BindGroups {
         ctx: &Context,
         subtile_zmin: wgpu::BindingResource,
         tile_zmin: wgpu::BindingResource,
-        tile_clear: wgpu::BindingResource,
-        sorted_clear: wgpu::BindingResource,
-        z_hist: wgpu::BindingResource,
     ) -> wgpu::BindGroup {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -1655,19 +1631,47 @@ impl BindGroups {
                     binding: 1,
                     resource: tile_zmin,
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: tile_clear,
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: sorted_clear,
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: z_hist,
-                },
             ],
+        })
+    }
+
+    fn clear(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+        self.clear.get_or_init(|| {
+            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &ctx.clear_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buffers.tile16.tiles.data.slice(0..16).into(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: buffers
+                            .tile16
+                            .sorted
+                            .data
+                            .slice(0..16)
+                            .into(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buffers.tile16.z_hist.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: buffers.tile4.tiles.data.slice(0..16).into(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: buffers.tile4.sorted.data.slice(0..16).into(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: buffers.tile4.z_hist.as_entire_binding(),
+                    },
+                ],
+            })
         })
     }
 
@@ -2405,7 +2409,8 @@ impl Context {
         let backfill_ctx =
             BackfillContext::new(&device, &common_bind_group_layout);
         let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
-        let clear_ctx = ClearContext::new();
+        let reset_ctx = ResetContext::new();
+        let clear_ctx = ClearContext::new(&device, &common_bind_group_layout);
 
         Ok(Self {
             device,
@@ -2418,6 +2423,7 @@ impl Context {
             normals_ctx,
             backfill_ctx,
             merge_ctx,
+            reset_ctx,
             clear_ctx,
         })
     }
@@ -2529,8 +2535,8 @@ impl Context {
             &wgpu::CommandEncoderDescriptor { label: None },
         );
 
-        // Initial image clearing pass
-        self.clear_ctx.run(&mut encoder, buffers);
+        // Initial buffer reset pass
+        self.reset_ctx.run(&mut encoder, buffers);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -2586,6 +2592,7 @@ impl Context {
 
             self.backfill_ctx
                 .run(self, buffers, strata, &mut compute_pass);
+            self.clear_ctx.run(self, buffers, &mut compute_pass);
         }
         drop(compute_pass);
 
@@ -2768,11 +2775,8 @@ impl BackfillContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0),     // subtile_zmin
-                    buffer_rw(1),     // tile_zmin
-                    buffer_rw_dyn(2), // count_clear
-                    buffer_rw(3),     // sort_clear
-                    buffer_rw(4),     // z_hist
+                    buffer_ro(0), // subtile_zmin
+                    buffer_rw(1), // tile_zmin
                 ],
             });
 
@@ -2828,14 +2832,12 @@ impl BackfillContext {
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let render_size = buffers.render_size();
-        let offset_bytes = strata * strata_size_bytes(render_size);
-
         let nx = render_size.nx() as usize;
         let ny = render_size.ny() as usize;
 
         let bind_group4 = buffers.bind_groups.backfill4(ctx, buffers);
         compute_pass.set_pipeline(&self.pipeline4);
-        compute_pass.set_bind_group(1, bind_group4, &[0]);
+        compute_pass.set_bind_group(1, bind_group4, &[]);
         compute_pass.dispatch_workgroups(
             (nx * ny * 16usize.pow(2)).div_ceil(64) as u32,
             1,
@@ -2844,7 +2846,7 @@ impl BackfillContext {
 
         let bind_group16 = buffers.bind_groups.backfill16(ctx, buffers);
         compute_pass.set_pipeline(&self.pipeline16);
-        compute_pass.set_bind_group(1, bind_group16, &[0]);
+        compute_pass.set_bind_group(1, bind_group16, &[]);
         compute_pass.dispatch_workgroups(
             (nx * ny * 4usize.pow(2)).div_ceil(64) as u32,
             1,
@@ -2853,12 +2855,80 @@ impl BackfillContext {
 
         let bind_group64 = buffers.bind_groups.backfill64(ctx, buffers);
         compute_pass.set_pipeline(&self.pipeline64);
-        compute_pass.set_bind_group(
-            1,
-            bind_group64,
-            &[u32::try_from(offset_bytes).unwrap()],
-        );
+        compute_pass.set_bind_group(1, bind_group64, &[]);
         compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
+    }
+}
+
+struct ClearContext {
+    bind_group_layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::ComputePipeline,
+}
+
+impl ClearContext {
+    fn new(
+        device: &wgpu::Device,
+        common_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        // Create bind group layout and bind group
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_rw(0), // tile16_count
+                    buffer_rw(1), // tile16_sort
+                    buffer_rw(2), // tile16_zhist
+                    buffer_rw(3), // tile4_count
+                    buffer_rw(4), // tile4_sort
+                    buffer_rw(5), // tile4_zhist
+                ],
+            });
+
+        // Create the compute pipeline
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    Some(common_bind_group_layout),
+                    Some(&bind_group_layout),
+                ],
+                immediate_size: 0u32,
+            });
+
+        // Compile the shader
+        let shader_code = clear_shader();
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+
+        let pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("clear"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("clear_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        Self {
+            pipeline,
+            bind_group_layout,
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &Context,
+        buffers: &Buffers,
+        compute_pass: &mut wgpu::ComputePass,
+    ) {
+        let bind_group = buffers.bind_groups.clear(ctx, buffers);
+        compute_pass.set_pipeline(&self.pipeline);
+        compute_pass.set_bind_group(1, bind_group, &[]);
+        compute_pass.dispatch_workgroups(1, 1, 1);
     }
 }
 
@@ -2939,21 +3009,20 @@ impl MergeContext {
     }
 }
 
-struct ClearContext;
+struct ResetContext;
 
-impl ClearContext {
+impl ResetContext {
     fn new() -> Self {
-        ClearContext
+        ResetContext
     }
 
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
         // Clear only the `count` member of the tile64 `tiles_out` buffer
         encoder.clear_buffer(&buffers.tile64.tiles.data, 12, Some(4));
 
-        // The render pass clears the per-strata counters, but those counters
-        // may now be at a different location in memory if we're using the
-        // buffers for multiple renders of different sizes!  To be safe, we'll
-        // also clear them here:
+        // Per-strata counters may now be at a different location in memory if
+        // we're using the buffers for multiple renders of different sizes!  To
+        // be safe, we'll clear them here, rather than in a render pass.
         let strata_size_bytes = buffers.strata_size_bytes();
         for s in 0..buffers.render_size().nz() {
             encoder.clear_buffer(
@@ -3014,6 +3083,7 @@ mod test {
             (sort_shader(), "sort"),
             (merge_shader(), "merge"),
             (backfill_shader(), "backfill"),
+            (clear_shader(), "clear"),
         ] {
             // This isn't the best formatting, but it will at least include the
             // relevant text.
