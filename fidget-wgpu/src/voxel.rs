@@ -388,17 +388,17 @@ impl TileRenderSize {
         self.0.depth()
     }
 
-    /// Number of voxels in the X axis
+    /// Number of voxels in the X axis (always a multiple of 64)
     fn width(&self) -> u32 {
         self.0.width() * 64
     }
 
-    /// Number of voxels in the Y axis
+    /// Number of voxels in the Y axis (always a multiple of 64)
     fn height(&self) -> u32 {
         self.0.height() * 64
     }
 
-    /// Number of voxels in the Z axis
+    /// Number of voxels in the Z axis (always a multiple of 64)
     fn depth(&self) -> u32 {
         self.0.depth() * 64
     }
@@ -2779,9 +2779,9 @@ impl MergeContext {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_ro(0), // tile64_zmin
-                    buffer_ro(1), // tile16_zmin
-                    buffer_ro(2), // tile4_zmin
+                    buffer_rw(0), // tile64_zmin
+                    buffer_rw(1), // tile16_zmin
+                    buffer_rw(2), // tile4_zmin
                     buffer_ro(3), // voxels
                     buffer_rw(4), // heightmap
                 ],
@@ -2827,13 +2827,13 @@ impl MergeContext {
         buffers: &Buffers,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let image_size = buffers.image_size;
+        let render_size = buffers.render_size();
         let bind_group = buffers.bind_groups.merge(ctx, buffers);
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(
-            image_size.width().div_ceil(8),
-            image_size.height().div_ceil(8),
+            render_size.width().div_ceil(8),
+            render_size.height().div_ceil(8),
             1,
         );
     }
