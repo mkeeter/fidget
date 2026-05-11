@@ -105,7 +105,6 @@ const REPACK_SHADER: &str = include_str!("shaders/repack.wgsl");
 const SORT_SHADER: &str = include_str!("shaders/sort.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
 const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
-const BACKFILL_SHADER: &str = include_str!("shaders/backfill.wgsl");
 const CLEAR_SHADER: &str = include_str!("shaders/clear.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
@@ -486,11 +485,6 @@ fn normals_shader(reg_count: u8) -> String {
 /// Returns a shader for merging images
 fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER
-}
-
-/// Returns a shader for backfilling tile `zmin` values
-fn backfill_shader() -> String {
-    BACKFILL_SHADER.to_owned() + COMMON_SHADER
 }
 
 /// Returns a shader for clearing counters in between strata passes
@@ -1139,7 +1133,6 @@ pub struct Context {
     interval_ctx: IntervalContext,
     voxel_ctx: VoxelContext,
     normals_ctx: NormalsContext,
-    backfill_ctx: BackfillContext,
     merge_ctx: MergeContext,
     reset_ctx: ResetContext,
     clear_ctx: ClearContext,
@@ -1549,9 +1542,6 @@ pub struct Buffers {
 #[derive(Default)]
 struct BindGroups {
     common: std::cell::OnceCell<wgpu::BindGroup>,
-    backfill4: std::cell::OnceCell<wgpu::BindGroup>,
-    backfill16: std::cell::OnceCell<wgpu::BindGroup>,
-    backfill64: std::cell::OnceCell<wgpu::BindGroup>,
     merge: std::cell::OnceCell<wgpu::BindGroup>,
     root: std::cell::OnceCell<wgpu::BindGroup>,
     repack: std::cell::OnceCell<wgpu::BindGroup>,
@@ -1581,57 +1571,6 @@ impl BindGroups {
                     },
                 ],
             })
-        })
-    }
-
-    fn backfill4(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        self.backfill4.get_or_init(|| {
-            Self::backfill_bind_group(
-                ctx,
-                buffers.voxels.bind_active(),
-                buffers.tile4.zmin.bind_active(),
-            )
-        })
-    }
-
-    fn backfill16(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        self.backfill16.get_or_init(|| {
-            Self::backfill_bind_group(
-                ctx,
-                buffers.tile4.zmin.bind_active(),
-                buffers.tile16.zmin.bind_active(),
-            )
-        })
-    }
-
-    fn backfill64(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        self.backfill64.get_or_init(|| {
-            Self::backfill_bind_group(
-                ctx,
-                buffers.tile16.zmin.bind_active(),
-                buffers.tile64.zmin.bind_active(),
-            )
-        })
-    }
-
-    fn backfill_bind_group(
-        ctx: &Context,
-        subtile_zmin: wgpu::BindingResource,
-        tile_zmin: wgpu::BindingResource,
-    ) -> wgpu::BindGroup {
-        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &ctx.backfill_ctx.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: subtile_zmin,
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: tile_zmin,
-                },
-            ],
         })
     }
 
@@ -2406,8 +2345,6 @@ impl Context {
         let voxel_ctx = VoxelContext::new(&device, &common_bind_group_layout);
         let normals_ctx =
             NormalsContext::new(&device, &common_bind_group_layout);
-        let backfill_ctx =
-            BackfillContext::new(&device, &common_bind_group_layout);
         let merge_ctx = MergeContext::new(&device, &common_bind_group_layout);
         let reset_ctx = ResetContext::new();
         let clear_ctx = ClearContext::new(&device, &common_bind_group_layout);
@@ -2421,7 +2358,6 @@ impl Context {
             interval_ctx,
             voxel_ctx,
             normals_ctx,
-            backfill_ctx,
             merge_ctx,
             reset_ctx,
             clear_ctx,
@@ -2590,8 +2526,6 @@ impl Context {
                 &mut compute_pass,
             );
 
-            self.backfill_ctx
-                .run(self, buffers, strata, &mut compute_pass);
             self.clear_ctx.run(self, buffers, &mut compute_pass);
         }
         drop(compute_pass);
@@ -2753,110 +2687,6 @@ impl MappedImage<'_> {
         (self.buffers.image_size.width() as usize)
             * (self.buffers.image_size.height() as usize)
             * std::mem::size_of::<GeometryPixel>()
-    }
-}
-
-struct BackfillContext {
-    bind_group_layout: wgpu::BindGroupLayout,
-
-    pipeline4: wgpu::ComputePipeline,
-    pipeline16: wgpu::ComputePipeline,
-    pipeline64: wgpu::ComputePipeline,
-}
-
-impl BackfillContext {
-    fn new(
-        device: &wgpu::Device,
-        common_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let shader_code = backfill_shader();
-        // Create bind group layout and bind group
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_ro(0), // subtile_zmin
-                    buffer_rw(1), // tile_zmin
-                ],
-            });
-
-        // Create the compute pipeline
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    Some(common_bind_group_layout),
-                    Some(&bind_group_layout),
-                ],
-                immediate_size: 0u32,
-            });
-
-        // Compile the shader
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-
-        let make_pipeline = |tile_size: u32| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(&format!("backfill{tile_size}")),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("backfill_main"),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("TILE_SIZE", tile_size as f64)],
-                    ..Default::default()
-                },
-                cache: None,
-            })
-        };
-
-        let pipeline4 = make_pipeline(4);
-        let pipeline16 = make_pipeline(16);
-        let pipeline64 = make_pipeline(64);
-
-        Self {
-            pipeline64,
-            pipeline16,
-            pipeline4,
-            bind_group_layout,
-        }
-    }
-
-    fn run(
-        &self,
-        ctx: &Context,
-        buffers: &Buffers,
-        strata: u64,
-        compute_pass: &mut wgpu::ComputePass,
-    ) {
-        let render_size = buffers.render_size();
-        let nx = render_size.nx() as usize;
-        let ny = render_size.ny() as usize;
-
-        let bind_group4 = buffers.bind_groups.backfill4(ctx, buffers);
-        compute_pass.set_pipeline(&self.pipeline4);
-        compute_pass.set_bind_group(1, bind_group4, &[]);
-        compute_pass.dispatch_workgroups(
-            (nx * ny * 16usize.pow(2)).div_ceil(64) as u32,
-            1,
-            1,
-        );
-
-        let bind_group16 = buffers.bind_groups.backfill16(ctx, buffers);
-        compute_pass.set_pipeline(&self.pipeline16);
-        compute_pass.set_bind_group(1, bind_group16, &[]);
-        compute_pass.dispatch_workgroups(
-            (nx * ny * 4usize.pow(2)).div_ceil(64) as u32,
-            1,
-            1,
-        );
-
-        let bind_group64 = buffers.bind_groups.backfill64(ctx, buffers);
-        compute_pass.set_pipeline(&self.pipeline64);
-        compute_pass.set_bind_group(1, bind_group64, &[]);
-        compute_pass.dispatch_workgroups((nx * ny).div_ceil(64) as u32, 1, 1);
     }
 }
 
@@ -3044,7 +2874,7 @@ impl ResetContext {
         // Clear the whole tile tape map (TODO is this needed?)
         buffers.tile_tapes.clear(encoder);
 
-        // tiles / sorted counters and z_hist are cleared in backfill
+        // tiles / sorted counters and z_hist are reset in clear shader
     }
 }
 
@@ -3082,7 +2912,6 @@ mod test {
             (repack_shader(), "repack"),
             (sort_shader(), "sort"),
             (merge_shader(), "merge"),
-            (backfill_shader(), "backfill"),
             (clear_shader(), "clear"),
         ] {
             // This isn't the best formatting, but it will at least include the
