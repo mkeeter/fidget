@@ -2407,7 +2407,7 @@ impl Context {
     pub async fn run_async(
         &self,
         shape: &RenderShape,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         settings: RenderConfig,
     ) -> Image {
         self.submit(shape, buffers, &settings);
