@@ -275,6 +275,9 @@ opcodes!(
     ///
     /// We have a maximum of 256 registers, though some tapes (e.g. ones
     /// targeting physical hardware) may choose to use fewer.
+    ///
+    /// Note that memory slots are not zero-indexed; they start at `N` (where
+    /// `N` is the register count).
     #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
     pub enum RegOp<u8> {
         // default variants
