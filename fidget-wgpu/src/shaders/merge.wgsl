@@ -80,7 +80,7 @@ fn merge_main(
             for (var j=0u; j < 4u && all_present; j++) {
                 let pos = corner + vec2u(i, j);
                 let index = pos.x + pos.y * size4.x;
-                let v = tile4_zmin[index];
+                let v = atomicLoad(&tile4_zmin[index]);
                 if v != 0 {
                     new_zmin = min(new_zmin, v);
                 } else {
@@ -102,7 +102,7 @@ fn merge_main(
             for (var j=0u; j < 4u && all_present; j++) {
                 let pos = corner + vec2u(i, j);
                 let index = pos.x + pos.y * size16.x;
-                let v = tile16_zmin[index];
+                let v = atomicLoad(&tile16_zmin[index]);
                 if v != 0 {
                     new_zmin = min(new_zmin, v);
                 } else {
