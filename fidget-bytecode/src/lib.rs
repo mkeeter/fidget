@@ -170,14 +170,14 @@ impl Bytecode {
         &self.data
     }
 
-    /// Maximum register index used by the tape
+    /// Number of registers (0-indexed) used by the tape
     ///
     /// This does not include the virtual register `0xFF` used for immediates
     pub fn reg_count(&self) -> u8 {
         self.reg_count
     }
 
-    /// Maximum memory slot used for `Load` / `Store` operations
+    /// Number of memory slots (0-indexed) used for `Load` / `Store` operations
     pub fn mem_count(&self) -> u32 {
         self.mem_count
     }
@@ -197,6 +197,7 @@ impl Bytecode {
         let mut data = vec![u32::MAX, 0u32];
         let mut reg_count = 0u8;
         let mut mem_count = 0u32;
+        let mem_offset = u32::try_from(N).unwrap();
         for op in t.iter_asm() {
             let mut word = [0xFF; 4];
             let mut imm = None;
@@ -204,7 +205,7 @@ impl Bytecode {
                 if r == u8::MAX {
                     Err(ReservedRegister)
                 } else {
-                    reg_count = reg_count.max(r); // update the max reg
+                    reg_count = reg_count.max(r + 1);
                     word[i] = r;
                     Ok(())
                 }
@@ -217,15 +218,15 @@ impl Bytecode {
 
                 RegOp::Load(reg, slot) => {
                     store_reg(1, reg)?;
-                    store_reg(2, u8::MAX)?;
-                    mem_count = mem_count.max(slot);
-                    imm = Some(slot);
+                    word[2] = u8::MAX;
+                    mem_count = mem_count.max(slot + 1 - mem_offset);
+                    imm = Some(slot - mem_offset);
                 }
                 RegOp::Store(reg, slot) => {
-                    store_reg(1, u8::MAX)?;
                     store_reg(2, reg)?;
-                    mem_count = mem_count.max(slot);
-                    imm = Some(slot);
+                    word[1] = u8::MAX;
+                    mem_count = mem_count.max(slot + 1 - mem_offset);
+                    imm = Some(slot - mem_offset);
                 }
 
                 RegOp::CopyImm(out, imm_f32) => {
@@ -354,6 +355,79 @@ mod test {
             [BytecodeOp::Output as u8, 0, 0xFF, 0xFF]
         );
         assert_eq!(next(), 0); // output slot 0
+        assert_eq!(next(), 0xFFFFFFFF); // end marker
+        assert_eq!(next(), 0xFFFFFFFF);
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn load_store() {
+        // Build a bytecode tape with only 2 registers to test load and store
+        let mut ctx = fidget_core::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+        let xy = ctx.max(x, y).unwrap();
+        let out = ctx.max(xy, z).unwrap();
+        let data = VmData::<2>::new(&ctx, &[out]).unwrap();
+        let bc = Bytecode::new(&data).unwrap();
+        assert_eq!(bc.reg_count(), 2);
+        assert_eq!(bc.mem_count(), 1);
+        let mut iter = bc.data.iter();
+        let mut next = || *iter.next().unwrap();
+        assert_eq!(next(), 0xFFFFFFFF); // start marker
+        assert_eq!(next(), 0);
+
+        // Input(1, Z)
+        assert_eq!(
+            next().to_le_bytes(),
+            [BytecodeOp::Input as u8, 1, 0xFF, 0xFF]
+        );
+        assert_eq!(next(), 2); // Z
+
+        // Copy from reg[1] -> mem[0]
+        assert_eq!(
+            next().to_le_bytes(),
+            [BytecodeOp::Mem as u8, 0xFF, 1, 0xFF]
+        );
+        assert_eq!(next(), 0);
+
+        // Input(1, Y)
+        assert_eq!(
+            next().to_le_bytes(),
+            [BytecodeOp::Input as u8, 1, 0xFF, 0xFF]
+        );
+        assert_eq!(next(), 1); // Y
+
+        // Input(0, X)
+        assert_eq!(
+            next().to_le_bytes(),
+            [BytecodeOp::Input as u8, 0, 0xFF, 0xFF]
+        );
+        assert_eq!(next(), 0); // X
+
+        // r1 = max(1, 0)
+        assert_eq!(next().to_le_bytes(), [BytecodeOp::Max as u8, 1, 1, 0]);
+        assert_eq!(next(), 0xFF000000);
+
+        // Copy from mem[0] -> reg[0]
+        assert_eq!(
+            next().to_le_bytes(),
+            [BytecodeOp::Mem as u8, 0, 0xFF, 0xFF]
+        );
+        assert_eq!(next(), 0);
+
+        // r0 = max(0, 1)
+        assert_eq!(next().to_le_bytes(), [BytecodeOp::Max as u8, 0, 0, 1]);
+        assert_eq!(next(), 0xFF000000);
+
+        // output(0) = r0
+        assert_eq!(
+            next().to_le_bytes(),
+            [BytecodeOp::Output as u8, 0, 0xFF, 0xFF]
+        );
+        assert_eq!(next(), 0);
+
         assert_eq!(next(), 0xFFFFFFFF); // end marker
         assert_eq!(next(), 0xFFFFFFFF);
         assert!(iter.next().is_none());

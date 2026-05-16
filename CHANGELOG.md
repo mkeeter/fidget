@@ -23,6 +23,7 @@
       now all generate `BytecodeOp::Sub` (using the reserved register as needed
       for immediates).
     - This also removes the `enum RegOpDiscriminants` from `fidget_core`
+    - `reg_count` and `mem_count` are now counts (rather than "highest value")
 - Add `PartialEq` for `GeometryPixel`
 - Major refactoring of error types
     - `fidget::Error` is removed in favor of fine-grained error types
