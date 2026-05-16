@@ -1452,7 +1452,7 @@ pub struct RenderShape {
 /// Error type when constructing a [`RenderShape`]
 #[derive(Debug, thiserror::Error)]
 pub enum RenderShapeError {
-    /// The shape doesn't fit in [`TAPE_DATA_CAPACITY`]
+    /// The shape doesn't fit in the GPU tape buffer
     #[error(
         "shape bytecode is {0} tape words (8 bytes each), which exceeds \
         buffer capacity of {TAPE_DATA_CAPACITY} tape words"
