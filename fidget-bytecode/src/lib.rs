@@ -358,4 +358,24 @@ mod test {
         assert_eq!(next(), 0xFFFFFFFF);
         assert!(iter.next().is_none());
     }
+
+    #[test]
+    fn load_store() {
+        let mut ctx = fidget_core::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+        let xy = ctx.max(x, y).unwrap();
+        let out = ctx.max(xy, z).unwrap();
+        let data = VmData::<2>::new(&ctx, &[out]).unwrap();
+        let bc = Bytecode::new(&data).unwrap();
+        let mut iter = bc.data.iter();
+        let mut next = || *iter.next().unwrap();
+        assert_eq!(next(), 0xFFFFFFFF); // start marker
+        assert_eq!(next(), 0);
+        assert_eq!(
+            next().to_le_bytes(),
+            [BytecodeOp::Copy as u8, 0, 0xFF, 0xFF]
+        );
+    }
 }
