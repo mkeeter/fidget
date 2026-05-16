@@ -33,6 +33,11 @@
       code using `anyhow` (or similar) may not need to change
 - Fix a bug in bulk evaluator argument checks where mismatched slices could be
   allowed under some circumstances
+- Add `VmData::asm` to get an immutable reference to the inner `RegTape`
+- Add `RegTape::repack_map` and `RegTape::repack` to repack registers by
+  frequency (making register 0 the most frequently used, etc)
+- Add `RegOp::visit_regs` and `RegOp::visit_regs_mut` to visit registers in an
+  operation
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

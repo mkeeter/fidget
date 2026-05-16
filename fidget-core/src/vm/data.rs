@@ -318,6 +318,11 @@ impl<const N: usize> VmData<N> {
         self.asm.iter().cloned().rev()
     }
 
+    /// Returns a reference to the inner [`RegTape`]
+    pub fn asm(&self) -> &RegTape {
+        &self.asm
+    }
+
     /// Pretty-prints the inner SSA tape
     pub fn pretty_print(&self) {
         self.ssa.pretty_print();

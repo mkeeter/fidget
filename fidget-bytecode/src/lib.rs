@@ -189,10 +189,16 @@ impl Bytecode {
 
     /// Builds a new bytecode object from VM data
     ///
-    /// Returns an error if the reserved register (255) is in use
+    /// Registers are reordered by frequency of use, e.g. the most frequently
+    /// used register becomes register 0.
+    ///
+    /// Returns an error if the reserved register (255) is in use, which should
+    /// only happen if the incoming tape has 256 active registers.
     pub fn new<const N: usize>(
         t: &VmData<N>,
     ) -> Result<Self, ReservedRegister> {
+        // Build a map for repacking registers by frequency
+        let map = t.asm().repack_map();
         // The initial opcode is `OP_JUMP 0x0000_0000`
         let mut data = vec![u32::MAX, 0u32];
         let mut reg_count = 0u8;
@@ -202,6 +208,7 @@ impl Bytecode {
             let mut word = [0xFF; 4];
             let mut imm = None;
             let mut store_reg = |i, r| {
+                let r = map[&r];
                 if r == u8::MAX {
                     Err(ReservedRegister)
                 } else {
