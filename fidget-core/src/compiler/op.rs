@@ -288,3 +288,159 @@ opcodes!(
         Store(u8, u32),
     }
 );
+
+impl RegOp {
+    /// Apply a mutating function to every register in the op
+    ///
+    /// Both inputs and outputs are visited
+    pub fn visit_regs_mut<F: FnMut(&mut u8)>(&mut self, mut f: F) {
+        match self {
+            RegOp::CopyImm(out, imm) => {
+                let _: f32 = *imm;
+                f(out)
+            }
+            RegOp::NegReg(out, arg)
+            | RegOp::AbsReg(out, arg)
+            | RegOp::RecipReg(out, arg)
+            | RegOp::SqrtReg(out, arg)
+            | RegOp::SquareReg(out, arg)
+            | RegOp::FloorReg(out, arg)
+            | RegOp::CeilReg(out, arg)
+            | RegOp::RoundReg(out, arg)
+            | RegOp::CopyReg(out, arg)
+            | RegOp::SinReg(out, arg)
+            | RegOp::CosReg(out, arg)
+            | RegOp::TanReg(out, arg)
+            | RegOp::AsinReg(out, arg)
+            | RegOp::AcosReg(out, arg)
+            | RegOp::AtanReg(out, arg)
+            | RegOp::ExpReg(out, arg)
+            | RegOp::LnReg(out, arg)
+            | RegOp::NotReg(out, arg) => {
+                f(out);
+                f(arg);
+            }
+            RegOp::AddRegImm(out, arg, imm)
+            | RegOp::MulRegImm(out, arg, imm)
+            | RegOp::DivRegImm(out, arg, imm)
+            | RegOp::DivImmReg(out, arg, imm)
+            | RegOp::SubImmReg(out, arg, imm)
+            | RegOp::SubRegImm(out, arg, imm)
+            | RegOp::AtanRegImm(out, arg, imm)
+            | RegOp::AtanImmReg(out, arg, imm)
+            | RegOp::MinRegImm(out, arg, imm)
+            | RegOp::MaxRegImm(out, arg, imm)
+            | RegOp::CompareRegImm(out, arg, imm)
+            | RegOp::CompareImmReg(out, arg, imm)
+            | RegOp::ModRegImm(out, arg, imm)
+            | RegOp::ModImmReg(out, arg, imm)
+            | RegOp::AndRegImm(out, arg, imm)
+            | RegOp::OrRegImm(out, arg, imm) => {
+                let _: f32 = *imm; // type-checking pattern
+                f(out);
+                f(arg);
+            }
+
+            RegOp::AddRegReg(out, lhs, rhs)
+            | RegOp::MulRegReg(out, lhs, rhs)
+            | RegOp::DivRegReg(out, lhs, rhs)
+            | RegOp::SubRegReg(out, lhs, rhs)
+            | RegOp::AtanRegReg(out, lhs, rhs)
+            | RegOp::MinRegReg(out, lhs, rhs)
+            | RegOp::MaxRegReg(out, lhs, rhs)
+            | RegOp::CompareRegReg(out, lhs, rhs)
+            | RegOp::ModRegReg(out, lhs, rhs)
+            | RegOp::AndRegReg(out, lhs, rhs)
+            | RegOp::OrRegReg(out, lhs, rhs) => {
+                f(out);
+                f(lhs);
+                f(rhs);
+            }
+
+            RegOp::Output(reg, imm)
+            | RegOp::Input(reg, imm)
+            | RegOp::Store(reg, imm)
+            | RegOp::Load(reg, imm) => {
+                let _: u32 = *imm; // type-checking pattern
+                f(reg)
+            }
+        }
+    }
+
+    /// Apply a function to every register in the op
+    ///
+    /// Both inputs and outputs are visited
+    pub fn visit_regs<F: FnMut(u8)>(&self, mut f: F) {
+        match self {
+            RegOp::CopyImm(out, imm) => {
+                let _: f32 = *imm;
+                f(*out)
+            }
+            RegOp::NegReg(out, arg)
+            | RegOp::AbsReg(out, arg)
+            | RegOp::RecipReg(out, arg)
+            | RegOp::SqrtReg(out, arg)
+            | RegOp::SquareReg(out, arg)
+            | RegOp::FloorReg(out, arg)
+            | RegOp::CeilReg(out, arg)
+            | RegOp::RoundReg(out, arg)
+            | RegOp::CopyReg(out, arg)
+            | RegOp::SinReg(out, arg)
+            | RegOp::CosReg(out, arg)
+            | RegOp::TanReg(out, arg)
+            | RegOp::AsinReg(out, arg)
+            | RegOp::AcosReg(out, arg)
+            | RegOp::AtanReg(out, arg)
+            | RegOp::ExpReg(out, arg)
+            | RegOp::LnReg(out, arg)
+            | RegOp::NotReg(out, arg) => {
+                f(*out);
+                f(*arg);
+            }
+            RegOp::AddRegImm(out, arg, imm)
+            | RegOp::MulRegImm(out, arg, imm)
+            | RegOp::DivRegImm(out, arg, imm)
+            | RegOp::DivImmReg(out, arg, imm)
+            | RegOp::SubImmReg(out, arg, imm)
+            | RegOp::SubRegImm(out, arg, imm)
+            | RegOp::AtanRegImm(out, arg, imm)
+            | RegOp::AtanImmReg(out, arg, imm)
+            | RegOp::MinRegImm(out, arg, imm)
+            | RegOp::MaxRegImm(out, arg, imm)
+            | RegOp::CompareRegImm(out, arg, imm)
+            | RegOp::CompareImmReg(out, arg, imm)
+            | RegOp::ModRegImm(out, arg, imm)
+            | RegOp::ModImmReg(out, arg, imm)
+            | RegOp::AndRegImm(out, arg, imm)
+            | RegOp::OrRegImm(out, arg, imm) => {
+                let _: f32 = *imm; // type-checking pattern
+                f(*out);
+                f(*arg);
+            }
+
+            RegOp::AddRegReg(out, lhs, rhs)
+            | RegOp::MulRegReg(out, lhs, rhs)
+            | RegOp::DivRegReg(out, lhs, rhs)
+            | RegOp::SubRegReg(out, lhs, rhs)
+            | RegOp::AtanRegReg(out, lhs, rhs)
+            | RegOp::MinRegReg(out, lhs, rhs)
+            | RegOp::MaxRegReg(out, lhs, rhs)
+            | RegOp::CompareRegReg(out, lhs, rhs)
+            | RegOp::ModRegReg(out, lhs, rhs)
+            | RegOp::AndRegReg(out, lhs, rhs)
+            | RegOp::OrRegReg(out, lhs, rhs) => {
+                f(*out);
+                f(*lhs);
+                f(*rhs);
+            }
+
+            RegOp::Output(reg, imm)
+            | RegOp::Input(reg, imm)
+            | RegOp::Store(reg, imm)
+            | RegOp::Load(reg, imm) => {
+                let _: u32 = *imm; // type-checking pattern
+                f(*reg)
+            }
+        }
+    }
+}
