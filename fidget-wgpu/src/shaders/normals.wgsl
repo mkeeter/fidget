@@ -5,7 +5,7 @@
 fn normals_main(
     @builtin(global_invocation_id) global_id: vec3u,
 ) {
-    // One compute thread per pixel
+    // One compute thread per pixel in the output image
     let px = global_id.x;
     let py = global_id.y;
     if px >= config.image_size.x || py >= config.image_size.y {
@@ -20,7 +20,8 @@ fn normals_main(
     }
 
     // If this pixel hasn't yet been written in the heightmap, then return
-    let z = image_heightmap[pixel_index_xy];
+    let heightmap_index_xy = px + py * config.render_size.x;
+    let z = image_heightmap[heightmap_index_xy];
     if z == 0u {
         return;
     }

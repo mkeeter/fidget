@@ -2,8 +2,7 @@
 @group(1) @binding(0) var<storage, read_write> tile64_zmin: array<atomic<u32>>;
 @group(1) @binding(1) var<storage, read_write> tile16_zmin: array<atomic<u32>>;
 @group(1) @binding(2) var<storage, read_write> tile4_zmin: array<atomic<u32>>;
-@group(1) @binding(3) var<storage, read> voxels: array<u32>;
-@group(1) @binding(4) var<storage, read_write> heightmap: array<u32>;
+@group(1) @binding(3) var<storage, read_write> voxels: array<u32>;
 
 // Dispatched as an 2D workgroup across render_size pixels
 @compute @workgroup_size(8, 8)
@@ -28,22 +27,14 @@ fn merge_main(
     let index4 = global_id.x / 4 + global_id.y / 4 * size4.x;
     let index1 = global_id.x + global_id.y * config.render_size.x;
 
-    // Merge operations are limited to image bounds
-    if global_id.x < config.image_size.x &&
-       global_id.y < config.image_size.y
-    {
-        // Note that this index uses image size, not (rounded-up) render size
-        let pixel_index = global_id.x + global_id.y * config.image_size.x;
+    // Merge larger tiles into the voxels image
+    var out = voxels[index1];
+    out = max(out, atomicLoad(&tile64_zmin[index64]));
+    out = max(out, atomicLoad(&tile16_zmin[index16]));
+    out = max(out, atomicLoad(&tile4_zmin[index4]));
 
-        var out = heightmap[pixel_index];
-        out = max(out, atomicLoad(&tile64_zmin[index64]));
-        out = max(out, atomicLoad(&tile16_zmin[index16]));
-        out = max(out, atomicLoad(&tile4_zmin[index4]));
-        out = max(out, voxels[index1]);
-
-        // Clamp to image z size and write to the heightmap
-        heightmap[pixel_index] = min(out, config.image_size.z);
-    }
+    // Clamp to image z size and write to the heightmap
+    voxels[index1] = min(out, config.image_size.z);
 
     // Copying from high-res to low-res tiles is deliberately racey, because
     // it's to improve the odds of raymarching early-exit (but is not required
