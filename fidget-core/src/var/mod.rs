@@ -188,7 +188,7 @@ impl VarMap {
         }
     }
 
-    /// Iterates over `(variables, index)` tuples
+    /// Iterates over `(variable, index)` tuples
     pub fn iter(&self) -> impl Iterator<Item = (Var, usize)> {
         [
             self.x.map(|x| (Var::X, x)),

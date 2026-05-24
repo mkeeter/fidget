@@ -1852,11 +1852,10 @@ impl Buffers {
     /// CPU-accessible image buffer, see [`Context::map_image`] and
     /// [`Context::map_image_async`].
     ///
-    /// The buffer is necessarily larger than the image data; at the very least,
-    /// it contains two extra `u64` timestamp values, and it may be even larger
-    /// if the [`Buffers`] object has been resized over time.  The caller should
-    /// use the second member in the tuple when binding the buffer, and may also
-    /// want to use [`Buffers::image_size`].
+    /// The buffer may be larger than the image data if the [`Buffers`] object
+    /// has been resized over time.  The caller should use the second member in
+    /// the tuple when binding the buffer, and may also want to use
+    /// [`Buffers::image_size`] (if they care about image width and height).
     pub fn image_storage_buffer(&self) -> (&wgpu::Buffer, u64) {
         (&self.geom.data, self.geom.size)
     }
@@ -2434,6 +2433,8 @@ impl Context {
         let mat =
             settings.world_to_model * buffers.image_size.screen_to_world();
 
+        // Divide by 2 to go from `u32` -> `TapeWord`
+        let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes,
@@ -2448,8 +2449,8 @@ impl Context {
                 buffers.image_size.height(),
                 buffers.image_size.depth(),
             ],
-            tape_data_offset: shape.bytecode.len().try_into().unwrap(),
-            root_tape_len: shape.bytecode.len().try_into().unwrap(),
+            tape_data_offset: start_offset,
+            root_tape_len: start_offset,
         };
 
         {
