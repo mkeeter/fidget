@@ -88,5 +88,6 @@ bench = false
 
 [dev-dependencies]
 criterion.workspace = true
-rayon.workspace = true
 nalgebra.workspace = true
+pollster.workspace = true
+rayon.workspace = true

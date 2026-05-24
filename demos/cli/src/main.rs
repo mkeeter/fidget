@@ -299,23 +299,8 @@ fn run3d_wgpu(
     settings: &ImageSettings,
 ) -> Result<fidget::raster::voxel::Image> {
     // Build a WGPU context
-    let instance = wgpu::Instance::default();
-    let (device, queue) = pollster::block_on(async move {
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                ..wgpu::RequestAdapterOptions::default()
-            })
-            .await
-            .map_err(anyhow::Error::from)?;
-        let out = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::TIMESTAMP_QUERY,
-                ..wgpu::DeviceDescriptor::default()
-            })
-            .await?;
-        Ok::<_, anyhow::Error>(out)
-    })?;
+    let (device, queue) =
+        pollster::block_on(async move { fidget::wgpu::init().await })?;
 
     let ctx = fidget::wgpu::voxel::Context::new(device, queue)?;
     let image_size = fidget::render::VoxelSize::from(settings.size);
