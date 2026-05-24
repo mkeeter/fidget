@@ -1124,6 +1124,7 @@ impl NormalsContext {
 pub struct Context {
     device: wgpu::Device,
     queue: wgpu::Queue,
+    has_timestamps: bool,
 
     /// Bind group layout for the common bind group (used by all stages)
     bind_group_layout: wgpu::BindGroupLayout,
@@ -1529,7 +1530,10 @@ pub struct Buffers {
     image: Buffer,
 
     /// Query set for timestamps
-    timestamps: wgpu::QuerySet,
+    ///
+    /// This must be present if and only if the parent context has timestamps
+    /// enabled (per [`Context::has_timestamps`])
+    timestamps: Option<wgpu::QuerySet>,
 
     /// Buffer into which we resolve the query
     ts_buf: wgpu::Buffer,
@@ -1963,6 +1967,7 @@ impl Buffers {
     fn new(
         device: &wgpu::Device,
         image_size: VoxelSize,
+        has_timestamps: bool,
     ) -> Result<Self, BuffersError> {
         // The config buffer is statically sized, so we can check it here
         static_assertions::const_assert!(
@@ -2074,11 +2079,15 @@ impl Buffers {
             }
         })?;
 
-        let timestamps = device.create_query_set(&wgpu::QuerySetDescriptor {
-            label: Some("timestamp query set"),
-            ty: wgpu::QueryType::Timestamp,
-            count: 2,
-        });
+        let timestamps = if has_timestamps {
+            Some(device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("timestamp query set"),
+                ty: wgpu::QueryType::Timestamp,
+                count: 2,
+            }))
+        } else {
+            None
+        };
 
         Ok(Self {
             config_buf,
@@ -2310,22 +2319,19 @@ impl Buffers {
     }
 }
 
-/// Error returned when constructing a context
-#[derive(Debug, thiserror::Error)]
-pub enum ContextError {
-    /// Context must have `TIMESTAMP_QUERY` feature enabled
-    #[error("WebGPU context must have TIMESTAMP_QUERY feature enabled")]
-    RequiresTimestampQuery,
-}
-
 impl Context {
     /// Build a new 3D rendering context, given a device and queue
-    pub fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-    ) -> Result<Self, ContextError> {
-        if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-            return Err(ContextError::RequiresTimestampQuery);
+    ///
+    /// If render timestamps are desirable, then the device should be
+    /// initialized with [`wgpu::Features::TIMESTAMP_QUERY`].
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        let has_timestamps =
+            device.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+        if !has_timestamps {
+            log::warn!(
+                "WGPU device is missing `TIMESTAMP_QUERY`; \
+                 timestamps are disabled"
+            );
         }
 
         // Create bind group layout and bind group
@@ -2349,9 +2355,10 @@ impl Context {
         let reset_ctx = ResetContext::new();
         let clear_ctx = ClearContext::new(&device, &common_bind_group_layout);
 
-        Ok(Self {
+        Self {
             device,
             queue,
+            has_timestamps,
             bind_group_layout: common_bind_group_layout,
             root_ctx,
             repack_ctx,
@@ -2361,7 +2368,7 @@ impl Context {
             merge_ctx,
             reset_ctx,
             clear_ctx,
-        })
+        }
     }
 
     /// Builds a new [`Buffers`] object for the given render size
@@ -2374,7 +2381,7 @@ impl Context {
         &self,
         image_size: VoxelSize,
     ) -> Result<Buffers, BuffersError> {
-        Buffers::new(&self.device, image_size)
+        Buffers::new(&self.device, image_size, self.has_timestamps)
     }
 
     /// Builds a new [`RenderShape`] object for the given shape
@@ -2477,11 +2484,13 @@ impl Context {
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
-                timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
-                    query_set: &buffers.timestamps,
-                    beginning_of_pass_write_index: Some(0),
-                    end_of_pass_write_index: Some(1),
-                }),
+                timestamp_writes: buffers.timestamps.as_ref().map(
+                    |query_set| wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: Some(0),
+                        end_of_pass_write_index: Some(1),
+                    },
+                ),
             });
 
         // Build the common config buffer
@@ -2532,19 +2541,16 @@ impl Context {
 
         // Resolve the raw GPU ticks into the resolve buffer, then copy them
         // into the last 16 bytes of the image buffer
-        encoder.resolve_query_set(
-            &buffers.timestamps,
-            0..2,
-            &buffers.ts_buf,
-            0,
-        );
-        encoder.copy_buffer_to_buffer(
-            &buffers.ts_buf,
-            0,
-            &buffers.image.data,
-            buffers.geom.size(), // offset past the image data
-            buffers.ts_buf.size(),
-        );
+        if let Some(timestamps) = &buffers.timestamps {
+            encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
+            encoder.copy_buffer_to_buffer(
+                &buffers.ts_buf,
+                0,
+                &buffers.image.data,
+                buffers.geom.size(), // offset past the image data
+                buffers.ts_buf.size(),
+            );
+        }
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
         encoder.copy_buffer_to_buffer(
@@ -2573,7 +2579,11 @@ impl Context {
         MappedImage {
             buffers,
             slice,
-            ns_per_tick: self.queue.get_timestamp_period(),
+            ns_per_tick: if self.has_timestamps {
+                Some(self.queue.get_timestamp_period())
+            } else {
+                None
+            },
         }
     }
 
@@ -2593,7 +2603,11 @@ impl Context {
         MappedImage {
             buffers,
             slice,
-            ns_per_tick: self.queue.get_timestamp_period(),
+            ns_per_tick: if self.has_timestamps {
+                Some(self.queue.get_timestamp_period())
+            } else {
+                None
+            },
         }
     }
 
@@ -2649,7 +2663,7 @@ pub struct MappedImage<'a> {
     slice: wgpu::BufferSlice<'a>,
 
     /// Nanoseconds per tick, for resolving timestamps
-    ns_per_tick: f32,
+    ns_per_tick: Option<f32>,
 }
 
 impl Drop for MappedImage<'_> {
@@ -2673,14 +2687,18 @@ impl MappedImage<'_> {
     /// Returns the time spent in the compute pass
     ///
     /// This may be 0 on platforms which advertise `TIMESTAMP_QUERY` but do not
-    /// actually populate timestamps.
-    pub fn time(&self) -> std::time::Duration {
-        let slice = self.slice.get_mapped_range();
-        let ts = <[u64]>::ref_from_bytes(&slice[self.image_bytes()..]).unwrap();
-        std::time::Duration::from_nanos(
-            (ts[1].saturating_sub(ts[0]) as f64 * self.ns_per_tick as f64)
-                as u64,
-        )
+    /// actually populate timestamps, and will be `None` if the context does not
+    /// have `TIMESTAMP_QUERY` enabled.
+    pub fn time(&self) -> Option<std::time::Duration> {
+        self.ns_per_tick.map(|ns_per_tick| {
+            let slice = self.slice.get_mapped_range();
+            let ts =
+                <[u64]>::ref_from_bytes(&slice[self.image_bytes()..]).unwrap();
+            std::time::Duration::from_nanos(
+                (ts[1].saturating_sub(ts[0]) as f64 * ns_per_tick as f64)
+                    as u64,
+            )
+        })
     }
 
     fn image_bytes(&self) -> usize {

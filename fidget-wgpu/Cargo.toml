@@ -18,6 +18,7 @@ workspace-hack.workspace = true
 
 flume.workspace = true
 heck.workspace = true
+log.workspace = true
 naga.workspace = true
 nalgebra.workspace = true
 static_assertions.workspace = true

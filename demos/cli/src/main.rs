@@ -302,7 +302,7 @@ fn run3d_wgpu(
     let (device, queue) =
         pollster::block_on(async move { fidget::wgpu::init().await })?;
 
-    let ctx = fidget::wgpu::voxel::Context::new(device, queue)?;
+    let ctx = fidget::wgpu::voxel::Context::new(device, queue);
     let image_size = fidget::render::VoxelSize::from(settings.size);
     let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
     let mut image = Default::default();
@@ -313,7 +313,7 @@ fn run3d_wgpu(
     for _ in 0..settings.n {
         ctx.submit(&shape, &buffers, &cfg);
         let img = ctx.map_image(&mut buffers);
-        compute_pass_time += img.time();
+        compute_pass_time += img.time().unwrap();
         image = img.image();
     }
     info!(

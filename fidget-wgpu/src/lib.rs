@@ -4,6 +4,9 @@ pub mod voxel;
 
 use heck::ToShoutySnakeCase;
 
+/// Re-export the [`wgpu`] module
+pub use wgpu;
+
 /// Returns a set of constant definitions for each opcode
 fn opcode_constants() -> String {
     let mut out = String::new();
@@ -27,8 +30,12 @@ pub enum InitError {
 
 /// Returns a WebGPU device and queue with appropriate settings
 ///
+/// Non-default settings are as follows:
+/// - We request a [`wgpu::PowerPreference::HighPerformance`] adapter
+/// - We enable the [`wgpu::Features::TIMESTAMP_QUERY`] feature
+///
 /// This is a helper function for simplicity; more sophisticated systems will
-/// likely construct the device and queue externally.
+/// likely construct the adapter, device, and queue themselves.
 pub async fn init() -> Result<(wgpu::Device, wgpu::Queue), InitError> {
     let instance = wgpu::Instance::default();
     let adapter = instance

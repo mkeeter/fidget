@@ -95,10 +95,30 @@ render_tests!(jit, fidget::jit::JitFunction);
 #[cfg(feature = "wgpu")]
 #[test]
 fn sphere_wgpu() {
+    // We only run in CI if we're on MacOS (because other runners don't have
+    // GPUs and will fail to build the context).
+    #[cfg(not(target_os = "macos"))]
+    if std::env::var("CI").is_ok() {
+        return;
+    }
+
+    // Build a WGPU instance without any special features
+    // (e.g. no timestamp queries)
+    use fidget_wgpu::wgpu;
+    let instance = wgpu::Instance::default();
+    let (device, queue) = pollster::block_on(async {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .unwrap();
+        adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await
+            .unwrap()
+    });
+
     let (x, y, z) = Tree::axes();
-    let (device, queue) =
-        pollster::block_on(async move { fidget::wgpu::init().await }).unwrap();
-    let ctx = fidget_wgpu::voxel::Context::new(device, queue).unwrap();
+    let ctx = fidget_wgpu::voxel::Context::new(device, queue);
 
     let size = 32;
     let image_size = RenderSize::from(size);

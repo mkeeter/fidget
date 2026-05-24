@@ -1698,6 +1698,7 @@ dependencies = [
  "fidget-raster",
  "flume",
  "heck",
+ "log",
  "naga",
  "nalgebra",
  "static_assertions",
