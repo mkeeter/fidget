@@ -4,12 +4,12 @@
 // from `tape_interpreter.wgsl`
 
 /// Per-state IO bindings
-@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
-@group(1) @binding(1) var<storage, read> tile_zmin: array<u32>;
+@group(2) @binding(0) var<storage, read> tiles_in: TileListInput;
+@group(2) @binding(1) var<storage, read> tile_zmin: array<u32>;
 
-@group(1) @binding(2) var<storage, read_write> subtiles_out: TileListOutput;
-@group(1) @binding(3) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
-@group(1) @binding(4) var<storage, read_write> subtile_zhist: array<atomic<u32>>;
+@group(2) @binding(2) var<storage, read_write> subtiles_out: TileListOutput;
+@group(2) @binding(3) var<storage, read_write> subtile_zmin: array<atomic<u32>>;
+@group(2) @binding(4) var<storage, read_write> subtile_zhist: array<atomic<u32>>;
 
 /// Input tile size; one input tile maps to a 4x4x4 workgroup
 override TILE_SIZE: u32;

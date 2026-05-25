@@ -1,11 +1,11 @@
-@group(1) @binding(0) var<storage, read_write> tile16_count: array<u32, 4>;
-@group(1) @binding(1) var<storage, read_write> tile16_sort: array<u32, 4>;
-@group(1) @binding(2) var<storage, read_write> tile4_count: array<u32, 4>;
-@group(1) @binding(3) var<storage, read_write> tile4_sort: array<u32, 4>;
+@group(2) @binding(0) var<storage, read_write> tile16_count: array<u32, 4>;
+@group(2) @binding(1) var<storage, read_write> tile16_sort: array<u32, 4>;
+@group(2) @binding(2) var<storage, read_write> tile4_count: array<u32, 4>;
+@group(2) @binding(3) var<storage, read_write> tile4_sort: array<u32, 4>;
 
 // zhist_buf is 4x u32, padding to 256 bytes, then 16x u32.  We only care about
 // clearing the u32 ranges, i.e indices 0..4 and 64..80.
-@group(1) @binding(4) var<storage, read_write> zhist_buf: array<u32, 80>;
+@group(2) @binding(4) var<storage, read_write> zhist_buf: array<u32, 80>;
 
 // Dispatched as a single workgroup
 @compute @workgroup_size(64)

@@ -1,5 +1,5 @@
-@group(1) @binding(0) var<storage, read> image_heightmap: array<u32>;
-@group(1) @binding(1) var<storage, read_write> image_out: array<vec4f>;
+@group(2) @binding(0) var<storage, read> image_heightmap: array<u32>;
+@group(2) @binding(1) var<storage, read_write> image_out: array<vec4f>;
 
 @compute @workgroup_size(8, 8)
 fn normals_main(

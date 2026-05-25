@@ -1,11 +1,11 @@
-@group(1) @binding(0) var<storage, read> tiles_out: TileListInput;
-@group(1) @binding(1) var<storage, read> tile64_zmax: array<u32>;
+@group(2) @binding(0) var<storage, read> tiles_out: TileListInput;
+@group(2) @binding(1) var<storage, read> tile64_zmax: array<u32>;
 
 // This is a set of per-strata `TileListOutput` arrays.  Each one is
 // `strata_size_bytes(..)` long, which is large enough to fit every tile.  We
 // can't represent this directly, so good luck poking the right memory locations
 // by hand!
-@group(1) @binding(2) var<storage, read_write> strata_tiles: array<atomic<u32>>;
+@group(2) @binding(2) var<storage, read_write> strata_tiles: array<atomic<u32>>;
 
 @compute @workgroup_size(64, 1, 1)
 fn repack_main(

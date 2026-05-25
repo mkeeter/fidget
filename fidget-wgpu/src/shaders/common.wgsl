@@ -65,6 +65,9 @@ fn nan_f32() -> f32 {
 /// this buffer is packed.
 @group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
 
+/// Array of values for (non-xyz) variables
+@group(1) @binding(0) var<storage, read> var_values: array<f32>;
+
 /// For a given position and recursion level, return the offset into `tile_tape`
 fn get_tape_offset_for_level(corner_pos: vec3u, level: u32) -> u32 {
     var offset = 0u; // current position in the buffer
