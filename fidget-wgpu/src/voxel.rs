@@ -1140,14 +1140,12 @@ pub struct Context {
 }
 
 struct TileBuffers<const N: u64> {
-    /// Tiles written by the stage outputing N^3 tiles
+    /// Tiles written by the stage outputting N³ tiles
     tiles: Buffer,
     /// Sorted version of [`tiles`](Self::tiles)
     sorted: Buffer,
     /// Minimum Z height at each XY tile
     zmin: Buffer,
-    /// Histogram of Z values (used when sorting)
-    z_hist: wgpu::Buffer,
 }
 
 impl<const N: u64> TileBuffers<N> {
@@ -1188,19 +1186,10 @@ impl<const N: u64> TileBuffers<N> {
             err,
         })?;
 
-        // z_hist never changes size, since it's based on `N`
-        let z_hist = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&format!("tile{N}_zhist")),
-            size: (64 / N) * std::mem::size_of::<u32>() as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         Ok(Self {
             tiles,
             sorted,
             zmin,
-            z_hist,
         })
     }
 
@@ -1228,7 +1217,6 @@ impl<const N: u64> TileBuffers<N> {
             tiles,
             sorted,
             zmin,
-            z_hist: _, // never changes, it'll always be like this
         } = self;
         let tile_buf_size = Self::tile_buf_size(render_size);
         tiles.grow_to_fit(device, tile_buf_size).map_err(|err| {
@@ -1261,9 +1249,8 @@ impl<const N: u64> TileBuffers<N> {
             tiles,
             sorted,
             zmin,
-            z_hist,
         } = self;
-        tiles.size() + sorted.size() + zmin.size() + z_hist.size()
+        tiles.size() + sorted.size() + zmin.size()
     }
 
     /// Returns the number of bytes allocated by these buffers
@@ -1273,9 +1260,8 @@ impl<const N: u64> TileBuffers<N> {
             tiles,
             sorted,
             zmin,
-            z_hist,
         } = self;
-        tiles.capacity() + sorted.capacity() + zmin.capacity() + z_hist.size()
+        tiles.capacity() + sorted.capacity() + zmin.capacity()
     }
 }
 
@@ -1499,8 +1485,17 @@ pub struct Buffers {
     /// (64³ voxels).
     image_size: VoxelSize,
 
-    /// Config and tape data buffer
+    /// Config and tape data buffer (constant size)
     config_buf: wgpu::Buffer,
+
+    /// Buffer for z histogram counters
+    ///
+    /// This is laid out as follows:
+    ///
+    /// - 4 `u32` words (for the 16³ pass)
+    /// - 240 bytes of padding
+    /// - 16 `u32` words (for the 4³ pass)
+    z_hist_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
     tile_tapes: Buffer,
@@ -1508,10 +1503,10 @@ pub struct Buffers {
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers,
 
-    /// Z heights for filled first-stage tiles (16^3)
+    /// Z heights for filled first-stage tiles (16³)
     tile16: TileBuffers<16>,
 
-    /// Z heights for filled second-stage tiles (4^3)
+    /// Z heights for filled second-stage tiles (4³)
     tile4: TileBuffers<4>,
 
     /// Z heights for voxels
@@ -1596,19 +1591,15 @@ impl BindGroups {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile16.z_hist.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
                         resource: buffers.tile4.tiles.data.slice(0..16).into(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 4,
+                        binding: 3,
                         resource: buffers.tile4.sorted.data.slice(0..16).into(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: buffers.tile4.z_hist.as_entire_binding(),
+                        binding: 4,
+                        resource: buffers.z_hist_buf.as_entire_binding(),
                     },
                 ],
             })
@@ -1714,7 +1705,7 @@ impl BindGroups {
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: buffers.tile16.z_hist.as_entire_binding(),
+                        resource: buffers.z_hist_buf.slice(0..16).into(),
                     },
                 ],
             })
@@ -1722,18 +1713,29 @@ impl BindGroups {
     }
 
     fn sort16(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        self.sort16
-            .get_or_init(|| Self::sort_bind_group(ctx, &buffers.tile16))
+        self.sort16.get_or_init(|| {
+            Self::sort_bind_group(
+                ctx,
+                &buffers.tile16,
+                buffers.z_hist_buf.slice(0..16).into(),
+            )
+        })
     }
 
     fn sort4(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        self.sort4
-            .get_or_init(|| Self::sort_bind_group(ctx, &buffers.tile4))
+        self.sort4.get_or_init(|| {
+            Self::sort_bind_group(
+                ctx,
+                &buffers.tile4,
+                buffers.z_hist_buf.slice(256..320).into(),
+            )
+        })
     }
 
     fn sort_bind_group<const N: u64>(
         ctx: &Context,
         tile_bufs: &TileBuffers<N>,
+        z_hist: wgpu::BindingResource,
     ) -> wgpu::BindGroup {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -1745,7 +1747,7 @@ impl BindGroups {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: tile_bufs.z_hist.as_entire_binding(),
+                    resource: z_hist,
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -1779,7 +1781,7 @@ impl BindGroups {
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: buffers.tile4.z_hist.as_entire_binding(),
+                        resource: buffers.z_hist_buf.slice(256..320).into(),
                     },
                 ],
             })
@@ -2068,6 +2070,18 @@ impl Buffers {
             None
         };
 
+        // z_hist_buf never changes size
+        let z_hist_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tiles_zhist"),
+            size: u64::try_from(
+                (4 * std::mem::size_of::<u32>()).next_multiple_of(256)
+                    + (16 * std::mem::size_of::<u32>()),
+            )
+            .unwrap(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Ok(Self {
             config_buf,
             image_size,
@@ -2079,6 +2093,7 @@ impl Buffers {
             geom,
             image,
             timestamps,
+            z_hist_buf,
             ts_buf,
             bind_groups: Default::default(),
         })
@@ -2104,8 +2119,8 @@ impl Buffers {
     /// After that point, it gets weirder.  At any given point in time, we're
     /// evaluating a single strata (i.e. a 64-voxel deep slice of the image).
     /// We allocated enough tape words for that strata, also in x / y / z
-    /// order, but z is limited to either 0..4 for the 16^3 subtiles, or
-    /// 0..16 for 4^3 subtiles.
+    /// order, but z is limited to either 0..4 for the 16³ subtiles, or
+    /// 0..16 for 4³ subtiles.
     ///
     /// In other words, it looks something like this:
     ///
@@ -2151,6 +2166,7 @@ impl Buffers {
         let Buffers {
             image_size: image_size_ref,
             config_buf: _,
+            z_hist_buf: _,
             tile_tapes,
             tile64,
             tile16,
@@ -2226,6 +2242,7 @@ impl Buffers {
         let Buffers {
             image_size: _,
             config_buf,
+            z_hist_buf,
             tile_tapes,
             tile64,
             tile16,
@@ -2238,6 +2255,7 @@ impl Buffers {
             bind_groups: _,
         } = self;
         config_buf.size()
+            + z_hist_buf.size()
             + tile_tapes.capacity()
             + tile64.capacity()
             + tile16.capacity()
@@ -2254,6 +2272,7 @@ impl Buffers {
         let Buffers {
             image_size: _,
             config_buf,
+            z_hist_buf,
             tile_tapes,
             tile64,
             tile16,
@@ -2266,6 +2285,7 @@ impl Buffers {
             bind_groups: _,
         } = self;
         config_buf.size()
+            + z_hist_buf.size()
             + tile_tapes.size()
             + tile64.size()
             + tile16.size()
@@ -2685,10 +2705,9 @@ impl ClearContext {
                 entries: &[
                     buffer_rw(0), // tile16_count
                     buffer_rw(1), // tile16_sort
-                    buffer_rw(2), // tile16_zhist
-                    buffer_rw(3), // tile4_count
-                    buffer_rw(4), // tile4_sort
-                    buffer_rw(5), // tile4_zhist
+                    buffer_rw(2), // tile4_count
+                    buffer_rw(3), // tile4_sort
+                    buffer_rw(4), // zhist_buf
                 ],
             });
 
