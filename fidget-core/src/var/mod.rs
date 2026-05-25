@@ -187,6 +187,18 @@ impl VarMap {
             }
         }
     }
+
+    /// Iterates over `(variable, index)` tuples
+    pub fn iter(&self) -> impl Iterator<Item = (Var, usize)> {
+        [
+            self.x.map(|x| (Var::X, x)),
+            self.y.map(|y| (Var::Y, y)),
+            self.z.map(|z| (Var::Z, z)),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(self.v.iter().map(|(v, k)| (Var::V(*v), *k)))
+    }
 }
 
 /// Error type for when variable slice length does not match expected count

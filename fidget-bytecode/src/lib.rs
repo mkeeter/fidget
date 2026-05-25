@@ -46,7 +46,7 @@
 use fidget_core::{compiler::RegOp, vm::VmData};
 use zerocopy::IntoBytes;
 
-/// Error type for bytecode builder
+/// Error type indicating that the reserved register (255) was used
 #[derive(thiserror::Error, Debug, PartialEq)]
 #[error("register 255 is reserved")]
 pub struct ReservedRegister;

@@ -38,6 +38,9 @@
   frequency (making register 0 the most frequently used, etc)
 - Add `RegOp::visit_regs` and `RegOp::visit_regs_mut` to visit registers in an
   operation
+- Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
+    - This is even more experimental than the rest of Fidget!
+- Add `VarMap::iter` to iterate over `(var, index)` tuples
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
