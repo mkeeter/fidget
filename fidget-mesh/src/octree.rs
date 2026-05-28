@@ -11,7 +11,7 @@ use super::{
 };
 use fidget_core::{
     eval::Function,
-    render::{CancelToken, RenderHandle, RenderHints, ThreadPool},
+    render::{RenderHandle, RenderHints, ThreadPool},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Grad,
 };
@@ -51,22 +51,15 @@ impl Octree {
         vars: &ShapeVars<f32>,
         settings: &Settings,
     ) -> Option<Self> {
-        // Transform the shape given our world-to-model matrix
-        let t = settings.world_to_model;
-        if t == nalgebra::Matrix4::identity() {
-            Self::build_inner(shape, vars, settings)
-        } else {
-            let shape = shape.with_transform(t);
-            let mut out = Self::build_inner(&shape, vars, settings)?;
+        let mut out = Self::build_inner(shape, vars, settings)?;
 
-            // Apply the transform from [-1, +1] back to model space
-            for v in &mut out.verts {
-                let p: nalgebra::Point3<f32> = v.pos.into();
-                let q = t.transform_point(&p);
-                v.pos = q.coords;
-            }
-            Some(out)
+        // Apply the transform from [-1, +1] back to model space
+        for v in &mut out.verts {
+            let p: nalgebra::Point3<f32> = v.pos.into();
+            let q = settings.world_to_model.transform_point(&p);
+            v.pos = q.coords;
         }
+        Some(out)
     }
 
     /// Builds an octree to the given depth
@@ -83,29 +76,22 @@ impl Octree {
         Self::build_with_vars(shape, &ShapeVars::new(), settings)
     }
 
-    fn build_inner<F: Function + RenderHints + Clone, T: Sync>(
-        shape: &Shape<F, T>,
+    fn build_inner<F: Function + RenderHints + Clone>(
+        shape: &Shape<F>,
         vars: &ShapeVars<f32>,
         settings: &Settings,
     ) -> Option<Self> {
         if let Some(threads) = settings.threads {
-            Self::build_inner_mt(
-                shape,
-                vars,
-                settings.depth,
-                &settings.cancel,
-                threads,
-            )
+            Self::build_inner_mt(shape, settings, vars, threads)
         } else {
             let mut eval = RenderHandle::new(shape.clone());
             let mut out = OctreeBuilder::new();
             let mut hermite = LeafHermiteData::default();
             if out.recurse(
                 &mut eval,
+                settings,
                 vars,
                 CellIndex::default(),
-                settings.depth,
-                &settings.cancel,
                 &mut hermite,
             ) {
                 Some(out.octree)
@@ -116,11 +102,10 @@ impl Octree {
     }
 
     /// Multithreaded constructor
-    fn build_inner_mt<F: Function + RenderHints + Clone, T: Sync>(
-        shape: &Shape<F, T>,
+    fn build_inner_mt<F: Function + RenderHints + Clone>(
+        shape: &Shape<F>,
+        settings: &Settings,
         vars: &ShapeVars<f32>,
-        max_depth: u8,
-        cancel: &CancelToken,
         threads: &ThreadPool,
     ) -> Option<Self> {
         let mut root = Octree::new();
@@ -132,8 +117,8 @@ impl Octree {
         // We want a number of tasks that's significantly larger than our thread
         // count, so that we can fully saturate all cores even if tasks take
         // different amounts of time.
-        let target_count =
-            (8usize.pow(u32::from(max_depth))).min(threads.thread_count() * 10);
+        let target_count = (8usize.pow(u32::from(settings.depth)))
+            .min(threads.thread_count() * 10);
         while todo.len() < target_count {
             let next = todo.pop_front().unwrap();
 
@@ -170,10 +155,9 @@ impl Octree {
                         };
                         if !builder.recurse(
                             eval,
+                            settings,
                             vars,
                             local_cell,
-                            max_depth,
-                            cancel,
                             &mut hermite,
                         ) {
                             return None;
@@ -537,16 +521,15 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// Returns `true` if recursion completed normally, or `false` if it was
     /// cancelled.
     #[must_use]
-    fn recurse<T>(
+    fn recurse(
         &mut self,
-        eval: &mut RenderHandle<F, T>,
+        eval: &mut RenderHandle<F>,
+        settings: &Settings,
         vars: &ShapeVars<f32>,
         cell: CellIndex<3>,
-        max_depth: u8,
-        cancel: &CancelToken,
         hermite: &mut LeafHermiteData,
     ) -> bool {
-        if cancel.is_cancelled() {
+        if settings.cancel.is_cancelled() {
             return false;
         }
         let (i, r) = self
@@ -556,6 +539,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 cell.bounds[crate::types::X],
                 cell.bounds[crate::types::Y],
                 cell.bounds[crate::types::Z],
+                &settings.world_to_model,
                 vars,
             )
             .unwrap();
@@ -578,8 +562,14 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             } else {
                 eval
             };
-            if cell.depth == max_depth as usize {
-                self.leaf(sub_tape, vars, cell, hermite)
+            if cell.depth == settings.depth as usize {
+                self.leaf(
+                    sub_tape,
+                    &settings.world_to_model,
+                    vars,
+                    cell,
+                    hermite,
+                )
             } else {
                 // Reserve new cells for the 8x children
                 let index = self.octree.cells.len();
@@ -589,10 +579,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     let cell = cell.child(index, i);
                     if !self.recurse(
                         sub_tape,
+                        settings,
                         vars,
                         cell,
-                        max_depth,
-                        cancel,
                         &mut hermite_child[i.index()],
                     ) {
                         return false;
@@ -611,9 +600,10 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// Writes the leaf vertex to `self.o.verts`, hermite data to
     /// `self.hermite`, and the leaf data to `self.leafs`.  Does **not** write
     /// anything to `self.o.cells`; the cell is returned instead.
-    fn leaf<T>(
+    fn leaf(
         &mut self,
-        eval: &mut RenderHandle<F, T>,
+        eval: &mut RenderHandle<F>,
+        transform: &nalgebra::Matrix4<f32>,
         vars: &ShapeVars<f32>,
         cell: CellIndex<3>,
         hermite_cell: &mut LeafHermiteData,
@@ -630,7 +620,14 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         let out = self
             .eval_float_slice
-            .eval_v(eval.f_tape(&mut self.tape_storage), &xs, &ys, &zs, vars)
+            .eval_v(
+                eval.f_tape(&mut self.tape_storage),
+                &xs,
+                &ys,
+                &zs,
+                transform,
+                vars,
+            )
             .unwrap();
         debug_assert_eq!(out.len(), 8);
 
@@ -733,7 +730,14 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             // Do the actual evaluation
             let out = self
                 .eval_float_slice
-                .eval_v(eval.f_tape(&mut self.tape_storage), xs, ys, zs, vars)
+                .eval_v(
+                    eval.f_tape(&mut self.tape_storage),
+                    xs,
+                    ys,
+                    zs,
+                    transform,
+                    vars,
+                )
                 .unwrap();
 
             // Update start and end positions based on evaluation
@@ -799,7 +803,14 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         // TODO: special case for cells with multiple gradients ("features")
         let grads = self
             .eval_grad_slice
-            .eval_v(eval.g_tape(&mut self.tape_storage), xs, ys, zs, vars)
+            .eval_v(
+                eval.g_tape(&mut self.tape_storage),
+                xs,
+                ys,
+                zs,
+                transform,
+                vars,
+            )
             .unwrap();
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
@@ -1037,7 +1048,7 @@ mod test {
     use fidget_core::{
         context::{Context, Tree},
         render::ThreadPool,
-        shape::EzShape,
+        shape::{EzShape, IDENTITY},
         var::Var,
         vm::VmShape,
     };
@@ -1290,7 +1301,8 @@ mod test {
                     let tape = shape.ez_point_tape();
                     for v in &octree.verts {
                         let v = v.pos;
-                        let (r, _) = eval.eval(&tape, v.x, v.y, v.z).unwrap();
+                        let (r, _) =
+                            eval.eval(&tape, v.x, v.y, v.z, &IDENTITY).unwrap();
                         assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
                     }
                 }
@@ -1310,10 +1322,12 @@ mod test {
 
             let mut eval = VmShape::new_point_eval();
             let tape = shape.ez_point_tape();
-            let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z).unwrap();
-            assert!(v.abs() < 1e-6, "bad tip value: {v}");
             let (v, _) =
-                eval.eval(&tape, corner.x, corner.y, corner.z).unwrap();
+                eval.eval(&tape, tip.x, tip.y, tip.z, &IDENTITY).unwrap();
+            assert!(v.abs() < 1e-6, "bad tip value: {v}");
+            let (v, _) = eval
+                .eval(&tape, corner.x, corner.y, corner.z, &IDENTITY)
+                .unwrap();
             assert!(v < 0.0, "bad corner value: {v}");
 
             let octree =

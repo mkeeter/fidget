@@ -24,7 +24,10 @@ pub fn run_bench<F: Function + MathFunction>(
         let t = &tape;
         group.bench_function(BenchmarkId::new(name, n), |b| {
             b.iter(|| {
-                black_box(eval.eval(t, &data, &data, &data).unwrap());
+                black_box(
+                    eval.eval(t, &data, &data, &data, &fidget::shape::IDENTITY)
+                        .unwrap(),
+                );
             })
         });
     }

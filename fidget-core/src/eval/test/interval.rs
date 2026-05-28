@@ -10,7 +10,7 @@ use super::{
 use crate::{
     context::Context,
     eval::{Function, MathFunction, Tape, TracingEvaluator},
-    shape::EzShape,
+    shape::{EzShape, IDENTITY},
     types::Interval,
     var::Var,
     vm::{Choice, VmShape},
@@ -894,7 +894,7 @@ where
 
         let mut cmp = vec![];
         for i in 0..args.len() {
-            cmp.push(eval.eval(&tape, x[i], y[i], z[i]).unwrap().0);
+            cmp.push(eval.eval(&tape, x[i], y[i], z[i], &IDENTITY).unwrap().0);
         }
 
         for (a, b) in out.iter().zip(cmp.iter()) {

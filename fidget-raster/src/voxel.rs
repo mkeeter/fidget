@@ -200,7 +200,7 @@ struct Worker<'a, F: Function> {
     out: Image,
 }
 
-impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
+impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     type Config = RenderConfig<'a>;
     type Output = Image;
 
@@ -225,7 +225,8 @@ impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
 
     fn render_tile(
         &mut self,
-        shape: &mut RenderHandle<F, T>,
+        shape: &mut RenderHandle<F>,
+        transform: &nalgebra::Matrix4<f32>,
         vars: &ShapeVars<f32>,
         tile: Tile<2>,
     ) -> Self::Output {
@@ -238,7 +239,7 @@ impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
                 tile.corner.y,
                 k as usize * root_tile_size,
             ));
-            if !self.render_tile_recurse(shape, vars, 0, tile) {
+            if !self.render_tile_recurse(shape, transform, vars, 0, tile) {
                 break;
             }
         }
@@ -255,9 +256,10 @@ impl<F: Function> Worker<'_, F> {
     /// Render a single tile
     ///
     /// Returns `true` if we should keep rendering, `false` otherwise
-    fn render_tile_recurse<T>(
+    fn render_tile_recurse(
         &mut self,
-        shape: &mut RenderHandle<F, T>,
+        shape: &mut RenderHandle<F>,
+        transform: &nalgebra::Matrix4<f32>,
         vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<3>,
@@ -279,7 +281,14 @@ impl<F: Function> Worker<'_, F> {
 
         let (i, trace) = self
             .eval_interval
-            .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
+            .eval_v(
+                shape.i_tape(&mut self.tape_storage),
+                x,
+                y,
+                z,
+                transform,
+                vars,
+            )
             .unwrap();
 
         // Return early if this tile is completely empty or full, returning
@@ -317,6 +326,7 @@ impl<F: Function> Worker<'_, F> {
                     for k in (0..n).rev() {
                         self.render_tile_recurse(
                             sub_tape,
+                            transform,
                             vars,
                             depth + 1,
                             Tile::new(
@@ -328,15 +338,16 @@ impl<F: Function> Worker<'_, F> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, vars, tile_size, tile);
+            self.render_tile_pixels(sub_tape, transform, vars, tile_size, tile);
         };
         // TODO recycle something here?
         true // keep going
     }
 
-    fn render_tile_pixels<T>(
+    fn render_tile_pixels(
         &mut self,
-        shape: &mut RenderHandle<F, T>,
+        shape: &mut RenderHandle<F>,
+        transform: &nalgebra::Matrix4<f32>,
         vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<3>,
@@ -389,6 +400,7 @@ impl<F: Function> Worker<'_, F> {
                 &self.scratch.x[..index],
                 &self.scratch.y[..index],
                 &self.scratch.z[..index],
+                transform,
                 vars,
             )
             .unwrap();
@@ -448,6 +460,7 @@ impl<F: Function> Worker<'_, F> {
                     &self.scratch.xg[..grad],
                     &self.scratch.yg[..grad],
                     &self.scratch.zg[..grad],
+                    transform,
                     vars,
                 )
                 .unwrap();
@@ -478,8 +491,6 @@ pub fn render<F: Function + RenderHints>(
     vars: &ShapeVars<f32>,
     config: &RenderConfig,
 ) -> Option<Image> {
-    let shape = shape.with_transform(config.mat());
-
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
     let tile_sizes = if let Some(ts) = &config.tile_sizes {
@@ -488,8 +499,12 @@ pub fn render<F: Function + RenderHints>(
         default_tile_sizes = F::tile_sizes_3d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles = super::render_tiles::<F, Worker<F>, _>(
-        shape, vars, config, tile_sizes,
+    let tiles = super::render_tiles::<F, Worker<F>>(
+        shape,
+        &config.mat(),
+        vars,
+        config,
+        tile_sizes,
     )?;
 
     let width = config.image_size.width() as usize;

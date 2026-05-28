@@ -6,7 +6,7 @@
 //! ```
 //! use fidget_core::{
 //!     context::Tree,
-//!     shape::EzShape,
+//!     shape::{EzShape, IDENTITY},
 //! };
 //! use fidget_jit::JitShape;
 //!
@@ -18,7 +18,7 @@
 //! let mut eval = JitShape::new_point_eval();
 //!
 //! // This calls directly into that machine code!
-//! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0)?;
+//! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0, &IDENTITY)?;
 //! assert_eq!(r, 0.1 + 0.3);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
