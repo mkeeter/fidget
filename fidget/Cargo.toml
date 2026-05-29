@@ -29,6 +29,8 @@ workspace-hack.workspace = true
 fidget-jit = { workspace = true, optional = true }
 
 [features]
+## Implement [`Hash`] for `Tree` and `TreeOp` (see `fidget-core`).
+hash = ["fidget-core/hash"]
 default = [
     "bytecode",
     "gui",

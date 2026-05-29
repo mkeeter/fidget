@@ -3,6 +3,9 @@ use super::op::{BinaryOpcode, UnaryOpcode};
 use crate::{context::NotAVar, var::Var};
 use std::{cmp::Ordering, sync::Arc};
 
+#[cfg(feature = "hash")]
+use std::hash::{Hash, Hasher};
+
 /// Opcode type for trees
 ///
 /// This is equivalent to [`Op`](crate::context::Op), but also includes the
@@ -103,6 +106,42 @@ impl TreeOp {
         }
         .into_iter()
         .flatten()
+    }
+}
+
+/// Hashes an `f64` consistently with its `PartialEq`
+///
+/// In particular, `+0.0` and `-0.0` compare equal, so they must hash equally to
+/// uphold the `Hash`/`Eq` contract.
+#[cfg(feature = "hash")]
+fn hash_f64<H: Hasher>(v: f64, state: &mut H) {
+    let bits = if v == 0.0 { 0 } else { v.to_bits() };
+    bits.hash(state);
+}
+
+#[cfg(feature = "hash")]
+impl Hash for TreeOp {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Heap recursion using a worklist `Vec`, to avoid blowing up the stack
+        // on deep trees (matching `Drop` and `Tree`'s `PartialEq`).  The hash is
+        // purely structural, keeping it consistent with `Tree`'s equality.
+        let mut todo = vec![self];
+        while let Some(t) = todo.pop() {
+            std::mem::discriminant(t).hash(state);
+            match t {
+                TreeOp::Input(v) => v.hash(state),
+                TreeOp::Const(c) => hash_f64(*c, state),
+                TreeOp::Unary(op, _) => op.hash(state),
+                TreeOp::Binary(op, ..) => op.hash(state),
+                TreeOp::RemapAffine { mat, .. } => mat
+                    .matrix()
+                    .as_slice()
+                    .iter()
+                    .for_each(|v| hash_f64(*v, state)),
+                TreeOp::RemapAxes { .. } => {}
+            }
+            todo.extend(t.iter_children().map(|c| &**c));
+        }
     }
 }
 
@@ -228,6 +267,14 @@ impl PartialEq for Tree {
     }
 }
 impl Eq for Tree {}
+
+#[cfg(feature = "hash")]
+impl Hash for Tree {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Structural hash via the inner `TreeOp`, consistent with `PartialEq`
+        self.0.hash(state);
+    }
+}
 
 impl Tree {
     /// Returns an `(x, y, z)` tuple
@@ -485,6 +532,13 @@ mod test {
     use super::*;
     use crate::Context;
 
+    fn hash_of<T: std::hash::Hash>(t: &T) -> u64 {
+        use std::hash::Hasher;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        t.hash(&mut h);
+        h.finish()
+    }
+
     #[test]
     fn tree_x() {
         let x1 = Tree::x();
@@ -671,6 +725,46 @@ mod test {
     }
 
     #[test]
+    fn deep_recursion_hash() {
+        let mut x = Tree::x();
+        for _ in 0..1_000_000 {
+            x += 1.0;
+        }
+        let _ = hash_of(&x);
+        // we should not panic here!
+    }
+
+    #[test]
+    fn hash_matches_structural_eq() {
+        // Structurally identical trees with distinct allocations
+        let a = (Tree::x() + 1.0) * Tree::y();
+        let b = (Tree::x() + 1.0) * Tree::y();
+        assert!(!a.ptr_eq(&b));
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+    }
+
+    #[test]
+    fn hash_signed_zero() {
+        // +0.0 and -0.0 compare equal, so they must hash equally
+        let a = Tree::constant(0.0);
+        let b = Tree::constant(-0.0);
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+    }
+
+    #[test]
+    fn tree_in_hash_set() {
+        use std::collections::HashSet;
+        let a = (Tree::x() + 1.0) * Tree::y();
+        let b = (Tree::x() + 1.0) * Tree::y();
+        let mut set = HashSet::new();
+        set.insert(a);
+        // Distinct allocation but structurally equal -> must be found
+        assert!(set.contains(&b));
+    }
+
+    #[test]
     fn tree_remap_multi() {
         let mut ctx = Context::new();
 
@@ -810,5 +904,58 @@ mod test {
         let mut ctx = Context::new();
         let node = ctx.import(&t.tree);
         assert_eq!(ctx.eval_xyz(node, 1.0, 2.0, 3.0).unwrap(), 5.0);
+    }
+}
+
+#[cfg(all(test, feature = "hash"))]
+mod hash_tests {
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+
+    fn hash_of(tree: &Tree) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        tree.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// The `Hash`/`Eq` contract: equal trees must hash equally.
+    #[test]
+    fn equal_trees_hash_equally() {
+        let a = Tree::x() + Tree::y() * 2.0;
+        let b = Tree::x() + Tree::y() * 2.0;
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+    }
+
+    /// `+0.0` and `-0.0` compare equal, so they must hash equally -- the case
+    /// a naive `to_bits()` gets wrong.
+    #[test]
+    fn signed_zero_hashes_equally() {
+        let pos = Tree::constant(0.0);
+        let neg = Tree::constant(-0.0);
+        assert_eq!(pos, neg);
+        assert_eq!(hash_of(&pos), hash_of(&neg));
+    }
+
+    /// Structurally different trees hash differently, or the hash is useless
+    /// as a cache key.
+    #[test]
+    fn different_trees_hash_differently() {
+        assert_ne!(hash_of(&Tree::x()), hash_of(&Tree::y()));
+        assert_ne!(
+            hash_of(&(Tree::x() + Tree::y())),
+            hash_of(&(Tree::x() * Tree::y()))
+        );
+    }
+
+    /// A deep tree must not blow the stack -- the impl walks a worklist rather
+    /// than recursing, matching `Drop` and `PartialEq`.
+    #[test]
+    fn deep_tree_does_not_overflow_the_stack() {
+        let mut tree = Tree::x();
+        for _ in 0..100_000 {
+            tree = tree + 1.0;
+        }
+        let _ = hash_of(&tree);
     }
 }
