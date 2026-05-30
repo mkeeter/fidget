@@ -491,18 +491,17 @@ where
 
     /// Helper function to do common evaluation
     #[inline]
-    fn eval_inner<V, F>(
+    fn eval_inner<F>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: &[E::Data],
         y: &[E::Data],
         z: &[E::Data],
         transform: &Matrix4<f32>,
-        vars: &ShapeVars<V>,
         copy_vars: F,
     ) -> Result<&[E::Data], ShapeBulkEvalError>
     where
-        F: Fn(&mut [E::Data], &V) -> Result<(), ShapeBulkEvalError>,
+        F: Fn(&mut [E::Data], VarIndex) -> Result<(), ShapeBulkEvalError>,
     {
         assert_eq!(
             tape.tape.output_count(),
@@ -531,10 +530,7 @@ where
                 Var::Y => axes[1] = Some(index),
                 Var::Z => axes[2] = Some(index),
                 Var::V(i) => {
-                    let Some(value) = vars.get(i) else {
-                        return Err(MissingVar { var: i }.into());
-                    };
-                    copy_vars(&mut self.scratch[index], value)?;
+                    copy_vars(&mut self.scratch[index], i)?;
                 }
             }
         }
@@ -584,7 +580,8 @@ where
         transform: &Matrix4<f32>,
         vars: &ShapeVars<V>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, transform, vars, |data, vars| {
+        self.eval_inner(tape, x, y, z, transform, |data, i| {
+            let vars = vars.get(i).ok_or(MissingVar { var: i })?;
             if vars.len() != data.len() {
                 return Err(MismatchedSlices.into());
             }
@@ -613,8 +610,9 @@ where
         transform: &Matrix4<f32>,
         vars: &ShapeVars<G>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, transform, vars, |data, var| {
-            data.fill((*var).into());
+        self.eval_inner(tape, x, y, z, transform, |data, i| {
+            let value = vars.get(i).ok_or(MissingVar { var: i })?;
+            data.fill((*value).into());
             Ok(())
         })
     }
