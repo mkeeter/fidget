@@ -118,7 +118,7 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     shape::{Shape, EzShape, IDENTITY},
+//!     shape::{Shape, EzShape},
 //!     vm::VmShape,
 //! };
 //!
@@ -131,7 +131,6 @@
 //!     &[0.0, 1.0, 2.0, 3.0], // X
 //!     &[2.0, 3.0, 4.0, 5.0], // Y
 //!     &[0.0, 0.0, 0.0, 0.0], // Z
-//!     &IDENTITY, // transform
 //! )?;
 //! assert_eq!(out, &[2.0, 4.0, 6.0, 8.0]);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -148,7 +147,7 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     shape::{EzShape, IDENTITY},
+//!     shape::EzShape,
 //!     vm::VmShape
 //! };
 //!
@@ -161,7 +160,6 @@
 //!     [0.0, 1.0], // X
 //!     [2.0, 3.0], // Y
 //!     [0.0, 0.0], // Z
-//!     &IDENTITY,
 //! )?;
 //! assert_eq!(out, [0.0, 1.0].into());
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -178,7 +176,7 @@
 //! ```
 //! # use fidget::{
 //! #     context::Tree,
-//! #     shape::{EzShape, IDENTITY},
+//! #     shape::EzShape,
 //! #     vm::VmShape
 //! # };
 //! # let tree = Tree::x().min(Tree::y());
@@ -191,7 +189,6 @@
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y
 //! #         [0.0, 0.0], // Z
-//! #         &IDENTITY,
 //! #     )?;
 //! // (same code as above)
 //! let new_shape = shape.ez_simplify(trace.unwrap())?;

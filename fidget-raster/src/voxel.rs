@@ -281,7 +281,7 @@ impl<F: Function> Worker<'_, F> {
 
         let (i, trace) = self
             .eval_interval
-            .eval_v(
+            .eval_with_transform_and_vars(
                 shape.i_tape(&mut self.tape_storage),
                 x,
                 y,
@@ -395,7 +395,7 @@ impl<F: Function> Worker<'_, F> {
 
         let out = self
             .eval_float_slice
-            .eval_v(
+            .eval_with_transform_and_vars(
                 shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x[..index],
                 &self.scratch.y[..index],
@@ -455,7 +455,7 @@ impl<F: Function> Worker<'_, F> {
         if grad > 0 {
             let out = self
                 .eval_grad_slice
-                .eval_v(
+                .eval_with_transform_and_vars(
                     shape.g_tape(&mut self.tape_storage),
                     &self.scratch.xg[..grad],
                     &self.scratch.yg[..grad],

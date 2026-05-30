@@ -9,9 +9,7 @@ use super::{
 use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
-    shape::{
-        EzShape, IDENTITY, MissingVar, Shape, ShapeBulkEvalError, ShapeVars,
-    },
+    shape::{EzShape, MissingVar, Shape, ShapeBulkEvalError, ShapeVars},
     var::{MismatchedSlices, Var},
 };
 
@@ -124,17 +122,16 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let mut eval = Shape::<F>::new_float_slice_eval();
         let tape = s.ez_float_slice_tape();
         assert!(
-            eval.eval(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &IDENTITY)
+            eval.eval(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0])
                 .is_err()
         );
         let mut h: ShapeVars<&[f32]> = ShapeVars::new();
         let Err(ShapeBulkEvalError::MissingVar(MissingVar { var })) = eval
-            .eval_vs(
+            .eval_with_var_arrays(
                 &tape,
                 &[1.0, 2.0],
                 &[2.0, 3.0],
                 &[0.0, 0.0],
-                &IDENTITY,
                 &h,
             )
         else {
@@ -145,12 +142,11 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let index = v.index().unwrap();
         h.insert(index, &[4.0, 5.0]);
         assert_eq!(
-            eval.eval_vs(
+            eval.eval_with_var_arrays(
                 &tape,
                 &[1.0, 2.0],
                 &[2.0, 3.0],
                 &[0.0, 0.0],
-                &IDENTITY,
                 &h
             )
             .unwrap(),
@@ -159,12 +155,11 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         h.insert(index, &[4.0, 5.0, 6.0]);
         assert!(matches!(
-            eval.eval_vs(
+            eval.eval_with_var_arrays(
                 &tape,
                 &[1.0, 2.0],
                 &[2.0, 3.0],
                 &[0.0, 0.0],
-                &IDENTITY,
                 &h
             ),
             Err(ShapeBulkEvalError::MismatchedSlices(MismatchedSlices)),
@@ -175,12 +170,11 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         h.insert(index, &[4.0, 5.0]);
         h.insert(v2.index().unwrap(), &[4.0, 5.0]);
         assert!(
-            eval.eval_vs(
+            eval.eval_with_var_arrays(
                 &tape,
                 &[1.0, 2.0],
                 &[2.0, 3.0],
                 &[0.0, 0.0],
-                &IDENTITY,
                 &h
             )
             .is_ok()
@@ -228,7 +222,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let mut eval = VmShape::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
 
-        let cmp = eval.eval(&tape, &x, &y, &z, &IDENTITY).unwrap();
+        let cmp = eval.eval(&tape, &x, &y, &z).unwrap();
         for (i, (a, b)) in out[0].iter().zip(cmp.iter()).enumerate() {
             let err = (a - b).abs();
             assert!(

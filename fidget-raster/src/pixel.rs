@@ -288,7 +288,7 @@ impl<F: Function> Worker<'_, F> {
         // The shape applies the screen-to-model transform
         let (i, simplify) = self
             .eval_interval
-            .eval_v(
+            .eval_with_transform_and_vars(
                 shape.i_tape(&mut self.tape_storage),
                 x,
                 y,
@@ -374,7 +374,7 @@ impl<F: Function> Worker<'_, F> {
 
         let out = self
             .eval_float_slice
-            .eval_v(
+            .eval_with_transform_and_vars(
                 shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x,
                 &self.scratch.y,

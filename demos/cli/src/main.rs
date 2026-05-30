@@ -458,9 +458,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 }
             }
             let zs = vec![0.0; xs.len()];
-            let values = eval
-                .eval(&tape, &xs, &ys, &zs, &fidget::shape::IDENTITY)
-                .unwrap();
+            let values = eval.eval(&tape, &xs, &ys, &zs).unwrap();
             out = values.iter().map(|v| *v <= 0.0).collect();
         }
         // Convert from Vec<bool> to an image

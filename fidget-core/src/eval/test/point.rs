@@ -9,7 +9,7 @@ use super::{
 use crate::{
     context::Context,
     eval::{Function, MathFunction, Tape, TracingEvaluator},
-    shape::{EzShape, IDENTITY, Shape, ShapeVars},
+    shape::{EzShape, Shape, ShapeVars},
     var::Var,
     vm::Choice,
 };
@@ -366,24 +366,21 @@ where
 
         let mut eval = Shape::<F>::new_point_eval();
         let tape = s.ez_point_tape();
-        assert!(eval.eval(&tape, 1.0f32, 2.0, 0.0, &IDENTITY).is_err());
+        assert!(eval.eval(&tape, 1.0f32, 2.0, 0.0).is_err());
 
         let mut h = ShapeVars::new();
-        assert!(eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &IDENTITY, &h).is_err());
+        assert!(eval.eval(&tape, 1.0f32, 2.0, 0.0).is_err());
+        assert!(eval.eval_with_vars(&tape, 1.0f32, 2.0, 0.0, &h).is_err());
 
         let index = v.index().unwrap();
         h.insert(index, 3.0f32);
         assert_eq!(
-            eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &IDENTITY, &h)
-                .unwrap()
-                .0,
+            eval.eval_with_vars(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0,
             6.0
         );
         h.insert(index, 4.0f32);
         assert_eq!(
-            eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &IDENTITY, &h)
-                .unwrap()
-                .0,
+            eval.eval_with_vars(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0,
             7.0
         );
     }
@@ -432,7 +429,7 @@ where
 
         let mut cmp = vec![];
         for i in 0..args.len() {
-            cmp.push(eval.eval(&tape, x[i], y[i], z[i], &IDENTITY).unwrap().0);
+            cmp.push(eval.eval(&tape, x[i], y[i], z[i]).unwrap().0);
         }
 
         for (a, b) in out.iter().zip(cmp.iter()) {

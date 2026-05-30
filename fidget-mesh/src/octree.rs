@@ -534,7 +534,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         }
         let (i, r) = self
             .eval_interval
-            .eval_v(
+            .eval_with_transform_and_vars(
                 eval.i_tape(&mut self.tape_storage),
                 cell.bounds[crate::types::X],
                 cell.bounds[crate::types::Y],
@@ -620,7 +620,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         let out = self
             .eval_float_slice
-            .eval_v(
+            .eval_with_transform_and_vars(
                 eval.f_tape(&mut self.tape_storage),
                 &xs,
                 &ys,
@@ -730,7 +730,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             // Do the actual evaluation
             let out = self
                 .eval_float_slice
-                .eval_v(
+                .eval_with_transform_and_vars(
                     eval.f_tape(&mut self.tape_storage),
                     xs,
                     ys,
@@ -803,7 +803,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         // TODO: special case for cells with multiple gradients ("features")
         let grads = self
             .eval_grad_slice
-            .eval_v(
+            .eval_with_transform_and_vars(
                 eval.g_tape(&mut self.tape_storage),
                 xs,
                 ys,
@@ -1048,7 +1048,7 @@ mod test {
     use fidget_core::{
         context::{Context, Tree},
         render::ThreadPool,
-        shape::{EzShape, IDENTITY},
+        shape::EzShape,
         var::Var,
         vm::VmShape,
     };
@@ -1301,8 +1301,7 @@ mod test {
                     let tape = shape.ez_point_tape();
                     for v in &octree.verts {
                         let v = v.pos;
-                        let (r, _) =
-                            eval.eval(&tape, v.x, v.y, v.z, &IDENTITY).unwrap();
+                        let (r, _) = eval.eval(&tape, v.x, v.y, v.z).unwrap();
                         assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
                     }
                 }
@@ -1322,12 +1321,10 @@ mod test {
 
             let mut eval = VmShape::new_point_eval();
             let tape = shape.ez_point_tape();
-            let (v, _) =
-                eval.eval(&tape, tip.x, tip.y, tip.z, &IDENTITY).unwrap();
+            let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z).unwrap();
             assert!(v.abs() < 1e-6, "bad tip value: {v}");
-            let (v, _) = eval
-                .eval(&tape, corner.x, corner.y, corner.z, &IDENTITY)
-                .unwrap();
+            let (v, _) =
+                eval.eval(&tape, corner.x, corner.y, corner.z).unwrap();
             assert!(v < 0.0, "bad corner value: {v}");
 
             let octree =
