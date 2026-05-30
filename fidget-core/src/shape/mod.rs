@@ -33,7 +33,9 @@ use crate::{
         TracingEvalError, TracingEvaluator,
     },
     types::{Grad, Interval},
-    var::{BadVarSlice, BulkArgError, TracingArgError, Var, VarIndex, VarMap},
+    var::{
+        BulkArgError, MismatchedSlices, TracingArgError, Var, VarIndex, VarMap,
+    },
     vm::BadTrace,
 };
 use nalgebra::{Matrix4, Point3};
@@ -49,17 +51,11 @@ use std::collections::HashMap;
 pub struct Shape<F> {
     /// Wrapped function
     f: F,
-
-    /// Variables representing x, y, z axes
-    axes: [Var; 3],
 }
 
 impl<F: Clone> Clone for Shape<F> {
     fn clone(&self) -> Self {
-        Self {
-            f: self.f.clone(),
-            axes: self.axes,
-        }
+        Self { f: self.f.clone() }
     }
 }
 
@@ -103,9 +99,7 @@ impl<F: Function + Clone> Shape<F> {
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::PointEval as TracingEvaluator>::Tape> {
         let tape = self.f.point_tape(storage);
-        let vars = tape.vars();
-        let axes = self.axes.map(|v| vars.get(&v));
-        ShapeTape { tape, axes }
+        ShapeTape { tape }
     }
 
     /// Returns an evaluation tape for a interval evaluator
@@ -115,9 +109,7 @@ impl<F: Function + Clone> Shape<F> {
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape> {
         let tape = self.f.interval_tape(storage);
-        let vars = tape.vars();
-        let axes = self.axes.map(|v| vars.get(&v));
-        ShapeTape { tape, axes }
+        ShapeTape { tape }
     }
 
     /// Returns an evaluation tape for a float slice evaluator
@@ -127,9 +119,7 @@ impl<F: Function + Clone> Shape<F> {
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape> {
         let tape = self.f.float_slice_tape(storage);
-        let vars = tape.vars();
-        let axes = self.axes.map(|v| vars.get(&v));
-        ShapeTape { tape, axes }
+        ShapeTape { tape }
     }
 
     /// Returns an evaluation tape for a gradient slice evaluator
@@ -139,9 +129,7 @@ impl<F: Function + Clone> Shape<F> {
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape> {
         let tape = self.f.grad_slice_tape(storage);
-        let vars = tape.vars();
-        let axes = self.axes.map(|v| vars.get(&v));
-        ShapeTape { tape, axes }
+        ShapeTape { tape }
     }
 
     /// Computes a simplified tape using the given trace, and reusing storage
@@ -156,7 +144,7 @@ impl<F: Function + Clone> Shape<F> {
         Self: Sized,
     {
         let f = self.f.simplify(trace, storage, workspace)?;
-        Ok(Self { f, axes: self.axes })
+        Ok(Self { f })
     }
 
     /// Attempt to reclaim storage from this shape
@@ -182,16 +170,6 @@ impl<F> Shape<F> {
     /// Borrows the inner [`Function`] object
     pub fn inner(&self) -> &F {
         &self.f
-    }
-
-    /// Borrows the inner axis mapping
-    pub fn axes(&self) -> &[Var; 3] {
-        &self.axes
-    }
-
-    /// Raw constructor
-    pub fn new_raw(f: F, axes: [Var; 3]) -> Self {
-        Self { f, axes }
     }
 }
 
@@ -231,6 +209,11 @@ impl<F> ShapeVars<F> {
     /// Iterates over values
     pub fn values(&self) -> impl Iterator<Item = &F> {
         self.0.values()
+    }
+
+    /// Looks up a value by [`VarIndex`]
+    pub fn get(&self, i: VarIndex) -> Option<&F> {
+        self.0.get(&i)
     }
 }
 
@@ -319,22 +302,10 @@ impl<F: Function> EzShape<F> for Shape<F> {
 }
 
 impl<F: MathFunction> Shape<F> {
-    /// Builds a new shape from a math expression with the given axes
-    pub fn new_with_axes(
-        ctx: &Context,
-        node: Node,
-        axes: [Var; 3],
-    ) -> Result<Self, BadNode> {
+    /// Builds a new shape from a math expression with default (X, Y, Z) axes
+    pub fn new(ctx: &Context, node: Node) -> Result<Self, BadNode> {
         let f = F::new(ctx, &[node])?;
-        Ok(Self { f, axes })
-    }
-
-    /// Builds a new shape from the given node with default (X, Y, Z) axes
-    pub fn new(ctx: &Context, node: Node) -> Result<Self, BadNode>
-    where
-        Self: Sized,
-    {
-        Self::new_with_axes(ctx, node, [Var::X, Var::Y, Var::Z])
+        Ok(Self { f })
     }
 }
 
@@ -347,13 +318,10 @@ impl<F: MathFunction> From<Tree> for Shape<F> {
     }
 }
 
-/// Wrapper around a function tape with associated X, Y, Z axes
+/// Wrapper around a single-output function tape
 #[derive(Clone)]
 pub struct ShapeTape<T> {
     tape: T,
-
-    /// Index of the X, Y, Z axes in the variables array
-    axes: [Option<usize>; 3],
 }
 
 impl<T: Tape> ShapeTape<T> {
@@ -387,31 +355,33 @@ impl<E: TracingEvaluator> Default for ShapeTracingEval<E> {
     }
 }
 
-/// Shape evaluation error
+/// A [`VarIndex`] variable is missing
 #[derive(thiserror::Error, Debug)]
-pub enum ShapeEvalError<E> {
-    /// Variable index exceeds max var index for this tape
-    #[error(
-        "variable index ({index}) exceeds \
-         max var index for this tape ({max})"
-    )]
-    BadVarIndex {
-        /// Index provided by the caller
-        index: usize,
-        /// Maximum valid index
-        max: usize,
-    },
-
-    /// Error from the inner evaluator
-    #[error(transparent)]
-    Eval(#[from] E),
+#[error("variable {var:?} must be provided")]
+pub struct MissingVar {
+    /// Missing variable index
+    pub var: VarIndex,
 }
 
 /// Error type for shape tracing evaluation
-pub type ShapeTracingEvalError = ShapeEvalError<TracingEvalError>;
+#[derive(thiserror::Error, Debug)]
+pub enum ShapeTracingEvalError {
+    /// Missing variable index
+    #[error(transparent)]
+    MissingVar(#[from] MissingVar),
+}
 
 /// Error type for shape bulk evaluation
-pub type ShapeBulkEvalError = ShapeEvalError<BulkEvalError>;
+#[derive(thiserror::Error, Debug)]
+pub enum ShapeBulkEvalError {
+    /// Missing variable index
+    #[error(transparent)]
+    MissingVar(#[from] MissingVar),
+
+    /// Mismatched slice length
+    #[error(transparent)]
+    MismatchedSlices(#[from] MismatchedSlices),
+}
 
 impl<E: TracingEvaluator> ShapeTracingEval<E>
 where
@@ -461,45 +431,26 @@ where
         let (x, y, z) = Transformable::transform(x, y, z, transform);
 
         let vs = tape.vars();
-        let expected_vars = vs.len()
-            - vs.get(&Var::X).is_some() as usize
-            - vs.get(&Var::Y).is_some() as usize
-            - vs.get(&Var::Z).is_some() as usize;
-        if expected_vars != vars.len() {
-            return Err(ShapeEvalError::Eval(TracingEvalError(
-                TracingArgError::BadVarSlice(BadVarSlice {
-                    actual: vars.len(),
-                    expected: expected_vars,
-                }),
-            )));
-        }
-
-        self.scratch.resize(tape.vars().len(), 0f32.into());
-        if let Some(a) = tape.axes[0] {
-            self.scratch[a] = x;
-        }
-        if let Some(b) = tape.axes[1] {
-            self.scratch[b] = y;
-        }
-        if let Some(c) = tape.axes[2] {
-            self.scratch[c] = z;
-        }
-        for (var, value) in vars {
-            if let Some(i) = vs.get(&Var::V(*var)) {
-                if i < self.scratch.len() {
-                    self.scratch[i] = (*value).into();
-                } else {
-                    return Err(ShapeEvalError::BadVarIndex {
-                        index: i,
-                        max: self.scratch.len(),
-                    });
+        self.scratch.resize(vs.len(), 0f32.into());
+        for (var, index) in vs.iter() {
+            match var {
+                Var::X => self.scratch[index] = x,
+                Var::Y => self.scratch[index] = y,
+                Var::Z => self.scratch[index] = z,
+                Var::V(i) => {
+                    let Some(value) = vars.get(i) else {
+                        return Err(MissingVar { var: i }.into());
+                    };
+                    self.scratch[index] = (*value).into();
                 }
-            } else {
-                // Passing in Bonus Variables is allowed (for now)
             }
         }
-
-        let (out, trace) = self.eval.eval(&tape.tape, &self.scratch)?;
+        let (out, trace) = match self.eval.eval(&tape.tape, &self.scratch) {
+            Ok((out, trace)) => (out, trace),
+            Err(TracingEvalError(TracingArgError::BadVarSlice(..))) => {
+                unreachable!() // we resized `scratch` above
+            }
+        };
         Ok((out[0], trace))
     }
 }
@@ -538,9 +489,9 @@ where
         self.eval_vs(tape, x, y, z, transform, &h)
     }
 
-    /// Helper function to do common setup
+    /// Helper function to do common evaluation
     #[inline]
-    fn setup<V>(
+    fn eval_inner<V, F>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: &[E::Data],
@@ -548,57 +499,69 @@ where
         z: &[E::Data],
         transform: &Matrix4<f32>,
         vars: &ShapeVars<V>,
-    ) -> Result<usize, ShapeBulkEvalError> {
+        copy_vars: F,
+    ) -> Result<&[E::Data], ShapeBulkEvalError>
+    where
+        F: Fn(&mut [E::Data], &V) -> Result<(), ShapeBulkEvalError>,
+    {
         assert_eq!(
             tape.tape.output_count(),
             1,
-            "ShapeTape has multiple outputs"
+            "ShapeTape has multiple outputs" // enforced by ShapeTape
         );
 
         // Make sure our scratch arrays are big enough for this evaluation
         if x.len() != y.len() || x.len() != z.len() {
-            return Err(ShapeEvalError::Eval(BulkEvalError(
-                BulkArgError::MismatchedSlices,
-            )));
+            return Err(MismatchedSlices.into());
         }
         let n = x.len();
 
-        let vs = tape.vars();
-        let expected_vars = vs.len()
-            - vs.get(&Var::X).is_some() as usize
-            - vs.get(&Var::Y).is_some() as usize
-            - vs.get(&Var::Z).is_some() as usize;
-        if expected_vars != vars.len() {
-            return Err(ShapeEvalError::Eval(BulkEvalError(
-                BulkArgError::BadVarSlice(BadVarSlice {
-                    actual: vars.len(),
-                    expected: expected_vars,
-                }),
-            )));
-        }
-
         // We need at least one item in the scratch array to set evaluation
         // size; otherwise, evaluating a single constant will return []
+        let vs = tape.vars();
         self.scratch.resize_with(vs.len().max(1), Vec::new);
         for s in &mut self.scratch {
             s.resize(n, 0.0.into());
         }
 
+        let mut axes = [None; 3];
+        for (var, index) in vs.iter() {
+            match var {
+                Var::X => axes[0] = Some(index),
+                Var::Y => axes[1] = Some(index),
+                Var::Z => axes[2] = Some(index),
+                Var::V(i) => {
+                    let Some(value) = vars.get(i) else {
+                        return Err(MissingVar { var: i }.into());
+                    };
+                    copy_vars(&mut self.scratch[index], value)?;
+                }
+            }
+        }
+
         for i in 0..n {
             let (x, y, z) =
                 Transformable::transform(x[i], y[i], z[i], transform);
-            if let Some(a) = tape.axes[0] {
+            if let Some(a) = axes[0] {
                 self.scratch[a][i] = x;
             }
-            if let Some(b) = tape.axes[1] {
+            if let Some(b) = axes[1] {
                 self.scratch[b][i] = y;
             }
-            if let Some(c) = tape.axes[2] {
+            if let Some(c) = axes[2] {
                 self.scratch[c][i] = z;
             }
         }
 
-        Ok(n)
+        let out = match self.eval.eval(&tape.tape, &self.scratch) {
+            Ok(out) => out,
+            Err(BulkEvalError(e)) => match e {
+                // All of these conditions should be handled by `setup`
+                BulkArgError::BadVarSlice(..)
+                | BulkArgError::MismatchedSlices(..) => unreachable!(),
+            },
+        };
+        Ok(out.borrow(0))
     }
     /// Bulk evaluation of many samples, with slices of variables
     ///
@@ -621,37 +584,15 @@ where
         transform: &Matrix4<f32>,
         vars: &ShapeVars<V>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        let n = self.setup(tape, x, y, z, transform, vars)?;
-
-        if vars.values().any(|vs| vs.len() != n) {
-            return Err(ShapeEvalError::Eval(BulkEvalError(
-                BulkArgError::MismatchedSlices,
-            )));
-        }
-
-        let vs = tape.vars();
-        for (var, value) in vars {
-            if let Some(i) = vs.get(&Var::V(*var)) {
-                if i < self.scratch.len() {
-                    for (a, b) in
-                        self.scratch[i].iter_mut().zip(value.deref().iter())
-                    {
-                        *a = (*b).into();
-                    }
-                    // TODO fast path if we can use the slices directly?
-                } else {
-                    return Err(ShapeEvalError::BadVarIndex {
-                        index: i,
-                        max: self.scratch.len(),
-                    });
-                }
-            } else {
-                // Passing in Bonus Variables is allowed (for now)
+        self.eval_inner(tape, x, y, z, transform, vars, |data, vars| {
+            if vars.len() != data.len() {
+                return Err(MismatchedSlices.into());
             }
-        }
-
-        let out = self.eval.eval(&tape.tape, &self.scratch)?;
-        Ok(out.borrow(0))
+            for (a, b) in data.iter_mut().zip(vars.deref().iter()) {
+                *a = (*b).into();
+            }
+            Ok(())
+        })
     }
 
     /// Bulk evaluation of many samples, with fixed variables
@@ -672,25 +613,10 @@ where
         transform: &Matrix4<f32>,
         vars: &ShapeVars<G>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.setup(tape, x, y, z, transform, vars)?;
-        let vs = tape.vars();
-        for (var, value) in vars {
-            if let Some(i) = vs.get(&Var::V(*var)) {
-                if i < self.scratch.len() {
-                    self.scratch[i].fill((*value).into());
-                } else {
-                    return Err(ShapeEvalError::BadVarIndex {
-                        index: i,
-                        max: self.scratch.len(),
-                    });
-                }
-            } else {
-                // Passing in Bonus Variables is allowed (for now)
-            }
-        }
-
-        let out = self.eval.eval(&tape.tape, &self.scratch)?;
-        Ok(out.borrow(0))
+        self.eval_inner(tape, x, y, z, transform, vars, |data, var| {
+            data.fill((*var).into());
+            Ok(())
+        })
     }
 }
 

@@ -8,9 +8,11 @@ use super::{
 };
 use crate::{
     context::Context,
-    eval::{BulkEvalError, BulkEvaluator, Function, MathFunction, Tape},
-    shape::{EzShape, IDENTITY, Shape, ShapeEvalError, ShapeVars},
-    var::{BulkArgError, Var},
+    eval::{BulkEvaluator, Function, MathFunction, Tape},
+    shape::{
+        EzShape, IDENTITY, MissingVar, Shape, ShapeBulkEvalError, ShapeVars,
+    },
+    var::{MismatchedSlices, Var},
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -126,17 +128,20 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 .is_err()
         );
         let mut h: ShapeVars<&[f32]> = ShapeVars::new();
-        assert!(
-            eval.eval_vs(
+        let Err(ShapeBulkEvalError::MissingVar(MissingVar { var })) = eval
+            .eval_vs(
                 &tape,
                 &[1.0, 2.0],
                 &[2.0, 3.0],
                 &[0.0, 0.0],
                 &IDENTITY,
-                &h
+                &h,
             )
-            .is_err()
-        );
+        else {
+            panic!("expected error");
+        };
+        assert_eq!(Var::V(var), v);
+
         let index = v.index().unwrap();
         h.insert(index, &[4.0, 5.0]);
         assert_eq!(
@@ -162,16 +167,14 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 &IDENTITY,
                 &h
             ),
-            Err(ShapeEvalError::Eval(BulkEvalError(
-                BulkArgError::MismatchedSlices
-            ))),
+            Err(ShapeBulkEvalError::MismatchedSlices(MismatchedSlices)),
         ));
 
-        // Get a new var index that isn't valid for this tape
+        // It's fine to pass in vars that aren't in the tape
         let v2 = Var::new();
         h.insert(index, &[4.0, 5.0]);
         h.insert(v2.index().unwrap(), &[4.0, 5.0]);
-        assert!(matches!(
+        assert!(
             eval.eval_vs(
                 &tape,
                 &[1.0, 2.0],
@@ -179,11 +182,9 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 &[0.0, 0.0],
                 &IDENTITY,
                 &h
-            ),
-            Err(ShapeEvalError::Eval(BulkEvalError(
-                BulkArgError::BadVarSlice(..)
-            )))
-        ));
+            )
+            .is_ok()
+        );
     }
 
     pub fn test_f_stress_n(depth: usize) {

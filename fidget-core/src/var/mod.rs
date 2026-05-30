@@ -183,7 +183,7 @@ impl VarMap {
             if vars.iter().all(|v| v.len() == n) {
                 Ok(())
             } else {
-                Err(BulkArgError::MismatchedSlices)
+                Err(MismatchedSlices.into())
             }
         }
     }
@@ -214,16 +214,21 @@ pub struct BadVarSlice {
     pub expected: usize,
 }
 
+/// Error type for mismatched slice lengths in bulk evaluation
+#[derive(thiserror::Error, Debug)]
+#[error("slice lengths are mismatched")]
+pub struct MismatchedSlices;
+
 /// Error type for checking bulk arguments for evaluation
 #[derive(thiserror::Error, Debug)]
 pub enum BulkArgError {
     /// Variable slice length does not match expected count
     #[error(transparent)]
-    BadVarSlice(BadVarSlice),
+    BadVarSlice(#[from] BadVarSlice),
 
     /// Variable slice lengths are mismatched
-    #[error("variable slice lengths are mismatched")]
-    MismatchedSlices,
+    #[error(transparent)]
+    MismatchedSlices(#[from] MismatchedSlices),
 }
 
 /// Error type for checking tracing arguments for evaluation
