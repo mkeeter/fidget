@@ -506,7 +506,8 @@ where
     /// Bulk evaluation of many samples, without any variables
     ///
     /// If the shape includes variables other than `X`, `Y`, `Z`,
-    /// [`eval_v`](Self::eval_v) or [`eval_vs`](Self::eval_vs) should be used
+    /// [`eval_with_vars`](Self::eval_with_vars) or
+    /// [`eval_with_var_arrays`](Self::eval_with_var_arrays) should be used
     /// instead (and this function will return an error).
     #[inline]
     pub fn eval(
@@ -516,14 +517,10 @@ where
         y: &[E::Data],
         z: &[E::Data],
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, None, Self::no_vars)
+        self.eval_raw(tape, x, y, z, None, Self::no_vars)
     }
 
     /// Bulk evaluation of many samples with a transform
-    ///
-    /// If the shape includes variables other than `X`, `Y`, `Z`,
-    /// [`eval_v`](Self::eval_v) or [`eval_vs`](Self::eval_vs) should be used
-    /// instead (and this function will return an error).
     #[inline]
     pub fn eval_with_transform(
         &mut self,
@@ -533,15 +530,15 @@ where
         z: &[E::Data],
         transform: &Matrix4<f32>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, Some(transform), Self::no_vars)
+        self.eval_raw(tape, x, y, z, Some(transform), Self::no_vars)
     }
 
     /// Bulk evaluation of many samples, with slices of variables
     ///
     /// Each variable is a slice (or `Vec`) of values, which must be the same
     /// length as the `x`, `y`, `z` slices.  This is in contrast with
-    /// [`eval_vs`](Self::eval_v), where variables have a single value used for
-    /// every position in the `x`, `y,` `z` slices.
+    /// [`eval_with_vars`](Self::eval_with_vars), where variables have a single
+    /// value used for every position in the `x`, `y,` `z` slices.
     ///
     /// Before evaluation, the transform matrix is applied to input coordinates.
     #[inline]
@@ -556,17 +553,10 @@ where
         z: &[E::Data],
         vars: &ShapeVars<V>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, None, Self::var_array(vars))
+        self.eval_raw(tape, x, y, z, None, Self::var_array(vars))
     }
 
     /// Bulk evaluation of many transformed samples, with slices of variables
-    ///
-    /// Each variable is a slice (or `Vec`) of values, which must be the same
-    /// length as the `x`, `y`, `z` slices.  This is in contrast with
-    /// [`eval_vs`](Self::eval_v), where variables have a single value used for
-    /// every position in the `x`, `y,` `z` slices.
-    ///
-    /// Before evaluation, the transform matrix is applied to input coordinates.
     #[inline]
     pub fn eval_with_transform_and_var_arrays<
         V: std::ops::Deref<Target = [G]>,
@@ -580,17 +570,15 @@ where
         transform: &Matrix4<f32>,
         vars: &ShapeVars<V>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, Some(transform), Self::var_array(vars))
+        self.eval_raw(tape, x, y, z, Some(transform), Self::var_array(vars))
     }
 
     /// Bulk evaluation of many samples, with fixed variables
     ///
     /// Each variable has a single value, which is used for every position in
     /// the `x`, `y`, `z` slices.  This is in contrast with
-    /// [`eval_vs`](Self::eval_vs), where variables can be different for every
-    /// position in the `x`, `y,` `z` slices.
-    ///
-    /// Before evaluation, the transform matrix is applied to input coordinates.
+    /// [`eval_with_var_arrays`](Self::eval_with_var_arrays), where variables
+    /// can be different for every position in the `x`, `y,` `z` slices.
     #[inline]
     pub fn eval_with_vars<G: Into<E::Data> + Copy>(
         &mut self,
@@ -600,17 +588,10 @@ where
         z: &[E::Data],
         vars: &ShapeVars<G>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, None, Self::var_value(vars))
+        self.eval_raw(tape, x, y, z, None, Self::var_value(vars))
     }
 
-    /// Bulk evaluation of many samples, with fixed variables
-    ///
-    /// Each variable has a single value, which is used for every position in
-    /// the `x`, `y`, `z` slices.  This is in contrast with
-    /// [`eval_vs`](Self::eval_vs), where variables can be different for every
-    /// position in the `x`, `y,` `z` slices.
-    ///
-    /// Before evaluation, the transform matrix is applied to input coordinates.
+    /// Bulk evaluation of many transformed samples, with fixed variables
     #[inline]
     pub fn eval_with_transform_and_vars<G: Into<E::Data> + Copy>(
         &mut self,
@@ -621,7 +602,7 @@ where
         transform: &Matrix4<f32>,
         vars: &ShapeVars<G>,
     ) -> Result<&[E::Data], ShapeBulkEvalError> {
-        self.eval_inner(tape, x, y, z, Some(transform), Self::var_value(vars))
+        self.eval_raw(tape, x, y, z, Some(transform), Self::var_value(vars))
     }
 
     /// Helper function for evaluation without variables
@@ -635,7 +616,10 @@ where
 
     /// Helper to bind to a multi-value variable map
     #[inline]
-    fn var_array<V: std::ops::Deref<Target = [G]>, G: Into<E::Data> + Copy>(
+    pub fn var_array<
+        V: std::ops::Deref<Target = [G]>,
+        G: Into<E::Data> + Copy,
+    >(
         vars: &ShapeVars<V>,
     ) -> impl Fn(&mut [E::Data], VarIndex) -> Result<(), ShapeBulkEvalError>
     {
@@ -652,8 +636,11 @@ where
     }
 
     /// Helper to bind to a single-variable map
+    ///
+    /// This is a building block for working with [`eval_raw`](Self::eval_raw),
+    /// and you probably don't need it unless you're deep in the weeds.
     #[inline]
-    fn var_value<G: Into<E::Data> + Copy>(
+    pub fn var_value<G: Into<E::Data> + Copy>(
         vars: &ShapeVars<G>,
     ) -> impl Fn(&mut [E::Data], VarIndex) -> Result<(), ShapeBulkEvalError>
     {
@@ -665,8 +652,11 @@ where
     }
 
     /// Helper function to do common evaluation
+    ///
+    /// This is a building block for working with [`eval_raw`](Self::eval_raw),
+    /// and you probably don't need it unless you're deep in the weeds.
     #[inline]
-    fn eval_inner<F>(
+    pub fn eval_raw<F>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: &[E::Data],
