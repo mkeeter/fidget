@@ -1466,8 +1466,7 @@ impl RenderShape {
         }
 
         // Create the 4x4 transform matrix
-        let axes = shape
-            .axes()
+        let axes = [Var::X, Var::Y, Var::Z]
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
 
         Ok(Self { axes, bytecode })

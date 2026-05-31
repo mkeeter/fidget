@@ -238,7 +238,7 @@ struct Worker<'a, F: Function> {
     image: Image,
 }
 
-impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
+impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     type Config = RenderConfig<'a>;
     type Output = Image;
     fn new(cfg: &'a Self::Config, tile_sizes: TileSizesRef<'a>) -> Self {
@@ -257,20 +257,22 @@ impl<'a, F: Function, T> RenderWorker<'a, F, T> for Worker<'a, F> {
 
     fn render_tile(
         &mut self,
-        shape: &mut RenderHandle<F, T>,
+        shape: &mut RenderHandle<F>,
+        transform: &nalgebra::Matrix4<f32>,
         vars: &ShapeVars<f32>,
         tile: Tile<2>,
     ) -> Self::Output {
         self.image = Image::new((self.tile_sizes[0] as u32).into());
-        self.render_tile_recurse(shape, vars, 0, tile);
+        self.render_tile_recurse(shape, transform, vars, 0, tile);
         std::mem::take(&mut self.image)
     }
 }
 
 impl<F: Function> Worker<'_, F> {
-    fn render_tile_recurse<T>(
+    fn render_tile_recurse(
         &mut self,
-        shape: &mut RenderHandle<F, T>,
+        shape: &mut RenderHandle<F>,
+        transform: &nalgebra::Matrix4<f32>,
         vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<2>,
@@ -286,7 +288,14 @@ impl<F: Function> Worker<'_, F> {
         // The shape applies the screen-to-model transform
         let (i, simplify) = self
             .eval_interval
-            .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
+            .eval_with_transform_and_vars(
+                shape.i_tape(&mut self.tape_storage),
+                x,
+                y,
+                z,
+                transform,
+                vars,
+            )
             .unwrap();
 
         if !self.pixel_perfect {
@@ -332,6 +341,7 @@ impl<F: Function> Worker<'_, F> {
                 for i in 0..n {
                     self.render_tile_recurse(
                         sub_tape,
+                        transform,
                         vars,
                         depth + 1,
                         Tile::new(
@@ -341,13 +351,14 @@ impl<F: Function> Worker<'_, F> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, vars, tile_size, tile);
+            self.render_tile_pixels(sub_tape, transform, vars, tile_size, tile);
         }
     }
 
-    fn render_tile_pixels<T>(
+    fn render_tile_pixels(
         &mut self,
-        shape: &mut RenderHandle<F, T>,
+        shape: &mut RenderHandle<F>,
+        transform: &nalgebra::Matrix4<f32>,
         vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<2>,
@@ -363,11 +374,12 @@ impl<F: Function> Worker<'_, F> {
 
         let out = self
             .eval_float_slice
-            .eval_v(
+            .eval_with_transform_and_vars(
                 shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
+                transform,
                 vars,
             )
             .unwrap();
@@ -406,7 +418,6 @@ pub fn render<F: Function + RenderHints>(
     let mat = config.mat();
     let mat = mat.insert_row(2, 0.0);
     let mat = mat.insert_column(2, 0.0);
-    let shape = shape.with_transform(mat);
 
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
@@ -416,8 +427,9 @@ pub fn render<F: Function + RenderHints>(
         default_tile_sizes = F::tile_sizes_2d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles = super::render_tiles::<F, Worker<F>, _>(
+    let tiles = super::render_tiles::<F, Worker<F>>(
         shape.clone(),
+        &mat,
         vars,
         config,
         tile_sizes,

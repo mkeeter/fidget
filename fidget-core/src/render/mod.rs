@@ -16,8 +16,8 @@ pub use region::{ImageSize, RegionSize, VoxelSize};
 /// reference to a recursive function.
 ///
 /// The most recent simplification is cached for reuse (if the trace matches).
-pub struct RenderHandle<F: Function, T = ()> {
-    shape: Shape<F, T>,
+pub struct RenderHandle<F: Function> {
+    shape: Shape<F>,
 
     i_tape: Option<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>,
     f_tape: Option<ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape>>,
@@ -26,7 +26,7 @@ pub struct RenderHandle<F: Function, T = ()> {
     next: Option<(F::Trace, Box<Self>)>,
 }
 
-impl<F: Function, T> Clone for RenderHandle<F, T> {
+impl<F: Function> Clone for RenderHandle<F> {
     #[inline]
     fn clone(&self) -> Self {
         Self {
@@ -39,11 +39,11 @@ impl<F: Function, T> Clone for RenderHandle<F, T> {
     }
 }
 
-impl<F: Function, T> RenderHandle<F, T> {
+impl<F: Function> RenderHandle<F> {
     /// Build a new [`RenderHandle`] for the given shape
     ///
     /// None of the tapes are populated here.
-    pub fn new(shape: Shape<F, T>) -> Self {
+    pub fn new(shape: Shape<F>) -> Self {
         Self {
             shape,
             i_tape: None,

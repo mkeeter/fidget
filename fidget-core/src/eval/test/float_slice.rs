@@ -8,9 +8,9 @@ use super::{
 };
 use crate::{
     context::Context,
-    eval::{BulkEvalError, BulkEvaluator, Function, MathFunction, Tape},
-    shape::{EzShape, Shape, ShapeEvalError, ShapeVars},
-    var::{BulkArgError, Var},
+    eval::{BulkEvaluator, Function, MathFunction, Tape},
+    shape::{EzShape, MissingVar, Shape, ShapeBulkEvalError, ShapeVars},
+    var::Var,
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -126,36 +126,64 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 .is_err()
         );
         let mut h: ShapeVars<&[f32]> = ShapeVars::new();
-        assert!(
-            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
-                .is_err()
-        );
+        let Err(ShapeBulkEvalError::MissingVar(MissingVar { var })) = eval
+            .eval_with_var_arrays(
+                &tape,
+                &[1.0, 2.0],
+                &[2.0, 3.0],
+                &[0.0, 0.0],
+                &h,
+            )
+        else {
+            panic!("expected error");
+        };
+        assert_eq!(Var::V(var), v);
+
         let index = v.index().unwrap();
         h.insert(index, &[4.0, 5.0]);
         assert_eq!(
-            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
-                .unwrap(),
+            eval.eval_with_var_arrays(
+                &tape,
+                &[1.0, 2.0],
+                &[2.0, 3.0],
+                &[0.0, 0.0],
+                &h
+            )
+            .unwrap(),
             &[7.0, 10.0]
         );
 
         h.insert(index, &[4.0, 5.0, 6.0]);
-        assert!(matches!(
-            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
-            Err(ShapeEvalError::Eval(BulkEvalError(
-                BulkArgError::MismatchedSlices
-            ))),
-        ));
+        assert_eq!(
+            eval.eval_with_var_arrays(
+                &tape,
+                &[1.0, 2.0],
+                &[2.0, 3.0],
+                &[0.0, 0.0],
+                &h
+            ),
+            Err(ShapeBulkEvalError::MismatchedVarSlices {
+                var_a: Var::X,
+                length_a: 2,
+                var_b: v,
+                length_b: 3
+            })
+        );
 
-        // Get a new var index that isn't valid for this tape
+        // It's fine to pass in vars that aren't in the tape
         let v2 = Var::new();
         h.insert(index, &[4.0, 5.0]);
         h.insert(v2.index().unwrap(), &[4.0, 5.0]);
-        assert!(matches!(
-            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
-            Err(ShapeEvalError::Eval(BulkEvalError(
-                BulkArgError::BadVarSlice(..)
-            )))
-        ));
+        assert!(
+            eval.eval_with_var_arrays(
+                &tape,
+                &[1.0, 2.0],
+                &[2.0, 3.0],
+                &[0.0, 0.0],
+                &h
+            )
+            .is_ok()
+        );
     }
 
     pub fn test_f_stress_n(depth: usize) {

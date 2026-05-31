@@ -369,13 +369,20 @@ where
         assert!(eval.eval(&tape, 1.0f32, 2.0, 0.0).is_err());
 
         let mut h = ShapeVars::new();
-        assert!(eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &h).is_err());
+        assert!(eval.eval(&tape, 1.0f32, 2.0, 0.0).is_err());
+        assert!(eval.eval_with_vars(&tape, 1.0f32, 2.0, 0.0, &h).is_err());
 
         let index = v.index().unwrap();
         h.insert(index, 3.0f32);
-        assert_eq!(eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0, 6.0);
+        assert_eq!(
+            eval.eval_with_vars(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0,
+            6.0
+        );
         h.insert(index, 4.0f32);
-        assert_eq!(eval.eval_v(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0, 7.0);
+        assert_eq!(
+            eval.eval_with_vars(&tape, 1.0f32, 2.0, 0.0, &h).unwrap().0,
+            7.0
+        );
     }
 
     pub fn test_p_stress_n(depth: usize) {

@@ -41,6 +41,14 @@
 - Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
     - This is even more experimental than the rest of Fidget!
 - Add `VarMap::iter` to iterate over `(var, index)` tuples
+- Simplified `Shape`, which was doing too much
+    - It no longer has its own transform matrix; bring your own to the
+      evaluation functions (with new `eval_with_transform` flavors)
+    - It no longer supports custom axes; it now always uses  `Var::{X, Y, Z}`
+    - Other tweaks to shape evaluation functions: `eval_v` is now
+      `eval_with_vars`, and there's a separate `eval_with_transform` (along with
+      `eval_with_transform_and_vars`).  These all return new error types too!
+- Add `output_count()` to `Function` trait
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

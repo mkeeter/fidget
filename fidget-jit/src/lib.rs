@@ -949,6 +949,11 @@ impl Function for JitFunction {
     fn can_simplify(&self) -> bool {
         self.0.choice_count() > 0
     }
+
+    #[inline]
+    fn output_count(&self) -> usize {
+        self.0.output_count()
+    }
 }
 
 impl RenderHints for JitFunction {
