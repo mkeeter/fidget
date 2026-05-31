@@ -48,6 +48,7 @@
     - Other tweaks to shape evaluation functions: `eval_v` is now
       `eval_with_vars`, and there's a separate `eval_with_transform` (along with
       `eval_with_transform_and_vars`).  These all return new error types too!
+- Add `output_count()` to `Function` trait
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

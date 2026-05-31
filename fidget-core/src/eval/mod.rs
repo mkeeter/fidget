@@ -192,6 +192,9 @@ pub trait Function: Send + Sync + Clone {
     /// Returns the map from [`Var`](crate::var::Var) to input index
     fn vars(&self) -> &VarMap;
 
+    /// Returns the number of outputs written by this function
+    fn output_count(&self) -> usize;
+
     /// Checks to see whether this function can ever be simplified
     fn can_simplify(&self) -> bool;
 }

@@ -240,6 +240,11 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     fn can_simplify(&self) -> bool {
         self.0.choice_count() > 0
     }
+
+    #[inline]
+    fn output_count(&self) -> usize {
+        self.0.output_count()
+    }
 }
 
 impl<const N: usize> RenderHints for GenericVmFunction<N> {

@@ -300,7 +300,11 @@ impl<F: MathFunction> Shape<F> {
     }
 
     /// Raw constructor
+    ///
+    /// # Panics
+    /// If the function `f` does not have exactly one output
     pub fn new_raw(f: F) -> Self {
+        assert_eq!(f.output_count(), 1);
         Self { f }
     }
 }
