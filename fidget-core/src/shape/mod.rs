@@ -298,6 +298,11 @@ impl<F: MathFunction> Shape<F> {
         let f = F::new(ctx, &[node])?;
         Ok(Self { f })
     }
+
+    /// Raw constructor
+    pub fn new_raw(f: F) -> Self {
+        Self { f }
+    }
 }
 
 /// Converts a [`Tree`] to a [`Shape`] with the default axes

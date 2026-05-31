@@ -3,7 +3,6 @@ use fidget::{
     gui::{Canvas2, Canvas3, DragMode, View2, View3},
     raster::{pixel, voxel},
     render::{CancelToken, ImageSize, ThreadPool, TileSizes, VoxelSize},
-    var::Var,
     vm::{VmData, VmShape},
 };
 use nalgebra::Point2;
@@ -33,16 +32,15 @@ pub fn serialize_into_tape(t: JsTree) -> Result<Vec<u8>, String> {
     let root = ctx.import(&t.0);
     let shape = VmShape::new(&ctx, root).map_err(|e| format!("{e}"))?;
     let vm_data = shape.inner().data();
-    let axes = shape.axes();
-    bincode::serialize(&(vm_data, axes)).map_err(|e| format!("{e}"))
+    bincode::serialize(&vm_data).map_err(|e| format!("{e}"))
 }
 
 /// Deserialize a `bincode`-packed `VmData` into a `VmShape`
 #[wasm_bindgen]
 pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
-    let (d, axes): (VmData<255>, [Var; 3]) =
+    let d: VmData<255> =
         bincode::deserialize(&data).map_err(|e| format!("{e}"))?;
-    Ok(JsVmShape(VmShape::new_raw(d.into(), axes)))
+    Ok(JsVmShape(VmShape::new_raw(d.into())))
 }
 
 /// Renders the image in 2D
