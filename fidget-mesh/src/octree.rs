@@ -44,8 +44,8 @@ impl Octree {
     ///
     /// The shape is evaluated on the region specified by `settings.bounds`.
     ///
-    /// Returns `None` if processing is cancelled by the [`CancelToken`] in
-    /// [`Settings`].
+    /// Returns `None` if processing is cancelled by the
+    /// [`CancelToken`](fidget_core::render::CancelToken) in [`Settings`].
     pub fn build_with_vars<F: Function + RenderHints + Clone>(
         shape: &Shape<F>,
         vars: &ShapeVars<f32>,
@@ -54,7 +54,7 @@ impl Octree {
         let mut out = Self::build_inner(shape, vars, settings)?;
 
         // Apply the transform from [-1, +1] back to model space
-        if settings.world_to_model == nalgebra::Matrix4::identity() {
+        if settings.world_to_model != nalgebra::Matrix4::identity() {
             for v in &mut out.verts {
                 let p: nalgebra::Point3<f32> = v.pos.into();
                 let q = settings.world_to_model.transform_point(&p);

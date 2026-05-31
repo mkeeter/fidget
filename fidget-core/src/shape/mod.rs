@@ -6,8 +6,8 @@
 //! arbitrary numbers of variables.
 //!
 //! For example, a [`Shape`] is a wrapper which makes it easier to treat a
-//! [`Function`] as an implicit surface (with X, Y, Z axes and n transform
-//! matrix).
+//! [`Function`] as an implicit surface (with X, Y, Z axes and functions that
+//! accept a transform matrix).
 //!
 //! ```rust
 //! use fidget_core::vm::VmShape;
@@ -21,7 +21,9 @@
 //! // Let's build a single point evaluator:
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
-//! let (value, _trace) = eval.eval(&tape, 0.25, 0.0, 0.0)?;
+//! let (value, _trace) = eval.eval_with_transform(
+//!     &tape, 0.25, 0.0, 0.0, &nalgebra::Matrix4::identity()
+//! )?;
 //! assert_eq!(value, 0.25);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -404,10 +406,7 @@ where
 
     /// Tracing evaluation with X, Y, Z arguments and a transform
     #[inline]
-    pub fn eval_with_transform<
-        F: Into<E::Data> + Copy,
-        V: Into<E::Data> + Copy,
-    >(
+    pub fn eval_with_transform<F: Into<E::Data> + Copy>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: F,
