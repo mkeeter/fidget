@@ -97,8 +97,7 @@ impl TileSizesRef<'_> {
 /// It returns a set of output tiles, or `None` if rendering has been cancelled
 pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F>>(
     shape: Shape<F>,
-    transform: &nalgebra::Matrix4<f32>,
-    vars: &ShapeVars<f32>,
+    vars: &'a ShapeVars<f32>,
     config: &'a W::Config,
     tile_sizes: TileSizesRef<'a>,
 ) -> Option<Vec<(Tile<2>, W::Output)>>
@@ -126,21 +125,20 @@ where
     let ts = tile_sizes;
     let init = || {
         let rh = rh.clone();
-        let worker = W::new(config, ts);
+        let worker = W::new(config, ts, vars);
         (worker, rh)
     };
 
     match config.threads() {
         None => {
-            let mut worker = W::new(config, tile_sizes);
+            let mut worker = W::new(config, tile_sizes, vars);
             tiles
                 .into_iter()
                 .map(|tile| {
                     if config.is_cancelled() {
                         Err(())
                     } else {
-                        let pixels =
-                            worker.render_tile(&mut rh, transform, vars, tile);
+                        let pixels = worker.render_tile(&mut rh, tile);
                         Ok((tile, pixels))
                     }
                 })
@@ -155,7 +153,7 @@ where
                     if config.is_cancelled() {
                         Err(())
                     } else {
-                        let pixels = w.render_tile(rh, transform, vars, tile);
+                        let pixels = w.render_tile(rh, tile);
                         Ok((tile, pixels))
                     }
                 })
@@ -181,14 +179,16 @@ pub(crate) trait RenderWorker<'a, F: Function> {
     /// Build a new worker
     ///
     /// Workers are typically built on a per-thread basis
-    fn new(cfg: &'a Self::Config, tile_sizes: TileSizesRef<'a>) -> Self;
+    fn new(
+        cfg: &'a Self::Config,
+        tile_sizes: TileSizesRef<'a>,
+        vars: &'a ShapeVars<f32>,
+    ) -> Self;
 
     /// Render a single tile, returning a worker-dependent output
     fn render_tile(
         &mut self,
         shape: &mut RenderHandle<F>,
-        transform: &nalgebra::Matrix4<f32>,
-        vars: &ShapeVars<f32>,
         tile: Tile<2>,
     ) -> Self::Output;
 }
