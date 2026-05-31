@@ -615,6 +615,9 @@ where
     }
 
     /// Helper to bind to a multi-value variable map
+    ///
+    /// This is a building block for working with [`eval_raw`](Self::eval_raw),
+    /// and you probably don't need it unless you're deep in the weeds.
     #[inline]
     pub fn var_array<
         V: std::ops::Deref<Target = [G]>,
@@ -651,10 +654,11 @@ where
         }
     }
 
-    /// Helper function to do common evaluation
+    /// Core implementation of evaluation
     ///
-    /// This is a building block for working with [`eval_raw`](Self::eval_raw),
-    /// and you probably don't need it unless you're deep in the weeds.
+    /// `copy_vars` is a way to populate variable slices (other than the X, Y, Z
+    /// inputs), and may be generated from a helper like
+    /// [`var_value`](Self::var_value) or [`var_array`](Self::var_array).
     #[inline]
     pub fn eval_raw<F>(
         &mut self,

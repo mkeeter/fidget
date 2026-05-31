@@ -54,10 +54,12 @@ impl Octree {
         let mut out = Self::build_inner(shape, vars, settings)?;
 
         // Apply the transform from [-1, +1] back to model space
-        for v in &mut out.verts {
-            let p: nalgebra::Point3<f32> = v.pos.into();
-            let q = settings.world_to_model.transform_point(&p);
-            v.pos = q.coords;
+        if settings.world_to_model == nalgebra::Matrix4::identity() {
+            for v in &mut out.verts {
+                let p: nalgebra::Point3<f32> = v.pos.into();
+                let q = settings.world_to_model.transform_point(&p);
+                v.pos = q.coords;
+            }
         }
         Some(out)
     }
@@ -85,15 +87,9 @@ impl Octree {
             Self::build_inner_mt(shape, settings, vars, threads)
         } else {
             let mut eval = RenderHandle::new(shape.clone());
-            let mut out = OctreeBuilder::new();
+            let mut out = OctreeBuilder::new(settings, vars);
             let mut hermite = LeafHermiteData::default();
-            if out.recurse(
-                &mut eval,
-                settings,
-                vars,
-                CellIndex::default(),
-                &mut hermite,
-            ) {
+            if out.recurse(&mut eval, CellIndex::default(), &mut hermite) {
                 Some(out.octree)
             } else {
                 None
@@ -145,7 +141,7 @@ impl Octree {
         let out = threads.run(|| {
             todo.par_iter()
                 .map_init(
-                    || (OctreeBuilder::new(), rh.clone()),
+                    || (OctreeBuilder::new(settings, vars), rh.clone()),
                     |(builder, eval), cell| {
                         let mut hermite = LeafHermiteData::default();
                         // Patch our cell so that it builds at index 0
@@ -153,13 +149,7 @@ impl Octree {
                             index: None,
                             ..*cell
                         };
-                        if !builder.recurse(
-                            eval,
-                            settings,
-                            vars,
-                            local_cell,
-                            &mut hermite,
-                        ) {
+                        if !builder.recurse(eval, local_cell, &mut hermite) {
                             return None;
                         }
                         let octree = std::mem::replace(
@@ -478,10 +468,15 @@ impl std::ops::IndexMut<CellIndex<3>> for Octree {
 }
 
 /// Data structure for an under-construction octree
-#[derive(Debug)]
-pub(crate) struct OctreeBuilder<F: Function + RenderHints> {
+pub(crate) struct OctreeBuilder<'a, F: Function + RenderHints> {
     /// In-construction octree
     pub(crate) octree: Octree,
+
+    // Values stolen from settings
+    cancel: fidget_core::render::CancelToken,
+    world_to_model: Option<&'a nalgebra::Matrix4<f32>>,
+    max_depth: u8,
+    vars: &'a ShapeVars<f32>,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
     eval_interval: ShapeTracingEval<F::IntervalEval>,
@@ -492,17 +487,26 @@ pub(crate) struct OctreeBuilder<F: Function + RenderHints> {
     workspace: F::Workspace,
 }
 
-impl<F: Function + RenderHints> Default for OctreeBuilder<F> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<F: Function + RenderHints> OctreeBuilder<F> {
+impl<'a, F: Function + RenderHints> OctreeBuilder<'a, F> {
     /// Builds a new octree builder, which allocates data for 8 root cells
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(
+        settings: &'a Settings,
+        vars: &'a ShapeVars<f32>,
+    ) -> Self {
+        let world_to_model =
+            if settings.world_to_model == nalgebra::Matrix4::identity() {
+                None
+            } else {
+                Some(&settings.world_to_model)
+            };
         Self {
             octree: Octree::new(),
+
+            cancel: settings.cancel.clone(),
+            max_depth: settings.depth,
+            world_to_model,
+            vars,
+
             eval_float_slice: Shape::<F>::new_float_slice_eval(),
             eval_grad_slice: Shape::<F>::new_grad_slice_eval(),
             eval_interval: Shape::<F>::new_interval_eval(),
@@ -524,23 +528,21 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     fn recurse(
         &mut self,
         eval: &mut RenderHandle<F>,
-        settings: &Settings,
-        vars: &ShapeVars<f32>,
         cell: CellIndex<3>,
         hermite: &mut LeafHermiteData,
     ) -> bool {
-        if settings.cancel.is_cancelled() {
+        if self.cancel.is_cancelled() {
             return false;
         }
         let (i, r) = self
             .eval_interval
-            .eval_with_transform_and_vars(
+            .eval_raw(
                 eval.i_tape(&mut self.tape_storage),
                 cell.bounds[crate::types::X],
                 cell.bounds[crate::types::Y],
                 cell.bounds[crate::types::Z],
-                &settings.world_to_model,
-                vars,
+                self.world_to_model,
+                self.vars,
             )
             .unwrap();
         self.octree[cell] = if i.upper() < 0.0 {
@@ -562,14 +564,8 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             } else {
                 eval
             };
-            if cell.depth == settings.depth as usize {
-                self.leaf(
-                    sub_tape,
-                    &settings.world_to_model,
-                    vars,
-                    cell,
-                    hermite,
-                )
+            if cell.depth == self.max_depth as usize {
+                self.leaf(sub_tape, cell, hermite)
             } else {
                 // Reserve new cells for the 8x children
                 let index = self.octree.cells.len();
@@ -579,8 +575,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     let cell = cell.child(index, i);
                     if !self.recurse(
                         sub_tape,
-                        settings,
-                        vars,
                         cell,
                         &mut hermite_child[i.index()],
                     ) {
@@ -603,8 +597,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     fn leaf(
         &mut self,
         eval: &mut RenderHandle<F>,
-        transform: &nalgebra::Matrix4<f32>,
-        vars: &ShapeVars<f32>,
         cell: CellIndex<3>,
         hermite_cell: &mut LeafHermiteData,
     ) -> Cell<3> {
@@ -620,13 +612,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         let out = self
             .eval_float_slice
-            .eval_with_transform_and_vars(
+            .eval_raw(
                 eval.f_tape(&mut self.tape_storage),
                 &xs,
                 &ys,
                 &zs,
-                transform,
-                vars,
+                self.world_to_model,
+                ShapeBulkEval::<F::FloatSliceEval>::var_value(self.vars),
             )
             .unwrap();
         debug_assert_eq!(out.len(), 8);
@@ -730,13 +722,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             // Do the actual evaluation
             let out = self
                 .eval_float_slice
-                .eval_with_transform_and_vars(
+                .eval_raw(
                     eval.f_tape(&mut self.tape_storage),
                     xs,
                     ys,
                     zs,
-                    transform,
-                    vars,
+                    self.world_to_model,
+                    ShapeBulkEval::<F::FloatSliceEval>::var_value(self.vars),
                 )
                 .unwrap();
 
@@ -803,13 +795,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         // TODO: special case for cells with multiple gradients ("features")
         let grads = self
             .eval_grad_slice
-            .eval_with_transform_and_vars(
+            .eval_raw(
                 eval.g_tape(&mut self.tape_storage),
                 xs,
                 ys,
                 zs,
-                transform,
-                vars,
+                self.world_to_model,
+                ShapeBulkEval::<F::GradSliceEval>::var_value(self.vars),
             )
             .unwrap();
 
