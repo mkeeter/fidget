@@ -33,9 +33,7 @@ use crate::{
         TracingEvalError, TracingEvaluator,
     },
     types::{Grad, Interval},
-    var::{
-        BulkArgError, MismatchedSlices, TracingArgError, Var, VarIndex, VarMap,
-    },
+    var::{BulkArgError, TracingArgError, Var, VarIndex, VarMap},
     vm::BadTrace,
 };
 use nalgebra::{Matrix4, Point3};
@@ -347,7 +345,7 @@ impl<E: TracingEvaluator> Default for ShapeTracingEval<E> {
 }
 
 /// A [`VarIndex`] variable is missing
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, PartialEq)]
 #[error("variable {var:?} must be provided")]
 pub struct MissingVar {
     /// Missing variable index
@@ -363,15 +361,28 @@ pub enum ShapeTracingEvalError {
 }
 
 /// Error type for shape bulk evaluation
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, PartialEq)]
 pub enum ShapeBulkEvalError {
     /// Missing variable index
     #[error(transparent)]
     MissingVar(#[from] MissingVar),
 
     /// Mismatched slice length
-    #[error(transparent)]
-    MismatchedSlices(#[from] MismatchedSlices),
+    #[error(
+        "slice lengths are mismatched: \
+        slice for {var_a} has {length_a} items; \
+        slice for {var_b} has {length_b} items;"
+    )]
+    MismatchedVarSlices {
+        /// A specific variable
+        var_a: Var,
+        /// The length of the slice for `var_a`
+        length_a: usize,
+        /// A second variable
+        var_b: Var,
+        /// The length of the slice for `var_b`
+        length_b: usize,
+    },
 }
 
 impl<E: TracingEvaluator> ShapeTracingEval<E>
@@ -629,7 +640,12 @@ where
         |data: &mut [E::Data], i: VarIndex| {
             let vars = vars.get(i).ok_or(MissingVar { var: i })?;
             if vars.len() != data.len() {
-                return Err(MismatchedSlices.into());
+                return Err(ShapeBulkEvalError::MismatchedVarSlices {
+                    var_a: Var::X,
+                    length_a: data.len(),
+                    var_b: Var::V(i),
+                    length_b: vars.len(),
+                });
             }
             for (a, b) in data.iter_mut().zip(vars.deref().iter()) {
                 *a = (*b).into();
@@ -679,8 +695,21 @@ where
         );
 
         // Make sure our scratch arrays are big enough for this evaluation
-        if x.len() != y.len() || x.len() != z.len() {
-            return Err(MismatchedSlices.into());
+        if x.len() != y.len() {
+            return Err(ShapeBulkEvalError::MismatchedVarSlices {
+                var_a: Var::X,
+                length_a: x.len(),
+                var_b: Var::Y,
+                length_b: y.len(),
+            });
+        }
+        if x.len() != z.len() {
+            return Err(ShapeBulkEvalError::MismatchedVarSlices {
+                var_a: Var::X,
+                length_a: x.len(),
+                var_b: Var::Z,
+                length_b: z.len(),
+            });
         }
         let n = x.len();
 

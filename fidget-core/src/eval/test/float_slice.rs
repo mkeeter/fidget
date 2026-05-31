@@ -10,7 +10,7 @@ use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
     shape::{EzShape, MissingVar, Shape, ShapeBulkEvalError, ShapeVars},
-    var::{MismatchedSlices, Var},
+    var::Var,
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -154,7 +154,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         );
 
         h.insert(index, &[4.0, 5.0, 6.0]);
-        assert!(matches!(
+        assert_eq!(
             eval.eval_with_var_arrays(
                 &tape,
                 &[1.0, 2.0],
@@ -162,8 +162,13 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 &[0.0, 0.0],
                 &h
             ),
-            Err(ShapeBulkEvalError::MismatchedSlices(MismatchedSlices)),
-        ));
+            Err(ShapeBulkEvalError::MismatchedVarSlices {
+                var_a: Var::X,
+                length_a: 2,
+                var_b: v,
+                length_b: 3
+            })
+        );
 
         // It's fine to pass in vars that aren't in the tape
         let v2 = Var::new();
