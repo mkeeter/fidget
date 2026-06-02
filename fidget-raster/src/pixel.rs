@@ -217,8 +217,11 @@ impl From<f32> for RawDistancePixel {
 /// Per-thread worker
 struct Worker<'a, F: Function> {
     tile_sizes: TileSizesRef<'a>,
+    vars: &'a ShapeVars<f32>,
+
     pixel_perfect: bool,
     scratch: Scratch,
+    transform: nalgebra::Matrix4<f32>,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
     eval_interval: ShapeTracingEval<F::IntervalEval>,
@@ -241,12 +244,24 @@ struct Worker<'a, F: Function> {
 impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     type Config = RenderConfig<'a>;
     type Output = Image;
-    fn new(cfg: &'a Self::Config, tile_sizes: TileSizesRef<'a>) -> Self {
+    fn new(
+        cfg: &'a Self::Config,
+        tile_sizes: TileSizesRef<'a>,
+        vars: &'a ShapeVars<f32>,
+    ) -> Self {
+        // Convert to a 4x4 matrix and apply to the shape
+        let transform = cfg.mat();
+        let transform = transform.insert_row(2, 0.0);
+        let transform = transform.insert_column(2, 0.0);
+
         Worker::<F> {
+            tile_sizes,
+            transform,
+            vars,
+
             scratch: Scratch::new(tile_sizes.last().pow(2)),
             pixel_perfect: cfg.pixel_perfect,
             image: Default::default(),
-            tile_sizes,
             eval_float_slice: Default::default(),
             eval_interval: Default::default(),
             tape_storage: vec![],
@@ -258,12 +273,10 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     fn render_tile(
         &mut self,
         shape: &mut RenderHandle<F>,
-        transform: &nalgebra::Matrix4<f32>,
-        vars: &ShapeVars<f32>,
         tile: Tile<2>,
     ) -> Self::Output {
         self.image = Image::new((self.tile_sizes[0] as u32).into());
-        self.render_tile_recurse(shape, transform, vars, 0, tile);
+        self.render_tile_recurse(shape, 0, tile);
         std::mem::take(&mut self.image)
     }
 }
@@ -272,8 +285,6 @@ impl<F: Function> Worker<'_, F> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
-        transform: &nalgebra::Matrix4<f32>,
-        vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<2>,
     ) {
@@ -293,8 +304,8 @@ impl<F: Function> Worker<'_, F> {
                 x,
                 y,
                 z,
-                transform,
-                vars,
+                &self.transform,
+                self.vars,
             )
             .unwrap();
 
@@ -341,8 +352,6 @@ impl<F: Function> Worker<'_, F> {
                 for i in 0..n {
                     self.render_tile_recurse(
                         sub_tape,
-                        transform,
-                        vars,
                         depth + 1,
                         Tile::new(
                             tile.corner + Vector2::new(i, j) * next_tile_size,
@@ -351,15 +360,13 @@ impl<F: Function> Worker<'_, F> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, transform, vars, tile_size, tile);
+            self.render_tile_pixels(sub_tape, tile_size, tile);
         }
     }
 
     fn render_tile_pixels(
         &mut self,
         shape: &mut RenderHandle<F>,
-        transform: &nalgebra::Matrix4<f32>,
-        vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<2>,
     ) {
@@ -379,8 +386,8 @@ impl<F: Function> Worker<'_, F> {
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
-                transform,
-                vars,
+                &self.transform,
+                self.vars,
             )
             .unwrap();
 
@@ -414,11 +421,6 @@ pub fn render<F: Function + RenderHints>(
     vars: &ShapeVars<f32>,
     config: &RenderConfig,
 ) -> Option<Image> {
-    // Convert to a 4x4 matrix and apply to the shape
-    let mat = config.mat();
-    let mat = mat.insert_row(2, 0.0);
-    let mat = mat.insert_column(2, 0.0);
-
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
     let tile_sizes = if let Some(ts) = &config.tile_sizes {
@@ -429,7 +431,6 @@ pub fn render<F: Function + RenderHints>(
     };
     let tiles = super::render_tiles::<F, Worker<F>>(
         shape.clone(),
-        &mat,
         vars,
         config,
         tile_sizes,
