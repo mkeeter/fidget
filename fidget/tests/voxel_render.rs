@@ -96,54 +96,120 @@ render_tests!(vm3, fidget::vm::GenericVmFunction<3>);
 render_tests!(jit, fidget::jit::JitFunction);
 
 #[cfg(feature = "wgpu")]
-#[test]
-fn sphere_wgpu() {
-    // We only run in CI if we're on MacOS (because other runners don't have
-    // GPUs and will fail to build the context).
-    #[cfg(not(target_os = "macos"))]
-    if std::env::var("CI").is_ok() {
-        return;
+mod wgpu {
+    use super::*;
+
+    #[test]
+    fn sphere_wgpu() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        // Build a WGPU instance without any special features
+        // (e.g. no timestamp queries)
+        use fidget_wgpu::wgpu;
+        let instance = wgpu::Instance::default();
+        let (device, queue) = pollster::block_on(async {
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions::default())
+                .await
+                .unwrap();
+            adapter
+                .request_device(&wgpu::DeviceDescriptor::default())
+                .await
+                .unwrap()
+        });
+
+        let (x, y, z) = Tree::axes();
+        let ctx = fidget_wgpu::voxel::Context::new(device, queue);
+
+        let size = 32;
+        let image_size = RenderSize::from(size);
+        let mut buf = ctx.buffers(image_size).unwrap();
+        for scale in [1.0, 0.5] {
+            for r in [0.5, 0.75] {
+                let sphere = (x.square() + y.square() + z.square()).sqrt()
+                    - Tree::constant(r);
+                let shape =
+                    ctx.shape(&fidget::vm::VmShape::from(sphere)).unwrap();
+                let image = ctx
+                    .run(
+                        &shape,
+                        &mut buf,
+                        fidget::wgpu::voxel::RenderConfig {
+                            world_to_model: View3::from_center_and_scale(
+                                Vector3::zeros(),
+                                scale,
+                            )
+                            .world_to_model(),
+                        },
+                    )
+                    .unwrap();
+
+                check_sphere(image, size, scale, r as f32);
+            }
+        }
     }
 
-    // Build a WGPU instance without any special features
-    // (e.g. no timestamp queries)
-    use fidget_wgpu::wgpu;
-    let instance = wgpu::Instance::default();
-    let (device, queue) = pollster::block_on(async {
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
-            .await
-            .unwrap();
-        adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
-            .await
-            .unwrap()
-    });
+    #[test]
+    fn sphere_wgpu_vars() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
 
-    let (x, y, z) = Tree::axes();
-    let ctx = fidget_wgpu::voxel::Context::new(device, queue);
+        // Build a WGPU instance without any special features
+        // (e.g. no timestamp queries)
+        use fidget_wgpu::wgpu;
+        let instance = wgpu::Instance::default();
+        let (device, queue) = pollster::block_on(async {
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions::default())
+                .await
+                .unwrap();
+            adapter
+                .request_device(&wgpu::DeviceDescriptor::default())
+                .await
+                .unwrap()
+        });
 
-    let size = 32;
-    let image_size = RenderSize::from(size);
-    let mut buf = ctx.buffers(image_size).unwrap();
-    for scale in [1.0, 0.5] {
-        for r in [0.5, 0.75] {
-            let sphere = (x.square() + y.square() + z.square()).sqrt()
-                - Tree::constant(r);
-            let shape = ctx.shape(&fidget::vm::VmShape::from(sphere)).unwrap();
-            let image = ctx.run(
-                &shape,
-                &mut buf,
-                fidget::wgpu::voxel::RenderConfig {
-                    world_to_model: View3::from_center_and_scale(
-                        Vector3::zeros(),
-                        scale,
+        let (x, y, z) = Tree::axes();
+        let v = Var::new();
+        let c = Tree::from(v);
+        let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
+        let shape = fidget::vm::VmShape::from(sphere);
+        let ctx = fidget_wgpu::voxel::Context::new(device, queue);
+        let render_shape = ctx.shape(&shape).unwrap();
+
+        let size = 32;
+        let image_size = RenderSize::from(size);
+        let mut buf = ctx.buffers(image_size).unwrap();
+        for scale in [1.0, 0.5] {
+            for r in [0.5, 0.75] {
+                let mut vars = ShapeVars::new();
+                vars.insert(v.index().unwrap(), r);
+                let image = ctx
+                    .run_with_vars(
+                        &render_shape,
+                        &vars,
+                        &mut buf,
+                        fidget::wgpu::voxel::RenderConfig {
+                            world_to_model: View3::from_center_and_scale(
+                                Vector3::zeros(),
+                                scale,
+                            )
+                            .world_to_model(),
+                        },
                     )
-                    .world_to_model(),
-                },
-            );
+                    .unwrap();
 
-            check_sphere(image, size, scale, r as f32);
+                check_sphere(image, size, scale, r);
+            }
         }
     }
 }

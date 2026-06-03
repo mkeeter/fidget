@@ -91,9 +91,15 @@
 
 use crate::opcode_constants;
 use fidget_bytecode::{Bytecode, ReservedRegister};
-use fidget_core::{eval::Function, render::VoxelSize, var::Var, vm::VmShape};
+use fidget_core::{
+    eval::Function,
+    render::VoxelSize,
+    shape::{MissingVar, ShapeVars},
+    var::Var,
+    vm::VmShape,
+};
 use fidget_raster::voxel::{GeometryPixel, Image};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, num::NonZeroU64};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
@@ -2470,10 +2476,24 @@ impl Context {
         shape: &RenderShape,
         buffers: &mut Buffers,
         settings: RenderConfig,
-    ) -> Image {
-        self.submit(shape, buffers, &settings);
+    ) -> Result<Image, MissingVar> {
+        self.run_with_vars(shape, &Default::default(), buffers, settings)
+    }
+
+    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    ///
+    /// This function is not present when built for the `wasm32` target
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn run_with_vars(
+        &self,
+        shape: &RenderShape,
+        vars: &ShapeVars<f32>,
+        buffers: &mut Buffers,
+        settings: RenderConfig,
+    ) -> Result<Image, MissingVar> {
+        self.submit_with_vars(shape, vars, buffers, &settings)?;
         let image = self.map_image(buffers);
-        image.image()
+        Ok(image.image())
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2485,10 +2505,25 @@ impl Context {
         shape: &RenderShape,
         buffers: &mut Buffers,
         settings: RenderConfig,
-    ) -> Image {
-        self.submit(shape, buffers, &settings);
+    ) -> Result<Image, MissingVar> {
+        self.run_with_vars_async(shape, &Default::default(), buffers, settings)
+            .await
+    }
+
+    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    ///
+    /// This function is only relevant for the web target
+    #[cfg(any(target_arch = "wasm32", doc))]
+    pub async fn run_with_vars_async(
+        &self,
+        shape: &RenderShape,
+        vars: &ShapeVars<f32>,
+        buffers: &mut Buffers,
+        settings: RenderConfig,
+    ) -> Result<Image, MissingVar> {
+        self.submit_with_vars(shape, vars, buffers, &settings)?;
         let image = self.map_image_async(buffers).await;
-        image.image()
+        Ok(image.image())
     }
 
     /// Submits a single image to be rendered using GPU acceleration
@@ -2497,7 +2532,18 @@ impl Context {
         shape: &RenderShape,
         buffers: &Buffers,
         settings: &RenderConfig,
-    ) {
+    ) -> Result<(), MissingVar> {
+        self.submit_with_vars(shape, &Default::default(), buffers, settings)
+    }
+
+    /// Submits a single image to be rendered on the GPU, with extra variables
+    pub fn submit_with_vars(
+        &self,
+        shape: &RenderShape,
+        vars: &ShapeVars<f32>,
+        buffers: &Buffers,
+        settings: &RenderConfig,
+    ) -> Result<(), MissingVar> {
         let render_size = TileRenderSize::from(buffers.image_size);
 
         let mat =
@@ -2542,6 +2588,28 @@ impl Context {
             writer
                 .slice(config_len..)
                 .copy_from_slice(shape.bytecode.as_bytes());
+        }
+
+        // Copy vars (if present)
+        if let Some(var_size) = NonZeroU64::new(shape.vars.size()) {
+            let mut writer = self
+                .queue
+                .write_buffer_with(&shape.vars, 0, var_size)
+                .unwrap();
+            for (v, i) in shape.shape.inner().vars().iter() {
+                match v {
+                    Var::X | Var::Y | Var::Z => (),
+                    Var::V(vi) => {
+                        let Some(value) = vars.get(vi) else {
+                            return Err(MissingVar { var: vi });
+                        };
+                        let offset = i * std::mem::size_of::<f32>();
+                        writer
+                            .slice(offset..offset + 4)
+                            .copy_from_slice(value.as_bytes());
+                    }
+                }
+            }
         }
 
         // Create a command encoder and dispatch the compute work
@@ -2636,6 +2704,7 @@ impl Context {
 
         // Submit the commands and wait for the GPU to complete
         self.queue.submit(Some(encoder.finish()));
+        Ok(())
     }
 
     /// Synchronously maps the image buffer

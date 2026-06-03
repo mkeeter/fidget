@@ -315,7 +315,7 @@ fn run3d_wgpu(
     let shape = ctx.shape(&shape)?;
     let mut compute_pass_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        ctx.submit(&shape, &buffers, &cfg);
+        ctx.submit(&shape, &buffers, &cfg)?;
         let img = ctx.map_image(&mut buffers);
         compute_pass_time += img.time().unwrap();
         image = img.image();
