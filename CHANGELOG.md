@@ -49,6 +49,11 @@
       `eval_with_vars`, and there's a separate `eval_with_transform` (along with
       `eval_with_transform_and_vars`).  These all return new error types too!
 - Add `output_count()` to `Function` trait
+- Add `ShapeVars::check` and `ShapeVars::contains_key` to check whether the
+  variable map is sufficient to evaluate a particular shape.
+- Change `fidget_raster` render functions to return a `Result<Option<Image>,
+  RenderError>`, because it's possible for callers to provide shapes without a
+  suitable `ShapeVar` map.  `Ok(None)` still means cancellation.
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

@@ -182,20 +182,21 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         ..Default::default()
     };
 
+    let tmp = config
+        .run(shape)
+        .expect("rendering should not fail")
+        .expect("rendering should not be cancelled");
     let out = match mode {
         Mode2D::Color => {
-            let tmp = config.run(shape).unwrap();
             let c = [color[0], color[1], color[2], u8::MAX];
             tmp.map(|p| if p.inside() { c } else { [0u8; 4] })
         }
 
         Mode2D::Sdf => {
-            let tmp = config.run(shape).unwrap();
             fidget::raster::effects::to_rgba_distance(tmp, config.threads)
         }
 
         Mode2D::Debug => {
-            let tmp = config.run(shape).unwrap();
             fidget::raster::effects::to_debug_bitmap(tmp, config.threads)
         }
     };
@@ -215,7 +216,10 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     };
 
     // Get the geometry buffer from the voxel rendering process
-    let geometry_buffer = config.run(shape).unwrap();
+    let geometry_buffer = config
+        .run(shape)
+        .expect("rendering should not fail")
+        .expect("rendering should not be cancelled");
 
     // For both rendering modes, we'll just pass the GeometryPixel data
     // to the GPU, which will apply the appropriate rendering effect

@@ -215,6 +215,29 @@ impl<F> ShapeVars<F> {
     pub fn get(&self, i: VarIndex) -> Option<&F> {
         self.0.get(&i)
     }
+
+    /// Checks whether the given [`VarIndex`] is present in the map
+    pub fn contains_key(&self, i: VarIndex) -> bool {
+        self.0.contains_key(&i)
+    }
+
+    /// Checks that this map contains all variables needed to render a shape
+    pub fn check<G: Function>(
+        &self,
+        shape: &Shape<G>,
+    ) -> Result<(), MissingVar> {
+        for (v, _) in shape.inner().vars().iter() {
+            match v {
+                Var::X | Var::Y | Var::Z => (),
+                Var::V(i) => {
+                    if !self.contains_key(i) {
+                        return Err(MissingVar { var: i });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<'a, F> IntoIterator for &'a ShapeVars<F> {

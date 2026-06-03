@@ -220,7 +220,10 @@
 //!     ..Default::default()
 //! };
 //! let shape = VmShape::from(tree);
-//! let out = cfg.run(shape).unwrap();
+//! let out = cfg
+//!     .run(shape)
+//!     .expect("render should succeed")
+//!     .expect("render is not cancelled");
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size.height() {
 //!     for x in 0..cfg.image_size.width() {

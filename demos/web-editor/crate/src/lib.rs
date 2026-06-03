@@ -66,7 +66,8 @@ pub fn render_2d(
             cancel,
         };
 
-        let tmp = cfg.run(shape)?;
+        // Unwrap errors, propagate cancellation
+        let tmp = cfg.run(shape).unwrap()?;
         let out =
             fidget::raster::effects::to_rgba_bitmap(tmp, false, cfg.threads);
         Some(out.into_iter().flatten().collect())
@@ -130,7 +131,8 @@ fn render_3d_inner(
         world_to_model: view.world_to_model(),
         cancel,
     };
-    cfg.run(shape.clone())
+    // Unwrap errors, propagate cancellation
+    cfg.run(shape.clone()).unwrap()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
