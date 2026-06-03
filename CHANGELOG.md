@@ -51,9 +51,9 @@
 - Add `output_count()` to `Function` trait
 - Add `ShapeVars::check` and `ShapeVars::contains_key` to check whether the
   variable map is sufficient to evaluate a particular shape.
-- Change `fidget_raster` render functions to return a `Result<Image,
-  RenderError>`, where the `RenderError` is either a `MissingVar` or a
-  `Cancelled` flag.  Callers are likely to treat these differently!
+- Change `fidget_raster` render functions to return a `Result<Option<Image>,
+  RenderError>`, because it's possible for callers to provide shapes without a
+  suitable `ShapeVar` map.  `Ok(None)` still means cancellation.
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

@@ -80,10 +80,14 @@ impl RenderConfigLike for RenderConfig<'_> {
 
 impl RenderConfig<'_> {
     /// Render a shape in 2D using this configuration
+    ///
+    ///
+    /// Returns [`Ok(Some(Image))`](Image) of pixel data on success, `Ok(None)`
+    /// if the render was cancelled, or an error.
     pub fn run<F: Function + RenderHints>(
         &self,
         shape: Shape<F>,
-    ) -> Result<Image, RenderError> {
+    ) -> Result<Option<Image>, RenderError> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -92,7 +96,7 @@ impl RenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Result<Image, RenderError> {
+    ) -> Result<Option<Image>, RenderError> {
         render(shape, vars, self)
     }
 
@@ -422,14 +426,14 @@ impl<F: Function> Worker<'_, F> {
 /// This function is parameterized by shape type (which determines how we
 /// perform evaluation).
 ///
-/// Returns an `Image<DistancePixel>` of pixel data if rendering succeeds, or
-/// `None` if rendering was cancelled (using the [`RenderConfig::cancel`]
-/// token)
+/// Returns an [`Ok(Some(Image))`](Image) of pixel data if rendering succeeds,
+/// `Ok(None)` if rendering was cancelled (using the [`RenderConfig::cancel`]
+/// token), or an error.
 pub fn render<F: Function + RenderHints>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &RenderConfig,
-) -> Result<Image, RenderError> {
+) -> Result<Option<Image>, RenderError> {
     vars.check(&shape)?;
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
@@ -439,13 +443,15 @@ pub fn render<F: Function + RenderHints>(
         default_tile_sizes = F::tile_sizes_2d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles = super::render_tiles::<F, Worker<F>>(
+    let tiles = match super::render_tiles::<F, Worker<F>>(
         shape.clone(),
         vars,
         config,
         tile_sizes,
-    )
-    .ok_or(RenderError::Cancelled)?;
+    ) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -463,7 +469,7 @@ pub fn render<F: Function + RenderHints>(
             }
         }
     }
-    Ok(image)
+    Ok(Some(image))
 }
 
 #[cfg(test)]
@@ -490,10 +496,7 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        let Err(out) = cfg.run(shape) else {
-            panic!("expected error")
-        };
-        assert_eq!(out, RenderError::Cancelled);
+        assert!(cfg.run(shape).unwrap().is_none());
     }
 
     #[test]
@@ -522,7 +525,9 @@ mod test {
 
         let mut vars = ShapeVars::new();
         vars.insert(i, 1.0);
-        assert!(cfg.run_with_vars::<_>(shape, &vars).is_ok());
+        cfg.run_with_vars::<_>(shape, &vars)
+            .expect("rendering worked")
+            .expect("not cancelled");
     }
 
     #[test]

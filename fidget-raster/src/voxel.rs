@@ -80,8 +80,8 @@ impl RenderConfigLike for RenderConfig<'_> {
 impl RenderConfig<'_> {
     /// Render a shape in 3D using this configuration
     ///
-    /// Returns an [`Image`] of pixel data, or `None` if rendering was
-    /// cancelled.
+    /// Returns [`Ok(Some(Image))`](Image) of pixel data on success, `Ok(None)`
+    /// if the render was cancelled, or an error.
     ///
     /// In the resulting image, saturated pixels (i.e. pixels in the image which
     /// are fully occupied up to the camera) are represented with `depth =
@@ -89,7 +89,7 @@ impl RenderConfig<'_> {
     pub fn run<F: Function + RenderHints>(
         &self,
         shape: Shape<F>,
-    ) -> Result<Image, RenderError> {
+    ) -> Result<Option<Image>, RenderError> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -98,7 +98,7 @@ impl RenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Result<Image, RenderError> {
+    ) -> Result<Option<Image>, RenderError> {
         render(shape, vars, self)
     }
 
@@ -488,13 +488,13 @@ impl<F: Function> Worker<'_, F> {
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
 ///
-/// Returns a [`Image`] of pixels, or `None` if rendering was cancelled
-/// (using the [`RenderConfig::cancel`] token)
+/// Returns [`Ok(Some(Image))`](Image) of pixel data on success, `Ok(None)` if
+/// the render was cancelled, or an error.
 pub fn render<F: Function + RenderHints>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &RenderConfig,
-) -> Result<Image, RenderError> {
+) -> Result<Option<Image>, RenderError> {
     vars.check(&shape)?;
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
@@ -505,9 +505,12 @@ pub fn render<F: Function + RenderHints>(
         default_tile_sizes = F::tile_sizes_3d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles =
-        super::render_tiles::<F, Worker<F>>(shape, vars, config, tile_sizes)
-            .ok_or(RenderError::Cancelled)?;
+    let tiles = match super::render_tiles::<F, Worker<F>>(
+        shape, vars, config, tile_sizes,
+    ) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -537,7 +540,7 @@ pub fn render<F: Function + RenderHints>(
             }
         }
     }
-    Ok(image)
+    Ok(Some(image))
 }
 
 #[cfg(test)]
@@ -556,7 +559,10 @@ mod test {
             image_size: RenderSize::from(128), // very small!
             ..Default::default()
         };
-        let image = cfg.run(shape).unwrap();
+        let image = cfg
+            .run(shape)
+            .expect("rendering should not fail")
+            .expect("rendering should not be cancelled");
         assert_eq!(image.len(), 128 * 128);
     }
 
@@ -572,10 +578,7 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        let Err(out) = cfg.run::<_>(shape) else {
-            panic!("expected error")
-        };
-        assert_eq!(out, RenderError::Cancelled);
+        assert!(cfg.run::<_>(shape).unwrap().is_none());
     }
 
     #[test]
@@ -604,6 +607,8 @@ mod test {
 
         let mut vars = ShapeVars::new();
         vars.insert(i, 1.0);
-        assert!(cfg.run_with_vars::<_>(shape, &vars).is_ok());
+        cfg.run_with_vars::<_>(shape, &vars)
+            .expect("rendering worked")
+            .expect("not cancelled");
     }
 }

@@ -283,7 +283,11 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let start = std::time::Instant::now();
     for _ in 0..settings.n {
-        image = cfg.run(shape.clone()).unwrap();
+        // Unwrap both cancellation and errors
+        image = cfg
+            .run(shape.clone())
+            .expect("rendering should not fail")
+            .expect("rendering should not be cancelled");
     }
     info!(
         "Rendered {}× at {:?} ms/frame",
@@ -485,36 +489,33 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             ..Default::default()
         };
         let mut image = fidget::raster::Image::default();
-        match mode {
-            RenderMode2D::Mono => {
-                for _ in 0..settings.n {
-                    let tmp = cfg.run::<_>(shape.clone()).unwrap();
+        for _ in 0..settings.n {
+            let tmp = cfg
+                .run::<_>(shape.clone())
+                .expect("render should not fail")
+                .expect("render should not be cancelled");
+            match mode {
+                RenderMode2D::Mono => {
                     image = fidget::raster::effects::to_rgba_bitmap(
                         tmp,
                         false,
                         cfg.threads,
                     );
                 }
-            }
-            RenderMode2D::Sdf => {
-                for _ in 0..settings.n {
-                    let tmp = cfg.run(shape.clone()).unwrap();
+                RenderMode2D::Sdf => {
                     image = fidget::raster::effects::to_rgba_distance(
                         tmp,
                         cfg.threads,
                     );
                 }
-            }
-            RenderMode2D::Debug => {
-                for _ in 0..settings.n {
-                    let tmp = cfg.run::<_>(shape.clone()).unwrap();
+                RenderMode2D::Debug => {
                     image = fidget::raster::effects::to_debug_bitmap(
                         tmp,
                         cfg.threads,
                     );
                 }
+                RenderMode2D::Brute => unreachable!(),
             }
-            RenderMode2D::Brute => unreachable!(),
         }
         image.into_iter().flatten().collect()
     }
