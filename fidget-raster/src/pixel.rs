@@ -1,13 +1,16 @@
 //! 2D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
-    Tile, TileSizesRef,
+    Image as GenericImage, RenderConfig as RenderConfigLike, RenderError,
+    RenderWorker, Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
     render::{CancelToken, RenderHints, ThreadPool, TileSizes},
-    shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
+    shape::{
+        Shape, ShapeBulkEval, ShapeBulkEvalError, ShapeTracingEval,
+        ShapeTracingEvalError, ShapeVars,
+    },
     types::Interval,
 };
 use nalgebra::{Matrix3, Point2, Vector2};
@@ -80,7 +83,7 @@ impl RenderConfig<'_> {
     pub fn run<F: Function + RenderHints>(
         &self,
         shape: Shape<F>,
-    ) -> Option<Image> {
+    ) -> Result<Image, RenderError> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -89,7 +92,7 @@ impl RenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<Image> {
+    ) -> Result<Image, RenderError> {
         render(shape, vars, self)
     }
 
@@ -296,18 +299,20 @@ impl<F: Function> Worker<'_, F> {
         let y = Interval::new(base.y, base.y + tile_size as f32);
         let z = Interval::new(0.0, 0.0);
 
-        // The shape applies the screen-to-model transform
-        let (i, simplify) = self
-            .eval_interval
-            .eval_with_transform_and_vars(
+        // Evaluation applies the world-to-model transform.  We know that vars
+        // are valid because we check them at the top of `render`
+        let (i, simplify) =
+            match self.eval_interval.eval_with_transform_and_vars(
                 shape.i_tape(&mut self.tape_storage),
                 x,
                 y,
                 z,
                 &self.transform,
                 self.vars,
-            )
-            .unwrap();
+            ) {
+                Ok(v) => v,
+                Err(ShapeTracingEvalError::MissingVar(..)) => unreachable!(),
+            };
 
         if !self.pixel_perfect {
             let pixel = if i.upper() < 0.0 {
@@ -379,17 +384,21 @@ impl<F: Function> Worker<'_, F> {
             }
         }
 
-        let out = self
-            .eval_float_slice
-            .eval_with_transform_and_vars(
-                shape.f_tape(&mut self.tape_storage),
-                &self.scratch.x,
-                &self.scratch.y,
-                &self.scratch.z,
-                &self.transform,
-                self.vars,
-            )
-            .unwrap();
+        let out = match self.eval_float_slice.eval_with_transform_and_vars(
+            shape.f_tape(&mut self.tape_storage),
+            &self.scratch.x,
+            &self.scratch.y,
+            &self.scratch.z,
+            &self.transform,
+            self.vars,
+        ) {
+            Ok(v) => v,
+            // We checked the var map at the beginning of `render`
+            Err(ShapeBulkEvalError::MissingVar(..))
+            // We know that our X/Y/Z slices are all the same length
+            | Err(ShapeBulkEvalError::MismatchedVarSlices { .. })
+                => unreachable!(),
+        };
 
         let mut index = 0;
         for j in 0..tile_size {
@@ -420,7 +429,8 @@ pub fn render<F: Function + RenderHints>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &RenderConfig,
-) -> Option<Image> {
+) -> Result<Image, RenderError> {
+    vars.check(&shape)?;
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
     let tile_sizes = if let Some(ts) = &config.tile_sizes {
@@ -434,7 +444,8 @@ pub fn render<F: Function + RenderHints>(
         vars,
         config,
         tile_sizes,
-    )?;
+    )
+    .ok_or(RenderError::Cancelled)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -452,13 +463,18 @@ pub fn render<F: Function + RenderHints>(
             }
         }
     }
-    Some(image)
+    Ok(image)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use fidget_core::{Context, shape::Shape, vm::VmFunction};
+    use fidget_core::{
+        Context,
+        shape::Shape,
+        var::Var,
+        vm::{VmFunction, VmShape},
+    };
 
     const HI: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../models/hi.vm"));
@@ -474,8 +490,39 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        let out = cfg.run(shape);
-        assert!(out.is_none());
+        let Err(out) = cfg.run(shape) else {
+            panic!("expected error")
+        };
+        assert_eq!(out, RenderError::Cancelled);
+    }
+
+    #[test]
+    fn missing_var() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let v = ctx.var(Var::new());
+        let s = ctx.sub(x, v).unwrap();
+        let shape = VmShape::new(&ctx, s).unwrap();
+
+        let cfg = RenderConfig {
+            image_size: RenderSize::new(64, 64),
+            ..Default::default()
+        };
+        let Err(out) = cfg.run::<_>(shape.clone()) else {
+            panic!("expected error")
+        };
+        let var = ctx.get_var(v).unwrap();
+        let Var::V(i) = var else {
+            panic!("expected Var::V")
+        };
+        assert_eq!(
+            out,
+            RenderError::MissingVar(fidget_core::shape::MissingVar { var: i })
+        );
+
+        let mut vars = ShapeVars::new();
+        vars.insert(i, 1.0);
+        assert!(cfg.run_with_vars::<_>(shape, &vars).is_ok());
     }
 
     #[test]

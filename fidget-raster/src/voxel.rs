@@ -1,8 +1,8 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
-    Tile, TileSizesRef,
+    Image as GenericImage, RenderConfig as RenderConfigLike, RenderError,
+    RenderWorker, Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
@@ -89,7 +89,7 @@ impl RenderConfig<'_> {
     pub fn run<F: Function + RenderHints>(
         &self,
         shape: Shape<F>,
-    ) -> Option<Image> {
+    ) -> Result<Image, RenderError> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -98,7 +98,7 @@ impl RenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<Image> {
+    ) -> Result<Image, RenderError> {
         render(shape, vars, self)
     }
 
@@ -494,9 +494,11 @@ pub fn render<F: Function + RenderHints>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &RenderConfig,
-) -> Option<Image> {
+) -> Result<Image, RenderError> {
+    vars.check(&shape)?;
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
+
     let tile_sizes = if let Some(ts) = &config.tile_sizes {
         TileSizesRef::new(ts, max_size)
     } else {
@@ -504,7 +506,8 @@ pub fn render<F: Function + RenderHints>(
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
     let tiles =
-        super::render_tiles::<F, Worker<F>>(shape, vars, config, tile_sizes)?;
+        super::render_tiles::<F, Worker<F>>(shape, vars, config, tile_sizes)
+            .ok_or(RenderError::Cancelled)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -534,13 +537,13 @@ pub fn render<F: Function + RenderHints>(
             }
         }
     }
-    Some(image)
+    Ok(image)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use fidget_core::{Context, vm::VmShape};
+    use fidget_core::{Context, var::Var, vm::VmShape};
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
@@ -569,7 +572,38 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        let out = cfg.run::<_>(shape);
-        assert!(out.is_none());
+        let Err(out) = cfg.run::<_>(shape) else {
+            panic!("expected error")
+        };
+        assert_eq!(out, RenderError::Cancelled);
+    }
+
+    #[test]
+    fn missing_var() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let v = ctx.var(Var::new());
+        let s = ctx.sub(x, v).unwrap();
+        let shape = VmShape::new(&ctx, s).unwrap();
+
+        let cfg = RenderConfig {
+            image_size: RenderSize::new(64, 64, 64),
+            ..Default::default()
+        };
+        let Err(out) = cfg.run::<_>(shape.clone()) else {
+            panic!("expected error")
+        };
+        let var = ctx.get_var(v).unwrap();
+        let Var::V(i) = var else {
+            panic!("expected Var::V")
+        };
+        assert_eq!(
+            out,
+            RenderError::MissingVar(fidget_core::shape::MissingVar { var: i })
+        );
+
+        let mut vars = ShapeVars::new();
+        vars.insert(i, 1.0);
+        assert!(cfg.run_with_vars::<_>(shape, &vars).is_ok());
     }
 }

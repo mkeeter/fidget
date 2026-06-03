@@ -475,6 +475,18 @@ pub struct BadPixelCount {
     pub height: u32,
 }
 
+/// Error type for render operations builder
+#[derive(thiserror::Error, Debug, PartialEq)]
+pub enum RenderError {
+    /// Missing variable in the [`ShapeVars`](fidget_core::shape::ShapeVars) map
+    #[error(transparent)]
+    MissingVar(#[from] fidget_core::shape::MissingVar),
+
+    /// Render was cancelled
+    #[error("render was cancelled")]
+    Cancelled,
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

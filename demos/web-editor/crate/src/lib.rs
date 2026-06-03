@@ -1,7 +1,7 @@
 use fidget::{
     context::{Context, Tree},
     gui::{Canvas2, Canvas3, DragMode, View2, View3},
-    raster::{pixel, voxel},
+    raster::{RenderError, pixel, voxel},
     render::{CancelToken, ImageSize, ThreadPool, TileSizes, VoxelSize},
     vm::{VmData, VmShape},
 };
@@ -66,7 +66,11 @@ pub fn render_2d(
             cancel,
         };
 
-        let tmp = cfg.run(shape)?;
+        let tmp = match cfg.run(shape) {
+            Ok(v) => v,
+            Err(RenderError::Cancelled) => return None,
+            Err(RenderError::MissingVar(..)) => panic!(),
+        };
         let out =
             fidget::raster::effects::to_rgba_bitmap(tmp, false, cfg.threads);
         Some(out.into_iter().flatten().collect())
@@ -130,7 +134,11 @@ fn render_3d_inner(
         world_to_model: view.world_to_model(),
         cancel,
     };
-    cfg.run(shape.clone())
+    match cfg.run(shape.clone()) {
+        Ok(v) => Some(v),
+        Err(RenderError::Cancelled) => None,
+        Err(RenderError::MissingVar(..)) => panic!(),
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
