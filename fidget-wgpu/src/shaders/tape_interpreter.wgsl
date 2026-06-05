@@ -16,18 +16,12 @@ fn transformed_inputs(ix: Value, iy: Value, iz: Value) -> array<Value, 3> {
         );
     }
 
-    // Build up input map
-    var m = array(Value(), Value(), Value());
-    if config.axes.x < 3 {
-        m[0] = op_div(ts[0], ts[3]);
-    }
-    if config.axes.y < 3 {
-        m[1] = op_div(ts[1], ts[3]);
-    }
-    if config.axes.z < 3 {
-        m[2] = op_div(ts[2], ts[3]);
-    }
-    return m;
+    // Apply homogeneous transform
+    return array(
+        op_div(ts[0], ts[3]),
+        op_div(ts[1], ts[3]),
+        op_div(ts[2], ts[3]),
+    );
 }
 
 struct TapeResult {
