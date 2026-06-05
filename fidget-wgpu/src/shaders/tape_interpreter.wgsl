@@ -16,18 +16,12 @@ fn transformed_inputs(ix: Value, iy: Value, iz: Value) -> array<Value, 3> {
         );
     }
 
-    // Build up input map
-    var m = array(Value(), Value(), Value());
-    if config.axes.x < 3 {
-        m[config.axes.x] = op_div(ts[0], ts[3]);
-    }
-    if config.axes.y < 3 {
-        m[config.axes.y] = op_div(ts[1], ts[3]);
-    }
-    if config.axes.z < 3 {
-        m[config.axes.z] = op_div(ts[2], ts[3]);
-    }
-    return m;
+    // Apply homogeneous transform
+    return array(
+        op_div(ts[0], ts[3]),
+        op_div(ts[1], ts[3]),
+        op_div(ts[2], ts[3]),
+    );
 }
 
 struct TapeResult {
@@ -36,7 +30,7 @@ struct TapeResult {
     count: u32,
 }
 
-fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) -> TapeResult {
+fn run_tape(start: u32, xyz: array<Value, 3>, stack: ptr<function, Stack>) -> TapeResult {
     var i: u32 = start;
     var count: u32 = 0u;
     var reg: array<Value, REG_COUNT>;
@@ -70,7 +64,17 @@ fn run_tape(start: u32, inputs: array<Value, 3>, stack: ptr<function, Stack>) ->
                 out.value = reg[op[1]];
                 continue;
             }
-            case OP_INPUT:   { tmp = inputs[imm_u]; }
+            case OP_INPUT: {
+                if imm_u == config.axes.x {
+                    tmp = xyz[0u];
+                } else if imm_u == config.axes.y {
+                    tmp = xyz[1u];
+                } else if imm_u == config.axes.z {
+                    tmp = xyz[2u];
+                } else {
+                    tmp = build_imm(var_values[imm_u]);
+                }
+            }
             case OP_COPY:    { tmp = lhs; }
             case OP_NEG:     { tmp = op_neg(lhs); }
             case OP_ABS:     { tmp = op_abs(lhs); }

@@ -1,6 +1,6 @@
-@group(1) @binding(0) var<storage, read> subtiles_out: TileListInput;
-@group(1) @binding(1) var<storage, read_write> z_hist: array<atomic<u32>>;
-@group(1) @binding(2) var<storage, read_write> sorted_subtiles: TileListOutput;
+@group(2) @binding(0) var<storage, read> subtiles_out: TileListInput;
+@group(2) @binding(1) var<storage, read_write> z_hist: array<atomic<u32>>;
+@group(2) @binding(2) var<storage, read_write> sorted_subtiles: TileListOutput;
 
 /// Output tile size
 override SUBTILE_SIZE: u32;
