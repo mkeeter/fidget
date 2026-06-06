@@ -528,6 +528,7 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &MeshSettings,
 ) -> (fidget::mesh::Mesh, std::time::Duration, std::time::Duration) {
     let mut mesh = fidget::mesh::Mesh::new();
+    let shape = shape.try_into().expect("no variables");
 
     // Transform the shape based on our render settings
     let s = 1.0 / settings.scale;
