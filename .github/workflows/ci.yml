@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-aarch64:
+    strategy:
+      matrix:
+        include:
+          - target: "aarch64-apple-darwin"
+            native: true
+          - target: "aarch64-pc-windows-msvc"
+            native: false
+          - target: "aarch64-unknown-linux-gnu"
+            native: false
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: check-aarch64
+    - uses: ./.github/actions/rust-check
+      with:
+        target: ${{ matrix.target }}
+        native: ${{ matrix.native }}
+
+  check-x86_64:
+    strategy:
+      matrix:
+        include:
+          - target: "x86_64-unknown-linux-gnu"
+            native: true
+          - target: "x86_64-pc-windows-msvc"
+            native: false
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: check-x86_64
+    - uses: ./.github/actions/rust-check
+      with:
+        target: ${{ matrix.target }}
+
+  check-wasm:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: check-wasm
+    - name: Install wasm target
+      run: rustup target add wasm32-unknown-unknown
+    - name: Check
+      # `cargo check` doesn't find MIR diagnostics (rust#49292), so we have to
+      # compile instead.  We're using `cargo rustc` instead of `cargo build` to
+      # pass `-Dwarnings`; we don't want to use `RUSTFLAGS` because that will
+      # override customization in `.cargo/config.toml`
+      run: cargo rustc --target=wasm32-unknown-unknown -pfidget --no-default-features --features="rhai" -- -Dwarnings
+    - name: Clippy
+      run: cargo clippy --target=wasm32-unknown-unknown -pfidget --no-default-features --features="rhai" -- -Dwarnings
+
+  # We test documentation using nightly to match docs.rs.
+  check-docs:
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: '--cfg docsrs -D warnings'
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: check-docs
+    - name: Install nightly Rust
+      run: rustup default nightly
+    - name: Check docs
+      run: cargo doc --workspace --no-deps --document-private-items
+
+  build-constraints-demo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./demos/constraints
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: constraints
+    - name: Install wasm target
+      run: rustup target add wasm32-unknown-unknown
+    - name: Install trunk
+      run: |
+        wget -qO- https://github.com/trunk-rs/trunk/releases/download/v0.20.2/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xzf-
+    - name: Build wasm-demo
+      run: ./trunk build --release
+
+  build-wasm-demo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./demos/web-editor/web
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: wasm-demo
+    - name: Install wasm target
+      run: rustup target add wasm32-unknown-unknown
+    - name: Install wasm-pack
+      run: |
+        curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    - name: Install npm dependencies
+      run: npm install
+    - name: Check Prettier
+      run: npx prettier . --check
+    - name: Build wasm-demo
+      run: npm run dist
+    - name: Check `git` cleanliness
+      run: |
+        if [[ -n $(git status --porcelain ../crate/Cargo.lock) ]]; then
+          echo "Error: demos/web-editor/crate/Cargo.lock needs to be updated"
+          git diff ../crate/Cargo.lock
+          exit 1
+        fi
+
+  workspace-hack-check:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install cargo-hakari
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-hakari
+    - name: Check workspace-hack Cargo.toml is up-to-date
+      run: cargo hakari generate --diff
+    - name: Check all crates depend on workspace-hack
+      run: cargo hakari manage-deps --dry-run
+
+  test:
+    strategy:
+      matrix:
+        os: ["ubuntu-latest", "macos-14", "windows-latest"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v6
+    - uses: taiki-e/install-action@nextest
+    - uses: ./.github/actions/rust-cache
+      with:
+        cache-key: test
+    - name: Run crate tests
+      run: cargo nextest run --verbose --cargo-verbose --retries 2
+    - name: Run doc tests
+      run: cargo test --verbose --doc
+
+  finish:
+    name: CI finished
+    runs-on: ubuntu-slim
+    permissions: {}
+    needs:
+      - check-aarch64
+      - check-x86_64
+      - check-wasm
+      - check-docs
+      - build-constraints-demo
+      - build-wasm-demo
+      - workspace-hack-check
+      - test
+    if: "${{ !cancelled() }}"
+    steps:
+      - name: Calculate the correct exit status
+        run: echo $needs | jq --exit-status 'all(.result == "success" or .result == "skipped")'
+        env:
+          needs: ${{ toJson(needs) }}
