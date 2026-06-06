@@ -80,10 +80,8 @@ fn main() -> Result<(), std::io::Error> {
         // region number (0-), since that's what actually matters when
         // grouping transitions.
         let mut regions = [u8::MAX; 8];
-        for (i, r) in filled_regions
-            .into_iter()
-            .chain(empty_regions.into_iter())
-            .enumerate()
+        for (i, r) in
+            filled_regions.into_iter().chain(empty_regions).enumerate()
         {
             for (j, region) in regions.iter_mut().enumerate() {
                 if r & (1 << j) != 0 {

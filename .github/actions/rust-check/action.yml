@@ -22,11 +22,10 @@ runs:
           echo "PACKAGE_FLAGS=-p fidget" >> $GITHUB_ENV
         fi
       shell: bash
-    - name: Check
-      run: cargo check --target=${{ inputs.target }} $PACKAGE_FLAGS --verbose
-      shell: bash
+    # We just use `cargo clippy` because it's a superset of`cargo check`, and it
+    # accepts the `-D warnings` flag.
     - name: Clippy
-      run: cargo clippy --target=${{ inputs.target }} $PACKAGE_FLAGS --verbose
+      run: cargo clippy --target=${{ inputs.target }} $PACKAGE_FLAGS --verbose -- -D warnings
       shell: bash
     - name: Check format
       run: cargo fmt -- --check || exit 1
