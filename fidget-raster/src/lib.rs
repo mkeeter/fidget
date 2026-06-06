@@ -475,14 +475,6 @@ pub struct BadPixelCount {
     pub height: u32,
 }
 
-/// Error type for render operations
-#[derive(thiserror::Error, Debug, PartialEq)]
-pub enum RenderError {
-    /// Missing variable in the [`ShapeVars`] map
-    #[error(transparent)]
-    MissingVar(#[from] fidget_core::shape::MissingVar),
-}
-
 #[cfg(test)]
 mod test {
     use super::*;

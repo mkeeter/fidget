@@ -182,9 +182,9 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         ..Default::default()
     };
 
+    let bound_shape = shape.try_into().expect("no vars allowed");
     let tmp = config
-        .run(shape)
-        .expect("rendering should not fail")
+        .run(bound_shape)
         .expect("rendering should not be cancelled");
     let out = match mode {
         Mode2D::Color => {

@@ -1,14 +1,14 @@
 //! 2D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    Image as GenericImage, RenderConfig as RenderConfigLike, RenderError,
-    RenderWorker, Tile, TileSizesRef,
+    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
+    Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
     render::{CancelToken, RenderHints, ThreadPool, TileSizes},
     shape::{
-        Shape, ShapeBulkEval, ShapeBulkEvalError, ShapeTracingEval,
+        BoundShape, ShapeBulkEval, ShapeBulkEvalError, ShapeTracingEval,
         ShapeTracingEvalError, ShapeVars,
     },
     types::Interval,
@@ -81,23 +81,13 @@ impl RenderConfigLike for RenderConfig<'_> {
 impl RenderConfig<'_> {
     /// Render a shape in 2D using this configuration
     ///
-    ///
-    /// Returns [`Ok(Some(Image))`](Image) of pixel data on success, `Ok(None)`
-    /// if the render was cancelled, or an error.
+    /// Returns [`Some(Image)`](Image) of pixel data on success, or `None`
+    /// if the render was cancelled.
     pub fn run<F: Function + RenderHints>(
         &self,
-        shape: Shape<F>,
-    ) -> Result<Option<Image>, RenderError> {
-        self.run_with_vars::<F>(shape, &ShapeVars::new())
-    }
-
-    /// Render a shape in 2D using this configuration and variables
-    pub fn run_with_vars<F: Function + RenderHints>(
-        &self,
-        shape: Shape<F>,
-        vars: &ShapeVars<f32>,
-    ) -> Result<Option<Image>, RenderError> {
-        render(shape, vars, self)
+        shape: BoundShape<F, f32>,
+    ) -> Option<Image> {
+        render(shape, self)
     }
 
     /// Returns the combined screen-to-model transform matrix
@@ -430,11 +420,11 @@ impl<F: Function> Worker<'_, F> {
 /// `Ok(None)` if rendering was cancelled (using the [`RenderConfig::cancel`]
 /// token), or an error.
 pub fn render<F: Function + RenderHints>(
-    shape: Shape<F>,
-    vars: &ShapeVars<f32>,
+    b: BoundShape<F, f32>,
     config: &RenderConfig,
-) -> Result<Option<Image>, RenderError> {
-    vars.check(&shape)?;
+) -> Option<Image> {
+    let shape = b.shape();
+    let vars = b.vars();
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
     let tile_sizes = if let Some(ts) = &config.tile_sizes {
@@ -443,15 +433,12 @@ pub fn render<F: Function + RenderHints>(
         default_tile_sizes = F::tile_sizes_2d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles = match super::render_tiles::<F, Worker<F>>(
+    let tiles = super::render_tiles::<F, Worker<F>>(
         shape.clone(),
         vars,
         config,
         tile_sizes,
-    ) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
+    )?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -469,7 +456,7 @@ pub fn render<F: Function + RenderHints>(
             }
         }
     }
-    Ok(Some(image))
+    Some(image)
 }
 
 #[cfg(test)]
@@ -488,7 +475,10 @@ mod test {
     #[test]
     fn render2d_cancel() {
         let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = Shape::<VmFunction>::new(&ctx, root).unwrap();
+        let shape = Shape::<VmFunction>::new(&ctx, root)
+            .unwrap()
+            .try_into()
+            .expect("no vars");
 
         let cfg = RenderConfig {
             image_size: RenderSize::new(64, 64),
@@ -496,14 +486,15 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        assert!(cfg.run(shape).unwrap().is_none());
+        assert!(cfg.run(shape).is_none());
     }
 
     #[test]
-    fn missing_var() {
+    fn shape_with_var() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let v = ctx.var(Var::new());
+        let var = Var::new();
+        let v = ctx.var(var);
         let s = ctx.sub(x, v).unwrap();
         let shape = VmShape::new(&ctx, s).unwrap();
 
@@ -511,20 +502,10 @@ mod test {
             image_size: RenderSize::new(64, 64),
             ..Default::default()
         };
-        let Err(out) = cfg.run::<_>(shape.clone()) else {
-            panic!("expected error")
-        };
-        let var = ctx.get_var(v).unwrap();
-        let i = var.index().expect("expected Var::V");
-        assert_eq!(
-            out,
-            RenderError::MissingVar(fidget_core::shape::MissingVar { var: i })
-        );
-
         let mut vars = ShapeVars::new();
+        let i = var.index().expect("expected Var::V");
         vars.insert(i, 1.0);
-        cfg.run_with_vars::<_>(shape, &vars)
-            .expect("rendering worked")
+        cfg.run::<_>(shape.bind(&vars).expect("all vars present"))
             .expect("not cancelled");
     }
 
