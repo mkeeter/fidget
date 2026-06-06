@@ -164,6 +164,15 @@ impl<F: Function + Clone> Shape<F> {
     pub fn size(&self) -> usize {
         self.f.size()
     }
+
+    /// Binds a shape to a set of variable values
+    #[inline]
+    pub fn bind<'a, D>(
+        &self,
+        vars: &'a ShapeVars<D>,
+    ) -> Result<BoundShape<'a, F, D>, MissingVar> {
+        BoundShape::new(self.clone(), vars)
+    }
 }
 
 impl<F> Shape<F> {
@@ -793,6 +802,84 @@ where
     }
 }
 
+/// Shape with bound variables
+///
+/// By construction, the [`vars`](Self::vars) member is guaranteed to be
+/// populated for every (non-XYZ) variable in the shape.
+pub struct BoundShape<'a, F, D> {
+    shape: Shape<F>,
+    vars: BorrowedOrDefault<'a, ShapeVars<D>>,
+}
+
+/// Helper object which either borrows or builds a default value
+enum BorrowedOrDefault<'a, T: Default> {
+    Borrowed(&'a T),
+    Default(T),
+}
+
+impl<'a, T: Default> std::ops::Deref for BorrowedOrDefault<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        match self {
+            Self::Borrowed(t) => t,
+            Self::Default(t) => t,
+        }
+    }
+}
+
+impl<T: Default> Default for BorrowedOrDefault<'_, T> {
+    fn default() -> Self {
+        Self::Default(T::default())
+    }
+}
+
+impl<'a, F: Function, D> BoundShape<'a, F, D> {
+    /// Builds a new object, checking that all variables are present
+    pub fn new(
+        shape: Shape<F>,
+        vars: &'a ShapeVars<D>,
+    ) -> Result<Self, MissingVar> {
+        vars.check(&shape)?;
+        Ok(Self {
+            shape,
+            vars: BorrowedOrDefault::Borrowed(vars),
+        })
+    }
+
+    /// Returns the shape handle
+    pub fn shape(&self) -> &Shape<F> {
+        &self.shape
+    }
+
+    /// Returns the variables map
+    pub fn vars(&self) -> &ShapeVars<D> {
+        &self.vars
+    }
+}
+
+impl<'a, F: Function> TryFrom<Shape<F>> for BoundShape<'a, F, f32> {
+    type Error = MissingVar;
+    fn try_from(shape: Shape<F>) -> Result<Self, Self::Error> {
+        if let Some(v) = shape
+            .inner()
+            .vars()
+            .iter()
+            .flat_map(|(v, _i)| match v {
+                Var::X | Var::Y | Var::Z => None,
+                Var::V(i) => Some(i),
+            })
+            .next()
+        {
+            Err(MissingVar { var: v })
+        } else {
+            Ok(BoundShape {
+                shape,
+                vars: BorrowedOrDefault::default(),
+            })
+        }
+    }
+}
+
 /// Trait for types that can be transformed by a 4x4 homogeneous transform matrix
 pub trait Transformable {
     /// Apply the given transform to an `(x, y, z)` position
@@ -877,6 +964,41 @@ mod test {
             seen[vs[&v]] = true;
         }
         assert!(seen.iter().all(|i| *i));
+    }
+
+    #[test]
+    fn shape_bind() {
+        let v = Var::new();
+        let s = Tree::x() + Tree::y() + v;
+
+        let mut ctx = Context::new();
+        let s = ctx.import(&s);
+
+        // Try the TryFrom conversion, which will fail
+        let s = VmShape::new(&ctx, s).unwrap();
+        let Err(e) = BoundShape::try_from(s.clone()) else {
+            panic!("expected error");
+        };
+        let vi = v.index().unwrap();
+        assert_eq!(e, MissingVar { var: vi });
+
+        // Bind to a map with no vars
+        let mut m = ShapeVars::new();
+        let Err(e) = s.bind(&m) else {
+            panic!("expected error");
+        };
+        assert_eq!(e, MissingVar { var: vi });
+
+        // Add an unrelated var
+        m.insert(Var::new().index().unwrap(), 1.0f32);
+        let Err(e) = s.bind(&m) else {
+            panic!("expected error");
+        };
+        assert_eq!(e, MissingVar { var: vi });
+
+        // Finally, bind to a map with the target var
+        m.insert(vi, 2.0f32);
+        assert!(s.bind(&m).is_ok());
     }
 
     #[test]

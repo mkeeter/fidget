@@ -515,9 +515,7 @@ mod test {
             panic!("expected error")
         };
         let var = ctx.get_var(v).unwrap();
-        let Var::V(i) = var else {
-            panic!("expected Var::V")
-        };
+        let i = var.index().expect("expected Var::V");
         assert_eq!(
             out,
             RenderError::MissingVar(fidget_core::shape::MissingVar { var: i })
