@@ -806,6 +806,7 @@ where
 ///
 /// By construction, the [`vars`](Self::vars) member is guaranteed to be
 /// populated for every (non-XYZ) variable in the shape.
+#[derive(Clone)]
 pub struct BoundShape<'a, F, D> {
     shape: Shape<F>,
     vars: BorrowedOrDefault<'a, ShapeVars<D>>,
@@ -815,6 +816,15 @@ pub struct BoundShape<'a, F, D> {
 enum BorrowedOrDefault<'a, T: Default> {
     Borrowed(&'a T),
     Default(T),
+}
+
+impl<'a, T: Default> Clone for BorrowedOrDefault<'a, T> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Borrowed(b) => Self::Borrowed(b),
+            Self::Default(..) => Self::Default(T::default()),
+        }
+    }
 }
 
 impl<'a, T: Default> std::ops::Deref for BorrowedOrDefault<'a, T> {

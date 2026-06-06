@@ -280,12 +280,13 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     };
 
     let mut image = Default::default();
+    let bound_shape = fidget::shape::BoundShape::try_from(shape).unwrap();
 
     let start = std::time::Instant::now();
     for _ in 0..settings.n {
         // Unwrap both cancellation and errors
         image = cfg
-            .run(shape.clone())
+            .run(bound_shape.clone())
             .expect("rendering should not fail")
             .expect("rendering should not be cancelled");
     }
