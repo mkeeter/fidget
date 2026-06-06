@@ -12,7 +12,10 @@ use super::{
 use fidget_core::{
     eval::Function,
     render::{RenderHandle, RenderHints, ThreadPool},
-    shape::{BoundShape, Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
+    shape::{
+        BoundShape, Shape, ShapeBulkEval, ShapeBulkEvalError, ShapeTracingEval,
+        ShapeTracingEvalError, ShapeVars,
+    },
     types::Grad,
 };
 use std::collections::VecDeque;
@@ -50,9 +53,7 @@ impl Octree {
         b: &BoundShape<F, f32>,
         settings: &Settings,
     ) -> Option<Self> {
-        let shape = b.shape();
-        let vars = b.vars();
-        let mut out = Self::build_inner(shape, vars, settings)?;
+        let mut out = Self::build_inner(b, settings)?;
 
         // Apply the transform from [-1, +1] back to model space
         if settings.world_to_model != nalgebra::Matrix4::identity() {
@@ -70,11 +71,11 @@ impl Octree {
     /// # Panics
     /// If `shape` and `vars` are not compatible
     fn build_inner<F: Function + RenderHints + Clone>(
-        shape: &Shape<F>,
-        vars: &ShapeVars<f32>,
+        b: &BoundShape<F, f32>,
         settings: &Settings,
     ) -> Option<Self> {
-        vars.check(shape).unwrap();
+        let shape = b.shape();
+        let vars = b.vars();
         if let Some(threads) = settings.threads {
             Self::build_inner_mt(shape, settings, vars, threads)
         } else {
@@ -526,17 +527,17 @@ impl<'a, F: Function + RenderHints> OctreeBuilder<'a, F> {
         if self.cancel.is_cancelled() {
             return false;
         }
-        let (i, r) = self
-            .eval_interval
-            .eval_raw(
-                eval.i_tape(&mut self.tape_storage),
-                cell.bounds[crate::types::X],
-                cell.bounds[crate::types::Y],
-                cell.bounds[crate::types::Z],
-                self.world_to_model,
-                self.vars,
-            )
-            .unwrap();
+        let (i, r) = match self.eval_interval.eval_raw(
+            eval.i_tape(&mut self.tape_storage),
+            cell.bounds[crate::types::X],
+            cell.bounds[crate::types::Y],
+            cell.bounds[crate::types::Z],
+            self.world_to_model,
+            self.vars,
+        ) {
+            Ok(v) => v,
+            Err(ShapeTracingEvalError::MissingVar(..)) => unreachable!(),
+        };
         self.octree[cell] = if i.upper() < 0.0 {
             Cell::Full
         } else if i.lower() > 0.0 {
@@ -602,17 +603,20 @@ impl<'a, F: Function + RenderHints> OctreeBuilder<'a, F> {
             zs[i.index()] = z;
         }
 
-        let out = self
-            .eval_float_slice
-            .eval_raw(
-                eval.f_tape(&mut self.tape_storage),
-                &xs,
-                &ys,
-                &zs,
-                self.world_to_model,
-                ShapeBulkEval::<F::FloatSliceEval>::var_value(self.vars),
-            )
-            .unwrap();
+        let out = match self.eval_float_slice.eval_raw(
+            eval.f_tape(&mut self.tape_storage),
+            &xs,
+            &ys,
+            &zs,
+            self.world_to_model,
+            ShapeBulkEval::<F::FloatSliceEval>::var_value(self.vars),
+        ) {
+            Ok(v) => v,
+            Err(
+                ShapeBulkEvalError::MissingVar(..)
+                | ShapeBulkEvalError::MismatchedVarSlices { .. },
+            ) => unreachable!(),
+        };
         debug_assert_eq!(out.len(), 8);
 
         // Build a mask of active corners, which determines cell
@@ -712,17 +716,20 @@ impl<'a, F: Function + RenderHints> OctreeBuilder<'a, F> {
             debug_assert_eq!(i, EDGE_SEARCH_SIZE * edge_count);
 
             // Do the actual evaluation
-            let out = self
-                .eval_float_slice
-                .eval_raw(
-                    eval.f_tape(&mut self.tape_storage),
-                    xs,
-                    ys,
-                    zs,
-                    self.world_to_model,
-                    ShapeBulkEval::<F::FloatSliceEval>::var_value(self.vars),
-                )
-                .unwrap();
+            let out = match self.eval_float_slice.eval_raw(
+                eval.f_tape(&mut self.tape_storage),
+                xs,
+                ys,
+                zs,
+                self.world_to_model,
+                ShapeBulkEval::<F::FloatSliceEval>::var_value(self.vars),
+            ) {
+                Ok(v) => v,
+                Err(
+                    ShapeBulkEvalError::MissingVar(..)
+                    | ShapeBulkEvalError::MismatchedVarSlices { .. },
+                ) => unreachable!(),
+            };
 
             // Update start and end positions based on evaluation
             for ((start, end), search) in start
@@ -785,17 +792,20 @@ impl<'a, F: Function + RenderHints> OctreeBuilder<'a, F> {
         }
 
         // TODO: special case for cells with multiple gradients ("features")
-        let grads = self
-            .eval_grad_slice
-            .eval_raw(
-                eval.g_tape(&mut self.tape_storage),
-                xs,
-                ys,
-                zs,
-                self.world_to_model,
-                ShapeBulkEval::<F::GradSliceEval>::var_value(self.vars),
-            )
-            .unwrap();
+        let grads = match self.eval_grad_slice.eval_raw(
+            eval.g_tape(&mut self.tape_storage),
+            xs,
+            ys,
+            zs,
+            self.world_to_model,
+            ShapeBulkEval::<F::GradSliceEval>::var_value(self.vars),
+        ) {
+            Ok(v) => v,
+            Err(
+                ShapeBulkEvalError::MissingVar(..)
+                | ShapeBulkEvalError::MismatchedVarSlices { .. },
+            ) => unreachable!(),
+        };
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;

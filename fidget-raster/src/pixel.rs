@@ -407,18 +407,13 @@ impl<F: Function> Worker<'_, F> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Renders the given tape into a 2D image at Z = 0 according to the provided
-/// configuration.
+/// Renders a shape into a 2D image at Z = 0, with the provided configuration
 ///
-/// The tape provides the shape; the configuration supplies resolution,
-/// transforms, etc.
+/// The shape provides the evaluator backend (`F`) and bound variables; the
+/// configuration supplies resolution, transforms, etc.
 ///
-/// This function is parameterized by shape type (which determines how we
-/// perform evaluation).
-///
-/// Returns an [`Ok(Some(Image))`](Image) of pixel data if rendering succeeds,
-/// `Ok(None)` if rendering was cancelled (using the [`RenderConfig::cancel`]
-/// token), or an error.
+/// Returns [`Some(Image)`](Image) of pixel data if rendering succeeds, or
+/// `None` if rendering was cancelled (using the [`RenderConfig::cancel`].
 pub fn render<F: Function + RenderHints>(
     b: BoundShape<F, f32>,
     config: &RenderConfig,

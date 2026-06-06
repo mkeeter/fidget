@@ -467,17 +467,14 @@ impl<F: Function> Worker<'_, F> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Renders the given tape into a 3D image according to the provided
+/// Renders the given shape into a 3D image with a particular configuration
 /// configuration.
 ///
-/// The tape provides the shape; the configuration supplies resolution,
-/// transforms, etc.
+/// The shape provides the evaluator backend (`F`) and bound variables; the
+/// configuration supplies resolution, transforms, etc.
 ///
-/// This function is parameterized by shape type, which determines how we
-/// perform evaluation.
-///
-/// Returns [`Ok(Some(Image))`](Image) of pixel data on success, `Ok(None)` if
-/// the render was cancelled, or an error.
+/// Returns [`Some(Image)`](Image) of pixel data on success, or `None` if
+/// the render was cancelled.
 pub fn render<F: Function + RenderHints>(
     b: BoundShape<F, f32>,
     config: &RenderConfig,

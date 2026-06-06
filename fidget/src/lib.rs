@@ -220,9 +220,9 @@
 //!     ..Default::default()
 //! };
 //! let shape = VmShape::from(tree);
+//! let bound_shape = shape.try_into().expect("shape has no vars");
 //! let out = cfg
-//!     .run(shape)
-//!     .expect("render should succeed")
+//!     .run(bound_shape)
 //!     .expect("render is not cancelled");
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size.height() {

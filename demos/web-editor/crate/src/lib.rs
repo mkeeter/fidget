@@ -67,7 +67,8 @@ pub fn render_2d(
         };
 
         // Unwrap errors, propagate cancellation
-        let tmp = cfg.run(shape).unwrap()?;
+        let bound_shape = shape.try_into().expect("no vars");
+        let tmp = cfg.run(bound_shape)?;
         let out =
             fidget::raster::effects::to_rgba_bitmap(tmp, false, cfg.threads);
         Some(out.into_iter().flatten().collect())
@@ -132,7 +133,8 @@ fn render_3d_inner(
         cancel,
     };
     // Unwrap errors, propagate cancellation
-    cfg.run(shape.clone()).unwrap()
+    let bound_shape = shape.try_into().expect("no vars");
+    cfg.run(bound_shape)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
