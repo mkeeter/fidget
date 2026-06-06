@@ -182,9 +182,9 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         ..Default::default()
     };
 
+    let bound_shape = shape.try_into().expect("no vars allowed");
     let tmp = config
-        .run(shape)
-        .expect("rendering should not fail")
+        .run(bound_shape)
         .expect("rendering should not be cancelled");
     let out = match mode {
         Mode2D::Color => {
@@ -216,9 +216,9 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     };
 
     // Get the geometry buffer from the voxel rendering process
+    let bound_shape = shape.try_into().expect("no variables allowed");
     let geometry_buffer = config
-        .run(shape)
-        .expect("rendering should not fail")
+        .run(bound_shape)
         .expect("rendering should not be cancelled");
 
     // For both rendering modes, we'll just pass the GeometryPixel data

@@ -43,9 +43,9 @@ impl Cfg {
             world_to_model: world_to_model * self.view.world_to_model(),
             ..Default::default()
         };
+        let bound_shape = shape.bind(&self.vars).expect("all vars present");
         let out = cfg
-            .run_with_vars(shape, &self.vars)
-            .expect("rendering should not fail")
+            .run(bound_shape)
             .expect("rendering should not be cancelled");
         let mut img_str = String::new();
         for (i, b) in out.iter().enumerate() {
@@ -372,7 +372,7 @@ fn check_circle_var<F: Function + MathFunction + RenderHints>() {
 fn check_neg_infinity<F: Function + MathFunction + RenderHints>() {
     let mut ctx = Context::new();
     let root = ctx.constant(-f64::INFINITY);
-    let shape = Shape::<F>::new(&ctx, root).unwrap();
+    let shape = Shape::<F>::new(&ctx, root).unwrap().try_into().unwrap();
 
     let cfg = RenderConfig {
         image_size: RenderSize::new(256, 256),
@@ -380,10 +380,7 @@ fn check_neg_infinity<F: Function + MathFunction + RenderHints>() {
         threads: None,
         ..Default::default()
     };
-    let out = cfg
-        .run(shape)
-        .expect("rendering should not fail")
-        .expect("rendering should not be cancelled");
+    let out = cfg.run(shape).expect("rendering should not be cancelled");
     assert!(out.into_iter().all(|i| i.inside()));
 }
 

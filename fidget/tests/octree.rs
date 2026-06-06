@@ -11,7 +11,7 @@ fn test_octree_camera() {
     let sphere = ((x - 1.0).square() + (y - 1.0).square() + (z - 1.0).square())
         .sqrt()
         - 0.25;
-    let shape = VmShape::from(sphere);
+    let shape = VmShape::from(sphere).try_into().unwrap();
 
     let center = Vector3::new(1.0, 1.0, 1.0);
     let settings = Settings {

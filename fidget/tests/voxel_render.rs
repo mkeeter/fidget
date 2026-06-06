@@ -32,8 +32,7 @@ fn sphere_var<F: Function + MathFunction + RenderHints>() {
             let mut vars = ShapeVars::new();
             vars.insert(v.index().unwrap(), r);
             let image = cfg
-                .run_with_vars::<_>(shape.clone(), &vars)
-                .expect("rendering should not fail")
+                .run::<_>(shape.bind(&vars).unwrap())
                 .expect("rendering should not be cancelled");
 
             check_sphere(image, size, scale, r);

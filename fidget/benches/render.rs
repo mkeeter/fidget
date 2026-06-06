@@ -1,15 +1,22 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use fidget::render::{ImageSize, ThreadPool};
+use fidget::{
+    render::{ImageSize, ThreadPool},
+    shape::BoundShape,
+};
 use std::hint::black_box;
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
 pub fn prospero_size_sweep(c: &mut Criterion) {
     let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let shape_vm =
+        &BoundShape::try_from(fidget::vm::VmShape::new(&ctx, root).unwrap())
+            .unwrap();
 
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit =
+        &BoundShape::try_from(fidget::jit::JitShape::new(&ctx, root).unwrap())
+            .unwrap();
 
     let mut group =
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
@@ -43,10 +50,14 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
 
 pub fn prospero_thread_sweep(c: &mut Criterion) {
     let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let shape_vm =
+        &BoundShape::try_from(fidget::vm::VmShape::new(&ctx, root).unwrap())
+            .unwrap();
 
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit =
+        &BoundShape::try_from(fidget::jit::JitShape::new(&ctx, root).unwrap())
+            .unwrap();
 
     let mut group =
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");

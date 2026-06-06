@@ -29,11 +29,12 @@
 //!     + Tree::z().square();
 //! let tree: Tree = radius_squared.sqrt() - 0.6;
 //! let shape = VmShape::from(tree);
+//! let bound_shape = shape.try_into().expect("no extra vars");
 //! let settings = Settings {
 //!     depth: 4,
 //!     ..Default::default()
 //! };
-//! let o = Octree::build(&shape, &settings).unwrap();
+//! let o = Octree::build(&bound_shape, &settings).unwrap();
 //! let mesh = o.walk_dual();
 //!
 //! // Open a file to write, e.g.

@@ -280,13 +280,14 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     };
 
     let mut image = Default::default();
+    let bound_shape =
+        fidget::shape::BoundShape::try_from(shape).expect("no vars allowed");
 
     let start = std::time::Instant::now();
     for _ in 0..settings.n {
         // Unwrap both cancellation and errors
         image = cfg
-            .run(shape.clone())
-            .expect("rendering should not fail")
+            .run(bound_shape.clone())
             .expect("rendering should not be cancelled");
     }
     info!(
@@ -471,6 +472,8 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             .flat_map(|i| i.into_iter())
             .collect()
     } else {
+        let bound_shape = fidget::shape::BoundShape::try_from(shape)
+            .expect("no vars allowed");
         let threads = match settings.threads {
             Some(n) if n.get() == 1 => None,
             Some(n) => Some(fidget::render::ThreadPool::Custom(
@@ -491,8 +494,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         let mut image = fidget::raster::Image::default();
         for _ in 0..settings.n {
             let tmp = cfg
-                .run::<_>(shape.clone())
-                .expect("render should not fail")
+                .run::<_>(bound_shape.clone())
                 .expect("render should not be cancelled");
             match mode {
                 RenderMode2D::Mono => {
@@ -528,6 +530,7 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &MeshSettings,
 ) -> (fidget::mesh::Mesh, std::time::Duration, std::time::Duration) {
     let mut mesh = fidget::mesh::Mesh::new();
+    let shape = shape.try_into().expect("no variables");
 
     // Transform the shape based on our render settings
     let s = 1.0 / settings.scale;

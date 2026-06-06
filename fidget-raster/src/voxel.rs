@@ -1,13 +1,13 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    Image as GenericImage, RenderConfig as RenderConfigLike, RenderError,
-    RenderWorker, Tile, TileSizesRef,
+    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
+    Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
     render::{CancelToken, RenderHints, ThreadPool, TileSizes},
-    shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
+    shape::{BoundShape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
 
@@ -80,26 +80,14 @@ impl RenderConfigLike for RenderConfig<'_> {
 impl RenderConfig<'_> {
     /// Render a shape in 3D using this configuration
     ///
-    /// Returns [`Ok(Some(Image))`](Image) of pixel data on success, `Ok(None)`
-    /// if the render was cancelled, or an error.
-    ///
     /// In the resulting image, saturated pixels (i.e. pixels in the image which
     /// are fully occupied up to the camera) are represented with `depth =
     /// self.image_size.depth()` and a normal of `[0, 0, 1]`.
     pub fn run<F: Function + RenderHints>(
         &self,
-        shape: Shape<F>,
-    ) -> Result<Option<Image>, RenderError> {
-        self.run_with_vars::<F>(shape, &ShapeVars::new())
-    }
-
-    /// Render a shape in 3D using this configuration and variables
-    pub fn run_with_vars<F: Function + RenderHints>(
-        &self,
-        shape: Shape<F>,
-        vars: &ShapeVars<f32>,
-    ) -> Result<Option<Image>, RenderError> {
-        render(shape, vars, self)
+        shape: BoundShape<F, f32>,
+    ) -> Option<Image> {
+        render(shape, self)
     }
 
     /// Returns the combined screen-to-model transform matrix
@@ -479,23 +467,20 @@ impl<F: Function> Worker<'_, F> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Renders the given tape into a 3D image according to the provided
+/// Renders the given shape into a 3D image with a particular configuration
 /// configuration.
 ///
-/// The tape provides the shape; the configuration supplies resolution,
-/// transforms, etc.
+/// The shape provides the evaluator backend (`F`) and bound variables; the
+/// configuration supplies resolution, transforms, etc.
 ///
-/// This function is parameterized by shape type, which determines how we
-/// perform evaluation.
-///
-/// Returns [`Ok(Some(Image))`](Image) of pixel data on success, `Ok(None)` if
-/// the render was cancelled, or an error.
+/// Returns [`Some(Image)`](Image) of pixel data on success, or `None` if
+/// the render was cancelled.
 pub fn render<F: Function + RenderHints>(
-    shape: Shape<F>,
-    vars: &ShapeVars<f32>,
+    b: BoundShape<F, f32>,
     config: &RenderConfig,
-) -> Result<Option<Image>, RenderError> {
-    vars.check(&shape)?;
+) -> Option<Image> {
+    let shape = b.shape().clone();
+    let vars = b.vars();
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
 
@@ -505,12 +490,8 @@ pub fn render<F: Function + RenderHints>(
         default_tile_sizes = F::tile_sizes_3d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles = match super::render_tiles::<F, Worker<F>>(
-        shape, vars, config, tile_sizes,
-    ) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
+    let tiles =
+        super::render_tiles::<F, Worker<F>>(shape, vars, config, tile_sizes)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -540,7 +521,7 @@ pub fn render<F: Function + RenderHints>(
             }
         }
     }
-    Ok(Some(image))
+    Some(image)
 }
 
 #[cfg(test)]
@@ -553,16 +534,13 @@ mod test {
     fn test_tile_queues() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = VmShape::new(&ctx, x).unwrap();
+        let shape = VmShape::new(&ctx, x).unwrap().try_into().unwrap();
 
         let cfg = RenderConfig {
             image_size: RenderSize::from(128), // very small!
             ..Default::default()
         };
-        let image = cfg
-            .run(shape)
-            .expect("rendering should not fail")
-            .expect("rendering should not be cancelled");
+        let image = cfg.run(shape).expect("rendering should not be cancelled");
         assert_eq!(image.len(), 128 * 128);
     }
 
@@ -570,7 +548,7 @@ mod test {
     fn cancel_render() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = VmShape::new(&ctx, x).unwrap();
+        let shape = VmShape::new(&ctx, x).unwrap().try_into().unwrap();
 
         let cfg = RenderConfig {
             image_size: RenderSize::new(64, 64, 64),
@@ -578,14 +556,15 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        assert!(cfg.run::<_>(shape).unwrap().is_none());
+        assert!(cfg.run::<_>(shape).is_none());
     }
 
     #[test]
-    fn missing_var() {
+    fn shape_with_var() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let v = ctx.var(Var::new());
+        let var = Var::new();
+        let v = ctx.var(var);
         let s = ctx.sub(x, v).unwrap();
         let shape = VmShape::new(&ctx, s).unwrap();
 
@@ -593,22 +572,11 @@ mod test {
             image_size: RenderSize::new(64, 64, 64),
             ..Default::default()
         };
-        let Err(out) = cfg.run::<_>(shape.clone()) else {
-            panic!("expected error")
-        };
-        let var = ctx.get_var(v).unwrap();
-        let Var::V(i) = var else {
-            panic!("expected Var::V")
-        };
-        assert_eq!(
-            out,
-            RenderError::MissingVar(fidget_core::shape::MissingVar { var: i })
-        );
 
         let mut vars = ShapeVars::new();
+        let i = var.index().expect("expected Var::V");
         vars.insert(i, 1.0);
-        cfg.run_with_vars::<_>(shape, &vars)
-            .expect("rendering worked")
+        cfg.run::<_>(shape.bind(&vars).expect("all vars present"))
             .expect("not cancelled");
     }
 }

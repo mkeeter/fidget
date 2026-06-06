@@ -51,9 +51,12 @@
 - Add `output_count()` to `Function` trait
 - Add `ShapeVars::check` and `ShapeVars::contains_key` to check whether the
   variable map is sufficient to evaluate a particular shape.
-- Change `fidget_raster` render functions to return a `Result<Option<Image>,
-  RenderError>`, because it's possible for callers to provide shapes without a
-  suitable `ShapeVar` map.  `Ok(None)` still means cancellation.
+- Change `fidget_raster` and `fidget_mesh` functions to take a `BoundShape<F>`,
+  which represents a shape and all of its associated variables.  A `BoundShape`
+  may be constructed using `TryFrom` for shapes with no variables other than X,
+  Y, Z; otherwise, `Shape::bind` must be used.  This removes a potential
+  `unwrap()` during rendering, because evaluation requires all variables to be
+  present.
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
