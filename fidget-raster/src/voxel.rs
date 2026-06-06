@@ -1,8 +1,8 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    Image as GenericImage, RenderConfig as RenderConfigLike, RenderError,
-    RenderWorker, Tile, TileSizesRef,
+    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
+    Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
@@ -86,7 +86,7 @@ impl RenderConfig<'_> {
     pub fn run<F: Function + RenderHints>(
         &self,
         shape: BoundShape<F, f32>,
-    ) -> Result<Option<Image>, RenderError> {
+    ) -> Option<Image> {
         render(shape, self)
     }
 
@@ -481,10 +481,9 @@ impl<F: Function> Worker<'_, F> {
 pub fn render<F: Function + RenderHints>(
     b: BoundShape<F, f32>,
     config: &RenderConfig,
-) -> Result<Option<Image>, RenderError> {
+) -> Option<Image> {
     let shape = b.shape().clone();
     let vars = b.vars();
-    vars.check(&shape)?;
     let max_size = config.width().max(config.height()) as usize;
     let default_tile_sizes;
 
@@ -494,12 +493,8 @@ pub fn render<F: Function + RenderHints>(
         default_tile_sizes = F::tile_sizes_3d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles = match super::render_tiles::<F, Worker<F>>(
-        shape, vars, config, tile_sizes,
-    ) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
+    let tiles =
+        super::render_tiles::<F, Worker<F>>(shape, vars, config, tile_sizes)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -529,7 +524,7 @@ pub fn render<F: Function + RenderHints>(
             }
         }
     }
-    Ok(Some(image))
+    Some(image)
 }
 
 #[cfg(test)]
@@ -548,10 +543,7 @@ mod test {
             image_size: RenderSize::from(128), // very small!
             ..Default::default()
         };
-        let image = cfg
-            .run(shape)
-            .expect("rendering should not fail")
-            .expect("rendering should not be cancelled");
+        let image = cfg.run(shape).expect("rendering should not be cancelled");
         assert_eq!(image.len(), 128 * 128);
     }
 
@@ -567,7 +559,7 @@ mod test {
         };
         let cancel = cfg.cancel.clone();
         cancel.cancel();
-        assert!(cfg.run::<_>(shape).unwrap().is_none());
+        assert!(cfg.run::<_>(shape).is_none());
     }
 
     #[test]
@@ -588,7 +580,6 @@ mod test {
         let i = var.index().expect("expected Var::V");
         vars.insert(i, 1.0);
         cfg.run::<_>(shape.bind(&vars).expect("all vars present"))
-            .expect("rendering worked")
             .expect("not cancelled");
     }
 }

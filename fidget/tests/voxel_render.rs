@@ -33,7 +33,6 @@ fn sphere_var<F: Function + MathFunction + RenderHints>() {
             vars.insert(v.index().unwrap(), r);
             let image = cfg
                 .run::<_>(shape.bind(&vars).unwrap())
-                .expect("rendering should not fail")
                 .expect("rendering should not be cancelled");
 
             check_sphere(image, size, scale, r);

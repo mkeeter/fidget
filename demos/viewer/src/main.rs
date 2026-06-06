@@ -216,10 +216,9 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     };
 
     // Get the geometry buffer from the voxel rendering process
-    let bound_shape = shape.try_into().unwrap();
+    let bound_shape = shape.try_into().expect("no variables allowed");
     let geometry_buffer = config
         .run(bound_shape)
-        .expect("rendering should not fail")
         .expect("rendering should not be cancelled");
 
     // For both rendering modes, we'll just pass the GeometryPixel data
