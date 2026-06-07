@@ -2001,14 +2001,16 @@ impl<T, const U: u32> FlexBuffer<T, U> {
         self.data.slice(0..self.size()).into()
     }
 
-    /// Returns the buffer's capacity as an item count
+    /// Returns the buffer's total capacity (in items)
+    ///
+    /// This may be larger than [`self.item_count`](Self::item_count)
     fn item_capacity(&self) -> usize {
         let c = usize::try_from(self.capacity()).unwrap();
         assert_eq!(c % std::mem::size_of::<T>(), 0);
         c / std::mem::size_of::<T>()
     }
 
-    /// Returns the total buffer capacity, which may be larger than its size
+    /// Returns the total buffer capacity (in bytes)
     fn capacity(&self) -> u64 {
         self.data.size()
     }
