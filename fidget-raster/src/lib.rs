@@ -221,15 +221,7 @@ pub struct Image<P, S = ImageSize> {
     size: S,
 }
 
-/// Helper trait to make images generic across image size types
-pub trait ImageSizeLike {
-    /// Returns the width of the region, in pixels / voxels
-    fn width(&self) -> u32;
-    /// Returns the height of the region, in pixels / voxels
-    fn height(&self) -> u32;
-}
-
-impl ImageSizeLike for pixel::RenderSize {
+impl RenderSize for pixel::RenderSize {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -238,7 +230,7 @@ impl ImageSizeLike for pixel::RenderSize {
     }
 }
 
-impl ImageSizeLike for voxel::RenderSize {
+impl RenderSize for voxel::RenderSize {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -247,7 +239,7 @@ impl ImageSizeLike for voxel::RenderSize {
     }
 }
 
-impl<P: Send, S: ImageSizeLike + Sync> Image<P, S> {
+impl<P: Send, S: RenderSize + Sync> Image<P, S> {
     /// Generates an image by computing a per-pixel function
     ///
     /// This should be called on the _output_ image; the closure takes `(x, y)`
@@ -288,7 +280,7 @@ impl<P, S: Default> Default for Image<P, S> {
     }
 }
 
-impl<P: Default + Clone, S: ImageSizeLike> Image<P, S> {
+impl<P: Default + Clone, S: RenderSize> Image<P, S> {
     /// Builds a new image filled with `P::default()`
     pub fn new(size: S) -> Self {
         Self {
@@ -322,7 +314,7 @@ impl<P, S: Clone> Image<P, S> {
     }
 }
 
-impl<P, S: ImageSizeLike> Image<P, S> {
+impl<P, S: RenderSize> Image<P, S> {
     /// Returns the image width
     pub fn width(&self) -> usize {
         self.size.width() as usize
@@ -440,7 +432,7 @@ define_image_index!(std::ops::RangeToInclusive<usize>);
 define_image_index!(std::ops::RangeFull);
 
 /// Indexes an image with `(row, col)`
-impl<P, S: ImageSizeLike> std::ops::Index<(usize, usize)> for Image<P, S> {
+impl<P, S: RenderSize> std::ops::Index<(usize, usize)> for Image<P, S> {
     type Output = P;
     fn index(&self, pos: (usize, usize)) -> &Self::Output {
         let index = self.decode_position(pos);
@@ -448,7 +440,7 @@ impl<P, S: ImageSizeLike> std::ops::Index<(usize, usize)> for Image<P, S> {
     }
 }
 
-impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
+impl<P, S: RenderSize> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
     fn index_mut(&mut self, pos: (usize, usize)) -> &mut Self::Output {
         let index = self.decode_position(pos);
         &mut self.data[index]

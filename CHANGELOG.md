@@ -57,6 +57,9 @@
   Y, Z; otherwise, `Shape::bind` must be used.  This removes a potential
   `unwrap()` during rendering, because evaluation requires all variables to be
   present.
+- Rename `trait ImageSizeLike` to `trait RenderSize` in `fidget_raster`; remove
+  `width` and `height` from `trait RenderConfig` and add a `RenderConfig:
+  RenderSize` bound
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

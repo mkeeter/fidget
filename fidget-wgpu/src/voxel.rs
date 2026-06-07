@@ -89,11 +89,14 @@
 //! To reuse the image buffer within a more complex GPU pipeline (without
 //! copying to the host), see [`Buffers::image_storage_buffer`].
 
-use crate::opcode_constants;
+use crate::{
+    ArrayBuffer, BufferSizeError, BufferType, ImageBuffer, opcode_constants,
+    usage::*,
+};
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
     eval::Function,
-    render::VoxelSize,
+    render::{ImageSize, VoxelSize},
     shape::{MissingVar, ShapeVars},
     var::Var,
     vm::VmShape,
@@ -116,86 +119,6 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
-
-////////////////////////////////////////////////////////////////////////////////
-// Error handling zone!  This is perhaps a bit overengineered, but it meets the
-// desired behavior of function error types only containing errors that they can
-// actually return.
-
-/// Buffer type for error reporting
-#[derive(Copy, Clone, Debug)]
-pub enum BufferType {
-    /// Uniform buffer ([`wgpu::BufferUsages::UNIFORM`])
-    Uniform,
-    /// Storage buffer ([`wgpu::BufferUsages::STORAGE`])
-    Storage,
-    /// Other buffer type (e.g. [`wgpu::BufferUsages::MAP_READ`])
-    Generic,
-}
-
-impl std::fmt::Display for BufferType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            BufferType::Uniform => "uniform",
-            BufferType::Storage => "storage",
-            BufferType::Generic => "generic",
-        };
-        s.fmt(f)
-    }
-}
-
-impl BufferType {
-    /// Maximum size of this buffer type, per the WebGPU spec
-    pub const fn max_size(&self) -> u64 {
-        // These are copied from the spec, since we don't ask for anything extra
-        match self {
-            // maxUniformBufferBindingSize
-            BufferType::Uniform => 64 * 1024,
-            // maxStorageBufferBindingSize
-            BufferType::Storage => 128 * 1024 * 1024,
-            // maxBufferSize
-            BufferType::Generic => 256 * 1024 * 1024,
-        }
-    }
-
-    fn check(&self, requested_size: u64) -> Result<(), BufferSizeError> {
-        if !requested_size.is_multiple_of(4) {
-            Err(BufferSizeError::NotAligned(requested_size))
-        } else if requested_size > self.max_size() {
-            Err(BufferSizeError::TooLarge {
-                requested_size,
-                buffer_type: *self,
-            })
-        } else {
-            Ok(())
-        }
-    }
-}
-
-/// Error type when resizing a buffer beyond its limit
-///
-/// We check against maximum buffer sizes (from the WebGPU spec) and return an
-/// error immediately, instead of deferring the error to the point where the
-/// buffer is used.
-#[derive(Debug, thiserror::Error)]
-pub enum BufferSizeError {
-    /// Buffer size is not aligned to 4 bytes
-    #[error("requested size {0} must be a multiple of 4 bytes")]
-    NotAligned(u64),
-
-    /// Buffer size is too large for the requested buffer usage
-    #[error(
-        "requested size {requested_size} exceeds maximum {} for \
-        {buffer_type} buffer",
-        buffer_type.max_size()
-    )]
-    TooLarge {
-        /// Size requested (in bytes)
-        requested_size: u64,
-        /// Buffer type (which determines the [max size](BufferType::max_size))
-        buffer_type: BufferType,
-    },
-}
 
 /// Error type when resizing intermediate tile buffers
 #[derive(Debug, thiserror::Error)]
@@ -1165,11 +1088,11 @@ pub struct Context {
 
 struct TileBuffers<const N: u64> {
     /// Tiles written by the stage outputting N³ tiles
-    tiles: FlexBuffer<u32, STORAGE_INDIRECT>,
+    tiles: ArrayBuffer<u32, STORAGE_INDIRECT>,
     /// Sorted version of [`tiles`](Self::tiles)
-    sorted: FlexBuffer<u32, STORAGE_INDIRECT>,
+    sorted: ArrayBuffer<u32, STORAGE_INDIRECT>,
     /// Minimum Z height at each XY tile
-    zmin: FlexBuffer<u32, STORAGE_COPY_DST>,
+    zmin: ImageBuffer<u32, STORAGE_COPY_DST>,
 }
 
 impl<const N: u64> TileBuffers<N> {
@@ -1180,18 +1103,18 @@ impl<const N: u64> TileBuffers<N> {
     ) -> Result<Self, TileBuffersError> {
         let tile_buf_size = Self::tile_buf_size(render_size);
         let tiles =
-            FlexBuffer::new(device, format!("active_tile{N}"), tile_buf_size)
+            ArrayBuffer::new(device, format!("active_tile{N}"), tile_buf_size)
                 .map_err(|err| TileBuffersError {
-                buf: TileBufferName::Tiles,
-                err,
-            })?;
+                    buf: TileBufferName::Tiles,
+                    err,
+                })?;
         let sorted =
-            FlexBuffer::new(device, format!("sorted_tile{N}"), tile_buf_size)
+            ArrayBuffer::new(device, format!("sorted_tile{N}"), tile_buf_size)
                 .map_err(|err| TileBuffersError {
-                buf: TileBufferName::Sorted,
-                err,
-            })?;
-        let zmin = FlexBuffer::new(
+                    buf: TileBufferName::Sorted,
+                    err,
+                })?;
+        let zmin = ImageBuffer::new(
             device,
             format!("tile{N}_zmin"),
             Self::zmin_buf_size(render_size),
@@ -1218,11 +1141,11 @@ impl<const N: u64> TileBuffers<N> {
         4 + nx * ny * nz
     }
 
-    fn zmin_buf_size(render_size: TileRenderSize) -> usize {
-        let n = usize::try_from(N).unwrap();
-        let nx = usize::try_from(render_size.width()).unwrap() / n;
-        let ny = usize::try_from(render_size.height()).unwrap() / n;
-        nx * ny
+    fn zmin_buf_size(render_size: TileRenderSize) -> ImageSize {
+        ImageSize::new(
+            render_size.width() / u32::try_from(N).unwrap(),
+            render_size.height() / u32::try_from(N).unwrap(),
+        )
     }
 
     fn grow_to_fit(
@@ -1285,11 +1208,11 @@ impl<const N: u64> TileBuffers<N> {
 /// Root tile buffers store strata-packed tile lists
 struct RootTileBuffers {
     /// Initial output tiles
-    tiles: FlexBuffer<u32, STORAGE_COPY_DST>,
+    tiles: ArrayBuffer<u32, STORAGE_COPY_DST>,
     /// Strata-sorted output tiles
-    strata: FlexBuffer<u8, STORAGE_INDIRECT_COPY_DST>,
-    zmin: FlexBuffer<u32, STORAGE_COPY_DST>,
-    zmax: FlexBuffer<u32, STORAGE_COPY_DST>,
+    strata: ArrayBuffer<u8, STORAGE_INDIRECT_COPY_DST>,
+    zmin: ImageBuffer<u32, STORAGE_COPY_DST>,
+    zmax: ImageBuffer<u32, STORAGE_COPY_DST>,
 }
 
 impl RootTileBuffers {
@@ -1302,7 +1225,7 @@ impl RootTileBuffers {
         const N: usize = 64;
 
         // Allocate enough words to write all of the output tiles
-        let tiles = FlexBuffer::new(
+        let tiles = ArrayBuffer::new(
             device,
             format!("tiles_out{N}"),
             Self::tiles_buf_size(render_size),
@@ -1312,7 +1235,7 @@ impl RootTileBuffers {
             err,
         })?;
 
-        let strata = FlexBuffer::new(
+        let strata = ArrayBuffer::new(
             device,
             format!("strata_tile{N}"),
             Self::strata_buf_size(render_size),
@@ -1323,16 +1246,18 @@ impl RootTileBuffers {
         })?;
 
         let z_buf_size = Self::z_buf_size(render_size);
-        let zmin = FlexBuffer::new(device, format!("tile{N}_zmin"), z_buf_size)
-            .map_err(|err| RootTileBuffersError {
-                buf: RootTileBufferName::Zmin,
-                err,
-            })?;
-        let zmax = FlexBuffer::new(device, format!("tile{N}_zmax"), z_buf_size)
-            .map_err(|err| RootTileBuffersError {
-                buf: RootTileBufferName::Zmax,
-                err,
-            })?;
+        let zmin =
+            ImageBuffer::new(device, format!("tile{N}_zmin"), z_buf_size)
+                .map_err(|err| RootTileBuffersError {
+                    buf: RootTileBufferName::Zmin,
+                    err,
+                })?;
+        let zmax =
+            ImageBuffer::new(device, format!("tile{N}_zmax"), z_buf_size)
+                .map_err(|err| RootTileBuffersError {
+                    buf: RootTileBufferName::Zmax,
+                    err,
+                })?;
         Ok(Self {
             tiles,
             strata,
@@ -1356,10 +1281,8 @@ impl RootTileBuffers {
         strata_size * nz
     }
 
-    fn z_buf_size(render_size: TileRenderSize) -> usize {
-        let nx = usize::try_from(render_size.nx()).unwrap();
-        let ny = usize::try_from(render_size.ny()).unwrap();
-        nx * ny
+    fn z_buf_size(render_size: TileRenderSize) -> ImageSize {
+        ImageSize::new(render_size.nx(), render_size.ny())
     }
 
     /// Grows all of the buffers to fit a particular render size
@@ -1540,7 +1463,7 @@ pub struct Buffers {
     z_hist_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: FlexBuffer<u32, STORAGE_COPY_DST>,
+    tile_tapes: ArrayBuffer<u32, STORAGE_COPY_DST>,
 
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers,
@@ -1552,16 +1475,16 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxels
-    voxels: FlexBuffer<u32, STORAGE_COPY_DST>,
+    voxels: ArrayBuffer<u32, STORAGE_COPY_DST>,
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
-    geom: FlexBuffer<GeometryPixel, STORAGE_COPY_SRC_DST>,
+    geom: ArrayBuffer<GeometryPixel, STORAGE_COPY_SRC_DST>,
 
     /// Result buffer that can be read back from the host
     ///
     /// This is mostly image pixels (as [`GeometryPixel`] values), but also
     /// contains two trailing `u64` values for timestamps.
-    image: FlexBuffer<u8, COPY_DST_MAP_READ>,
+    image: ArrayBuffer<u8, COPY_DST_MAP_READ>,
 
     /// Query set for timestamps
     ///
@@ -1898,139 +1821,6 @@ impl Buffers {
     }
 }
 
-/// Handle around a growable GPU buffer which pretends to be smaller
-struct FlexBuffer<T, const U: u32> {
-    /// Current item count, which may be smaller than the buffer's capacity
-    item_count: usize,
-    /// Actual GPU buffer
-    data: wgpu::Buffer,
-    /// Buffer label (to be used when reallocating)
-    name: String,
-    /// Marker for buffer data type
-    _t: std::marker::PhantomData<T>,
-}
-
-// Helper macro to generate usages
-macro_rules! u {
-    ($($flag:ident),+ $(,)?) => {
-        $( wgpu::BufferUsages::$flag.bits() )|+
-    };
-}
-const STORAGE_COPY_DST: u32 = u!(STORAGE, COPY_DST);
-const STORAGE_INDIRECT: u32 = u!(STORAGE, INDIRECT);
-const STORAGE_INDIRECT_COPY_DST: u32 = u!(STORAGE, INDIRECT, COPY_DST);
-const STORAGE_COPY_SRC_DST: u32 = u!(STORAGE, COPY_SRC, COPY_DST);
-const COPY_DST_MAP_READ: u32 = u!(COPY_DST, MAP_READ);
-
-impl<T, const U: u32> FlexBuffer<T, U> {
-    fn new(
-        device: &wgpu::Device,
-        name: String,
-        item_count: usize,
-    ) -> Result<Self, BufferSizeError> {
-        let size =
-            u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
-        assert_eq!(size % 4, 0);
-        let usage = wgpu::BufferUsages::from_bits(U).unwrap();
-        Self::check_size(usage, size)?;
-        let data = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(name.as_str()),
-            size,
-            usage,
-            mapped_at_creation: false,
-        });
-        Ok(Self {
-            data,
-            item_count,
-            name,
-            _t: std::marker::PhantomData,
-        })
-    }
-
-    /// Returns the active buffer size (in bytes)
-    fn size(&self) -> u64 {
-        u64::try_from(self.item_count * std::mem::size_of::<T>()).unwrap()
-    }
-
-    fn check_size(
-        usage: wgpu::BufferUsages,
-        size: u64,
-    ) -> Result<(), BufferSizeError> {
-        let buf_ty = if usage.contains(wgpu::BufferUsages::STORAGE) {
-            BufferType::Storage
-        } else if usage.contains(wgpu::BufferUsages::UNIFORM) {
-            BufferType::Uniform
-        } else {
-            BufferType::Generic
-        };
-        buf_ty.check(size)
-    }
-
-    /// Grows the buffer to fit a particular size in bytes
-    ///
-    /// If the buffer already fits that size, then no allocation is performed,
-    /// but we always update the internal `size` member (e.g. so that
-    /// [`bind_active`](Self::bind_active) returns the correct
-    /// subset of the buffer).
-    fn grow_to_fit(
-        &mut self,
-        device: &wgpu::Device,
-        item_count: usize,
-    ) -> Result<(), BufferSizeError> {
-        if item_count > self.item_capacity() {
-            let size =
-                u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
-            assert_eq!(size % 4, 0);
-            let usage = self.data.usage();
-            Self::check_size(usage, size)?;
-            self.data = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(self.name.as_str()),
-                size,
-                usage,
-                mapped_at_creation: false,
-            });
-        }
-        self.item_count = item_count;
-        Ok(())
-    }
-
-    /// Returns a binding resource for the active slice of the buffer
-    fn bind_active(&self) -> wgpu::BindingResource<'_> {
-        self.data.slice(0..self.size()).into()
-    }
-
-    /// Returns the buffer's total capacity (in items)
-    ///
-    /// This may be larger than [`self.item_count`](Self::item_count)
-    fn item_capacity(&self) -> usize {
-        let c = usize::try_from(self.capacity()).unwrap();
-        assert_eq!(c % std::mem::size_of::<T>(), 0);
-        c / std::mem::size_of::<T>()
-    }
-
-    /// Returns the total buffer capacity (in bytes)
-    fn capacity(&self) -> u64 {
-        self.data.size()
-    }
-
-    /// Maps the active portion of the buffer for reading
-    fn map_async(
-        &self,
-        callback: impl FnOnce(Result<(), wgpu::BufferAsyncError>)
-        + wgpu::WasmNotSend
-        + 'static,
-    ) -> wgpu::BufferSlice<'_> {
-        let slice = self.data.slice(0..self.size());
-        slice.map_async(wgpu::MapMode::Read, callback);
-        slice
-    }
-
-    /// Clears the active portion of the buffer
-    fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
-        encoder.clear_buffer(&self.data, 0, Some(self.size()));
-    }
-}
-
 impl Buffers {
     fn new(
         device: &wgpu::Device,
@@ -2054,7 +1844,7 @@ impl Buffers {
         });
 
         let render_size = TileRenderSize::from(image_size);
-        let voxels = FlexBuffer::new(
+        let voxels = ArrayBuffer::new(
             device,
             "voxels".to_string(),
             Self::voxels_buf_size(render_size),
@@ -2064,7 +1854,7 @@ impl Buffers {
             buf: BufferName::Voxels,
             err,
         })?;
-        let tile_tapes = FlexBuffer::new(
+        let tile_tapes = ArrayBuffer::new(
             device,
             "tile tape".to_string(),
             Self::tile_tapes_buf_size(render_size),
@@ -2075,7 +1865,7 @@ impl Buffers {
             err,
         })?;
 
-        let geom = FlexBuffer::new(
+        let geom = ArrayBuffer::new(
             device,
             "geom".to_string(),
             Self::geom_buf_size(image_size),
@@ -2086,7 +1876,7 @@ impl Buffers {
             err,
         })?;
 
-        let image = FlexBuffer::new(
+        let image = ArrayBuffer::new(
             device,
             "image".to_string(),
             Self::image_buf_size(image_size),
