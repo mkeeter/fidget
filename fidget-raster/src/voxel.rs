@@ -1,8 +1,7 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    Image as GenericImage, RenderConfig as RenderConfigLike, RenderWorker,
-    Tile, TileSizesRef,
+    Image as GenericImage, RenderSize as _, RenderWorker, Tile, TileSizesRef,
 };
 use fidget_core::{
     eval::Function,
@@ -62,18 +61,21 @@ impl Default for RenderConfig<'_> {
     }
 }
 
-impl RenderConfigLike for RenderConfig<'_> {
-    fn width(&self) -> u32 {
-        self.image_size.width()
-    }
-    fn height(&self) -> u32 {
-        self.image_size.height()
-    }
+impl crate::RenderConfig for RenderConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
     }
     fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
+    }
+}
+
+impl crate::RenderSize for RenderConfig<'_> {
+    fn width(&self) -> u32 {
+        self.image_size.width()
+    }
+    fn height(&self) -> u32 {
+        self.image_size.height()
     }
 }
 

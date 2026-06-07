@@ -1165,11 +1165,11 @@ pub struct Context {
 
 struct TileBuffers<const N: u64> {
     /// Tiles written by the stage outputting N³ tiles
-    tiles: Buffer,
+    tiles: FlexBuffer<STORAGE_INDIRECT>,
     /// Sorted version of [`tiles`](Self::tiles)
-    sorted: Buffer,
+    sorted: FlexBuffer<STORAGE_INDIRECT>,
     /// Minimum Z height at each XY tile
-    zmin: Buffer,
+    zmin: FlexBuffer<STORAGE_COPY_DST>,
 }
 
 impl<const N: u64> TileBuffers<N> {
@@ -1179,31 +1179,22 @@ impl<const N: u64> TileBuffers<N> {
         render_size: TileRenderSize,
     ) -> Result<Self, TileBuffersError> {
         let tile_buf_size = Self::tile_buf_size(render_size);
-        let tiles = Buffer::new(
-            device,
-            format!("active_tile{N}"),
-            tile_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
-        )
-        .map_err(|err| TileBuffersError {
-            buf: TileBufferName::Tiles,
-            err,
-        })?;
-        let sorted = Buffer::new(
-            device,
-            format!("sorted_tile{N}"),
-            tile_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
-        )
-        .map_err(|err| TileBuffersError {
-            buf: TileBufferName::Sorted,
-            err,
-        })?;
-        let zmin = Buffer::new(
+        let tiles =
+            FlexBuffer::new(device, format!("active_tile{N}"), tile_buf_size)
+                .map_err(|err| TileBuffersError {
+                buf: TileBufferName::Tiles,
+                err,
+            })?;
+        let sorted =
+            FlexBuffer::new(device, format!("sorted_tile{N}"), tile_buf_size)
+                .map_err(|err| TileBuffersError {
+                buf: TileBufferName::Sorted,
+                err,
+            })?;
+        let zmin = FlexBuffer::new(
             device,
             format!("tile{N}_zmin"),
             Self::zmin_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| TileBuffersError {
             buf: TileBufferName::Zmin,
@@ -1292,11 +1283,11 @@ impl<const N: u64> TileBuffers<N> {
 /// Root tile buffers store strata-packed tile lists
 struct RootTileBuffers {
     /// Initial output tiles
-    tiles: Buffer,
+    tiles: FlexBuffer<STORAGE_COPY_DST>,
     /// Strata-sorted output tiles
-    strata: Buffer,
-    zmin: Buffer,
-    zmax: Buffer,
+    strata: FlexBuffer<STORAGE_INDIRECT_COPY_DST>,
+    zmin: FlexBuffer<STORAGE_COPY_DST>,
+    zmax: FlexBuffer<STORAGE_COPY_DST>,
 }
 
 impl RootTileBuffers {
@@ -1309,24 +1300,20 @@ impl RootTileBuffers {
         const N: usize = 64;
 
         // Allocate enough words to write all of the output tiles
-        let tiles = Buffer::new(
+        let tiles = FlexBuffer::new(
             device,
             format!("tiles_out{N}"),
             Self::tiles_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| RootTileBuffersError {
             buf: RootTileBufferName::Tiles,
             err,
         })?;
 
-        let strata = Buffer::new(
+        let strata = FlexBuffer::new(
             device,
             format!("strata_tile{N}"),
             Self::strata_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::INDIRECT
-                | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| RootTileBuffersError {
             buf: RootTileBufferName::Strata,
@@ -1334,26 +1321,16 @@ impl RootTileBuffers {
         })?;
 
         let z_buf_size = Self::z_buf_size(render_size);
-        let zmin = Buffer::new(
-            device,
-            format!("tile{N}_zmin"),
-            z_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        )
-        .map_err(|err| RootTileBuffersError {
-            buf: RootTileBufferName::Zmin,
-            err,
-        })?;
-        let zmax = Buffer::new(
-            device,
-            format!("tile{N}_zmax"),
-            z_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        )
-        .map_err(|err| RootTileBuffersError {
-            buf: RootTileBufferName::Zmax,
-            err,
-        })?;
+        let zmin = FlexBuffer::new(device, format!("tile{N}_zmin"), z_buf_size)
+            .map_err(|err| RootTileBuffersError {
+                buf: RootTileBufferName::Zmin,
+                err,
+            })?;
+        let zmax = FlexBuffer::new(device, format!("tile{N}_zmax"), z_buf_size)
+            .map_err(|err| RootTileBuffersError {
+                buf: RootTileBufferName::Zmax,
+                err,
+            })?;
         Ok(Self {
             tiles,
             strata,
@@ -1561,7 +1538,7 @@ pub struct Buffers {
     z_hist_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: Buffer,
+    tile_tapes: FlexBuffer<STORAGE_COPY_DST>,
 
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers,
@@ -1573,16 +1550,16 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxels
-    voxels: Buffer,
+    voxels: FlexBuffer<STORAGE_COPY_DST>,
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
-    geom: Buffer,
+    geom: FlexBuffer<STORAGE_COPY_SRC_DST>,
 
     /// Result buffer that can be read back from the host
     ///
     /// This is mostly image pixels (as [`GeometryPixel`] values), but also
     /// contains two trailing `u64` values for timestamps.
-    image: Buffer,
+    image: FlexBuffer<COPY_DST_MAP_READ>,
 
     /// Query set for timestamps
     ///
@@ -1920,7 +1897,7 @@ impl Buffers {
 }
 
 /// Handle around a growable GPU buffer which pretends to be smaller
-struct Buffer {
+struct FlexBuffer<const U: u32> {
     /// Current active size, which may be smaller than the buffer's capacity
     size: u64,
     /// Actual GPU buffer
@@ -1929,14 +1906,28 @@ struct Buffer {
     name: String,
 }
 
-impl Buffer {
+// Usage constants for FlexBuffer
+const STORAGE_COPY_DST: u32 =
+    wgpu::BufferUsages::STORAGE.bits() | wgpu::BufferUsages::COPY_DST.bits();
+const STORAGE_INDIRECT: u32 =
+    wgpu::BufferUsages::STORAGE.bits() | wgpu::BufferUsages::INDIRECT.bits();
+const STORAGE_INDIRECT_COPY_DST: u32 = wgpu::BufferUsages::STORAGE.bits()
+    | wgpu::BufferUsages::INDIRECT.bits()
+    | wgpu::BufferUsages::COPY_DST.bits();
+const STORAGE_COPY_SRC_DST: u32 = wgpu::BufferUsages::STORAGE.bits()
+    | wgpu::BufferUsages::COPY_SRC.bits()
+    | wgpu::BufferUsages::COPY_DST.bits();
+const COPY_DST_MAP_READ: u32 =
+    wgpu::BufferUsages::COPY_DST.bits() | wgpu::BufferUsages::MAP_READ.bits();
+
+impl<const U: u32> FlexBuffer<U> {
     fn new(
         device: &wgpu::Device,
         name: String,
         size: u64,
-        usage: wgpu::BufferUsages,
     ) -> Result<Self, BufferSizeError> {
         assert_eq!(size % 4, 0);
+        let usage = wgpu::BufferUsages::from_bits(U).unwrap();
         Self::check_size(usage, size)?;
         let data = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name.as_str()),
@@ -2043,22 +2034,20 @@ impl Buffers {
         });
 
         let render_size = TileRenderSize::from(image_size);
-        let voxels = Buffer::new(
+        let voxels = FlexBuffer::new(
             device,
             "voxels".to_string(),
             Self::voxels_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| BuffersError {
             requested: image_size,
             buf: BufferName::Voxels,
             err,
         })?;
-        let tile_tapes = Buffer::new(
+        let tile_tapes = FlexBuffer::new(
             device,
             "tile tape".to_string(),
             Self::tile_tapes_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| BuffersError {
             requested: image_size,
@@ -2066,13 +2055,10 @@ impl Buffers {
             err,
         })?;
 
-        let geom = Buffer::new(
+        let geom = FlexBuffer::new(
             device,
             "geom".to_string(),
             Self::geom_buf_size(image_size),
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| BuffersError {
             requested: image_size,
@@ -2080,11 +2066,10 @@ impl Buffers {
             err,
         })?;
 
-        let image = Buffer::new(
+        let image = FlexBuffer::new(
             device,
             "image".to_string(),
             Self::image_buf_size(image_size),
-            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         )
         .map_err(|err| BuffersError {
             requested: image_size,

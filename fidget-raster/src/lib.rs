@@ -164,11 +164,17 @@ where
 }
 
 /// Helper trait for tiled rendering configuration
-pub(crate) trait RenderConfig {
-    fn width(&self) -> u32;
-    fn height(&self) -> u32;
+pub(crate) trait RenderConfig: RenderSize {
     fn threads(&self) -> Option<&ThreadPool>;
     fn is_cancelled(&self) -> bool;
+}
+
+/// Trait for things that have a width and height in pixels
+pub trait RenderSize {
+    /// Width of the render, in voxels or pixels
+    fn width(&self) -> u32;
+    /// Height of the render, in voxels or pixels
+    fn height(&self) -> u32;
 }
 
 /// Helper trait for a tiled renderer worker
