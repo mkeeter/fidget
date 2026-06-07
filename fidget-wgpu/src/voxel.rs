@@ -581,11 +581,11 @@ struct RootContext {
 /// Per-strata offset in the root tiles list
 ///
 /// This must be equivalent to `strata_size_bytes` in the interval root shader
-fn strata_size_bytes(render_size: TileRenderSize) -> u64 {
-    let nx = u64::from(render_size.nx());
-    let ny = u64::from(render_size.ny());
+fn strata_size_bytes(render_size: TileRenderSize) -> usize {
+    let nx = usize::try_from(render_size.nx()).unwrap();
+    let ny = usize::try_from(render_size.ny()).unwrap();
     // Snap to `min_storage_buffer_offset_alignment`
-    ((nx * ny + 4) * std::mem::size_of::<u32>() as u64).next_multiple_of(256)
+    ((nx * ny + 4) * std::mem::size_of::<u32>()).next_multiple_of(256)
 }
 
 impl RootContext {
@@ -939,7 +939,7 @@ impl IntervalContext {
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let strata_bytes = buffers.strata_size_bytes();
+        let strata_bytes = u64::try_from(buffers.strata_size_bytes()).unwrap();
         let offset_bytes = strata * strata_bytes;
         let bind_group16 = buffers.bind_groups.interval16(ctx, buffers);
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
@@ -1165,11 +1165,11 @@ pub struct Context {
 
 struct TileBuffers<const N: u64> {
     /// Tiles written by the stage outputting N³ tiles
-    tiles: FlexBuffer<STORAGE_INDIRECT>,
+    tiles: FlexBuffer<u32, STORAGE_INDIRECT>,
     /// Sorted version of [`tiles`](Self::tiles)
-    sorted: FlexBuffer<STORAGE_INDIRECT>,
+    sorted: FlexBuffer<u32, STORAGE_INDIRECT>,
     /// Minimum Z height at each XY tile
-    zmin: FlexBuffer<STORAGE_COPY_DST>,
+    zmin: FlexBuffer<u32, STORAGE_COPY_DST>,
 }
 
 impl<const N: u64> TileBuffers<N> {
@@ -1208,19 +1208,21 @@ impl<const N: u64> TileBuffers<N> {
         })
     }
 
-    fn tile_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.width()) / N;
-        let ny = u64::from(render_size.height()) / N;
-        let nz = 64 / N;
+    fn tile_buf_size(render_size: TileRenderSize) -> usize {
+        let n = usize::try_from(N).unwrap();
+        let nx = usize::try_from(render_size.width()).unwrap() / n;
+        let ny = usize::try_from(render_size.height()).unwrap() / n;
+        let nz = 64 / n;
         // wg_dispatch: [u32; 3]
         // count: u32,
-        (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64
+        4 + nx * ny * nz
     }
 
-    fn zmin_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.width()) / N;
-        let ny = u64::from(render_size.height()) / N;
-        (nx * ny) * std::mem::size_of::<u32>() as u64
+    fn zmin_buf_size(render_size: TileRenderSize) -> usize {
+        let n = usize::try_from(N).unwrap();
+        let nx = usize::try_from(render_size.width()).unwrap() / n;
+        let ny = usize::try_from(render_size.height()).unwrap() / n;
+        nx * ny
     }
 
     fn grow_to_fit(
@@ -1283,11 +1285,11 @@ impl<const N: u64> TileBuffers<N> {
 /// Root tile buffers store strata-packed tile lists
 struct RootTileBuffers {
     /// Initial output tiles
-    tiles: FlexBuffer<STORAGE_COPY_DST>,
+    tiles: FlexBuffer<u32, STORAGE_COPY_DST>,
     /// Strata-sorted output tiles
-    strata: FlexBuffer<STORAGE_INDIRECT_COPY_DST>,
-    zmin: FlexBuffer<STORAGE_COPY_DST>,
-    zmax: FlexBuffer<STORAGE_COPY_DST>,
+    strata: FlexBuffer<u8, STORAGE_INDIRECT_COPY_DST>,
+    zmin: FlexBuffer<u32, STORAGE_COPY_DST>,
+    zmax: FlexBuffer<u32, STORAGE_COPY_DST>,
 }
 
 impl RootTileBuffers {
@@ -1339,25 +1341,25 @@ impl RootTileBuffers {
         })
     }
 
-    fn tiles_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        let nz = u64::from(render_size.nz());
+    fn tiles_buf_size(render_size: TileRenderSize) -> usize {
+        let nx = usize::try_from(render_size.nx()).unwrap();
+        let ny = usize::try_from(render_size.ny()).unwrap();
+        let nz = usize::try_from(render_size.nz()).unwrap();
         // wg_dispatch: [u32; 3] (unused)
         // count: u32,
-        (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64
+        4 + nx * ny * nz
     }
 
-    fn strata_buf_size(render_size: TileRenderSize) -> u64 {
-        let nz = u64::from(render_size.nz());
+    fn strata_buf_size(render_size: TileRenderSize) -> usize {
+        let nz = usize::try_from(render_size.nz()).unwrap();
         let strata_size = strata_size_bytes(render_size);
         strata_size * nz
     }
 
-    fn z_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        nx * ny * std::mem::size_of::<u32>() as u64
+    fn z_buf_size(render_size: TileRenderSize) -> usize {
+        let nx = usize::try_from(render_size.nx()).unwrap();
+        let ny = usize::try_from(render_size.ny()).unwrap();
+        nx * ny
     }
 
     /// Grows all of the buffers to fit a particular render size
@@ -1538,7 +1540,7 @@ pub struct Buffers {
     z_hist_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: FlexBuffer<STORAGE_COPY_DST>,
+    tile_tapes: FlexBuffer<u32, STORAGE_COPY_DST>,
 
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers,
@@ -1550,16 +1552,16 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxels
-    voxels: FlexBuffer<STORAGE_COPY_DST>,
+    voxels: FlexBuffer<u32, STORAGE_COPY_DST>,
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
-    geom: FlexBuffer<STORAGE_COPY_SRC_DST>,
+    geom: FlexBuffer<GeometryPixel, STORAGE_COPY_SRC_DST>,
 
     /// Result buffer that can be read back from the host
     ///
     /// This is mostly image pixels (as [`GeometryPixel`] values), but also
     /// contains two trailing `u64` values for timestamps.
-    image: FlexBuffer<COPY_DST_MAP_READ>,
+    image: FlexBuffer<u8, COPY_DST_MAP_READ>,
 
     /// Query set for timestamps
     ///
@@ -1716,7 +1718,7 @@ impl BindGroups {
     }
 
     fn interval16(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        let strata_bytes = buffers.strata_size_bytes();
+        let strata_bytes = u64::try_from(buffers.strata_size_bytes()).unwrap();
         self.interval16.get_or_init(|| {
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("interval16 bind group"),
@@ -1897,13 +1899,15 @@ impl Buffers {
 }
 
 /// Handle around a growable GPU buffer which pretends to be smaller
-struct FlexBuffer<const U: u32> {
+struct FlexBuffer<T, const U: u32> {
     /// Current active size, which may be smaller than the buffer's capacity
     size: u64,
     /// Actual GPU buffer
     data: wgpu::Buffer,
     /// Buffer label (to be used when reallocating)
     name: String,
+    /// Marker for buffer data type
+    _t: std::marker::PhantomData<T>,
 }
 
 // Usage constants for FlexBuffer
@@ -1920,12 +1924,14 @@ const STORAGE_COPY_SRC_DST: u32 = wgpu::BufferUsages::STORAGE.bits()
 const COPY_DST_MAP_READ: u32 =
     wgpu::BufferUsages::COPY_DST.bits() | wgpu::BufferUsages::MAP_READ.bits();
 
-impl<const U: u32> FlexBuffer<U> {
+impl<T, const U: u32> FlexBuffer<T, U> {
     fn new(
         device: &wgpu::Device,
         name: String,
-        size: u64,
+        item_count: usize,
     ) -> Result<Self, BufferSizeError> {
+        let size =
+            u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
         assert_eq!(size % 4, 0);
         let usage = wgpu::BufferUsages::from_bits(U).unwrap();
         Self::check_size(usage, size)?;
@@ -1935,7 +1941,12 @@ impl<const U: u32> FlexBuffer<U> {
             usage,
             mapped_at_creation: false,
         });
-        Ok(Self { data, size, name })
+        Ok(Self {
+            data,
+            size,
+            name,
+            _t: std::marker::PhantomData,
+        })
     }
 
     fn check_size(
@@ -1961,8 +1972,10 @@ impl<const U: u32> FlexBuffer<U> {
     fn grow_to_fit(
         &mut self,
         device: &wgpu::Device,
-        size: u64,
+        item_count: usize,
     ) -> Result<(), BufferSizeError> {
+        let size =
+            u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
         assert_eq!(size % 4, 0);
         if size > self.capacity() {
             let usage = self.data.usage();
@@ -2152,7 +2165,7 @@ impl Buffers {
     }
 
     /// Returns the size of one strata (in bytes)
-    fn strata_size_bytes(&self) -> u64 {
+    fn strata_size_bytes(&self) -> usize {
         strata_size_bytes(self.render_size())
     }
 
@@ -2177,29 +2190,28 @@ impl Buffers {
     /// | index | index | index | ... |     16² XY tiles × 4  Z positions
     /// | index | index | index | ... |     4²  XY tiles × 16 Z positions
     /// ```
-    fn tile_tapes_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        let nz = u64::from(render_size.nz());
-        (nx * ny * nz + (nx * ny) * ((64u64 / 16).pow(3) + (64u64 / 4).pow(3)))
-            * std::mem::size_of::<u32>() as u64
+    fn tile_tapes_buf_size(render_size: TileRenderSize) -> usize {
+        let nx = usize::try_from(render_size.nx()).unwrap();
+        let ny = usize::try_from(render_size.ny()).unwrap();
+        let nz = usize::try_from(render_size.nz()).unwrap();
+        nx * ny * nz
+            + (nx * ny) * ((64usize / 16).pow(3) + (64usize / 4).pow(3))
     }
 
-    fn voxels_buf_size(render_size: TileRenderSize) -> u64 {
-        let render_pixels = render_size.pixels();
-        (render_pixels * std::mem::size_of::<u32>()) as u64
+    fn voxels_buf_size(render_size: TileRenderSize) -> usize {
+        render_size.pixels()
     }
 
     /// Returns the size in bytes for the `geom` buffers
-    fn geom_buf_size(image_size: VoxelSize) -> u64 {
-        let image_pixels =
-            u64::from(image_size.width()) * u64::from(image_size.height());
-        image_pixels * std::mem::size_of::<GeometryPixel>() as u64
+    fn geom_buf_size(image_size: VoxelSize) -> usize {
+        usize::try_from(image_size.width()).unwrap()
+            * usize::try_from(image_size.height()).unwrap()
     }
 
-    fn image_buf_size(image_size: VoxelSize) -> u64 {
+    fn image_buf_size(image_size: VoxelSize) -> usize {
         // Allocate an extra 16 bytes for timestamp queries
-        Self::geom_buf_size(image_size) + 16
+        Self::geom_buf_size(image_size) * std::mem::size_of::<GeometryPixel>()
+            + 16
     }
 
     /// Resizes to render the target image size
@@ -3004,7 +3016,7 @@ impl ResetContext {
         for s in 0..buffers.render_size().nz() {
             encoder.clear_buffer(
                 &buffers.tile64.strata.data,
-                u64::from(s) * strata_size_bytes,
+                u64::from(s) * u64::try_from(strata_size_bytes).unwrap(),
                 Some(16),
             );
         }
