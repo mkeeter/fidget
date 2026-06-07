@@ -1910,19 +1910,17 @@ struct FlexBuffer<T, const U: u32> {
     _t: std::marker::PhantomData<T>,
 }
 
-// Usage constants for FlexBuffer
-const STORAGE_COPY_DST: u32 =
-    wgpu::BufferUsages::STORAGE.bits() | wgpu::BufferUsages::COPY_DST.bits();
-const STORAGE_INDIRECT: u32 =
-    wgpu::BufferUsages::STORAGE.bits() | wgpu::BufferUsages::INDIRECT.bits();
-const STORAGE_INDIRECT_COPY_DST: u32 = wgpu::BufferUsages::STORAGE.bits()
-    | wgpu::BufferUsages::INDIRECT.bits()
-    | wgpu::BufferUsages::COPY_DST.bits();
-const STORAGE_COPY_SRC_DST: u32 = wgpu::BufferUsages::STORAGE.bits()
-    | wgpu::BufferUsages::COPY_SRC.bits()
-    | wgpu::BufferUsages::COPY_DST.bits();
-const COPY_DST_MAP_READ: u32 =
-    wgpu::BufferUsages::COPY_DST.bits() | wgpu::BufferUsages::MAP_READ.bits();
+// Helper macro to generate usages
+macro_rules! u {
+    ($($flag:ident),+ $(,)?) => {
+        $( wgpu::BufferUsages::$flag.bits() )|+
+    };
+}
+const STORAGE_COPY_DST: u32 = u!(STORAGE, COPY_DST);
+const STORAGE_INDIRECT: u32 = u!(STORAGE, INDIRECT);
+const STORAGE_INDIRECT_COPY_DST: u32 = u!(STORAGE, INDIRECT, COPY_DST);
+const STORAGE_COPY_SRC_DST: u32 = u!(STORAGE, COPY_SRC, COPY_DST);
+const COPY_DST_MAP_READ: u32 = u!(COPY_DST, MAP_READ);
 
 impl<T, const U: u32> FlexBuffer<T, U> {
     fn new(
