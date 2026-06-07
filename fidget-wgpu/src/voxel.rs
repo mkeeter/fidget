@@ -1894,14 +1894,14 @@ impl Buffers {
     /// the tuple when binding the buffer, and may also want to use
     /// [`Buffers::image_size`] (if they care about image width and height).
     pub fn image_storage_buffer(&self) -> (&wgpu::Buffer, u64) {
-        (&self.geom.data, self.geom.size)
+        (&self.geom.data, self.geom.size())
     }
 }
 
 /// Handle around a growable GPU buffer which pretends to be smaller
 struct FlexBuffer<T, const U: u32> {
-    /// Current active size, which may be smaller than the buffer's capacity
-    size: u64,
+    /// Current item count, which may be smaller than the buffer's capacity
+    item_count: usize,
     /// Actual GPU buffer
     data: wgpu::Buffer,
     /// Buffer label (to be used when reallocating)
@@ -1943,10 +1943,15 @@ impl<T, const U: u32> FlexBuffer<T, U> {
         });
         Ok(Self {
             data,
-            size,
+            item_count,
             name,
             _t: std::marker::PhantomData,
         })
+    }
+
+    /// Returns the active buffer size (in bytes)
+    fn size(&self) -> u64 {
+        u64::try_from(self.item_count * std::mem::size_of::<T>()).unwrap()
     }
 
     fn check_size(
@@ -1974,10 +1979,10 @@ impl<T, const U: u32> FlexBuffer<T, U> {
         device: &wgpu::Device,
         item_count: usize,
     ) -> Result<(), BufferSizeError> {
-        let size =
-            u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
-        assert_eq!(size % 4, 0);
-        if size > self.capacity() {
+        if item_count > self.item_capacity() {
+            let size =
+                u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
+            assert_eq!(size % 4, 0);
             let usage = self.data.usage();
             Self::check_size(usage, size)?;
             self.data = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1987,18 +1992,20 @@ impl<T, const U: u32> FlexBuffer<T, U> {
                 mapped_at_creation: false,
             });
         }
-        self.size = size;
+        self.item_count = item_count;
         Ok(())
     }
 
     /// Returns a binding resource for the active slice of the buffer
     fn bind_active(&self) -> wgpu::BindingResource<'_> {
-        self.data.slice(0..self.size).into()
+        self.data.slice(0..self.size()).into()
     }
 
-    /// Returns the active buffer size
-    fn size(&self) -> u64 {
-        self.size
+    /// Returns the buffer's capacity as an item count
+    fn item_capacity(&self) -> usize {
+        let c = usize::try_from(self.capacity()).unwrap();
+        assert_eq!(c % std::mem::size_of::<T>(), 0);
+        c / std::mem::size_of::<T>()
     }
 
     /// Returns the total buffer capacity, which may be larger than its size
@@ -2013,14 +2020,14 @@ impl<T, const U: u32> FlexBuffer<T, U> {
         + wgpu::WasmNotSend
         + 'static,
     ) -> wgpu::BufferSlice<'_> {
-        let slice = self.data.slice(0..self.size);
+        let slice = self.data.slice(0..self.size());
         slice.map_async(wgpu::MapMode::Read, callback);
         slice
     }
 
     /// Clears the active portion of the buffer
     fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
-        encoder.clear_buffer(&self.data, 0, Some(self.size));
+        encoder.clear_buffer(&self.data, 0, Some(self.size()));
     }
 }
 
