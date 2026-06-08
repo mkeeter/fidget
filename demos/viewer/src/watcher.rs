@@ -7,14 +7,15 @@ use std::path::Path;
 pub(crate) fn file_watcher_thread(
     path: &Path,
     rx: Receiver<()>,
-    tx: Sender<String>,
+    tx: Sender<(String, String)>,
 ) -> Result<()> {
     let read_file = || -> Result<String> {
         let out = String::from_utf8(std::fs::read(path)?).unwrap();
         Ok(out)
     };
     let mut contents = read_file()?;
-    tx.send(contents.clone())?;
+    let path_str = path.to_string_lossy().to_string();
+    tx.send((contents.clone(), path_str.clone()))?;
 
     loop {
         // Wait for a file change notification
@@ -31,7 +32,7 @@ pub(crate) fn file_watcher_thread(
         if contents != new_contents {
             contents = new_contents;
             debug!("file contents changed!");
-            tx.send(contents.clone())?;
+            tx.send((contents.clone(), path_str.clone()))?;
         }
     }
 }
