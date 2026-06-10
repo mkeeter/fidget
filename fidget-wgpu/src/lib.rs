@@ -107,8 +107,10 @@ impl BufferItemCount for usize {
 
 impl BufferItemCount for ImageSize {
     fn item_count(&self) -> usize {
-        usize::try_from(self.width()).unwrap()
-            * usize::try_from(self.height()).unwrap()
+        usize::try_from(self.width())
+            .unwrap()
+            .checked_mul(usize::try_from(self.height()).unwrap())
+            .unwrap()
     }
 }
 
@@ -119,9 +121,7 @@ impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
         item_count: B,
     ) -> Result<Self, BufferSizeError> {
         let item_count = item_count.item_count();
-        let size =
-            u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
-        assert_eq!(size % 4, 0);
+        let size = Self::calculate_buffer_size(item_count);
         let usage = wgpu::BufferUsages::from_bits(U).unwrap();
         Self::check_size(usage, size)?;
         let data = device.create_buffer(&wgpu::BufferDescriptor {
@@ -139,9 +139,20 @@ impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
         })
     }
 
+    /// Calculate size from buffer item count
+    ///
+    /// Size is rounded up to the nearest multiple of 4 for alignment
+    fn calculate_buffer_size(item_count: usize) -> u64 {
+        let out = u64::try_from(item_count)
+            .unwrap()
+            .checked_mul(u64::try_from(std::mem::size_of::<T>()).unwrap())
+            .unwrap();
+        out.next_multiple_of(4)
+    }
+
     /// Returns the active buffer size (in bytes)
     fn size(&self) -> u64 {
-        u64::try_from(self.item_count * std::mem::size_of::<T>()).unwrap()
+        Self::calculate_buffer_size(self.item_count)
     }
 
     fn check_size(
@@ -161,7 +172,7 @@ impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
     /// Grows the buffer to fit a particular size in bytes
     ///
     /// If the buffer already fits that size, then no allocation is performed,
-    /// but we always update the internal `member_count` (e.g. so that
+    /// but we always update the internal `item_count` (e.g. so that
     /// [`bind_active`](Self::bind_active) returns the correct subset of the
     /// buffer).
     fn grow_to_fit(
@@ -171,9 +182,7 @@ impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
     ) -> Result<(), BufferSizeError> {
         let item_count = item_count.item_count();
         if item_count > self.item_capacity() {
-            let size =
-                u64::try_from(item_count * std::mem::size_of::<T>()).unwrap();
-            assert_eq!(size % 4, 0);
+            let size = Self::calculate_buffer_size(item_count);
             let usage = self.data.usage();
             Self::check_size(usage, size)?;
             self.data = device.create_buffer(&wgpu::BufferDescriptor {
@@ -236,10 +245,6 @@ impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
 /// buffer is used.
 #[derive(Debug, thiserror::Error)]
 pub enum BufferSizeError {
-    /// Buffer size is not aligned to 4 bytes
-    #[error("requested size {0} must be a multiple of 4 bytes")]
-    NotAligned(u64),
-
     /// Buffer size is too large for the requested buffer usage
     #[error(
         "requested size {requested_size} exceeds maximum {} for \
@@ -291,9 +296,7 @@ impl BufferType {
     }
 
     fn check(&self, requested_size: u64) -> Result<(), BufferSizeError> {
-        if !requested_size.is_multiple_of(4) {
-            Err(BufferSizeError::NotAligned(requested_size))
-        } else if requested_size > self.max_size() {
+        if requested_size > self.max_size() {
             Err(BufferSizeError::TooLarge {
                 requested_size,
                 buffer_type: *self,
