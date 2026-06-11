@@ -114,16 +114,16 @@ impl BufferItemCount for ImageSize {
     }
 }
 
-impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
+impl<T, B: BufferItemCount + Copy, const U: u32> GenericFlexBuffer<T, B, U> {
     fn new(
         device: &wgpu::Device,
         name: String,
         item_count: B,
     ) -> Result<Self, BufferSizeError> {
+        Self::check_size(item_count)?;
         let item_count = item_count.item_count();
         let size = Self::calculate_buffer_size(item_count);
         let usage = wgpu::BufferUsages::from_bits(U).unwrap();
-        Self::check_size(usage, size)?;
         let data = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name.as_str()),
             size,
@@ -155,10 +155,11 @@ impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
         Self::calculate_buffer_size(self.item_count)
     }
 
-    fn check_size(
-        usage: wgpu::BufferUsages,
-        size: u64,
-    ) -> Result<(), BufferSizeError> {
+    fn check_size(item_count: B) -> Result<(), BufferSizeError> {
+        let item_count = item_count.item_count();
+        let size = Self::calculate_buffer_size(item_count);
+        let usage = wgpu::BufferUsages::from_bits(U).unwrap();
+
         let buf_ty = if usage.contains(wgpu::BufferUsages::STORAGE) {
             BufferType::Storage
         } else if usage.contains(wgpu::BufferUsages::UNIFORM) {
@@ -180,11 +181,11 @@ impl<T, B: BufferItemCount, const U: u32> GenericFlexBuffer<T, B, U> {
         device: &wgpu::Device,
         item_count: B,
     ) -> Result<(), BufferSizeError> {
+        Self::check_size(item_count)?;
         let item_count = item_count.item_count();
         if item_count > self.item_capacity() {
             let size = Self::calculate_buffer_size(item_count);
             let usage = self.data.usage();
-            Self::check_size(usage, size)?;
             self.data = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(self.name.as_str()),
                 size,
