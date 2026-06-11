@@ -89,11 +89,14 @@
 //! To reuse the image buffer within a more complex GPU pipeline (without
 //! copying to the host), see [`Buffers::image_storage_buffer`].
 
-use crate::opcode_constants;
+use crate::{
+    ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
+    opcode_constants, usage::*,
+};
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
     eval::Function,
-    render::VoxelSize,
+    render::{ImageSize, VoxelSize},
     shape::{MissingVar, ShapeVars},
     var::Var,
     vm::VmShape,
@@ -116,86 +119,6 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
 const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
 const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
-
-////////////////////////////////////////////////////////////////////////////////
-// Error handling zone!  This is perhaps a bit overengineered, but it meets the
-// desired behavior of function error types only containing errors that they can
-// actually return.
-
-/// Buffer type for error reporting
-#[derive(Copy, Clone, Debug)]
-pub enum BufferType {
-    /// Uniform buffer ([`wgpu::BufferUsages::UNIFORM`])
-    Uniform,
-    /// Storage buffer ([`wgpu::BufferUsages::STORAGE`])
-    Storage,
-    /// Other buffer type (e.g. [`wgpu::BufferUsages::MAP_READ`])
-    Generic,
-}
-
-impl std::fmt::Display for BufferType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            BufferType::Uniform => "uniform",
-            BufferType::Storage => "storage",
-            BufferType::Generic => "generic",
-        };
-        s.fmt(f)
-    }
-}
-
-impl BufferType {
-    /// Maximum size of this buffer type, per the WebGPU spec
-    pub const fn max_size(&self) -> u64 {
-        // These are copied from the spec, since we don't ask for anything extra
-        match self {
-            // maxUniformBufferBindingSize
-            BufferType::Uniform => 64 * 1024,
-            // maxStorageBufferBindingSize
-            BufferType::Storage => 128 * 1024 * 1024,
-            // maxBufferSize
-            BufferType::Generic => 256 * 1024 * 1024,
-        }
-    }
-
-    fn check(&self, requested_size: u64) -> Result<(), BufferSizeError> {
-        if !requested_size.is_multiple_of(4) {
-            Err(BufferSizeError::NotAligned(requested_size))
-        } else if requested_size > self.max_size() {
-            Err(BufferSizeError::TooLarge {
-                requested_size,
-                buffer_type: *self,
-            })
-        } else {
-            Ok(())
-        }
-    }
-}
-
-/// Error type when resizing a buffer beyond its limit
-///
-/// We check against maximum buffer sizes (from the WebGPU spec) and return an
-/// error immediately, instead of deferring the error to the point where the
-/// buffer is used.
-#[derive(Debug, thiserror::Error)]
-pub enum BufferSizeError {
-    /// Buffer size is not aligned to 4 bytes
-    #[error("requested size {0} must be a multiple of 4 bytes")]
-    NotAligned(u64),
-
-    /// Buffer size is too large for the requested buffer usage
-    #[error(
-        "requested size {requested_size} exceeds maximum {} for \
-        {buffer_type} buffer",
-        buffer_type.max_size()
-    )]
-    TooLarge {
-        /// Size requested (in bytes)
-        requested_size: u64,
-        /// Buffer type (which determines the [max size](BufferType::max_size))
-        buffer_type: BufferType,
-    },
-}
 
 /// Error type when resizing intermediate tile buffers
 #[derive(Debug, thiserror::Error)]
@@ -581,11 +504,11 @@ struct RootContext {
 /// Per-strata offset in the root tiles list
 ///
 /// This must be equivalent to `strata_size_bytes` in the interval root shader
-fn strata_size_bytes(render_size: TileRenderSize) -> u64 {
-    let nx = u64::from(render_size.nx());
-    let ny = u64::from(render_size.ny());
+fn strata_size_bytes(render_size: TileRenderSize) -> usize {
+    let nx = usize::try_from(render_size.nx()).unwrap();
+    let ny = usize::try_from(render_size.ny()).unwrap();
     // Snap to `min_storage_buffer_offset_alignment`
-    ((nx * ny + 4) * std::mem::size_of::<u32>() as u64).next_multiple_of(256)
+    ((nx * ny + 4) * std::mem::size_of::<u32>()).next_multiple_of(256)
 }
 
 impl RootContext {
@@ -939,7 +862,7 @@ impl IntervalContext {
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let strata_bytes = buffers.strata_size_bytes();
+        let strata_bytes = u64::try_from(buffers.strata_size_bytes()).unwrap();
         let offset_bytes = strata * strata_bytes;
         let bind_group16 = buffers.bind_groups.interval16(ctx, buffers);
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
@@ -1165,11 +1088,11 @@ pub struct Context {
 
 struct TileBuffers<const N: u64> {
     /// Tiles written by the stage outputting N³ tiles
-    tiles: Buffer,
+    tiles: ArrayBuffer<u32, STORAGE_INDIRECT>,
     /// Sorted version of [`tiles`](Self::tiles)
-    sorted: Buffer,
+    sorted: ArrayBuffer<u32, STORAGE_INDIRECT>,
     /// Minimum Z height at each XY tile
-    zmin: Buffer,
+    zmin: ImageBuffer<u32, STORAGE_COPY_DST>,
 }
 
 impl<const N: u64> TileBuffers<N> {
@@ -1179,31 +1102,22 @@ impl<const N: u64> TileBuffers<N> {
         render_size: TileRenderSize,
     ) -> Result<Self, TileBuffersError> {
         let tile_buf_size = Self::tile_buf_size(render_size);
-        let tiles = Buffer::new(
-            device,
-            format!("active_tile{N}"),
-            tile_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
-        )
-        .map_err(|err| TileBuffersError {
-            buf: TileBufferName::Tiles,
-            err,
-        })?;
-        let sorted = Buffer::new(
-            device,
-            format!("sorted_tile{N}"),
-            tile_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
-        )
-        .map_err(|err| TileBuffersError {
-            buf: TileBufferName::Sorted,
-            err,
-        })?;
-        let zmin = Buffer::new(
+        let tiles =
+            ArrayBuffer::new(device, format!("active_tile{N}"), tile_buf_size)
+                .map_err(|err| TileBuffersError {
+                    buf: TileBufferName::Tiles,
+                    err,
+                })?;
+        let sorted =
+            ArrayBuffer::new(device, format!("sorted_tile{N}"), tile_buf_size)
+                .map_err(|err| TileBuffersError {
+                    buf: TileBufferName::Sorted,
+                    err,
+                })?;
+        let zmin = ImageBuffer::new(
             device,
             format!("tile{N}_zmin"),
             Self::zmin_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| TileBuffersError {
             buf: TileBufferName::Zmin,
@@ -1217,19 +1131,21 @@ impl<const N: u64> TileBuffers<N> {
         })
     }
 
-    fn tile_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.width()) / N;
-        let ny = u64::from(render_size.height()) / N;
-        let nz = 64 / N;
+    fn tile_buf_size(render_size: TileRenderSize) -> usize {
+        let n = usize::try_from(N).unwrap();
+        let nx = usize::try_from(render_size.width()).unwrap() / n;
+        let ny = usize::try_from(render_size.height()).unwrap() / n;
+        let nz = 64 / n;
         // wg_dispatch: [u32; 3]
         // count: u32,
-        (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64
+        4 + nx * ny * nz
     }
 
-    fn zmin_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.width()) / N;
-        let ny = u64::from(render_size.height()) / N;
-        (nx * ny) * std::mem::size_of::<u32>() as u64
+    fn zmin_buf_size(render_size: TileRenderSize) -> ImageSize {
+        ImageSize::new(
+            render_size.width() / u32::try_from(N).unwrap(),
+            render_size.height() / u32::try_from(N).unwrap(),
+        )
     }
 
     fn grow_to_fit(
@@ -1292,11 +1208,11 @@ impl<const N: u64> TileBuffers<N> {
 /// Root tile buffers store strata-packed tile lists
 struct RootTileBuffers {
     /// Initial output tiles
-    tiles: Buffer,
+    tiles: ArrayBuffer<u32, STORAGE_COPY_DST>,
     /// Strata-sorted output tiles
-    strata: Buffer,
-    zmin: Buffer,
-    zmax: Buffer,
+    strata: ArrayBuffer<u8, STORAGE_INDIRECT_COPY_DST>,
+    zmin: ImageBuffer<u32, STORAGE_COPY_DST>,
+    zmax: ImageBuffer<u32, STORAGE_COPY_DST>,
 }
 
 impl RootTileBuffers {
@@ -1309,24 +1225,20 @@ impl RootTileBuffers {
         const N: usize = 64;
 
         // Allocate enough words to write all of the output tiles
-        let tiles = Buffer::new(
+        let tiles = ArrayBuffer::new(
             device,
             format!("tiles_out{N}"),
             Self::tiles_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| RootTileBuffersError {
             buf: RootTileBufferName::Tiles,
             err,
         })?;
 
-        let strata = Buffer::new(
+        let strata = ArrayBuffer::new(
             device,
             format!("strata_tile{N}"),
             Self::strata_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::INDIRECT
-                | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| RootTileBuffersError {
             buf: RootTileBufferName::Strata,
@@ -1334,26 +1246,18 @@ impl RootTileBuffers {
         })?;
 
         let z_buf_size = Self::z_buf_size(render_size);
-        let zmin = Buffer::new(
-            device,
-            format!("tile{N}_zmin"),
-            z_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        )
-        .map_err(|err| RootTileBuffersError {
-            buf: RootTileBufferName::Zmin,
-            err,
-        })?;
-        let zmax = Buffer::new(
-            device,
-            format!("tile{N}_zmax"),
-            z_buf_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        )
-        .map_err(|err| RootTileBuffersError {
-            buf: RootTileBufferName::Zmax,
-            err,
-        })?;
+        let zmin =
+            ImageBuffer::new(device, format!("tile{N}_zmin"), z_buf_size)
+                .map_err(|err| RootTileBuffersError {
+                    buf: RootTileBufferName::Zmin,
+                    err,
+                })?;
+        let zmax =
+            ImageBuffer::new(device, format!("tile{N}_zmax"), z_buf_size)
+                .map_err(|err| RootTileBuffersError {
+                    buf: RootTileBufferName::Zmax,
+                    err,
+                })?;
         Ok(Self {
             tiles,
             strata,
@@ -1362,25 +1266,23 @@ impl RootTileBuffers {
         })
     }
 
-    fn tiles_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        let nz = u64::from(render_size.nz());
+    fn tiles_buf_size(render_size: TileRenderSize) -> usize {
+        let nx = usize::try_from(render_size.nx()).unwrap();
+        let ny = usize::try_from(render_size.ny()).unwrap();
+        let nz = usize::try_from(render_size.nz()).unwrap();
         // wg_dispatch: [u32; 3] (unused)
         // count: u32,
-        (4 + nx * ny * nz) * std::mem::size_of::<u32>() as u64
+        4 + nx * ny * nz
     }
 
-    fn strata_buf_size(render_size: TileRenderSize) -> u64 {
-        let nz = u64::from(render_size.nz());
+    fn strata_buf_size(render_size: TileRenderSize) -> usize {
+        let nz = usize::try_from(render_size.nz()).unwrap();
         let strata_size = strata_size_bytes(render_size);
         strata_size * nz
     }
 
-    fn z_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        nx * ny * std::mem::size_of::<u32>() as u64
+    fn z_buf_size(render_size: TileRenderSize) -> ImageSize {
+        ImageSize::new(render_size.nx(), render_size.ny())
     }
 
     /// Grows all of the buffers to fit a particular render size
@@ -1561,7 +1463,7 @@ pub struct Buffers {
     z_hist_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: Buffer,
+    tile_tapes: ArrayBuffer<u32, STORAGE_COPY_DST>,
 
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers,
@@ -1573,16 +1475,16 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxels
-    voxels: Buffer,
+    voxels: ArrayBuffer<u32, STORAGE_COPY_DST>,
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
-    geom: Buffer,
+    geom: ImageBuffer<GeometryPixel, STORAGE_COPY_SRC_DST>,
 
     /// Result buffer that can be read back from the host
     ///
     /// This is mostly image pixels (as [`GeometryPixel`] values), but also
     /// contains two trailing `u64` values for timestamps.
-    image: Buffer,
+    image: ArrayBuffer<u8, COPY_DST_MAP_READ>,
 
     /// Query set for timestamps
     ///
@@ -1739,7 +1641,7 @@ impl BindGroups {
     }
 
     fn interval16(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        let strata_bytes = buffers.strata_size_bytes();
+        let strata_bytes = u64::try_from(buffers.strata_size_bytes()).unwrap();
         self.interval16.get_or_init(|| {
             ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("interval16 bind group"),
@@ -1915,108 +1817,7 @@ impl Buffers {
     /// the tuple when binding the buffer, and may also want to use
     /// [`Buffers::image_size`] (if they care about image width and height).
     pub fn image_storage_buffer(&self) -> (&wgpu::Buffer, u64) {
-        (&self.geom.data, self.geom.size)
-    }
-}
-
-/// Handle around a growable GPU buffer which pretends to be smaller
-struct Buffer {
-    /// Current active size, which may be smaller than the buffer's capacity
-    size: u64,
-    /// Actual GPU buffer
-    data: wgpu::Buffer,
-    /// Buffer label (to be used when reallocating)
-    name: String,
-}
-
-impl Buffer {
-    fn new(
-        device: &wgpu::Device,
-        name: String,
-        size: u64,
-        usage: wgpu::BufferUsages,
-    ) -> Result<Self, BufferSizeError> {
-        assert_eq!(size % 4, 0);
-        Self::check_size(usage, size)?;
-        let data = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(name.as_str()),
-            size,
-            usage,
-            mapped_at_creation: false,
-        });
-        Ok(Self { data, size, name })
-    }
-
-    fn check_size(
-        usage: wgpu::BufferUsages,
-        size: u64,
-    ) -> Result<(), BufferSizeError> {
-        let buf_ty = if usage.contains(wgpu::BufferUsages::STORAGE) {
-            BufferType::Storage
-        } else if usage.contains(wgpu::BufferUsages::UNIFORM) {
-            BufferType::Uniform
-        } else {
-            BufferType::Generic
-        };
-        buf_ty.check(size)
-    }
-
-    /// Grows the buffer to fit a particular size in bytes
-    ///
-    /// If the buffer already fits that size, then no allocation is performed,
-    /// but we always update the internal `size` member (e.g. so that
-    /// [`bind_active`](Self::bind_active) returns the correct
-    /// subset of the buffer).
-    fn grow_to_fit(
-        &mut self,
-        device: &wgpu::Device,
-        size: u64,
-    ) -> Result<(), BufferSizeError> {
-        assert_eq!(size % 4, 0);
-        if size > self.capacity() {
-            let usage = self.data.usage();
-            Self::check_size(usage, size)?;
-            self.data = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(self.name.as_str()),
-                size,
-                usage,
-                mapped_at_creation: false,
-            });
-        }
-        self.size = size;
-        Ok(())
-    }
-
-    /// Returns a binding resource for the active slice of the buffer
-    fn bind_active(&self) -> wgpu::BindingResource<'_> {
-        self.data.slice(0..self.size).into()
-    }
-
-    /// Returns the active buffer size
-    fn size(&self) -> u64 {
-        self.size
-    }
-
-    /// Returns the total buffer capacity, which may be larger than its size
-    fn capacity(&self) -> u64 {
-        self.data.size()
-    }
-
-    /// Maps the active portion of the buffer for reading
-    fn map_async(
-        &self,
-        callback: impl FnOnce(Result<(), wgpu::BufferAsyncError>)
-        + wgpu::WasmNotSend
-        + 'static,
-    ) -> wgpu::BufferSlice<'_> {
-        let slice = self.data.slice(0..self.size);
-        slice.map_async(wgpu::MapMode::Read, callback);
-        slice
-    }
-
-    /// Clears the active portion of the buffer
-    fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
-        encoder.clear_buffer(&self.data, 0, Some(self.size));
+        (&self.geom.data, self.geom.size())
     }
 }
 
@@ -2043,22 +1844,20 @@ impl Buffers {
         });
 
         let render_size = TileRenderSize::from(image_size);
-        let voxels = Buffer::new(
+        let voxels = ArrayBuffer::new(
             device,
             "voxels".to_string(),
             Self::voxels_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| BuffersError {
             requested: image_size,
             buf: BufferName::Voxels,
             err,
         })?;
-        let tile_tapes = Buffer::new(
+        let tile_tapes = ArrayBuffer::new(
             device,
             "tile tape".to_string(),
             Self::tile_tapes_buf_size(render_size),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| BuffersError {
             requested: image_size,
@@ -2066,13 +1865,10 @@ impl Buffers {
             err,
         })?;
 
-        let geom = Buffer::new(
+        let geom = ImageBuffer::new(
             device,
             "geom".to_string(),
             Self::geom_buf_size(image_size),
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
         )
         .map_err(|err| BuffersError {
             requested: image_size,
@@ -2080,11 +1876,10 @@ impl Buffers {
             err,
         })?;
 
-        let image = Buffer::new(
+        let image = ArrayBuffer::new(
             device,
             "image".to_string(),
             Self::image_buf_size(image_size),
-            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         )
         .map_err(|err| BuffersError {
             requested: image_size,
@@ -2167,7 +1962,7 @@ impl Buffers {
     }
 
     /// Returns the size of one strata (in bytes)
-    fn strata_size_bytes(&self) -> u64 {
+    fn strata_size_bytes(&self) -> usize {
         strata_size_bytes(self.render_size())
     }
 
@@ -2192,29 +1987,42 @@ impl Buffers {
     /// | index | index | index | ... |     16² XY tiles × 4  Z positions
     /// | index | index | index | ... |     4²  XY tiles × 16 Z positions
     /// ```
-    fn tile_tapes_buf_size(render_size: TileRenderSize) -> u64 {
-        let nx = u64::from(render_size.nx());
-        let ny = u64::from(render_size.ny());
-        let nz = u64::from(render_size.nz());
-        (nx * ny * nz + (nx * ny) * ((64u64 / 16).pow(3) + (64u64 / 4).pow(3)))
-            * std::mem::size_of::<u32>() as u64
+    fn tile_tapes_buf_size(render_size: TileRenderSize) -> usize {
+        let nx = usize::try_from(render_size.nx()).unwrap();
+        let ny = usize::try_from(render_size.ny()).unwrap();
+        let nz = usize::try_from(render_size.nz()).unwrap();
+
+        // Each tile contains 16³ and 4³ subtiles
+        let xy_size = (64usize / 4).pow(3) + (64usize / 16).pow(3);
+
+        // Total size computation:
+        //    nx * ny * nz + (nx * ny * xy_size)
+        // => nx * ny * (nz + xy_size)
+        nx.checked_mul(ny)
+            .unwrap()
+            .checked_mul(nz.checked_add(xy_size).unwrap())
+            .unwrap()
     }
 
-    fn voxels_buf_size(render_size: TileRenderSize) -> u64 {
-        let render_pixels = render_size.pixels();
-        (render_pixels * std::mem::size_of::<u32>()) as u64
+    fn voxels_buf_size(render_size: TileRenderSize) -> usize {
+        render_size.pixels()
     }
 
-    /// Returns the size in bytes for the `geom` buffers
-    fn geom_buf_size(image_size: VoxelSize) -> u64 {
-        let image_pixels =
-            u64::from(image_size.width()) * u64::from(image_size.height());
-        image_pixels * std::mem::size_of::<GeometryPixel>() as u64
+    /// Returns the image size for the `geom` buffer
+    fn geom_buf_size(image_size: VoxelSize) -> ImageSize {
+        ImageSize::new(image_size.width(), image_size.height())
     }
 
-    fn image_buf_size(image_size: VoxelSize) -> u64 {
-        // Allocate an extra 16 bytes for timestamp queries
-        Self::geom_buf_size(image_size) + 16
+    /// Returns image buffer size (in bytes)
+    fn image_buf_size(image_size: VoxelSize) -> usize {
+        Self::geom_buf_size(image_size)
+            .item_count()
+            // Convert from GeometryPixel item count to bytes
+            .checked_mul(std::mem::size_of::<GeometryPixel>())
+            .unwrap()
+            // Allocate an extra 16 bytes for timestamp queries
+            .checked_add(16)
+            .unwrap()
     }
 
     /// Resizes to render the target image size
@@ -3019,7 +2827,7 @@ impl ResetContext {
         for s in 0..buffers.render_size().nz() {
             encoder.clear_buffer(
                 &buffers.tile64.strata.data,
-                u64::from(s) * strata_size_bytes,
+                u64::from(s) * u64::try_from(strata_size_bytes).unwrap(),
                 Some(16),
             );
         }
