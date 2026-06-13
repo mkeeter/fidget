@@ -1511,6 +1511,9 @@ pub struct Buffers {
 
 /// Buffer for reading data back from the GPU
 ///
+/// This object is constructed by [`Context::image_buffer`] and may only be used
+/// with that particular [`Context`].
+///
 /// Once mapped, this is wrapped by a [`MappedImage`]
 pub struct ImageReadBuffer {
     /// Image render size
@@ -1521,6 +1524,33 @@ pub struct ImageReadBuffer {
     /// This is mostly image pixels (as [`GeometryPixel`] values), but also
     /// contains two trailing `u64` values for timestamps.
     buffer: ImageReadArrayBuffer,
+}
+
+impl ImageReadBuffer {
+    fn new(
+        device: &wgpu::Device,
+        name: String,
+        image_size: VoxelSize,
+    ) -> Result<Self, BufferSizeError> {
+        Ok(Self {
+            image_size,
+            buffer: ImageReadArrayBuffer::new(
+                device,
+                name,
+                Buffers::image_buf_size(image_size),
+            )?,
+        })
+    }
+
+    fn grow_to_fit(
+        &mut self,
+        device: &wgpu::Device,
+        image_size: VoxelSize,
+    ) -> Result<(), BufferSizeError> {
+        self.image_size = image_size;
+        self.buffer
+            .grow_to_fit(device, Buffers::image_buf_size(image_size))
+    }
 }
 
 type ImageReadArrayBuffer = ArrayBuffer<u8, COPY_DST_MAP_READ>;
@@ -1845,9 +1875,7 @@ impl Buffers {
     pub fn image_storage_buffer(&self) -> (&wgpu::Buffer, u64) {
         (&self.geom.data, self.geom.size())
     }
-}
 
-impl Buffers {
     fn new(
         device: &wgpu::Device,
         image_size: VoxelSize,
@@ -2298,15 +2326,15 @@ impl Context {
     /// the image size is appropriate for the image read buffer (even though
     /// it's constructed separately).
     pub fn image_buffer(&self, buffers: &Buffers) -> ImageReadBuffer {
-        ImageReadBuffer {
-            image_size: buffers.image_size,
-            buffer: ArrayBuffer::new(
-                &self.device,
-                "image".to_owned(),
-                Buffers::image_buf_size(buffers.image_size),
-            )
-            .unwrap(),
-        }
+        ImageReadBuffer::new(
+            &self.device,
+            "image".to_owned(),
+            buffers.image_size,
+        )
+        .expect(
+            "buffers.image_size should always be \
+             a valid size for ImageReadBuffer::new",
+        )
     }
 
     /// Builds a new [`RenderShape`] object for the given shape
@@ -2388,7 +2416,14 @@ impl Context {
 
     /// Submits a single image to be rendered on the GPU
     ///
-    /// If `out` is present, then
+    /// The resulting image (as a buffer of [`GeometryPixel`] data) is available
+    /// on the GPU in
+    /// [`buffers.image_storage_buffer()`](Buffers::image_storage_buffer).
+    ///
+    /// If `out` is present, then the rendered image is also copied to that
+    /// [`ImageReadBuffer`] (which may then be mapped for CPU reading by
+    /// [`map_image`](Self::map_image) or
+    /// [`map_image_async`](Self::map_image_async)).
     pub fn submit(
         &self,
         shape: &RenderShape,
@@ -2406,6 +2441,8 @@ impl Context {
     }
 
     /// Submits a single image to be rendered on the GPU, with extra variables
+    ///
+    /// See [`submit`](Self::submit) for additional details.
     pub fn submit_with_vars(
         &self,
         shape: &RenderShape,
@@ -2553,13 +2590,10 @@ impl Context {
         // Resolve the raw GPU ticks into the resolve buffer, then copy them
         // into the last 16 bytes of the image buffer
         if let Some(image) = out {
-            image
-                .buffer
-                .grow_to_fit(
-                    &self.device,
-                    Buffers::image_buf_size(buffers.image_size),
-                )
-                .unwrap(); // size is checked by `Buffers` constructor
+            image.grow_to_fit(&self.device, buffers.image_size).expect(
+                "buffers.image_size should always be \
+                 a valid size for ImageReadBuffer::grow_to_fit",
+            );
             if let Some(timestamps) = &buffers.timestamps {
                 encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
                 encoder.copy_buffer_to_buffer(
