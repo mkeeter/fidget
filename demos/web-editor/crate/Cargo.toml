@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 bincode = "1.3.3"
-nalgebra = "0.34"
+nalgebra = "0.35"
 
 wasm-bindgen = "0.2.100"
 wasm-bindgen-rayon = "1.3"
