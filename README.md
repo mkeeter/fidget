@@ -163,6 +163,30 @@ Fidget is missing a bunch of features that are found in more mature projects.
 For example, it only includes a debug GUI, and its meshing is much less
 battle-tested than `libfive`.
 
+## LLM usage and contributions
+I don't use LLMs to write non-trivial code (or documentation) in Fidget or
+[Halfspace](https://github.com/mkeeter/halfspace). In particular, I eschew
+agentic systems like Claude Code.  One goal of these projects is to find the
+"right" APIs and software architecture for working with implicit surfaces, and I
+have to be using the APIs myself to discover rough edges and seams.  Agentic
+loops are incredibly good at bandaging over paper cuts, which would defeat the
+purpose.
+
+However, I _do_ use LLMs for code review (typically using GitHub Copilot) and
+brainstorming (occasional chats with frontier models). Along with correct API
+design, an overarching goal of the project is to be as good as possible on
+various axes: correctness, performance, usability, documentation, etc.  Since
+I'm the sole author, adding an additional layer of review helps me deliver
+better software.
+
+User contributions are expected to abide by the same policy.  Small
+contributions are typically welcome; if you are considering a large change,
+please open an issue or discussion first.
+
+If you would like to avoid all possible LLM taint,
+I recommend pinning (or forking)
+[Fidget 0.4.1](https://github.com/mkeeter/fidget/releases/tag/v0.4.1).
+
 ## License
 © 2022-2026 Matthew Keeter  
 Released under the [Mozilla Public License 2.0](https://github.com/mkeeter/fidget/blob/main/LICENSE.txt)
