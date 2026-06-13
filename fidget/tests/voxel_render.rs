@@ -127,7 +127,8 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.buffers(image_size).unwrap();
+        let buf = ctx.buffers(image_size).unwrap();
+        let mut out = ctx.image_buffer(&buf);
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
                 let sphere = (x.square() + y.square() + z.square()).sqrt()
@@ -137,7 +138,8 @@ mod wgpu {
                 let image = ctx
                     .run(
                         &shape,
-                        &mut buf,
+                        &buf,
+                        &mut out,
                         fidget::wgpu::voxel::RenderConfig {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
@@ -187,7 +189,8 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.buffers(image_size).unwrap();
+        let buf = ctx.buffers(image_size).unwrap();
+        let mut out = ctx.image_buffer(&buf);
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
                 let mut vars = ShapeVars::new();
@@ -196,7 +199,8 @@ mod wgpu {
                     .run_with_vars(
                         &render_shape,
                         &vars,
-                        &mut buf,
+                        &buf,
+                        &mut out,
                         fidget::wgpu::voxel::RenderConfig {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
