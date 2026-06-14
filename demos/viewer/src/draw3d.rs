@@ -3,8 +3,7 @@ use eframe::{
     egui,
     egui_wgpu::{self, wgpu},
 };
-use fidget::raster::voxel::GeometryPixel;
-use zerocopy::{Immutable, IntoBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// Configuration for 3D rendering with geometry data
 #[repr(C)]
@@ -167,7 +166,7 @@ impl Resources {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        images: &[Vec<GeometryPixel>],
+        images: &[Vec<FloatPixel>],
         image_size: fidget::render::ImageSize,
         mode: Mode3D,
         max_depth: u32,
@@ -276,7 +275,7 @@ impl Resources {
                 image_data.as_bytes(),
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(16 * width), // 16 bytes per GeometryPixel (4 u32 values)
+                    bytes_per_row: Some(16 * width), // 16 bytes per FloatPixel (4 f32 values)
                     rows_per_image: Some(height),
                 },
                 texture_size,
@@ -298,16 +297,23 @@ impl Resources {
     }
 }
 
+/// Helper type representing a `GeometryPixel` with a floating-point depth
+#[derive(Copy, Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub(crate) struct FloatPixel {
+    pub depth: f32,
+    pub normal: [f32; 3],
+}
+
 /// GPU callback to render 3D images in a particular mode
 pub(crate) struct Draw3D {
-    data: Option<(Vec<Vec<GeometryPixel>>, fidget::render::ImageSize)>,
+    data: Option<(Vec<Vec<FloatPixel>>, fidget::render::ImageSize)>,
     mode: Mode3D,
     max_depth: u32,
 }
 
 impl Draw3D {
     pub fn new(
-        data: Option<(Vec<Vec<GeometryPixel>>, fidget::render::ImageSize)>,
+        data: Option<(Vec<Vec<FloatPixel>>, fidget::render::ImageSize)>,
         mode: Mode3D,
         max_depth: u32,
     ) -> Self {
