@@ -104,7 +104,7 @@
 
 use crate::{
     ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
-    opcode_constants, usage::*,
+    buffer_ro, buffer_ro_dyn, buffer_rw, opcode_constants, usage::*,
 };
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
@@ -432,48 +432,6 @@ fn merge_shader() -> String {
 /// Returns a shader for clearing counters in between strata passes
 fn clear_shader() -> String {
     CLEAR_SHADER.to_owned() + COMMON_SHADER
-}
-
-/// Helper function to make a read-only buffer binding
-fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
-}
-
-/// Helper function to make a read-only buffer binding with dynamic offset
-fn buffer_ro_dyn(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: true,
-            min_binding_size: None,
-        },
-        count: None,
-    }
-}
-
-/// Helper function to make a read-write buffer binding
-fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1203,7 +1161,7 @@ impl<const N: u64> TileBuffers<N> {
             sorted,
             zmin,
         } = self;
-        tiles.size() + sorted.size() + zmin.size()
+        tiles.size_bytes() + sorted.size_bytes() + zmin.size_bytes()
     }
 
     /// Returns the number of bytes allocated by these buffers
@@ -1350,7 +1308,10 @@ impl RootTileBuffers {
             zmin,
             zmax,
         } = self;
-        tiles.size() + strata.size() + zmin.size() + zmax.size()
+        tiles.size_bytes()
+            + strata.size_bytes()
+            + zmin.size_bytes()
+            + zmax.size_bytes()
     }
 
     /// Returns the number of bytes allocated to buffers
@@ -1524,6 +1485,31 @@ pub struct ImageReadBuffer {
     /// This is mostly image pixels (as [`GeometryPixel`] values), but also
     /// contains two trailing `u64` values for timestamps.
     buffer: ImageReadArrayBuffer,
+}
+
+/// Handle to an image storage buffer containing the output of voxel rendering
+///
+/// Users can treat this as an opaque handle for use in subsequent GPU passes,
+/// or get fine-grained access with member functions.
+///
+/// The buffer is configured with  `STORAGE | COPY_SRC | COPY_DST`; note
+/// that it is not valid for `MAP_READ` operations.  To map the
+/// CPU-accessible image buffer, see [`Context::map_image`] and
+/// [`Context::map_image_async`].
+pub struct ImageStorageBuffer<'a>(
+    &'a ImageBuffer<GeometryPixel, STORAGE_COPY_SRC_DST>,
+);
+
+impl ImageStorageBuffer<'_> {
+    /// Binds the active section of the buffer
+    pub fn bind(&self) -> wgpu::BindingResource<'_> {
+        self.0.bind_active()
+    }
+
+    /// Returns the active image size
+    pub fn size(&self) -> ImageSize {
+        self.0.size
+    }
 }
 
 impl ImageReadBuffer {
@@ -1858,22 +1844,14 @@ impl Buffers {
         self.image_size
     }
 
-    /// Returns the image storage buffer and its valid size (in bytes)
+    /// Returns a handle to the image storage buffer
     ///
     /// This is intended for subsequent shaders which want to use the
-    /// [`GeometryPixel`] image data without copying to the CPU.
-    ///
-    /// The buffer is configured with  `STORAGE | COPY_SRC | COPY_DST`; note
-    /// that it is not valid for `MAP_READ` operations.  To map the
-    /// CPU-accessible image buffer, see [`Context::map_image`] and
-    /// [`Context::map_image_async`].
-    ///
-    /// The buffer may be larger than the image data if the [`Buffers`] object
-    /// has been resized over time.  The caller should use the second member in
-    /// the tuple when binding the buffer, and may also want to use
-    /// [`Buffers::image_size`] (if they care about image width and height).
-    pub fn image_storage_buffer(&self) -> (&wgpu::Buffer, u64) {
-        (&self.geom.data, self.geom.size())
+    /// [`GeometryPixel`] image data without copying to the CPU.  It requires a
+    /// exclusive borrow of the `Buffers` object (and then extends that
+    /// lifetime) so that other callers can't simultaneously touch the buffer.
+    pub fn image_storage_buffer(&mut self) -> ImageStorageBuffer<'_> {
+        ImageStorageBuffer(&self.geom)
     }
 
     fn new(
@@ -2211,12 +2189,12 @@ impl Buffers {
         } = self;
         config_buf.size()
             + z_hist_buf.size()
-            + tile_tapes.size()
+            + tile_tapes.size_bytes()
             + tile64.size()
             + tile16.size()
             + tile4.size()
-            + voxels.size()
-            + geom.size()
+            + voxels.size_bytes()
+            + geom.size_bytes()
             + ts_buf.size()
     }
 }
@@ -2427,7 +2405,7 @@ impl Context {
     pub fn submit(
         &self,
         shape: &RenderShape,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
     ) -> Result<(), MissingVar> {
@@ -2600,7 +2578,7 @@ impl Context {
                     &buffers.ts_buf,
                     0,
                     &image.buffer.data,
-                    buffers.geom.size(), // offset past the image data
+                    buffers.geom.size_bytes(), // offset past the image data
                     buffers.ts_buf.size(),
                 );
             }
@@ -2611,7 +2589,7 @@ impl Context {
                 0,
                 &image.buffer.data,
                 0,
-                buffers.geom.size(),
+                buffers.geom.size_bytes(),
             );
         }
 
@@ -2620,7 +2598,10 @@ impl Context {
         Ok(())
     }
 
-    /// Synchronously maps the image buffer
+    /// Synchronously maps an image read buffer
+    ///
+    /// The image read buffer should be populated by passing it as an argument
+    /// when calling [`submit`](Self::submit).
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -2645,7 +2626,10 @@ impl Context {
         }
     }
 
-    /// Asynchronously maps the image buffer
+    /// Asynchronously maps an image read buffer
+    ///
+    /// The image read buffer should be populated by passing it as an argument
+    /// when calling [`submit`](Self::submit).
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -2977,10 +2961,6 @@ mod test {
 
     #[test]
     fn compile_shaders() {
-        let mut v = naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::all(),
-        );
         for (src, desc) in [
             (interval_root_shader(16), "interval root"),
             (interval_tiles_shader(16), "interval tiles"),
@@ -2991,32 +2971,7 @@ mod test {
             (merge_shader(), "merge"),
             (clear_shader(), "clear"),
         ] {
-            // This isn't the best formatting, but it will at least include the
-            // relevant text.
-            let m = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| {
-                if let Some(i) = e.location(&src) {
-                    let pos = i.offset as usize..(i.offset + i.length) as usize;
-                    panic!(
-                        "shader compilation failed\n{src}\n{}",
-                        e.emit_to_string_with_path(&src[pos], desc)
-                    );
-                } else {
-                    panic!(
-                        "shader compilation failed\n{src}\n{}",
-                        e.emit_to_string(desc)
-                    );
-                }
-            });
-            if let Err(e) = v.validate(&m) {
-                let (pos, desc) = e.spans().next().unwrap();
-                panic!(
-                    "shader compilation failed\n{src}\n{}",
-                    e.emit_to_string_with_path(
-                        &src[pos.to_range().unwrap()],
-                        desc
-                    )
-                );
-            }
+            crate::compile_shader(&src, desc);
         }
     }
 }
