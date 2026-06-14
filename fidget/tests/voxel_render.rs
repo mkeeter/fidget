@@ -48,7 +48,7 @@ fn check_sphere(image: Image, size: u32, scale: f32, r: f32) {
     let m = RenderSize::from(size).screen_to_world();
     for (i, p) in image.iter().enumerate() {
         let p = p.depth;
-        if p == size as f32 {
+        if p == size {
             // Skip saturated voxels
             continue;
         }
@@ -56,9 +56,9 @@ fn check_sphere(image: Image, size: u32, scale: f32, r: f32) {
         let i = i as i32;
         let x = (i % size) as f32;
         let y = (i / size) as f32;
-        let z = p;
+        let z = p as f32;
         let pos = m.transform_point(&nalgebra::Point3::new(x, y, z)) * scale;
-        if p == 0.0 {
+        if p == 0 {
             let v = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
             assert!(
                 v + epsilon > r,

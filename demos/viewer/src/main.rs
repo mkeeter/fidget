@@ -14,7 +14,7 @@ use fidget::{
     gui::{Canvas2, Canvas3, CursorState, DragMode, View2, View3},
     raster::{
         pixel::RenderConfig as ImageRenderConfig,
-        voxel::{GeometryPixel, RenderConfig as VoxelRenderConfig},
+        voxel::RenderConfig as VoxelRenderConfig,
     },
 };
 
@@ -41,7 +41,7 @@ struct RenderSettings {
 enum ImageData {
     Rgba(Vec<Vec<[u8; 4]>>),
     Geometry {
-        images: Vec<Vec<GeometryPixel>>,
+        images: Vec<Vec<draw3d::FloatPixel>>,
         mode: Mode3D,
         max_depth: u32,
     },
@@ -208,7 +208,7 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     view: View3,
     shape: fidget::shape::Shape<F>,
     image_size: fidget::render::VoxelSize,
-) -> Vec<GeometryPixel> {
+) -> Vec<draw3d::FloatPixel> {
     let config = VoxelRenderConfig {
         image_size,
         world_to_model: view.world_to_model(),
@@ -221,10 +221,16 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         .run(bound_shape)
         .expect("rendering should not be cancelled");
 
-    // For both rendering modes, we'll just pass the GeometryPixel data
-    // to the GPU, which will apply the appropriate rendering effect
+    // For both rendering modes, we'll convert the GeometryPixel data into
+    // FloatPixels then pass them to the GPU, which will apply the appropriate
+    // rendering effect
     let (data, _) = geometry_buffer.take();
-    data
+    data.into_iter()
+        .map(|p| draw3d::FloatPixel {
+            depth: p.depth as f32,
+            normal: p.normal,
+        })
+        .collect()
 }
 
 fn main() -> Result<(), Box<dyn Error>> {

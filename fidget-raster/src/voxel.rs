@@ -112,7 +112,7 @@ pub struct GeometryPixel {
     ///
     /// The fractional component is always zero. Empty pixels always have a
     /// depth of 0.
-    pub depth: f32,
+    pub depth: u32,
     /// Function gradients at this pixel
     pub normal: [f32; 3],
 }
@@ -264,7 +264,7 @@ impl<F: Function> Worker<'_, F> {
     ) -> bool {
         // Early exit if every single pixel is filled
         let tile_size = self.tile_sizes[depth];
-        let fill_z = (tile.corner[2] + tile_size + 1) as f32;
+        let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
         if (0..tile_size).all(|y| {
             let i = self.tile_row_offset(tile, y);
             (0..tile_size).all(|x| self.out[i + x].depth >= fill_z)
@@ -359,7 +359,7 @@ impl<F: Function> Worker<'_, F> {
             let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(i, j)));
 
             // Skip pixels which are behind the image
-            let zmax = (tile.corner[2] + tile_size) as f32;
+            let zmax = (tile.corner[2] + tile_size).try_into().unwrap();
             if self.out[o].depth >= zmax {
                 continue;
             }
@@ -424,7 +424,7 @@ impl<F: Function> Worker<'_, F> {
 
             // Set the depth of the pixel
             let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(i, j)));
-            let z = (tile.corner[2] + k + 1) as f32;
+            let z = (tile.corner[2] + k + 1).try_into().unwrap();
             assert!(self.out[o].depth < z);
             self.out[o].depth = z;
 
@@ -508,10 +508,10 @@ pub fn render<F: Function + RenderHints>(
                     let o = y * width + x;
                     if out[index].depth >= image[o].depth {
                         // Clamp voxels to the image depth
-                        let d = (config.image_size.depth() - 1) as f32;
+                        let d = config.image_size.depth() - 1;
                         if out[index].depth >= d {
                             image[o] = GeometryPixel {
-                                depth: d + 1.0,
+                                depth: d + 1,
                                 normal: [0.0, 0.0, 1.0],
                             };
                         } else {
