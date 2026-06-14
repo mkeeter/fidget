@@ -1,5 +1,6 @@
 //! Shader generation and WGPU-based image rendering
 #![warn(missing_docs)]
+pub mod effects;
 pub mod voxel;
 
 use fidget_core::render::ImageSize;
@@ -60,10 +61,13 @@ pub async fn init() -> Result<(wgpu::Device, wgpu::Queue), InitError> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle around a growable GPU buffer which pretends to be smaller
+/// Handle around a growable GPU buffer
+///
+/// The buffer keeps track of both its current size and capacity (which may be
+/// larger).  It is used to prevent GPU buffer allocation churn.
 struct GenericFlexBuffer<T, B, const U: u32> {
-    /// Current item count, which may be smaller than the buffer's capacity
-    item_count: usize,
+    /// Current size, which may be smaller than the buffer's capacity
+    size: B,
     /// Actual GPU buffer
     data: wgpu::Buffer,
     /// Buffer label (to be used when reallocating)
@@ -89,6 +93,7 @@ mod usage {
         };
     }
     pub const STORAGE_COPY_DST: u32 = u!(STORAGE, COPY_DST);
+    pub const STORAGE_COPY_SRC: u32 = u!(STORAGE, COPY_SRC);
     pub const STORAGE_INDIRECT: u32 = u!(STORAGE, INDIRECT);
     pub const STORAGE_INDIRECT_COPY_DST: u32 = u!(STORAGE, INDIRECT, COPY_DST);
     pub const STORAGE_COPY_SRC_DST: u32 = u!(STORAGE, COPY_SRC, COPY_DST);
@@ -118,21 +123,20 @@ impl<T, B: BufferItemCount + Copy, const U: u32> GenericFlexBuffer<T, B, U> {
     fn new(
         device: &wgpu::Device,
         name: String,
-        item_count: B,
+        size: B,
     ) -> Result<Self, BufferSizeError> {
-        Self::check_size(item_count)?;
-        let item_count = item_count.item_count();
-        let size = Self::calculate_buffer_size(item_count);
+        Self::check_size(size)?;
+        let size_bytes = Self::calculate_buffer_size(size);
         let usage = wgpu::BufferUsages::from_bits(U).unwrap();
         let data = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name.as_str()),
-            size,
+            size: size_bytes,
             usage,
             mapped_at_creation: false,
         });
         Ok(Self {
             data,
-            item_count,
+            size,
             name,
             _t: std::marker::PhantomData,
             _b: std::marker::PhantomData,
@@ -142,8 +146,8 @@ impl<T, B: BufferItemCount + Copy, const U: u32> GenericFlexBuffer<T, B, U> {
     /// Calculate size from buffer item count
     ///
     /// Size is rounded up to the nearest multiple of 4 for alignment
-    fn calculate_buffer_size(item_count: usize) -> u64 {
-        let out = u64::try_from(item_count)
+    fn calculate_buffer_size(item_count: B) -> u64 {
+        let out = u64::try_from(item_count.item_count())
             .unwrap()
             .checked_mul(u64::try_from(std::mem::size_of::<T>()).unwrap())
             .unwrap();
@@ -151,13 +155,12 @@ impl<T, B: BufferItemCount + Copy, const U: u32> GenericFlexBuffer<T, B, U> {
     }
 
     /// Returns the active buffer size (in bytes)
-    fn size(&self) -> u64 {
-        Self::calculate_buffer_size(self.item_count)
+    fn size_bytes(&self) -> u64 {
+        Self::calculate_buffer_size(self.size)
     }
 
-    fn check_size(item_count: B) -> Result<(), BufferSizeError> {
-        let item_count = item_count.item_count();
-        let size = Self::calculate_buffer_size(item_count);
+    fn check_size(size: B) -> Result<(), BufferSizeError> {
+        let size = Self::calculate_buffer_size(size);
         let usage = wgpu::BufferUsages::from_bits(U).unwrap();
 
         let buf_ty = if usage.contains(wgpu::BufferUsages::STORAGE) {
@@ -179,36 +182,26 @@ impl<T, B: BufferItemCount + Copy, const U: u32> GenericFlexBuffer<T, B, U> {
     fn grow_to_fit(
         &mut self,
         device: &wgpu::Device,
-        item_count: B,
+        size: B,
     ) -> Result<(), BufferSizeError> {
-        Self::check_size(item_count)?;
-        let item_count = item_count.item_count();
-        if item_count > self.item_capacity() {
-            let size = Self::calculate_buffer_size(item_count);
+        Self::check_size(size)?;
+        let new_size = Self::calculate_buffer_size(size);
+        if new_size > self.size_bytes() {
             let usage = self.data.usage();
             self.data = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(self.name.as_str()),
-                size,
+                size: new_size,
                 usage,
                 mapped_at_creation: false,
             });
         }
-        self.item_count = item_count;
+        self.size = size;
         Ok(())
     }
 
     /// Returns a binding resource for the active slice of the buffer
     fn bind_active(&self) -> wgpu::BindingResource<'_> {
-        self.data.slice(0..self.size()).into()
-    }
-
-    /// Returns the buffer's total capacity (in items)
-    ///
-    /// This may be larger than [`self.item_count`](Self::item_count)
-    fn item_capacity(&self) -> usize {
-        let c = usize::try_from(self.capacity()).unwrap();
-        assert_eq!(c % std::mem::size_of::<T>(), 0);
-        c / std::mem::size_of::<T>()
+        self.data.slice(0..self.size_bytes()).into()
     }
 
     /// Returns the total buffer capacity (in bytes)
@@ -223,14 +216,14 @@ impl<T, B: BufferItemCount + Copy, const U: u32> GenericFlexBuffer<T, B, U> {
         + wgpu::WasmNotSend
         + 'static,
     ) -> wgpu::BufferSlice<'_> {
-        let slice = self.data.slice(0..self.size());
+        let slice = self.data.slice(0..self.size_bytes());
         slice.map_async(wgpu::MapMode::Read, callback);
         slice
     }
 
     /// Clears the active portion of the buffer
     fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
-        encoder.clear_buffer(&self.data, 0, Some(self.size()));
+        encoder.clear_buffer(&self.data, 0, Some(self.size_bytes()));
     }
 }
 
@@ -305,5 +298,138 @@ impl BufferType {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Helper function to make a read-only buffer binding
+fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+/// Helper function to make a read-only buffer binding with dynamic offset
+fn buffer_ro_dyn(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: true,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+/// Helper function to make a read-write buffer binding
+fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Helper function for use in unit tests
+#[cfg(test)]
+fn compile_shader(src: &str, desc: &str) {
+    let mut v = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    );
+
+    // This isn't the best formatting, but it will at least include the
+    // relevant text.
+    let m = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| {
+        if let Some(i) = e.location(src) {
+            let pos = i.offset as usize..(i.offset + i.length) as usize;
+            panic!(
+                "shader compilation failed\n{src}\n{}",
+                e.emit_to_string_with_path(&src[pos], desc)
+            );
+        } else {
+            panic!(
+                "shader compilation failed\n{src}\n{}",
+                e.emit_to_string(desc)
+            );
+        }
+    });
+    if let Err(e) = v.validate(&m) {
+        let (pos, desc) = e.spans().next().unwrap();
+        panic!(
+            "shader compilation failed\n{src}\n{}",
+            e.emit_to_string_with_path(&src[pos.to_range().unwrap()], desc)
+        );
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use fidget_core::{context::Tree, vm::VmShape};
+    use fidget_raster::voxel::RenderSize;
+
+    #[test]
+    fn render_and_merge() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let instance = wgpu::Instance::default();
+        let (device, queue) = pollster::block_on(async {
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions::default())
+                .await
+                .unwrap();
+            adapter
+                .request_device(&wgpu::DeviceDescriptor::default())
+                .await
+                .unwrap()
+        });
+
+        let voxel_ctx = voxel::Context::new(device.clone(), queue.clone());
+        let effects_ctx = effects::Context::new(device.clone(), queue.clone());
+
+        let size = 32;
+        let image_size = RenderSize::from(size);
+        let mut buf = voxel_ctx.buffers(image_size).unwrap();
+        let mut merge_buf = effects_ctx.merge_buffers(32.into()).unwrap();
+
+        let (x, y, z) = Tree::axes();
+        let sphere =
+            (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
+        let shape = voxel_ctx.shape(&VmShape::from(sphere)).unwrap();
+
+        voxel_ctx
+            .submit(
+                &shape,
+                &mut buf,
+                None,
+                &voxel::RenderConfig {
+                    world_to_model: nalgebra::Matrix4::identity(),
+                },
+            )
+            .unwrap();
+        effects_ctx
+            .submit_merge(&[buf.image_storage_buffer()], &mut merge_buf)
+            .unwrap();
     }
 }
