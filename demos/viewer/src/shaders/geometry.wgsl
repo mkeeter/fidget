@@ -37,8 +37,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 }
 
 struct GeometryPixel {
-    depth: u32,
     normal: vec3<f32>,
+    depth: u32,
 }
 
 struct Light {

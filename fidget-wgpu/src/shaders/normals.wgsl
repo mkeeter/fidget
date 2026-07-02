@@ -1,5 +1,5 @@
 @group(2) @binding(0) var<storage, read> image_heightmap: array<u32>;
-@group(2) @binding(1) var<storage, read_write> image_out: array<vec4f>;
+@group(2) @binding(1) var<storage, read_write> image_out: array<GeometryPixel>;
 
 @compute @workgroup_size(8, 8)
 fn normals_main(
@@ -15,7 +15,7 @@ fn normals_main(
 
     // If we've already written this pixel, then return; because evaluation
     // happens in Z order, it will necessarily supersede the current pixel
-    if image_out[pixel_index_xy][0] != 0 {
+    if image_out[pixel_index_xy].depth != 0 {
         return;
     }
 
@@ -37,11 +37,13 @@ fn normals_main(
     let tape_start = get_tape_start(vec3u(px, py, z));
     var stack = Stack(); // dummy value
     let out = run_tape(tape_start, m, &stack);
-    image_out[pixel_index_xy] = vec4f(
-        f32(z),
-        out.value.v.x,
-        out.value.v.y,
-        out.value.v.z
+    image_out[pixel_index_xy] = GeometryPixel(
+        vec3f(
+            out.value.v.x,
+            out.value.v.y,
+            out.value.v.z
+        ),
+        z,
     );
 }
 
