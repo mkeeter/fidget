@@ -60,6 +60,9 @@
 - Rename `trait ImageSizeLike` to `trait RenderSize` in `fidget_raster`; remove
   `width` and `height` from `trait RenderConfig` and add a `RenderConfig:
   RenderSize` bound
+- Switched `GeometryPixel` back to having a `u32` for depth; we are planning to
+  move more post-processing to the GPU, so it's helpful to keep pixels lossless
+  for as long as possible.
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
