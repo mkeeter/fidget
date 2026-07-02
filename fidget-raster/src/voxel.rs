@@ -102,19 +102,23 @@ impl RenderConfig<'_> {
 
 /// Pixel type for a [`voxel::Image`](Image)
 ///
-/// This type can be passed directly in a buffer to the GPU.
+/// This type can be passed directly in a buffer to the GPU.  However, it is
+/// **unwise** to load it as a GPU texture: because it mixes `f32` and `u32`,
+/// there's not a reasonable interpolation mode.  Putting the whole thing into
+/// an `f32x4` texture is especially unwise: bitcasting a small `u32` depth to a
+/// `f32` produces a denormalized float, which some GPUs will flush to `0.0`.
 #[repr(C)]
 #[derive(
     Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable, PartialEq,
 )]
 pub struct GeometryPixel {
+    /// Function gradients at this pixel
+    pub normal: [f32; 3],
     /// Z position of this pixel, in voxel units
     ///
     /// The fractional component is always zero. Empty pixels always have a
     /// depth of 0.
     pub depth: u32,
-    /// Function gradients at this pixel
-    pub normal: [f32; 3],
 }
 
 impl GeometryPixel {
