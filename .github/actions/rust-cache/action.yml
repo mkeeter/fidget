@@ -11,7 +11,7 @@ runs:
     - name: Update rustup
       run: rustup update
       shell: bash
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/
