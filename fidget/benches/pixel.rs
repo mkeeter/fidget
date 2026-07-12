@@ -7,6 +7,39 @@ use std::hint::black_box;
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
+pub fn prospero_exemplary(c: &mut Criterion) {
+    let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
+    let shape_vm =
+        &BoundShape::try_from(fidget::vm::VmShape::new(&ctx, root).unwrap())
+            .unwrap();
+
+    let mut group = c.benchmark_group("prospero-exemplary");
+    let cfg = &fidget::raster::pixel::RenderConfig {
+        image_size: fidget::render::ImageSize::from(1024),
+        ..Default::default()
+    };
+    group.bench_function("vm", move |b| {
+        b.iter(|| {
+            let tape = shape_vm.clone();
+            black_box(cfg.run(tape))
+        })
+    });
+
+    #[cfg(feature = "jit")]
+    {
+        let shape_jit = &BoundShape::try_from(
+            fidget::jit::JitShape::new(&ctx, root).unwrap(),
+        )
+        .unwrap();
+        group.bench_function("jit", move |b| {
+            b.iter(|| {
+                let tape = shape_jit.clone();
+                black_box(cfg.run(tape))
+            })
+        });
+    }
+}
+
 pub fn prospero_size_sweep(c: &mut Criterion) {
     let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
     let shape_vm =
@@ -104,5 +137,10 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, prospero_size_sweep, prospero_thread_sweep);
+criterion_group!(
+    benches,
+    prospero_size_sweep,
+    prospero_thread_sweep,
+    prospero_exemplary,
+);
 criterion_main!(benches);

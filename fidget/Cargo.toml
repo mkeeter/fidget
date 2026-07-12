@@ -72,7 +72,11 @@ gui = ["dep:fidget-gui"]
 wgpu = ["dep:fidget-wgpu"]
 
 [[bench]]
-name = "render"
+name = "pixel"
+harness = false
+
+[[bench]]
+name = "voxel"
 harness = false
 
 [[bench]]
