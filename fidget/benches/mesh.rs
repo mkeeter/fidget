@@ -63,5 +63,47 @@ pub fn colonnade_mesh(c: &mut Criterion) {
         });
 }
 
-criterion_group!(benches, colonnade_octree_thread_sweep, colonnade_mesh);
+pub fn colonnade_mesh_exemplary(c: &mut Criterion) {
+    let (ctx, root) = fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
+    let shape_vm = &fidget::vm::VmShape::new(&ctx, root)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let cfg = fidget::mesh::Settings {
+        depth: 8,
+        ..Default::default()
+    };
+    let cfg_ref = &cfg;
+
+    let mut group = c.benchmark_group("colonnade-mesh-exemplary");
+    group.bench_function("vm", move |b| {
+        b.iter(|| {
+            let octree =
+                &fidget::mesh::Octree::build(shape_vm, cfg_ref).unwrap();
+            black_box(octree.walk_dual())
+        })
+    });
+
+    #[cfg(feature = "jit")]
+    {
+        let shape_jit = &fidget::jit::JitShape::new(&ctx, root)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        group.bench_function("jit", move |b| {
+            b.iter(|| {
+                let octree =
+                    &fidget::mesh::Octree::build(shape_jit, cfg_ref).unwrap();
+                black_box(octree.walk_dual())
+            })
+        });
+    }
+}
+
+criterion_group!(
+    benches,
+    colonnade_octree_thread_sweep,
+    colonnade_mesh,
+    colonnade_mesh_exemplary
+);
 criterion_main!(benches);
