@@ -72,7 +72,7 @@ fn merge_main(
 fn pack_at(image_index: u32, pos: vec2u) -> PackedVoxel {
     let i = config.image_size.x * pos.y + pos.x;
     let p = maybe_denoise(image_index, pos);
-    return pack(TaggedGeometryPixel(p, image_index));
+    return pack(TaggedGeometryPixel(p, image_index + config.index_base));
 }
 
 fn maybe_denoise(image_index: u32, pos: vec2u) -> GeometryPixel {
@@ -181,7 +181,7 @@ fn read_pixel(image_index: u32, pixel_index: u32) -> GeometryPixel {
 }
 
 fn merge_pixel(a: PackedVoxel, b: PackedVoxel) -> PackedVoxel {
-    if a.z >= b.z {
+    if a.depth >= b.depth {
         return a;
     } else {
         return b;
