@@ -1,10 +1,12 @@
 //! Shader generation and WGPU-based image rendering
 #![warn(missing_docs)]
-pub mod effects;
-pub mod voxel;
 
 use fidget_core::render::ImageSize;
 use heck::ToShoutySnakeCase;
+use zerocopy::{FromBytes, Immutable};
+
+pub mod effects;
+pub mod voxel;
 
 /// Re-export the [`wgpu`] module
 pub use wgpu;
@@ -378,11 +380,43 @@ fn compile_shader(src: &str, desc: &str) {
     }
 }
 
+/// Debug function to read a buffer to a `Vec<T>`
+#[allow(unused)]
+fn read_buffer<T: FromBytes + Immutable + Clone + Copy>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    buf: &wgpu::Buffer,
+) -> Vec<T> {
+    let scratch = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: buf.size(),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("read_buffer"),
+        });
+    encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
+    queue.submit(Some(encoder.finish()));
+
+    let buffer_slice = scratch.slice(..);
+    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+
+    let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+        .unwrap()
+        .to_vec();
+    scratch.unmap();
+    result
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use fidget_core::{context::Tree, vm::VmShape};
     use fidget_raster::voxel::RenderSize;
+    use zerocopy::IntoBytes;
 
     #[test]
     fn render_and_merge() {
@@ -411,7 +445,9 @@ mod test {
         let size = 32;
         let image_size = RenderSize::from(size);
         let mut buf = voxel_ctx.buffers(image_size).unwrap();
-        let mut merge_buf = effects_ctx.merge_buffers(32.into()).unwrap();
+        let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
+        let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
+        let mut shade_out = effects_ctx.shaded_read_buffer(&shade_buf);
 
         let (x, y, z) = Tree::axes();
         let sphere =
@@ -431,5 +467,26 @@ mod test {
         effects_ctx
             .submit_merge(&[buf.image_storage_buffer()], &mut merge_buf)
             .unwrap();
+        effects_ctx
+            .submit_shade(&merge_buf, &mut shade_buf, Some(&mut shade_out))
+            .unwrap();
+        let img = effects_ctx.map_shaded_image(&mut shade_out);
+        let (out, size) = img.image().take();
+        let mut iter = out.iter();
+        for y in 0..32 {
+            for x in 0..32 {
+                print!("{:08x}", iter.next().unwrap());
+            }
+            println!();
+        }
+
+        image::save_buffer(
+            "shaded.png",
+            out.as_bytes(),
+            size.width(),
+            size.height(),
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
     }
 }

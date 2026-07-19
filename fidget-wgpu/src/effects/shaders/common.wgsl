@@ -6,7 +6,7 @@ struct PackedVoxel {
     norm_index: u32,
 
     /// Depth of the voxel
-    z: u32,
+    depth: u32,
 }
 
 /// Duplicated from `voxel/shaders/common.wgsl`
@@ -22,9 +22,7 @@ struct TaggedGeometryPixel {
 }
 
 fn pack(p: TaggedGeometryPixel) -> PackedVoxel {
-    let index = p.index + config.index_base;
-
-    var packed_normal_index = min(index, 0xFFFF) << 16;
+    var packed_normal_index = min(p.index, 0xFFFF) << 16;
 
     // Return a special bit pattern for pixels with invalid normals
     let normal_length = length(p.pixel.normal);
@@ -43,7 +41,7 @@ fn pack(p: TaggedGeometryPixel) -> PackedVoxel {
 }
 
 fn unpack(p: PackedVoxel) -> TaggedGeometryPixel {
-    let depth = p.z;
+    let depth = p.depth;
     let index = p.norm_index >> 16;
     let signed = bitcast<i32>(p.norm_index);
     let dx_i = extractBits(signed, 0, 8);

@@ -2653,39 +2653,6 @@ impl Context {
         }
     }
 
-    /// Debug function to read a buffer to a `Vec<T>`
-    #[allow(unused)]
-    fn read_buffer<T: FromBytes + Immutable + Clone + Copy>(
-        &self,
-        buf: &wgpu::Buffer,
-    ) -> Vec<T> {
-        let scratch = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: buf.size(),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("read_buffer"),
-            },
-        );
-        encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
-        self.queue.submit(Some(encoder.finish()));
-
-        let buffer_slice = scratch.slice(..);
-        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
-            .unwrap()
-            .to_vec();
-        scratch.unmap();
-        result
-    }
-
     /// Resizes buffers to the given image size
     ///
     /// Buffer allocations may grow but do not shrink; delete and recreate
