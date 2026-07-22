@@ -10,6 +10,9 @@ struct MergeConfig {
 
     /// Number of valid image buffers (0-7)
     image_count: u32,
+
+    // Explicit padding to the nearest multiple of 8
+    _pad: u32,
 }
 
 @group(0) @binding(0) var<uniform> config: MergeConfig;
