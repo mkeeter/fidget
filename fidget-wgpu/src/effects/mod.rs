@@ -16,7 +16,7 @@
 //!   standard deferred rendering pipeline.
 
 use crate::{
-    BufferSizeError, ImageBuffer, buffer_ro, buffer_rw,
+    BufferSizeError, ImageBuffer, buffer_ro, buffer_rw, buffer_uniform,
     usage::{COPY_DST_MAP_READ, STORAGE_COPY_SRC},
     voxel::ImageStorageBuffer,
 };
@@ -83,6 +83,9 @@ struct MergeConfig {
 
     /// Number of valid image buffers (0-7)
     image_count: u32,
+
+    // padding to the nearest multiple of 8
+    _pad: u32,
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
@@ -176,16 +179,7 @@ impl Context {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    buffer_uniform(0),
                     buffer_ro(1), // image0
                     buffer_ro(2), // image1
                     buffer_ro(3), // image2
@@ -222,16 +216,7 @@ impl Context {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    buffer_uniform(0),
                     buffer_ro(1), // image
                     buffer_rw(2), // out
                 ],
@@ -339,69 +324,74 @@ impl Context {
         let mut encoder = self.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None, // TODO add timestamps?
-            });
-        compute_pass.set_pipeline(&self.merge_pipeline);
-        for (i, chunk) in images.chunks(7).enumerate() {
-            let cfg = MergeConfig {
-                image_size: [size.width(), size.height()],
-                denoise: 1,
-                index_base: i as u32 * 7,
-                image_count: chunk.len() as u32,
-            };
-            {
-                let mut writer = self
-                    .queue
-                    .write_buffer_with(
-                        &buf.config,
-                        0,
-                        (std::mem::size_of::<MergeConfig>() as u64)
-                            .try_into()
-                            .unwrap(),
-                    )
-                    .unwrap();
-                writer.copy_from_slice(cfg.as_bytes());
-            }
-            let image_bind = |i| wgpu::BindGroupEntry {
-                binding: i as u32 + 1,
-                resource: chunk
-                    .get(i)
-                    .unwrap_or_else(|| chunk.first().unwrap())
-                    .bind(),
-            };
-
-            let bg =
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge bind group"),
-                    layout: &self.merge_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: buf.config.as_entire_binding(),
-                        },
-                        image_bind(0),
-                        image_bind(1),
-                        image_bind(2),
-                        image_bind(3),
-                        image_bind(4),
-                        image_bind(5),
-                        image_bind(6),
-                        wgpu::BindGroupEntry {
-                            binding: 8,
-                            resource: buf.out.bind_active(),
-                        },
-                    ],
+        // Scope to bound the lifetime of compute_pass
+        {
+            let mut compute_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None, // TODO add timestamps?
                 });
-            compute_pass.set_bind_group(0, Some(&bg), &[]);
-            compute_pass.dispatch_workgroups(
-                size.width().div_ceil(8),
-                size.height().div_ceil(8),
-                1,
-            );
+            compute_pass.set_pipeline(&self.merge_pipeline);
+            for (i, chunk) in images.chunks(7).enumerate() {
+                let cfg = MergeConfig {
+                    image_size: [size.width(), size.height()],
+                    denoise: 1,
+                    index_base: i as u32 * 7,
+                    image_count: chunk.len() as u32,
+                    _pad: 0,
+                };
+                {
+                    let mut writer = self
+                        .queue
+                        .write_buffer_with(
+                            &buf.config,
+                            0,
+                            (std::mem::size_of::<MergeConfig>() as u64)
+                                .try_into()
+                                .unwrap(),
+                        )
+                        .unwrap();
+                    writer.copy_from_slice(cfg.as_bytes());
+                }
+                let image_bind = |i| wgpu::BindGroupEntry {
+                    binding: i as u32 + 1,
+                    resource: chunk
+                        .get(i)
+                        .unwrap_or_else(|| chunk.first().unwrap())
+                        .bind(),
+                };
+
+                let bg =
+                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("merge bind group"),
+                        layout: &self.merge_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: buf.config.as_entire_binding(),
+                            },
+                            image_bind(0),
+                            image_bind(1),
+                            image_bind(2),
+                            image_bind(3),
+                            image_bind(4),
+                            image_bind(5),
+                            image_bind(6),
+                            wgpu::BindGroupEntry {
+                                binding: 8,
+                                resource: buf.out.bind_active(),
+                            },
+                        ],
+                    });
+                compute_pass.set_bind_group(0, Some(&bg), &[]);
+                compute_pass.dispatch_workgroups(
+                    size.width().div_ceil(8),
+                    size.height().div_ceil(8),
+                    1,
+                );
+            }
         }
+        self.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 
@@ -418,6 +408,7 @@ impl Context {
         buf.out
             .grow_to_fit(&self.device, size)
             .map_err(ShadeError::OutputSize)?;
+        println!("resizing to {size:?}");
         let mut encoder = self.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
@@ -440,9 +431,7 @@ impl Context {
                     .write_buffer_with(
                         &buf.config,
                         0,
-                        (std::mem::size_of::<ShadeConfig>() as u64)
-                            .try_into()
-                            .unwrap(),
+                        buf.config.size().try_into().unwrap(),
                     )
                     .unwrap();
                 writer.copy_from_slice(cfg.as_bytes());
@@ -474,6 +463,11 @@ impl Context {
             );
         }
         if let Some(image) = out {
+            println!(
+                "growing to fit {:?}, copying {}",
+                buf.out.size,
+                buf.out.size_bytes()
+            );
             image.buffer.grow_to_fit(&self.device, buf.out.size).expect(
                 "buf.out.size should always be \
                  a valid size for grow_to_fit",
@@ -486,6 +480,7 @@ impl Context {
                 buf.out.size_bytes(),
             );
         }
+        self.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 

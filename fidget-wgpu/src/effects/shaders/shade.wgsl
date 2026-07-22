@@ -26,7 +26,7 @@ fn shade_main(
         return;
     }
 
-    let i = global_id.x + global_id.x * config.image_size.x;
+    let i = global_id.x + global_id.y * config.image_size.x;
     let p = image[i];
     // Early exit for unpopulated pixels
     if p.depth == 0u {

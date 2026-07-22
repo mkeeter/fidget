@@ -303,6 +303,20 @@ impl BufferType {
     }
 }
 
+/// Helper function to make a uniform buffer binding
+fn buffer_uniform(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
 /// Helper function to make a read-only buffer binding
 fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -475,10 +489,11 @@ mod test {
         let mut iter = out.iter();
         for y in 0..32 {
             for x in 0..32 {
-                print!("{:08x}", iter.next().unwrap());
+                print!("{:08x} ", iter.next().unwrap());
             }
             println!();
         }
+        assert!(iter.next().is_none());
 
         image::save_buffer(
             "shaded.png",
