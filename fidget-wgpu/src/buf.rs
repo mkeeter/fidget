@@ -90,9 +90,7 @@ impl BufferItemCount for ImageSize {
     }
 }
 
-impl<T: BufferTag, B: BufferItemCount + Copy + std::fmt::Debug>
-    GenericFlexBuffer<T, B>
-{
+impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     pub(crate) fn new(
         device: &wgpu::Device,
         name: String,

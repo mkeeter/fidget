@@ -1185,7 +1185,7 @@ impl<const N: u64> TileBuffers<N> {
 }
 
 tag!(RootTilesBufferTag, u32, STORAGE | COPY_DST);
-tag!(RootStrataBufferTag, u32, STORAGE | INDIRECT | COPY_DST);
+tag!(RootStrataBufferTag, u8, STORAGE | INDIRECT | COPY_DST);
 tag!(RootZminBufferTag, u32, STORAGE | COPY_DST);
 tag!(RootZmaxBufferTag, u32, STORAGE | COPY_DST);
 
@@ -1428,7 +1428,7 @@ impl RenderShape {
 
 tag!(TileTapesBufferTag, u32, STORAGE | COPY_DST);
 tag!(VoxelsBufferTag, u32, STORAGE | COPY_DST);
-tag!(pub GeomBufferTag, u32, STORAGE | COPY_SRC | COPY_DST,
+tag!(pub GeomBufferTag, GeometryPixel, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`GeometryPixel`] values");
 
 /// Buffers for rendering, which control the rendered image size

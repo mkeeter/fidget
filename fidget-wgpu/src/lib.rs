@@ -7,7 +7,7 @@ pub mod buf;
 pub mod effects;
 pub mod voxel;
 
-/// Re-export the [`wgpu`] module
+/// Re-export the `wgpu` module
 pub use wgpu;
 
 ////////////////////////////////////////////////////////////////////////////////

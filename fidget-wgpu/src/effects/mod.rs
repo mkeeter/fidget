@@ -59,15 +59,15 @@ pub struct PackedVoxel {
     /// The Z component is implied and positive
     ///
     /// An invalid normal is represented by `[-128, -128]`.
-    normal: [i8; 2],
+    pub normal: [i8; 2],
 
     /// Shape index
-    index: u16,
+    pub index: u16,
 
     /// Depth of the voxel
     ///
     /// If this is 0, then the voxel is not populated
-    z: u32,
+    pub z: u32,
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
