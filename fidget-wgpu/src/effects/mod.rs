@@ -16,9 +16,12 @@
 //!   standard deferred rendering pipeline.
 
 use crate::{
-    BufferSizeError, ImageBuffer, buffer_ro, buffer_rw, buffer_uniform,
-    usage::{COPY_DST_MAP_READ, STORAGE_COPY_SRC},
-    voxel::ImageStorageBuffer,
+    buf::{
+        BufferSizeError, ImageBuffer, ImageReadBuffer, MappedImage, buffer_ro,
+        buffer_rw, buffer_uniform,
+    },
+    tag,
+    voxel::GeomBufferTag,
 };
 use fidget_core::render::{ImageSize, VoxelSize};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -96,49 +99,24 @@ struct ShadeConfig {
     _pad: u32,
 }
 
+tag!(MergeVoxelBufferTag, PackedVoxel, STORAGE | COPY_SRC);
+
 /// Handle to a set of buffers used when merging images
 pub struct MergeBuffers {
     config: wgpu::Buffer,
-    out: ImageBuffer<PackedVoxel, STORAGE_COPY_SRC>,
+    out: ImageBuffer<MergeVoxelBufferTag>,
     depth: u32,
 }
+
+tag!(
+    pub ShadedImageTag, u32, STORAGE | COPY_SRC,
+    "Buffer tag for on-GPU shaded (RGBA) images"
+);
 
 /// Handle to a set of buffers used when shading images
 pub struct ShadeBuffers {
     config: wgpu::Buffer,
-    out: ImageBuffer<u32, STORAGE_COPY_SRC>,
-}
-
-/// Handle to a mapped image, which unmaps the image when dropped
-pub struct MappedShadedImage<'a> {
-    buf: &'a ImageBuffer<u32, COPY_DST_MAP_READ>,
-    slice: wgpu::BufferSlice<'a>,
-}
-
-impl Drop for MappedShadedImage<'_> {
-    fn drop(&mut self) {
-        self.buf.data.unmap();
-    }
-}
-
-impl MappedShadedImage<'_> {
-    /// Returns the image's data
-    pub fn image(&self) -> fidget_raster::Image<u32, ImageSize> {
-        let result = <[u32]>::ref_from_bytes(&self.slice.get_mapped_range())
-            .unwrap()
-            .to_owned();
-        fidget_raster::Image::build(result, self.buf.size).unwrap()
-    }
-}
-
-/// Buffer for reading shaded data back from the GPU
-///
-/// This object is constructed by [`Context::shaded_read_buffer`] and may only
-/// be used with that particular [`Context`].
-///
-/// Once mapped, this is wrapped by a [`MappedShadedImage`]
-pub struct ShadedReadBuffer {
-    buffer: ImageBuffer<u32, COPY_DST_MAP_READ>,
+    out: ImageBuffer<ShadedImageTag>,
 }
 
 /// Error returned when submitting a merge operation
@@ -302,7 +280,7 @@ impl Context {
     /// If the incoming slice is empty, then no work is submitted
     pub fn submit_merge(
         &self,
-        images: &[ImageStorageBuffer],
+        images: &[&ImageBuffer<GeomBufferTag>],
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
         let Some(size) = images.first().map(|i| i.size()) else {
@@ -358,7 +336,7 @@ impl Context {
                     resource: chunk
                         .get(i)
                         .unwrap_or_else(|| chunk.first().unwrap())
-                        .bind(),
+                        .bind_active(),
                 };
 
                 let bg =
@@ -402,9 +380,9 @@ impl Context {
         &self,
         image: &MergeBuffers,
         buf: &mut ShadeBuffers,
-        out: Option<&mut ShadedReadBuffer>,
+        out: Option<&mut ImageReadBuffer<ShadedImageTag>>,
     ) -> Result<(), ShadeError> {
-        let size = image.out.size;
+        let size = image.out.size();
         buf.out
             .grow_to_fit(&self.device, size)
             .map_err(ShadeError::OutputSize)?;
@@ -463,19 +441,14 @@ impl Context {
             );
         }
         if let Some(image) = out {
-            println!(
-                "growing to fit {:?}, copying {}",
-                buf.out.size,
-                buf.out.size_bytes()
-            );
-            image.buffer.grow_to_fit(&self.device, buf.out.size).expect(
+            image.grow_to_fit(&self.device, buf.out.size()).expect(
                 "buf.out.size should always be \
                  a valid size for grow_to_fit",
             );
             encoder.copy_buffer_to_buffer(
-                &buf.out.data,
+                buf.out.data(),
                 0,
-                &image.buffer.data,
+                image.data(),
                 0,
                 buf.out.size_bytes(),
             );
@@ -484,36 +457,30 @@ impl Context {
         Ok(())
     }
 
-    /// Returns an [`ShadedReadBuffer`], sized to read from a [`Buffers`] object
+    /// Builds an [`ImageReadBuffer`]
+    ///
+    /// The output buffer is sized to read from a [`ShadeBuffers`] output
     pub fn shaded_read_buffer(
         &self,
         buffers: &ShadeBuffers,
-    ) -> ShadedReadBuffer {
-        let buffer = ImageBuffer::new(
+    ) -> ImageReadBuffer<ShadedImageTag> {
+        ImageBuffer::new(
             &self.device,
             "shaded image".to_owned(),
-            buffers.out.size,
+            buffers.out.size(),
         )
         .expect(
             "buffers.out.size should always be \
              a valid size for ImageBuffer::new",
-        );
-        ShadedReadBuffer { buffer }
+        )
     }
 
-    /// Maps a [`ShadedReadBuffer`] so that it can be read on the CPU
+    /// Maps an image read buffer so that it can be read on the CPU
     pub fn map_shaded_image<'a>(
         &self,
-        image: &'a mut ShadedReadBuffer,
-    ) -> MappedShadedImage<'a> {
-        let slice = image.buffer.map_async(|_| {});
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        MappedShadedImage {
-            buf: &image.buffer,
-            slice,
-        }
+        image: &'a mut ImageReadBuffer<ShadedImageTag>,
+    ) -> MappedImage<'a, ShadedImageTag> {
+        MappedImage::map(&self.device, image)
     }
 }
 
