@@ -139,7 +139,8 @@ fn denoise_at(image_index: u32, pos: vec2u, pixel: GeometryPixel) -> vec3f {
             var count = 0;
             for (var dx = 0; dx <= 1; dx += 1) {
                 for (var dy = 0; dy <= 1; dy += 1) {
-                    if data[i + 1 + dx][j + 1 + dy].depth != 0 {
+                    let p = data[i + 1 + dx][j + 1 + dy];
+                    if p.depth != 0 && p.normal.z > 0.0 {
                         sum += data[i + 1 + dx][j + 1 + dy].normal;
                         count += 1;
                     }
@@ -166,6 +167,10 @@ fn denoise_at(image_index: u32, pos: vec2u, pixel: GeometryPixel) -> vec3f {
         if scores[i].w > best.w {
             best = scores[i];
         }
+    }
+    // Preserve the back-facing normal if we didn't get any valid quadrants
+    if best.w == 0.0 {
+        return pixel.normal;
     }
     return best.xyz;
 }
