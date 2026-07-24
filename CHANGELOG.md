@@ -60,6 +60,7 @@
 - Rename `trait ImageSizeLike` to `trait RenderSize` in `fidget_raster`; remove
   `width` and `height` from `trait RenderConfig` and add a `RenderConfig:
   RenderSize` bound
+- Improve denoising pass: back-facing normals are now removed from candidates
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),
