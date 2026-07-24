@@ -281,6 +281,7 @@ impl Context {
     pub fn submit_merge(
         &self,
         images: &[&ImageBuffer<GeomBufferTag>],
+        denoise: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
         let Some(size) = images.first().map(|i| i.size()) else {
@@ -313,7 +314,7 @@ impl Context {
             for (i, chunk) in images.chunks(7).enumerate() {
                 let cfg = MergeConfig {
                     image_size: [size.width(), size.height()],
-                    denoise: 1,
+                    denoise: denoise as u32,
                     index_base: i as u32 * 7,
                     image_count: chunk.len() as u32,
                     _pad: 0,
@@ -464,6 +465,7 @@ impl Context {
         &self,
         buffers: &ShadeBuffers,
     ) -> ImageReadBuffer<ShadedImageTag> {
+        // TODO move this to new `Gpu` type?
         ImageBuffer::new(
             &self.device,
             "shaded image".to_owned(),
@@ -480,6 +482,7 @@ impl Context {
         &self,
         image: &'a mut ImageReadBuffer<ShadedImageTag>,
     ) -> MappedImage<'a, ShadedImageTag> {
+        // TODO move this to new `Gpu` type?
         MappedImage::map(&self.device, image)
     }
 }
