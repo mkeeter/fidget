@@ -39,7 +39,7 @@ fn shade_main(
     // Convert to [-1, 1] coordinate space
     let size_f32 = vec3<f32>(config.image_size);
     let pos_f32 = vec3<f32>(vec2<f32>(global_id.xy), f32(p.depth));
-    let pos = ((size_f32 / pos_f32) - 0.5) * 2.0;
+    let pos = ((pos_f32 / size_f32) - 0.5) * 2.0;
 
     const LIGHTS = array<Light, 3>(
         Light(vec3<f32>(5.0, -5.0, 10.0), 0.5),
