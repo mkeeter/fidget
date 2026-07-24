@@ -258,7 +258,7 @@ fn denoise_pixel(
                     && (ty as usize) < image.height()
                 {
                     let pos = (ty as usize, tx as usize);
-                    if image[pos].depth != 0.0 {
+                    if image[pos].depth != 0.0 && image[pos].normal[2] > 0.0 {
                         let n = image[pos].normal;
                         sum += Vector3::new(n[0], n[1], n[2]);
                         count += 1;
