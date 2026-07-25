@@ -370,6 +370,7 @@ fn interval_root_shader(reg_count: u8) -> String {
     shader_code += INTERVAL_ROOT_SHADER;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += STACK_SHADER;
     shader_code += TAPE_SIMPLIFY;
@@ -381,6 +382,7 @@ fn repack_shader() -> String {
     let mut shader_code = String::new();
     shader_code += REPACK_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code
 }
 
@@ -389,6 +391,7 @@ fn sort_shader() -> String {
     let mut shader_code = String::new();
     shader_code += SORT_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code
 }
 
@@ -399,6 +402,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += STACK_SHADER;
     shader_code += TAPE_SIMPLIFY;
@@ -411,6 +415,7 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += DUMMY_STACK_SHADER;
     shader_code
@@ -422,6 +427,7 @@ fn normals_shader(reg_count: u8) -> String {
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += DUMMY_STACK_SHADER;
     shader_code
@@ -429,12 +435,12 @@ fn normals_shader(reg_count: u8) -> String {
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER
+    MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 /// Returns a shader for clearing counters in between strata passes
 fn clear_shader() -> String {
-    CLEAR_SHADER.to_owned() + COMMON_SHADER
+    CLEAR_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 ////////////////////////////////////////////////////////////////////////////////

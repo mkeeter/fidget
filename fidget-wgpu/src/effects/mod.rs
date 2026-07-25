@@ -43,11 +43,11 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const SHADE_SHADER: &str = include_str!("shaders/shade.wgsl");
 
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER
+    MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 fn shade_shader() -> String {
-    SHADE_SHADER.to_owned() + COMMON_SHADER
+    SHADE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 /// Packed voxel structure used on the GPU
@@ -387,7 +387,6 @@ impl Context {
         buf.out
             .grow_to_fit(&self.device, size)
             .map_err(ShadeError::OutputSize)?;
-        println!("resizing to {size:?}");
         let mut encoder = self.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );

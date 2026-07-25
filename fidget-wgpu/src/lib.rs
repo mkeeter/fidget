@@ -10,6 +10,8 @@ pub mod voxel;
 /// Re-export the `wgpu` module
 pub use wgpu;
 
+const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Returns a set of constant definitions for each opcode
@@ -149,7 +151,7 @@ mod test {
             )
             .unwrap();
         effects_ctx
-            .submit_merge(&[buf.image_storage_buffer()], &mut merge_buf)
+            .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
             .unwrap();
         effects_ctx
             .submit_shade(&merge_buf, &mut shade_buf, Some(&mut shade_out))

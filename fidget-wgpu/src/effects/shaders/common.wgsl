@@ -9,12 +9,6 @@ struct PackedVoxel {
     depth: u32,
 }
 
-/// Duplicated from `voxel/shaders/common.wgsl`
-struct GeometryPixel {
-    normal: vec3f,
-    depth: u32,
-}
-
 /// Geometry pixel tagged with an image index
 struct TaggedGeometryPixel {
     pixel: GeometryPixel,
