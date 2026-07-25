@@ -298,6 +298,7 @@ impl Resources {
 }
 
 /// Helper type representing a `GeometryPixel` with a floating-point depth
+#[repr(C)]
 #[derive(Copy, Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub(crate) struct FloatPixel {
     pub depth: f32,

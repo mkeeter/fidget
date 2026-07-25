@@ -415,12 +415,13 @@ fn postprocess3d(
                 .collect()
         }
         RenderMode3D::Heightmap => {
-            let z_max = image.iter().map(|p| p.depth).max().unwrap_or(1);
+            let z_max =
+                u64::from(image.iter().map(|p| p.depth).max().unwrap_or(1));
             image
                 .into_iter()
                 .flat_map(|p| {
                     if p.depth > 0 {
-                        let z = (p.depth * 255 / z_max) as u8;
+                        let z = (u64::from(p.depth) * 255 / z_max) as u8;
                         [z, z, z, 255]
                     } else {
                         [0, 0, 0, 0]

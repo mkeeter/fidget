@@ -36,11 +36,6 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return output;
 }
 
-struct GeometryPixel {
-    normal: vec3<f32>,
-    depth: u32,
-}
-
 struct Light {
     position: vec3<f32>,
     intensity: f32,

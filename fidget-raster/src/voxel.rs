@@ -105,8 +105,9 @@ impl RenderConfig<'_> {
 /// This type can be passed directly in a buffer to the GPU.  However, it is
 /// **unwise** to load it as a GPU texture: because it mixes `f32` and `u32`,
 /// there's not a reasonable interpolation mode.  Putting the whole thing into
-/// an `f32x4` texture is especially unwise: bitcasting a small `u32` depth to a
-/// `f32` produces a denormalized float, which some GPUs will flush to `0.0`.
+/// an `f32x4` texture is **especially unwise**: bitcasting a small `u32` depth
+/// to a `f32` produces a denormalized float, which some GPUs will flush to
+/// `0.0` (surprise!).
 #[repr(C)]
 #[derive(
     Debug, Default, Copy, Clone, IntoBytes, FromBytes, Immutable, PartialEq,
