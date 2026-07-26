@@ -127,7 +127,7 @@ mod test {
         let voxel_ctx = voxel::Context::new(device.clone(), queue.clone());
         let effects_ctx = effects::Context::new(device.clone(), queue.clone());
 
-        let size = 32;
+        let size = 128;
         let image_size = RenderSize::from(size);
         let mut buf = voxel_ctx.buffers(image_size).unwrap();
         let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
@@ -135,9 +135,14 @@ mod test {
         let mut shade_out = effects_ctx.shaded_read_buffer(&shade_buf);
 
         let (x, y, z) = Tree::axes();
-        let sphere =
-            (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
-        let shape = voxel_ctx.shape(&VmShape::from(sphere)).unwrap();
+        let x_ = x.clone() - 0.2;
+        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let x_ = x + 0.2;
+        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let spheres = sphere1.min(sphere2);
+        let shape = voxel_ctx.shape(&VmShape::from(spheres)).unwrap();
 
         voxel_ctx
             .submit(
@@ -156,8 +161,30 @@ mod test {
             .submit_shade(&merge_buf, &mut shade_buf, Some(&mut shade_out))
             .unwrap();
         let img = effects_ctx.map_shaded_image(&mut shade_out);
-        let (_out, size) = img.image().take();
-        assert_eq!(size.width(), 32);
-        assert_eq!(size.height(), 32);
+        let (_out, img_size) = img.image().take();
+        assert_eq!(img_size.width(), size);
+        assert_eq!(img_size.height(), size);
+
+        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
+        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+        let out: Vec<f32> =
+            crate::buf::read_buffer(&device, &queue, ssao_buf.out.data());
+        let mut img_out = vec![];
+        for o in out {
+            img_out.extend(if o.is_nan() {
+                [0; 4]
+            } else {
+                let d = (o * 255.0) as u8;
+                [d, d, d, 0xFF]
+            });
+        }
+        image::save_buffer(
+            "ssao.png",
+            &img_out,
+            size,
+            size,
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
     }
 }

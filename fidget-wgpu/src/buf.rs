@@ -382,7 +382,7 @@ pub(crate) fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
 
 /// Debug function to read a buffer to a `Vec<T>`
 #[allow(unused)]
-fn read_buffer<T: FromBytes + Immutable + Clone + Copy>(
+pub(crate) fn read_buffer<T: FromBytes + Immutable + Clone + Copy>(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     buf: &wgpu::Buffer,

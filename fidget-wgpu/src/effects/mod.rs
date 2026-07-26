@@ -30,11 +30,14 @@ pub struct Context {
 
     shade_bind_group_layout: wgpu::BindGroupLayout,
     shade_pipeline: wgpu::ComputePipeline,
+
+    ssao_ctx: SsaoContext,
 }
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const SHADE_SHADER: &str = include_str!("shaders/shade.wgsl");
+const SSAO_SHADER: &str = include_str!("shaders/ssao.wgsl");
 
 fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
@@ -42,6 +45,10 @@ fn merge_shader() -> String {
 
 fn shade_shader() -> String {
     SHADE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+}
+
+fn ssao_shader() -> String {
+    SSAO_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 /// Packed voxel structure used on the GPU
@@ -215,6 +222,8 @@ impl Context {
                 cache: None,
             });
 
+        let ssao_ctx = SsaoContext::new(&device);
+
         Self {
             device,
             queue,
@@ -222,6 +231,7 @@ impl Context {
             merge_pipeline,
             shade_bind_group_layout,
             shade_pipeline,
+            ssao_ctx,
         }
     }
 
@@ -265,6 +275,25 @@ impl Context {
             ImageSize::new(image_size.width(), image_size.height()),
         )?;
         Ok(ShadeBuffers { config, out })
+    }
+
+    /// Builds a new set of [`MergeBuffers`] for the given image size
+    pub fn ssao_buffers(
+        &self,
+        image_size: VoxelSize,
+    ) -> Result<SsaoBuffers, BufferSizeError> {
+        let config = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("config"),
+            size: std::mem::size_of::<SsaoConfig>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let out = ImageBuffer::new(
+            &self.device,
+            "ssao output".to_owned(),
+            ImageSize::new(image_size.width(), image_size.height()),
+        )?;
+        Ok(SsaoBuffers { config, out })
     }
 
     /// Submits a set of merge operations to combine all of the images
@@ -451,6 +480,15 @@ impl Context {
         Ok(())
     }
 
+    /// Submits a pass to compute an SSAO buffer
+    pub fn submit_ssao(
+        &self,
+        image: &MergeBuffers,
+        buf: &mut SsaoBuffers,
+    ) -> Result<(), BufferSizeError> {
+        self.ssao_ctx.submit(image, buf, &self.device, &self.queue)
+    }
+
     /// Builds an [`ImageReadBuffer`]
     ///
     /// The output buffer is sized to read from a [`ShadeBuffers`] output
@@ -480,6 +518,212 @@ impl Context {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+tag!(pub(crate) SsaoBufferTag, f32, STORAGE | COPY_SRC); // XXX make this private and remove COPY_SRC
+
+/// Handle to a set of buffers used when running an SSAO pass
+pub struct SsaoBuffers {
+    config: wgpu::Buffer,
+    pub(crate) out: ImageBuffer<SsaoBufferTag>, // XXX make this private
+}
+
+#[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[repr(C)]
+struct SsaoConfig {
+    /// Image size, in voxels
+    image_size: [u32; 3],
+
+    /// Whether or not to denoise when merging (non-zero is true)
+    radius: f32,
+}
+
+struct SsaoContext {
+    /// Fixed bind group for SSAO pass
+    ///
+    /// This contains the SSAO kernel and noise buffers, which are constants.
+    ssao_bind_group: wgpu::BindGroup,
+
+    /// Layout for bind group that accepts buffers from the user
+    ssao_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Pipeline for computing per-pixel SSAO
+    ssao_pipeline: wgpu::ComputePipeline,
+    /*
+    /// Pipeline for blurring an SSAO image
+    blur_pipeline: wgpu::ComputePipeline,
+    */
+}
+
+impl SsaoContext {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let ssao_fixed_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[buffer_ro(0), buffer_ro(1)],
+            });
+        let ssao_user_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[buffer_uniform(0), buffer_ro(1), buffer_rw(2)],
+            });
+
+        const KERNEL_SIZE: usize = 64;
+        const NOISE_SIZE: usize = 16;
+
+        // Build constant buffers and their bind group
+        let ssao_kernel_size_bytes =
+            KERNEL_SIZE * std::mem::size_of::<[f32; 3]>();
+        let ssao_kernel = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ssao kernel"),
+            size: ssao_kernel_size_bytes as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: true,
+        });
+        let ssao_kernel_values =
+            fidget_raster::effects::ssao_kernel(KERNEL_SIZE);
+        ssao_kernel
+            .get_mapped_range_mut(0..ssao_kernel_size_bytes as u64)
+            .copy_from_slice(ssao_kernel_values.as_slice().as_bytes());
+
+        let ssao_noise_size_bytes =
+            NOISE_SIZE * std::mem::size_of::<[f32; 2]>();
+        let ssao_noise = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ssao noise"),
+            size: ssao_noise_size_bytes as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: true,
+        });
+        let ssao_noise_values = fidget_raster::effects::ssao_noise(NOISE_SIZE);
+        ssao_noise
+            .get_mapped_range_mut(0..ssao_noise_size_bytes as u64)
+            .copy_from_slice(ssao_noise_values.as_slice().as_bytes());
+
+        let ssao_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ssao fixed bind group"),
+                layout: &ssao_fixed_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ssao_kernel.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: ssao_noise.as_entire_binding(),
+                    },
+                ],
+            });
+
+        let shader_code = ssao_shader();
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("effects ssao pipeline"),
+                bind_group_layouts: &[
+                    Some(&ssao_user_bind_group_layout),
+                    Some(&ssao_fixed_bind_group_layout),
+                ],
+                immediate_size: 0u32,
+            });
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("effects ssao shader module"),
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+        let ssao_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("effects ssao compute pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("ssao_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+        Self {
+            ssao_bind_group,
+            ssao_bind_group_layout: ssao_user_bind_group_layout,
+            ssao_pipeline,
+        }
+    }
+
+    fn submit(
+        &self,
+        image: &MergeBuffers,
+        buf: &mut SsaoBuffers,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<(), BufferSizeError> {
+        let image_size = image.out.size();
+        buf.out.grow_to_fit(device, image_size)?;
+
+        // TODO make this passed in?
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: None,
+            });
+
+        // Scope to bound the lifetime of compute_pass
+        {
+            let mut compute_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None, // TODO add timestamps?
+                });
+            compute_pass.set_pipeline(&self.ssao_pipeline);
+            let cfg = SsaoConfig {
+                image_size: [
+                    image_size.width(),
+                    image_size.height(),
+                    image.depth,
+                ],
+                radius: 0.1,
+            };
+            {
+                let mut writer = queue
+                    .write_buffer_with(
+                        &buf.config,
+                        0,
+                        (std::mem::size_of::<SsaoConfig>() as u64)
+                            .try_into()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                writer.copy_from_slice(cfg.as_bytes());
+            }
+
+            let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ssao bind group"),
+                layout: &self.ssao_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buf.config.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: image.out.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buf.out.bind_active(),
+                    },
+                ],
+            });
+            compute_pass.set_bind_group(0, Some(&bg), &[]);
+            compute_pass.set_bind_group(1, Some(&self.ssao_bind_group), &[]);
+            compute_pass.dispatch_workgroups(
+                image_size.width().div_ceil(8),
+                image_size.height().div_ceil(8),
+                1,
+            );
+        }
+        queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -492,9 +736,11 @@ mod test {
     #[test]
     fn compile_shaders() {
         #[allow(clippy::single_element_loop)] // there will be more
-        for (src, desc) in
-            [(merge_shader(), "merge"), (shade_shader(), "shade")]
-        {
+        for (src, desc) in [
+            (merge_shader(), "merge"),
+            (shade_shader(), "shade"),
+            (ssao_shader(), "ssao"),
+        ] {
             crate::compile_shader(&src, desc);
         }
     }
