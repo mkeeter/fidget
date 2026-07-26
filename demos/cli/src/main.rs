@@ -345,6 +345,9 @@ fn run3d_wgpu(
             bail!("only shaded rendering is supported on the GPU")
         }
         RenderMode3D::Shaded { denoise, ssao } => {
+            if ssao {
+                bail!("SSAO is not supported using the WGPU backend");
+            }
             effects.submit_merge(
                 &[buffers.image_storage_buffer()],
                 denoise,
