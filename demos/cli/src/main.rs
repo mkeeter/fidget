@@ -302,33 +302,65 @@ fn run3d_wgpu(
     shape: fidget::vm::VmShape,
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
-) -> Result<fidget::raster::voxel::Image> {
+    mode: RenderMode3D,
+) -> Result<Vec<u8>> {
     // Build a WGPU context
     let (device, queue) =
         pollster::block_on(async move { fidget::wgpu::init().await })?;
 
-    let ctx = fidget::wgpu::voxel::Context::new(device, queue);
+    let ctx = fidget::wgpu::voxel::Context::new(device.clone(), queue.clone());
     let image_size = fidget::render::VoxelSize::from(settings.size);
     let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let buffers = ctx.buffers(image_size)?;
+    let mut buffers = ctx.buffers(image_size)?;
     let mut out = ctx.image_buffer(&buffers);
     let shape = ctx.shape(&shape)?;
     let mut compute_pass_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        ctx.submit(&shape, &buffers, Some(&mut out), &cfg)?;
+        ctx.submit(&shape, &mut buffers, Some(&mut out), &cfg)?;
         let img = ctx.map_image(&mut out);
         compute_pass_time += img.time().unwrap();
         image = img.image();
     }
+    let _ = image;
     info!(
         "Rendered {}× at {:.2?} ms/frame ({:.2?} ms/compute pass)",
         settings.n,
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
         compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
-    Ok(image)
+
+    let effects = fidget::wgpu::effects::Context::new(device, queue);
+    let mut merge_buf = effects.merge_buffers(image_size)?;
+    let mut shade_buf = effects.shade_buffers(image_size.into())?;
+    let mut out_buf = effects.shaded_read_buffer(&shade_buf);
+
+    let start = std::time::Instant::now();
+    match mode {
+        RenderMode3D::Heightmap
+        | RenderMode3D::Normals { .. }
+        | RenderMode3D::RawOcclusion { .. }
+        | RenderMode3D::BlurredOcclusion { .. } => {
+            bail!("only shaded rendering is supported on the GPU")
+        }
+        RenderMode3D::Shaded { denoise, ssao } => {
+            if ssao {
+                bail!("SSAO is not supported using the WGPU backend");
+            }
+            effects.submit_merge(
+                &[buffers.image_storage_buffer()],
+                denoise,
+                &mut merge_buf,
+            )?;
+        }
+    };
+    effects.submit_shade(&merge_buf, &mut shade_buf, Some(&mut out_buf))?;
+    let out = effects.map_shaded_image(&mut out_buf);
+    let out_bytes = out.image().as_bytes().to_vec();
+    info!("Post-processed image in {:?}", start.elapsed());
+
+    Ok(out_bytes)
 }
 
 fn postprocess3d(
@@ -772,15 +804,15 @@ fn main() -> Result<()> {
                 None => Some(fidget::render::ThreadPool::Global),
             };
 
-            let image = if wgpu {
+            let buffer = if wgpu {
                 #[cfg(feature = "jit")]
                 if matches!(settings.eval, EvalMode::Jit) {
                     bail!("can't combine --wgpu and --jit");
                 }
                 let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                run3d_wgpu(shape, t, &settings)?
+                run3d_wgpu(shape, t, &settings, mode)?
             } else {
-                match settings.eval {
+                let image = match settings.eval {
                     #[cfg(feature = "jit")]
                     EvalMode::Jit => {
                         let shape = fidget::jit::JitShape::new(&ctx, root)?;
@@ -792,9 +824,9 @@ fn main() -> Result<()> {
                         info!("Built shape in {:?}", start.elapsed());
                         run3d(shape, t, &settings, threads.as_ref())
                     }
-                }
+                };
+                postprocess3d(image, mode, threads.as_ref())
             };
-            let buffer = postprocess3d(image, mode, threads.as_ref());
 
             if let Some(out) = settings.out {
                 info!("Writing image to {out:?}");

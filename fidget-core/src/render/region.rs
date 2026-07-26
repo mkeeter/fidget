@@ -176,6 +176,12 @@ impl VoxelSize {
     }
 }
 
+impl From<VoxelSize> for ImageSize {
+    fn from(value: VoxelSize) -> Self {
+        ImageSize::new(value.width(), value.height())
+    }
+}
+
 impl<const N: usize> std::ops::Index<usize> for RegionSize<N>
 where
     Const<N>: DimNameAdd<U1>,

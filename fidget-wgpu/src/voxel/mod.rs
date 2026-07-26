@@ -103,8 +103,11 @@
 //! in [`Buffers::image_storage_buffer`] for subsequent pipelines.
 
 use crate::{
-    ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
-    opcode_constants, usage::*,
+    buf::{
+        ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
+        buffer_ro, buffer_ro_dyn, buffer_rw,
+    },
+    opcode_constants, tag,
 };
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
@@ -367,6 +370,7 @@ fn interval_root_shader(reg_count: u8) -> String {
     shader_code += INTERVAL_ROOT_SHADER;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += STACK_SHADER;
     shader_code += TAPE_SIMPLIFY;
@@ -378,6 +382,7 @@ fn repack_shader() -> String {
     let mut shader_code = String::new();
     shader_code += REPACK_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code
 }
 
@@ -386,6 +391,7 @@ fn sort_shader() -> String {
     let mut shader_code = String::new();
     shader_code += SORT_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code
 }
 
@@ -396,6 +402,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += STACK_SHADER;
     shader_code += TAPE_SIMPLIFY;
@@ -408,6 +415,7 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += DUMMY_STACK_SHADER;
     shader_code
@@ -419,6 +427,7 @@ fn normals_shader(reg_count: u8) -> String {
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
     shader_code += COMMON_SHADER;
+    shader_code += crate::COMMON_SHADER;
     shader_code += TAPE_INTERPRETER;
     shader_code += DUMMY_STACK_SHADER;
     shader_code
@@ -426,54 +435,12 @@ fn normals_shader(reg_count: u8) -> String {
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER
+    MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 /// Returns a shader for clearing counters in between strata passes
 fn clear_shader() -> String {
-    CLEAR_SHADER.to_owned() + COMMON_SHADER
-}
-
-/// Helper function to make a read-only buffer binding
-fn buffer_ro(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
-}
-
-/// Helper function to make a read-only buffer binding with dynamic offset
-fn buffer_ro_dyn(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: true,
-            min_binding_size: None,
-        },
-        count: None,
-    }
-}
-
-/// Helper function to make a read-write buffer binding
-fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
+    CLEAR_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -885,7 +852,7 @@ impl IntervalContext {
             &[u32::try_from(offset_bytes).unwrap()],
         );
         compute_pass.dispatch_workgroups_indirect(
-            &buffers.tile64.strata.data,
+            buffers.tile64.strata.data(),
             offset_bytes,
         );
 
@@ -893,18 +860,19 @@ impl IntervalContext {
         compute_pass.set_pipeline(&self.sort16_pipeline);
         compute_pass.set_bind_group(2, bind_group_sort16, &[]);
         compute_pass
-            .dispatch_workgroups_indirect(&buffers.tile16.tiles.data, 0);
+            .dispatch_workgroups_indirect(buffers.tile16.tiles.data(), 0);
 
         let bind_group4 = buffers.bind_groups.interval4(ctx, buffers);
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(2, bind_group4, &[0]);
         compute_pass
-            .dispatch_workgroups_indirect(&buffers.tile16.sorted.data, 0);
+            .dispatch_workgroups_indirect(buffers.tile16.sorted.data(), 0);
 
         let bind_group_sort4 = buffers.bind_groups.sort4(ctx, buffers);
         compute_pass.set_pipeline(&self.sort4_pipeline);
         compute_pass.set_bind_group(2, bind_group_sort4, &[]);
-        compute_pass.dispatch_workgroups_indirect(&buffers.tile4.tiles.data, 0);
+        compute_pass
+            .dispatch_workgroups_indirect(buffers.tile4.tiles.data(), 0);
     }
 }
 
@@ -994,7 +962,7 @@ impl VoxelContext {
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
         compute_pass
-            .dispatch_workgroups_indirect(&buffers.tile4.sorted.data, 0);
+            .dispatch_workgroups_indirect(buffers.tile4.sorted.data(), 0);
     }
 }
 
@@ -1099,13 +1067,17 @@ pub struct Context {
     clear_ctx: ClearContext,
 }
 
+tag!(TilesBufferTag, u32, STORAGE | INDIRECT);
+tag!(SortedBufferTag, u32, STORAGE | INDIRECT);
+tag!(ZminBufferTag, u32, STORAGE | COPY_DST);
+
 struct TileBuffers<const N: u64> {
     /// Tiles written by the stage outputting N³ tiles
-    tiles: ArrayBuffer<u32, STORAGE_INDIRECT>,
+    tiles: ArrayBuffer<TilesBufferTag>,
     /// Sorted version of [`tiles`](Self::tiles)
-    sorted: ArrayBuffer<u32, STORAGE_INDIRECT>,
+    sorted: ArrayBuffer<SortedBufferTag>,
     /// Minimum Z height at each XY tile
-    zmin: ImageBuffer<u32, STORAGE_COPY_DST>,
+    zmin: ImageBuffer<ZminBufferTag>,
 }
 
 impl<const N: u64> TileBuffers<N> {
@@ -1203,7 +1175,7 @@ impl<const N: u64> TileBuffers<N> {
             sorted,
             zmin,
         } = self;
-        tiles.size() + sorted.size() + zmin.size()
+        tiles.size_bytes() + sorted.size_bytes() + zmin.size_bytes()
     }
 
     /// Returns the number of bytes allocated by these buffers
@@ -1218,14 +1190,19 @@ impl<const N: u64> TileBuffers<N> {
     }
 }
 
+tag!(RootTilesBufferTag, u32, STORAGE | COPY_DST);
+tag!(RootStrataBufferTag, u8, STORAGE | INDIRECT | COPY_DST);
+tag!(RootZminBufferTag, u32, STORAGE | COPY_DST);
+tag!(RootZmaxBufferTag, u32, STORAGE | COPY_DST);
+
 /// Root tile buffers store strata-packed tile lists
 struct RootTileBuffers {
     /// Initial output tiles
-    tiles: ArrayBuffer<u32, STORAGE_COPY_DST>,
+    tiles: ArrayBuffer<RootTilesBufferTag>,
     /// Strata-sorted output tiles
-    strata: ArrayBuffer<u8, STORAGE_INDIRECT_COPY_DST>,
-    zmin: ImageBuffer<u32, STORAGE_COPY_DST>,
-    zmax: ImageBuffer<u32, STORAGE_COPY_DST>,
+    strata: ArrayBuffer<RootStrataBufferTag>,
+    zmin: ImageBuffer<RootZminBufferTag>,
+    zmax: ImageBuffer<RootZmaxBufferTag>,
 }
 
 impl RootTileBuffers {
@@ -1350,7 +1327,10 @@ impl RootTileBuffers {
             zmin,
             zmax,
         } = self;
-        tiles.size() + strata.size() + zmin.size() + zmax.size()
+        tiles.size_bytes()
+            + strata.size_bytes()
+            + zmin.size_bytes()
+            + zmax.size_bytes()
     }
 
     /// Returns the number of bytes allocated to buffers
@@ -1452,6 +1432,11 @@ impl RenderShape {
     }
 }
 
+tag!(TileTapesBufferTag, u32, STORAGE | COPY_DST);
+tag!(VoxelsBufferTag, u32, STORAGE | COPY_DST);
+tag!(pub GeomBufferTag, GeometryPixel, STORAGE | COPY_SRC | COPY_DST,
+    "Tag for a on-GPU buffer storing [`GeometryPixel`] values");
+
 /// Buffers for rendering, which control the rendered image size
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
@@ -1479,7 +1464,7 @@ pub struct Buffers {
     z_hist_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: ArrayBuffer<u32, STORAGE_COPY_DST>,
+    tile_tapes: ArrayBuffer<TileTapesBufferTag>,
 
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers,
@@ -1491,10 +1476,10 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxels
-    voxels: ArrayBuffer<u32, STORAGE_COPY_DST>,
+    voxels: ArrayBuffer<VoxelsBufferTag>,
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
-    geom: ImageBuffer<GeometryPixel, STORAGE_COPY_SRC_DST>,
+    geom: ImageBuffer<GeomBufferTag>,
 
     /// Query set for timestamps
     ///
@@ -1553,7 +1538,8 @@ impl ImageReadBuffer {
     }
 }
 
-type ImageReadArrayBuffer = ArrayBuffer<u8, COPY_DST_MAP_READ>;
+tag!(ImageReadTag, u8, COPY_DST | MAP_READ);
+type ImageReadArrayBuffer = ArrayBuffer<ImageReadTag>;
 
 /// Cached bind groups (constructed on-demand)
 #[derive(Default)]
@@ -1599,24 +1585,39 @@ impl BindGroups {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buffers.tile16.tiles.data.slice(0..16).into(),
+                        resource: buffers
+                            .tile16
+                            .tiles
+                            .data()
+                            .slice(0..16)
+                            .into(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: buffers
                             .tile16
                             .sorted
-                            .data
+                            .data()
                             .slice(0..16)
                             .into(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buffers.tile4.tiles.data.slice(0..16).into(),
+                        resource: buffers
+                            .tile4
+                            .tiles
+                            .data()
+                            .slice(0..16)
+                            .into(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: buffers.tile4.sorted.data.slice(0..16).into(),
+                        resource: buffers
+                            .tile4
+                            .sorted
+                            .data()
+                            .slice(0..16)
+                            .into(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
@@ -1708,7 +1709,7 @@ impl BindGroups {
                         resource: buffers
                             .tile64
                             .strata
-                            .data
+                            .data()
                             .slice(0..strata_bytes) // dynamic offset!
                             .into(),
                     },
@@ -1858,22 +1859,14 @@ impl Buffers {
         self.image_size
     }
 
-    /// Returns the image storage buffer and its valid size (in bytes)
+    /// Returns a handle to the image storage buffer
     ///
     /// This is intended for subsequent shaders which want to use the
-    /// [`GeometryPixel`] image data without copying to the CPU.
-    ///
-    /// The buffer is configured with  `STORAGE | COPY_SRC | COPY_DST`; note
-    /// that it is not valid for `MAP_READ` operations.  To map the
-    /// CPU-accessible image buffer, see [`Context::map_image`] and
-    /// [`Context::map_image_async`].
-    ///
-    /// The buffer may be larger than the image data if the [`Buffers`] object
-    /// has been resized over time.  The caller should use the second member in
-    /// the tuple when binding the buffer, and may also want to use
-    /// [`Buffers::image_size`] (if they care about image width and height).
-    pub fn image_storage_buffer(&self) -> (&wgpu::Buffer, u64) {
-        (&self.geom.data, self.geom.size())
+    /// [`GeometryPixel`] image data without copying to the CPU.  It requires a
+    /// exclusive borrow of the `Buffers` object (and then extends that
+    /// lifetime) so that other callers can't simultaneously touch the buffer.
+    pub fn image_storage_buffer(&mut self) -> &ImageBuffer<GeomBufferTag> {
+        &self.geom
     }
 
     fn new(
@@ -2211,12 +2204,12 @@ impl Buffers {
         } = self;
         config_buf.size()
             + z_hist_buf.size()
-            + tile_tapes.size()
+            + tile_tapes.size_bytes()
             + tile64.size()
             + tile16.size()
             + tile4.size()
-            + voxels.size()
-            + geom.size()
+            + voxels.size_bytes()
+            + geom.size_bytes()
             + ts_buf.size()
     }
 }
@@ -2427,7 +2420,7 @@ impl Context {
     pub fn submit(
         &self,
         shape: &RenderShape,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
     ) -> Result<(), MissingVar> {
@@ -2599,19 +2592,19 @@ impl Context {
                 encoder.copy_buffer_to_buffer(
                     &buffers.ts_buf,
                     0,
-                    &image.buffer.data,
-                    buffers.geom.size(), // offset past the image data
+                    image.buffer.data(),
+                    buffers.geom.size_bytes(), // offset past the image data
                     buffers.ts_buf.size(),
                 );
             }
 
             // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
             encoder.copy_buffer_to_buffer(
-                &buffers.geom.data,
+                buffers.geom.data(),
                 0,
-                &image.buffer.data,
+                image.buffer.data(),
                 0,
-                buffers.geom.size(),
+                buffers.geom.size_bytes(),
             );
         }
 
@@ -2620,7 +2613,10 @@ impl Context {
         Ok(())
     }
 
-    /// Synchronously maps the image buffer
+    /// Synchronously maps an image read buffer
+    ///
+    /// The image read buffer should be populated by passing it as an argument
+    /// when calling [`submit`](Self::submit).
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -2645,7 +2641,10 @@ impl Context {
         }
     }
 
-    /// Asynchronously maps the image buffer
+    /// Asynchronously maps an image read buffer
+    ///
+    /// The image read buffer should be populated by passing it as an argument
+    /// when calling [`submit`](Self::submit).
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -2667,39 +2666,6 @@ impl Context {
                 None
             },
         }
-    }
-
-    /// Debug function to read a buffer to a `Vec<T>`
-    #[allow(unused)]
-    fn read_buffer<T: FromBytes + Immutable + Clone + Copy>(
-        &self,
-        buf: &wgpu::Buffer,
-    ) -> Vec<T> {
-        let scratch = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: buf.size(),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("read_buffer"),
-            },
-        );
-        encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
-        self.queue.submit(Some(encoder.finish()));
-
-        let buffer_slice = scratch.slice(..);
-        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
-            .unwrap()
-            .to_vec();
-        scratch.unmap();
-        result
     }
 
     /// Resizes buffers to the given image size
@@ -2726,7 +2692,7 @@ pub struct MappedImage<'a> {
 
 impl Drop for MappedImage<'_> {
     fn drop(&mut self) {
-        self.image.buffer.data.unmap();
+        self.image.buffer.data().unmap();
     }
 }
 
@@ -2926,7 +2892,7 @@ impl ResetContext {
 
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
         // Clear only the `count` member of the tile64 `tiles_out` buffer
-        encoder.clear_buffer(&buffers.tile64.tiles.data, 12, Some(4));
+        encoder.clear_buffer(buffers.tile64.tiles.data(), 12, Some(4));
 
         // Per-strata counters may now be at a different location in memory if
         // we're using the buffers for multiple renders of different sizes!  To
@@ -2934,7 +2900,7 @@ impl ResetContext {
         let strata_size_bytes = buffers.strata_size_bytes();
         for s in 0..buffers.render_size().nz() {
             encoder.clear_buffer(
-                &buffers.tile64.strata.data,
+                buffers.tile64.strata.data(),
                 u64::from(s) * u64::try_from(strata_size_bytes).unwrap(),
                 Some(16),
             );
@@ -2977,10 +2943,6 @@ mod test {
 
     #[test]
     fn compile_shaders() {
-        let mut v = naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::all(),
-        );
         for (src, desc) in [
             (interval_root_shader(16), "interval root"),
             (interval_tiles_shader(16), "interval tiles"),
@@ -2991,32 +2953,7 @@ mod test {
             (merge_shader(), "merge"),
             (clear_shader(), "clear"),
         ] {
-            // This isn't the best formatting, but it will at least include the
-            // relevant text.
-            let m = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| {
-                if let Some(i) = e.location(&src) {
-                    let pos = i.offset as usize..(i.offset + i.length) as usize;
-                    panic!(
-                        "shader compilation failed\n{src}\n{}",
-                        e.emit_to_string_with_path(&src[pos], desc)
-                    );
-                } else {
-                    panic!(
-                        "shader compilation failed\n{src}\n{}",
-                        e.emit_to_string(desc)
-                    );
-                }
-            });
-            if let Err(e) = v.validate(&m) {
-                let (pos, desc) = e.spans().next().unwrap();
-                panic!(
-                    "shader compilation failed\n{src}\n{}",
-                    e.emit_to_string_with_path(
-                        &src[pos.to_range().unwrap()],
-                        desc
-                    )
-                );
-            }
+            crate::compile_shader(&src, desc);
         }
     }
 }

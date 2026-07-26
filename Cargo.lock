@@ -1707,6 +1707,7 @@ dependencies = [
  "log",
  "naga",
  "nalgebra",
+ "pollster",
  "static_assertions",
  "thiserror 2.0.18",
  "wgpu",

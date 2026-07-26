@@ -11,6 +11,7 @@ use fidget_core::{
 };
 use nalgebra::{Const, OPoint, Point2, Vector2};
 use rayon::prelude::*;
+use zerocopy::{Immutable, IntoBytes};
 
 pub mod effects;
 pub mod pixel;
@@ -268,6 +269,13 @@ impl<P: Send, S: RenderSize + Sync> Image<P, S> {
                 .enumerate()
                 .for_each(r)
         }
+    }
+}
+
+impl<P: IntoBytes + Immutable, S: RenderSize> Image<P, S> {
+    /// Returns the raw bytes of the image
+    pub fn as_bytes(&self) -> &[u8] {
+        self.data.as_bytes()
     }
 }
 
