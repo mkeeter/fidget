@@ -102,7 +102,6 @@ mod test {
     use super::*;
     use fidget_core::{context::Tree, vm::VmShape};
     use fidget_raster::voxel::RenderSize;
-    use zerocopy::IntoBytes;
 
     #[test]
     fn render_and_merge() {
@@ -157,23 +156,8 @@ mod test {
             .submit_shade(&merge_buf, &mut shade_buf, Some(&mut shade_out))
             .unwrap();
         let img = effects_ctx.map_shaded_image(&mut shade_out);
-        let (out, size) = img.image().take();
-        let mut iter = out.iter();
-        for _y in 0..32 {
-            for _x in 0..32 {
-                print!("{:08x} ", iter.next().unwrap());
-            }
-            println!();
-        }
-        assert!(iter.next().is_none());
-
-        image::save_buffer(
-            "shaded.png",
-            out.as_bytes(),
-            size.width(),
-            size.height(),
-            image::ColorType::Rgba8,
-        )
-        .unwrap();
+        let (_out, size) = img.image().take();
+        assert_eq!(size.width(), 32);
+        assert_eq!(size.height(), 32);
     }
 }

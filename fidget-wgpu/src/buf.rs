@@ -156,7 +156,7 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     ) -> Result<(), BufferSizeError> {
         Self::check_size(size)?;
         let new_size = Self::calculate_buffer_size(size);
-        if new_size > self.size_bytes() {
+        if new_size > self.capacity() {
             let usage = self.data.usage();
             self.data = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(self.name.as_str()),

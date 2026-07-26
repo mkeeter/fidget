@@ -7,13 +7,7 @@
 //! - Merge and denoise a set of buffers into a single image containing
 //!   [`PackedVoxel`] data (normals, depth, and source image index packed into 8
 //!   bytes per pixel).
-//! - Compute an SSAO buffer from normal and depths in the combined image.
-//! - If images have associated color functions, then render per-pixel diffuse
-//!   colors based on position (including depth) and source image index;
-//!   otherwise, compute diffuse color based on a single per-image color.
-//! - Copy packed voxels, diffuse color, and SSAO data (previously stored in
-//!   buffers) into textures.  These three textures can be used as inputs for a
-//!   standard deferred rendering pipeline.
+//! - Apply shading to a [`PackedVoxel`] buffer, producing an RGBA image buffer
 
 use crate::{
     buf::{
@@ -254,7 +248,7 @@ impl Context {
         })
     }
 
-    /// Builds a new set of [`MergeBuffers`] for the given image size
+    /// Builds a new set of [`ShadeBuffers`] for the given image size
     pub fn shade_buffers(
         &self,
         image_size: ImageSize,

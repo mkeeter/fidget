@@ -38,8 +38,10 @@
   frequency (making register 0 the most frequently used, etc)
 - Add `RegOp::visit_regs` and `RegOp::visit_regs_mut` to visit registers in an
   operation
-- Add `fidget-wgpu` crate, which does 3D rasterization with a `wgpu` backend
+- Add `fidget-wgpu` crate
     - This is even more experimental than the rest of Fidget!
+    - There are two user-facing modules: `voxel` does voxel rasterization (depth
+      + normal), and `effects` does raster effects (e.g. shading)
 - Add `VarMap::iter` to iterate over `(var, index)` tuples
 - Simplified `Shape`, which was doing too much
     - It no longer has its own transform matrix; bring your own to the
@@ -64,6 +66,9 @@
 - Switched `GeometryPixel` back to having a `u32` for depth; we are planning to
   move more post-processing to the GPU, so it's helpful to keep pixels lossless
   for as long as possible.
+- Add `From<VoxelSize> for ImageSize` (which drops the depth value)
+- Add `Image::as_bytes()`, which returns the raw byte array (e.g. for saving to
+  a file).
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

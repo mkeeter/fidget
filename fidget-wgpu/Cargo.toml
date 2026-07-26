@@ -26,7 +26,5 @@ thiserror.workspace = true
 wgpu.workspace = true
 zerocopy.workspace = true
 
-image.workspace = true # XXX TEMPORARY DELETE ME
-
 [dev-dependencies]
 pollster.workspace = true
