@@ -375,15 +375,22 @@ pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
     let z_range = rand::distr::Uniform::new_inclusive(0.0, 1.0).unwrap();
 
     for i in 0..n {
-        let row = RowVector3::<f32>::new(
-            rng.sample(xy_range),
-            rng.sample(xy_range),
-            rng.sample(z_range),
-        );
-        // Scale to keep most samples near the center
-        let scale =
-            ((i as f32) / (kernel.nrows() as f32 - 1.0)).powi(2) * 0.9 + 0.1;
-        kernel.set_row(i, &(row * scale / row.norm()));
+        loop {
+            let row = RowVector3::<f32>::new(
+                rng.sample(xy_range),
+                rng.sample(xy_range),
+                rng.sample(z_range),
+            );
+            // Rejection sampling to ensure even distribution
+            if row.norm() < 1.0 && row.norm() > 0.1 {
+                // Scale to keep most samples near the center
+                let scale =
+                    ((i as f32) / (kernel.nrows() as f32 - 1.0)).powi(2) * 0.9
+                        + 0.1;
+                kernel.set_row(i, &(row * scale / row.norm()));
+                break;
+            }
+        }
     }
     kernel
 }
@@ -397,9 +404,17 @@ pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
     let mut rng = rand::rng();
     let xy_range = rand::distr::Uniform::new_inclusive(-1.0, 1.0).unwrap();
     for i in 0..n {
-        let row =
-            RowVector2::<f32>::new(rng.sample(xy_range), rng.sample(xy_range));
-        noise.set_row(i, &(row / row.norm()));
+        loop {
+            let row = RowVector2::<f32>::new(
+                rng.sample(xy_range),
+                rng.sample(xy_range),
+            );
+            // Rejection sampling to ensure even distribution
+            if row.norm() < 1.0 && row.norm() > 0.1 {
+                noise.set_row(i, &(row / row.norm()));
+                break;
+            }
+        }
     }
     noise
 }
