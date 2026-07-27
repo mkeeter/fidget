@@ -70,12 +70,16 @@
 - Add `Image::as_bytes()`, which returns the raw byte array (e.g. for saving to
   a file).
 - Improve `fidget_raster::effects::compute_ssao`
-    - Fix pixel-center bias
-    - Make noise sampling more random, eliminating patterns that led to
+    - Fix pixel-center position (which caused a subtle bias)
+    - Make noise sampling more random, eliminating cyclic patterns that led to
       horizontal striations
-    - Correctly handle non-square images
-    - Use rejection sampling when building kernel and noise arrays (this is
-      probably overkill, but can prevent very subtle biases)
+    - Correctly handle non-square images (fixing a known deficiency)
+    - Use rejection sampling when building kernel and noise arrays to uniformly
+      sample on the boundary of a unit sphere / circle (this is probably
+      overkill, but can prevent very subtle biases)
+    - Transposed `ssao_kernel` and `ssao_noise` matrices so that they can be
+      directly uploaded to the GPU as `array<array<f32, 3>>` and `array<vec2f>`
+      buffers respectively
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

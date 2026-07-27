@@ -152,8 +152,8 @@ fn shade_pixel(
 
 /// Hash function to mix X and Y integer values
 ///
-/// Source: "Hash Functions for GPU Rendering" (Jarzynski & Olano, 2020)
-/// https://jcgt.org/published/0009/03/02/paper.pdf
+/// Source: "Hash Functions for GPU Rendering", Jarzynski & Olano, 2020
+/// ([PDF](https://jcgt.org/published/0009/03/02/paper.pdf))
 fn pcg2d(mut x: u32, mut y: u32) -> u32 {
     x = x.wrapping_mul(1664525).wrapping_add(1013904223);
     y = y.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -199,13 +199,13 @@ fn compute_pixel_ssao(
         scale_min / image.size.depth() as f32,
     );
 
-    // Pixel offset prevents a small bias.  You can test with a sphere / Z plane
-    // union to see the difference if you're curious; without the offset, one
-    // quadrant of the sphere will be darker than the others.
+    // XY pixel offset prevents a small bias.  You can test with a sphere / Z
+    // plane union to see the difference if you're curious; without the offset,
+    // one quadrant of the sphere will be darker than the others.
     let p = Vector3::new(
         (((x as f32 + 0.5) / image.width() as f32) - 0.5) * 2.0,
         (((y as f32 + 0.5) / image.height() as f32) - 0.5) * 2.0,
-        (((d as f32 + 0.5) / image.depth() as f32) - 0.5) * 2.0,
+        ((d as f32 / image.depth() as f32) - 0.5) * 2.0,
     );
 
     // Get normal from the image
@@ -417,7 +417,7 @@ pub fn ssao_kernel(n: usize) -> OMatrix<f32, Const<3>, nalgebra::Dyn> {
                 rng.sample(z_range),
             );
             // Rejection sampling to ensure even distribution
-            if row.norm() < 1.0 && row.norm() > 0.1 {
+            if row.norm() < 1.0 && row.norm() > f32::EPSILON {
                 // Scale to keep most samples near the center
                 let scale =
                     ((i as f32) / (kernel.ncols() as f32 - 1.0)).powi(2) * 0.9
@@ -443,7 +443,7 @@ pub fn ssao_noise(n: usize) -> OMatrix<f32, Const<2>, nalgebra::Dyn> {
             let row =
                 Vector2::<f32>::new(rng.sample(xy_range), rng.sample(xy_range));
             // Rejection sampling to ensure even distribution
-            if row.norm() < 1.0 && row.norm() > 0.1 {
+            if row.norm() < 1.0 && row.norm() > f32::EPSILON {
                 noise.set_column(i, &(row / row.norm()));
                 break;
             }
