@@ -56,9 +56,8 @@ impl Gpu {
         MappedImage::map(&self.device, buf)
     }
 
-    /// Debug function to read a buffer to a `Vec<T>`
-    #[allow(unused)]
-    pub(crate) fn read_vec<T: FromBytes + Immutable + Clone + Copy>(
+    /// Debug function to read from a buffer to a `Vec<T>`
+    pub fn read_vec<T: FromBytes + Immutable + Clone + Copy>(
         &self,
         buf: &wgpu::Buffer,
     ) -> Vec<T> {
@@ -567,12 +566,20 @@ impl Context {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-tag!(pub(crate) SsaoBufferTag, f32, STORAGE | COPY_SRC); // XXX make this private and remove COPY_SRC
+tag!(pub SsaoBufferTag, f32, STORAGE | COPY_SRC,
+    "tag for a raw SSAO occlusion buffer");
 
 /// Handle to a set of buffers used when running an SSAO pass
 pub struct SsaoBuffers {
     config: wgpu::Buffer,
-    pub(crate) out: ImageBuffer<SsaoBufferTag>, // XXX make this private
+    pub(crate) out: ImageBuffer<SsaoBufferTag>,
+}
+
+impl SsaoBuffers {
+    /// Returns a handle to the raw SSAO occlusion buffer
+    pub fn occlusion(&self) -> &ImageBuffer<SsaoBufferTag> {
+        &self.out
+    }
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
@@ -631,7 +638,9 @@ impl SsaoContext {
             fidget_raster::effects::ssao_kernel(KERNEL_SIZE);
         ssao_kernel
             .get_mapped_range_mut(0..ssao_kernel_size_bytes as u64)
-            .copy_from_slice(ssao_kernel_values.as_slice().as_bytes());
+            .copy_from_slice(
+                ssao_kernel_values.transpose().as_slice().as_bytes(),
+            );
 
         let ssao_noise_size_bytes =
             NOISE_SIZE * std::mem::size_of::<[f32; 2]>();
@@ -644,7 +653,9 @@ impl SsaoContext {
         let ssao_noise_values = fidget_raster::effects::ssao_noise(NOISE_SIZE);
         ssao_noise
             .get_mapped_range_mut(0..ssao_noise_size_bytes as u64)
-            .copy_from_slice(ssao_noise_values.as_slice().as_bytes());
+            .copy_from_slice(
+                ssao_noise_values.transpose().as_slice().as_bytes(),
+            );
 
         let ssao_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {

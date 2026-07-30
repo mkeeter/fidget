@@ -343,6 +343,19 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     image
 }
 
+fn occlusion_to_rgba(data: &[f32]) -> Vec<u8> {
+    data.iter()
+        .flat_map(|p| {
+            if p.is_nan() {
+                [255; 4]
+            } else {
+                let v = (p * 255.0).min(255.0) as u8;
+                [v, v, v, 255]
+            }
+        })
+        .collect()
+}
+
 fn run3d_wgpu(
     shape: fidget::vm::VmShape,
     world_to_model: nalgebra::Matrix4<f32>,
@@ -395,7 +408,8 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
-            todo!()
+            let ssao = gpu.read_vec::<f32>(ssao_buf.occlusion().data());
+            occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
             if ssao {
@@ -474,16 +488,7 @@ fn postprocess3d(
                 image
             };
             let ssao = fidget::raster::effects::compute_ssao(&image, threads);
-            ssao.into_iter()
-                .flat_map(|p| {
-                    if p.is_nan() {
-                        [255; 4]
-                    } else {
-                        let v = (p * 255.0).min(255.0) as u8;
-                        [v, v, v, 255]
-                    }
-                })
-                .collect()
+            occlusion_to_rgba(ssao.as_slice())
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             let image = if denoise {
@@ -493,17 +498,7 @@ fn postprocess3d(
             };
             let ssao = fidget::raster::effects::compute_ssao(&image, threads);
             let blurred = fidget::raster::effects::blur_ssao(&ssao, threads);
-            blurred
-                .into_iter()
-                .flat_map(|p| {
-                    if p.is_nan() {
-                        [255; 4]
-                    } else {
-                        let v = (p * 255.0).min(255.0) as u8;
-                        [v, v, v, 255]
-                    }
-                })
-                .collect()
+            occlusion_to_rgba(blurred.as_slice())
         }
         RenderMode3D::Heightmap => {
             let z_max =

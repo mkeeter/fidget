@@ -37,7 +37,7 @@ fn ssao_main(
 
     // See writeup in `fidget_raster` for details here
     let p = ((pos_f32 / size_f32) - 0.5) * 2.0;
-    let rvec = vec3f(noise[(i * 19) % arrayLength(&noise)], 0.0);
+    let rvec = vec3f(noise[pcg2d(global_id.xy).x % arrayLength(&noise)], 0.0);
     let tangent = normalize(rvec - n * dot(rvec, n));
     let bitangent = cross(n, tangent);
     let tbn = mat3x3(tangent, bitangent, n);
@@ -51,6 +51,7 @@ fn ssao_main(
         // for non-square images"; is this true?
         let pos_voxels = vec3i((sample_pos / 2.0 + 0.5) * vec3f(config.image_size));
 
+        // actual_h is the height from the heightmap image
         var actual_h = 0.0;
         if pos_voxels.x >= 0 &&
            pos_voxels.y >= 0 &&
@@ -61,23 +62,35 @@ fn ssao_main(
                 u32(pos_voxels.x) +
                 u32(pos_voxels.y) * config.image_size.x
             ].depth;
-            if d == 0 {
-                continue;
+            if d != 0 {
+                actual_h = f32(d);
             }
-            actual_h = f32(d);
-        } else {
-            continue;
         }
 
         let actual_z = ((f32(actual_h) / f32(config.image_size.z)) - 0.5) * 2.0;
         let dz = sample_pos.z - actual_z;
-        if dz < config.radius {
-            if sample_pos.z <= actual_z {
+        if sample_pos.z <= actual_z {
+            if dz < config.radius {
                 occlusion += 1.0;
+            } else if dz < config.radius * 2.0 {
+                occlusion += pow((config.radius - (dz - config.radius)) / config.radius, 2);
             }
-        } else if dz < config.radius * 2.0 && sample_pos.z <= actual_z {
-            occlusion += pow((config.radius - (dz - config.radius)) / config.radius, 2);
         }
     }
     out[i] = 1.0 - (occlusion / f32(arrayLength(&kernel)));
+}
+
+/// Hash function to mix X and Y integer values
+///
+/// Source: "Hash Functions for GPU Rendering" (Jarzynski & Olano, 2020)
+/// https://jcgt.org/published/0009/03/02/paper.pdf
+fn pcg2d(v_in: vec2u) -> vec2u {
+    var v = v_in * 1664525u + 1013904223u;
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> vec2u(16u));
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> vec2u(16u));
+    return v;
 }
