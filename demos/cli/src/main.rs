@@ -351,10 +351,9 @@ fn run3d_wgpu(
     mode: RenderMode3D,
 ) -> Result<Vec<u8>> {
     // Build a WGPU context
-    let (device, queue) =
-        pollster::block_on(async move { fidget::wgpu::init().await })?;
+    let gpu = pollster::block_on(async move { fidget::wgpu::init().await })?;
 
-    let ctx = fidget::wgpu::voxel::Context::new(device.clone(), queue.clone());
+    let ctx = fidget::wgpu::voxel::Context::new(&gpu);
     let image_size = settings.voxel_size(depth);
     let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
     let mut image = Default::default();
@@ -377,18 +376,26 @@ fn run3d_wgpu(
         compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
 
-    let effects = fidget::wgpu::effects::Context::new(device, queue);
+    let effects = fidget::wgpu::effects::Context::new(&gpu);
     let mut merge_buf = effects.merge_buffers(image_size)?;
+    let mut ssao_buf = effects.ssao_buffers(image_size)?;
     let mut shade_buf = effects.shade_buffers(image_size.into())?;
-    let mut out_buf = effects.shaded_read_buffer(&shade_buf);
 
     let start = std::time::Instant::now();
-    match mode {
+    let out_bytes = match mode {
         RenderMode3D::Heightmap
         | RenderMode3D::Normals { .. }
-        | RenderMode3D::RawOcclusion { .. }
         | RenderMode3D::BlurredOcclusion { .. } => {
             bail!("only shaded rendering is supported on the GPU")
+        }
+        RenderMode3D::RawOcclusion { denoise } => {
+            effects.submit_merge(
+                &[buffers.image_storage_buffer()],
+                denoise,
+                &mut merge_buf,
+            )?;
+            effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+            todo!()
         }
         RenderMode3D::Shaded { denoise, ssao } => {
             if ssao {
@@ -399,11 +406,17 @@ fn run3d_wgpu(
                 denoise,
                 &mut merge_buf,
             )?;
+
+            let mut out_buf = gpu.read_buffer_for(shade_buf.output());
+            effects.submit_shade(
+                &merge_buf,
+                &mut shade_buf,
+                Some(&mut out_buf),
+            )?;
+            let out = gpu.map(&mut out_buf);
+            out.image().as_bytes().to_vec()
         }
     };
-    effects.submit_shade(&merge_buf, &mut shade_buf, Some(&mut out_buf))?;
-    let out = effects.map_shaded_image(&mut out_buf);
-    let out_bytes = out.image().as_bytes().to_vec();
     info!("Post-processed image in {:?}", start.elapsed());
 
     Ok(out_bytes)

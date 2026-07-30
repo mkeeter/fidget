@@ -45,7 +45,7 @@ pub enum InitError {
 ///
 /// This is a helper function for simplicity; more sophisticated systems will
 /// likely construct the adapter, device, and queue themselves.
-pub async fn init() -> Result<(wgpu::Device, wgpu::Queue), InitError> {
+pub async fn init() -> Result<Gpu, InitError> {
     let instance = wgpu::Instance::default();
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -53,13 +53,22 @@ pub async fn init() -> Result<(wgpu::Device, wgpu::Queue), InitError> {
             ..wgpu::RequestAdapterOptions::default()
         })
         .await?;
-    let out = adapter
+    let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             required_features: wgpu::Features::TIMESTAMP_QUERY,
             ..wgpu::DeviceDescriptor::default()
         })
         .await?;
-    Ok(out)
+    Ok(Gpu { device, queue })
+}
+
+/// Handle to a GPU device
+#[derive(Clone)]
+pub struct Gpu {
+    /// GPU device
+    pub device: wgpu::Device,
+    /// GPU queue
+    pub queue: wgpu::Queue,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -112,27 +121,17 @@ mod test {
             return;
         }
 
-        let instance = wgpu::Instance::default();
-        let (device, queue) = pollster::block_on(async {
-            let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions::default())
-                .await
-                .unwrap();
-            adapter
-                .request_device(&wgpu::DeviceDescriptor::default())
-                .await
-                .unwrap()
-        });
+        let gpu = pollster::block_on(async { init().await.unwrap() });
 
-        let voxel_ctx = voxel::Context::new(device.clone(), queue.clone());
-        let effects_ctx = effects::Context::new(device.clone(), queue.clone());
+        let voxel_ctx = voxel::Context::new(&gpu);
+        let effects_ctx = effects::Context::new(&gpu);
 
         let size = 128;
         let image_size = RenderSize::from(size);
         let mut buf = voxel_ctx.buffers(image_size).unwrap();
         let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
         let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
-        let mut shade_out = effects_ctx.shaded_read_buffer(&shade_buf);
+        let mut shade_out = gpu.read_buffer_for(&shade_buf.output());
 
         let (x, y, z) = Tree::axes();
         let x_ = x.clone() - 0.2;
@@ -160,15 +159,14 @@ mod test {
         effects_ctx
             .submit_shade(&merge_buf, &mut shade_buf, Some(&mut shade_out))
             .unwrap();
-        let img = effects_ctx.map_shaded_image(&mut shade_out);
+        let img = gpu.map(&mut shade_out);
         let (_out, img_size) = img.image().take();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
 
         let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
-        let out: Vec<f32> =
-            crate::buf::read_buffer(&device, &queue, ssao_buf.out.data());
+        let out: Vec<f32> = gpu.read_vec(ssao_buf.out.data());
         let mut img_out = vec![];
         for o in out {
             img_out.extend(if o.is_nan() {

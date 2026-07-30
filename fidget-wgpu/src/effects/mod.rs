@@ -10,9 +10,10 @@
 //! - Apply shading to a [`PackedVoxel`] buffer, producing an RGBA image buffer
 
 use crate::{
+    Gpu,
     buf::{
-        BufferSizeError, ImageBuffer, ImageReadBuffer, MappedImage, buffer_ro,
-        buffer_rw, buffer_uniform,
+        BufferSizeError, BufferTag, ImageBuffer, ImageReadBuffer, MappedImage,
+        buffer_ro, buffer_rw, buffer_uniform,
     },
     tag,
     voxel::GeomBufferTag,
@@ -22,8 +23,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// WGPU context for applying various effects
 pub struct Context {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    gpu: Gpu,
 
     merge_bind_group_layout: wgpu::BindGroupLayout,
     merge_pipeline: wgpu::ComputePipeline,
@@ -32,6 +32,62 @@ pub struct Context {
     shade_pipeline: wgpu::ComputePipeline,
 
     ssao_ctx: SsaoContext,
+}
+
+impl Gpu {
+    /// Returns a readable buffer for the given image buffer
+    pub fn read_buffer_for<T: BufferTag>(
+        &self,
+        buf: &ImageBuffer<T>,
+    ) -> ImageReadBuffer<T> {
+        ImageBuffer::new(
+            &self.device,
+            format!("{} (read)", buf.name()),
+            buf.size(),
+        )
+        .expect("buf.size should always be a valid size for ImageBuffer::new")
+    }
+
+    /// Maps a readable image buffer, returning a mapped image
+    pub fn map<'a, T: BufferTag>(
+        &self,
+        buf: &'a mut ImageReadBuffer<T>,
+    ) -> MappedImage<'a, T> {
+        MappedImage::map(&self.device, buf)
+    }
+
+    /// Debug function to read a buffer to a `Vec<T>`
+    #[allow(unused)]
+    pub(crate) fn read_vec<T: FromBytes + Immutable + Clone + Copy>(
+        &self,
+        buf: &wgpu::Buffer,
+    ) -> Vec<T> {
+        let scratch = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: buf.size(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("read_buffer"),
+            },
+        );
+        encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = scratch.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+
+        let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+            .unwrap()
+            .to_vec();
+        scratch.unmap();
+        result
+    }
 }
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
@@ -120,6 +176,13 @@ pub struct ShadeBuffers {
     out: ImageBuffer<ShadedImageTag>,
 }
 
+impl ShadeBuffers {
+    /// Returns a reference to the output buffer
+    pub fn output(&self) -> &ImageBuffer<ShadedImageTag> {
+        &self.out
+    }
+}
+
 /// Error returned when submitting a merge operation
 #[derive(Debug, thiserror::Error)]
 pub enum MergeError {
@@ -153,9 +216,9 @@ pub struct ImageSizeMismatch {
 
 impl Context {
     /// Builds a new context for applying effects
-    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
-        let merge_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    pub fn new(gpu: &Gpu) -> Self {
+        let merge_bind_group_layout = gpu.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
                     buffer_uniform(0),
@@ -168,65 +231,72 @@ impl Context {
                     buffer_ro(7), // image6
                     buffer_rw(8), // out
                 ],
-            });
+            },
+        );
         let shader_code = merge_shader();
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = gpu.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects merge pipeline"),
                 bind_group_layouts: &[Some(&merge_bind_group_layout)],
                 immediate_size: 0u32,
-            });
+            },
+        );
         let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("effects merge shader module"),
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let merge_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            gpu.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("effects merge shader module"),
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
+        let merge_pipeline = gpu.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
                 label: Some("effects merge compute pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("merge_main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            },
+        );
 
-        let shade_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let shade_bind_group_layout = gpu.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
                     buffer_uniform(0),
                     buffer_ro(1), // image
                     buffer_rw(2), // out
                 ],
-            });
+            },
+        );
         let shader_code = shade_shader();
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = gpu.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects shade pipeline"),
                 bind_group_layouts: &[Some(&shade_bind_group_layout)],
                 immediate_size: 0u32,
-            });
+            },
+        );
         let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("effects shade shader module"),
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let shade_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            gpu.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("effects shade shader module"),
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
+        let shade_pipeline = gpu.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
                 label: Some("effects shade compute pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("shade_main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            },
+        );
 
-        let ssao_ctx = SsaoContext::new(&device);
+        let ssao_ctx = SsaoContext::new(&gpu.device);
 
         Self {
-            device,
-            queue,
+            gpu: gpu.clone(),
             merge_bind_group_layout,
             merge_pipeline,
             shade_bind_group_layout,
@@ -240,14 +310,14 @@ impl Context {
         &self,
         image_size: VoxelSize,
     ) -> Result<MergeBuffers, BufferSizeError> {
-        let config = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
             size: std::mem::size_of::<MergeConfig>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let out = ImageBuffer::new(
-            &self.device,
+            &self.gpu.device,
             "merge output".to_owned(),
             ImageSize::new(image_size.width(), image_size.height()),
         )?;
@@ -263,14 +333,14 @@ impl Context {
         &self,
         image_size: ImageSize,
     ) -> Result<ShadeBuffers, BufferSizeError> {
-        let config = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shade config"),
             size: std::mem::size_of::<ShadeConfig>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let out = ImageBuffer::new(
-            &self.device,
+            &self.gpu.device,
             "shade output".to_owned(),
             ImageSize::new(image_size.width(), image_size.height()),
         )?;
@@ -282,14 +352,14 @@ impl Context {
         &self,
         image_size: VoxelSize,
     ) -> Result<SsaoBuffers, BufferSizeError> {
-        let config = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
             size: std::mem::size_of::<SsaoConfig>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let out = ImageBuffer::new(
-            &self.device,
+            &self.gpu.device,
             "ssao output".to_owned(),
             ImageSize::new(image_size.width(), image_size.height()),
         )?;
@@ -321,9 +391,9 @@ impl Context {
             }
         }
         buf.out
-            .grow_to_fit(&self.device, size)
+            .grow_to_fit(&self.gpu.device, size)
             .map_err(MergeError::OutputSize)?;
-        let mut encoder = self.device.create_command_encoder(
+        let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
         // Scope to bound the lifetime of compute_pass
@@ -344,6 +414,7 @@ impl Context {
                 };
                 {
                     let mut writer = self
+                        .gpu
                         .queue
                         .write_buffer_with(
                             &buf.config,
@@ -363,8 +434,8 @@ impl Context {
                         .bind_active(),
                 };
 
-                let bg =
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                let bg = self.gpu.device.create_bind_group(
+                    &wgpu::BindGroupDescriptor {
                         label: Some("merge bind group"),
                         layout: &self.merge_bind_group_layout,
                         entries: &[
@@ -384,7 +455,8 @@ impl Context {
                                 resource: buf.out.bind_active(),
                             },
                         ],
-                    });
+                    },
+                );
                 compute_pass.set_bind_group(0, Some(&bg), &[]);
                 compute_pass.dispatch_workgroups(
                     size.width().div_ceil(8),
@@ -393,7 +465,7 @@ impl Context {
                 );
             }
         }
-        self.queue.submit(Some(encoder.finish()));
+        self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 
@@ -408,9 +480,9 @@ impl Context {
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
         buf.out
-            .grow_to_fit(&self.device, size)
+            .grow_to_fit(&self.gpu.device, size)
             .map_err(ShadeError::OutputSize)?;
-        let mut encoder = self.device.create_command_encoder(
+        let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
 
@@ -428,6 +500,7 @@ impl Context {
             };
             {
                 let mut writer = self
+                    .gpu
                     .queue
                     .write_buffer_with(
                         &buf.config,
@@ -438,24 +511,26 @@ impl Context {
                 writer.copy_from_slice(cfg.as_bytes());
             }
             let bg =
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("shade bind group"),
-                    layout: &self.shade_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: buf.config.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: image.out.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: buf.out.bind_active(),
-                        },
-                    ],
-                });
+                self.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("shade bind group"),
+                        layout: &self.shade_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: buf.config.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: image.out.bind_active(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: buf.out.bind_active(),
+                            },
+                        ],
+                    });
             compute_pass.set_bind_group(0, Some(&bg), &[]);
             compute_pass.dispatch_workgroups(
                 size.width().div_ceil(8),
@@ -464,7 +539,7 @@ impl Context {
             );
         }
         if let Some(image) = out {
-            image.grow_to_fit(&self.device, buf.out.size()).expect(
+            image.grow_to_fit(&self.gpu.device, buf.out.size()).expect(
                 "buf.out.size should always be \
                  a valid size for grow_to_fit",
             );
@@ -476,7 +551,7 @@ impl Context {
                 buf.out.size_bytes(),
             );
         }
-        self.queue.submit(Some(encoder.finish()));
+        self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 
@@ -486,35 +561,7 @@ impl Context {
         image: &MergeBuffers,
         buf: &mut SsaoBuffers,
     ) -> Result<(), BufferSizeError> {
-        self.ssao_ctx.submit(image, buf, &self.device, &self.queue)
-    }
-
-    /// Builds an [`ImageReadBuffer`]
-    ///
-    /// The output buffer is sized to read from a [`ShadeBuffers`] output
-    pub fn shaded_read_buffer(
-        &self,
-        buffers: &ShadeBuffers,
-    ) -> ImageReadBuffer<ShadedImageTag> {
-        // TODO move this to new `Gpu` type?
-        ImageBuffer::new(
-            &self.device,
-            "shaded image".to_owned(),
-            buffers.out.size(),
-        )
-        .expect(
-            "buffers.out.size should always be \
-             a valid size for ImageBuffer::new",
-        )
-    }
-
-    /// Maps an image read buffer so that it can be read on the CPU
-    pub fn map_shaded_image<'a>(
-        &self,
-        image: &'a mut ImageReadBuffer<ShadedImageTag>,
-    ) -> MappedImage<'a, ShadedImageTag> {
-        // TODO move this to new `Gpu` type?
-        MappedImage::map(&self.device, image)
+        self.ssao_ctx.submit(image, buf, &self.gpu)
     }
 }
 
@@ -650,17 +697,15 @@ impl SsaoContext {
         &self,
         image: &MergeBuffers,
         buf: &mut SsaoBuffers,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        gpu: &Gpu,
     ) -> Result<(), BufferSizeError> {
         let image_size = image.out.size();
-        buf.out.grow_to_fit(device, image_size)?;
+        buf.out.grow_to_fit(&gpu.device, image_size)?;
 
         // TODO make this passed in?
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: None,
-            });
+        let mut encoder = gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
 
         // Scope to bound the lifetime of compute_pass
         {
@@ -679,7 +724,8 @@ impl SsaoContext {
                 radius: 0.1,
             };
             {
-                let mut writer = queue
+                let mut writer = gpu
+                    .queue
                     .write_buffer_with(
                         &buf.config,
                         0,
@@ -691,7 +737,7 @@ impl SsaoContext {
                 writer.copy_from_slice(cfg.as_bytes());
             }
 
-            let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ssao bind group"),
                 layout: &self.ssao_bind_group_layout,
                 entries: &[
@@ -717,7 +763,7 @@ impl SsaoContext {
                 1,
             );
         }
-        queue.submit(Some(encoder.finish()));
+        gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 }

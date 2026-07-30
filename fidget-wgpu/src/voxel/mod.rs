@@ -103,6 +103,7 @@
 //! in [`Buffers::image_storage_buffer`] for subsequent pipelines.
 
 use crate::{
+    Gpu,
     buf::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_ro_dyn, buffer_rw,
@@ -1047,8 +1048,7 @@ impl NormalsContext {
 
 /// Context for 3D (combined heightmap and normal) rendering
 pub struct Context {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    gpu: Gpu,
     has_timestamps: bool,
 
     /// Bind group layout for the common bind group (used by all stages)
@@ -1420,14 +1420,16 @@ impl RenderShape {
 
     fn vars_bind_group(&self, ctx: &Context) -> &wgpu::BindGroup {
         self.vars_bind_group.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("vars bind group"),
-                layout: &ctx.vars_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.vars.as_entire_binding(),
-                }],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("vars bind group"),
+                    layout: &ctx.vars_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.vars.as_entire_binding(),
+                    }],
+                })
         })
     }
 }
@@ -1560,177 +1562,189 @@ struct BindGroups {
 impl BindGroups {
     fn common(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.common.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("common bind group"),
-                layout: &ctx.common_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.config_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile_tapes.bind_active(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("common bind group"),
+                    layout: &ctx.common_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.config_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.tile_tapes.bind_active(),
+                        },
+                    ],
+                })
         })
     }
 
     fn clear(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.clear.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("clear bind group"),
-                layout: &ctx.clear_ctx.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers
-                            .tile16
-                            .tiles
-                            .data()
-                            .slice(0..16)
-                            .into(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers
-                            .tile16
-                            .sorted
-                            .data()
-                            .slice(0..16)
-                            .into(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers
-                            .tile4
-                            .tiles
-                            .data()
-                            .slice(0..16)
-                            .into(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffers
-                            .tile4
-                            .sorted
-                            .data()
-                            .slice(0..16)
-                            .into(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: buffers.z_hist_buf.as_entire_binding(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("clear bind group"),
+                    layout: &ctx.clear_ctx.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers
+                                .tile16
+                                .tiles
+                                .data()
+                                .slice(0..16)
+                                .into(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers
+                                .tile16
+                                .sorted
+                                .data()
+                                .slice(0..16)
+                                .into(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffers
+                                .tile4
+                                .tiles
+                                .data()
+                                .slice(0..16)
+                                .into(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: buffers
+                                .tile4
+                                .sorted
+                                .data()
+                                .slice(0..16)
+                                .into(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: buffers.z_hist_buf.as_entire_binding(),
+                        },
+                    ],
+                })
         })
     }
 
     fn merge(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.merge.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("merge bind group"),
-                layout: &ctx.merge_ctx.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile64.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile16.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.tile4.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffers.voxels.bind_active(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("merge bind group"),
+                    layout: &ctx.merge_ctx.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.tile64.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.tile16.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffers.tile4.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: buffers.voxels.bind_active(),
+                        },
+                    ],
+                })
         })
     }
 
     fn root(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.root.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("interval root bind group"),
-                layout: &ctx.root_ctx.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile64.tiles.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile64.zmax.bind_active(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("interval root bind group"),
+                    layout: &ctx.root_ctx.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.tile64.tiles.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.tile64.zmax.bind_active(),
+                        },
+                    ],
+                })
         })
     }
 
     fn repack(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.repack.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("repack bind group"),
-                layout: &ctx.repack_ctx.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile64.tiles.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile64.zmax.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.tile64.strata.bind_active(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("repack bind group"),
+                    layout: &ctx.repack_ctx.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.tile64.tiles.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.tile64.zmax.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffers.tile64.strata.bind_active(),
+                        },
+                    ],
+                })
         })
     }
 
     fn interval16(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         let strata_bytes = u64::try_from(buffers.strata_size_bytes()).unwrap();
         self.interval16.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("interval16 bind group"),
-                layout: &ctx.interval_ctx.interval_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers
-                            .tile64
-                            .strata
-                            .data()
-                            .slice(0..strata_bytes) // dynamic offset!
-                            .into(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile64.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.tile16.tiles.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffers.tile16.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: buffers.z_hist_buf.slice(0..16).into(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("interval16 bind group"),
+                    layout: &ctx.interval_ctx.interval_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers
+                                .tile64
+                                .strata
+                                .data()
+                                .slice(0..strata_bytes) // dynamic offset!
+                                .into(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.tile64.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffers.tile16.tiles.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: buffers.tile16.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: buffers.z_hist_buf.slice(0..16).into(),
+                        },
+                    ],
+                })
         })
     }
 
@@ -1759,96 +1773,104 @@ impl BindGroups {
         tile_bufs: &TileBuffers<N>,
         z_hist: wgpu::BindingResource,
     ) -> wgpu::BindGroup {
-        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(&format!("sort{N} bind group")),
-            layout: &ctx.interval_ctx.sort_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: tile_bufs.tiles.bind_active(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: z_hist,
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: tile_bufs.sorted.bind_active(),
-                },
-            ],
-        })
+        ctx.gpu
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("sort{N} bind group")),
+                layout: &ctx.interval_ctx.sort_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: tile_bufs.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: z_hist,
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: tile_bufs.sorted.bind_active(),
+                    },
+                ],
+            })
     }
 
     fn interval4(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.interval4.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("interval4 bind group"),
-                layout: &ctx.interval_ctx.interval_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile16.sorted.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile16.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.tile4.tiles.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffers.tile4.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: buffers.z_hist_buf.slice(256..320).into(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("interval4 bind group"),
+                    layout: &ctx.interval_ctx.interval_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.tile16.sorted.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.tile16.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffers.tile4.tiles.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: buffers.tile4.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: buffers.z_hist_buf.slice(256..320).into(),
+                        },
+                    ],
+                })
         })
     }
 
     fn voxel(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.voxel.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("voxel bind group"),
-                layout: &ctx.voxel_ctx.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.tile4.sorted.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.tile4.zmin.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffers.voxels.bind_active(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("voxel bind group"),
+                    layout: &ctx.voxel_ctx.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.tile4.sorted.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.tile4.zmin.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffers.voxels.bind_active(),
+                        },
+                    ],
+                })
         })
     }
 
     fn normals(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
         self.normals.get_or_init(|| {
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("normals bind group"),
-                layout: &ctx.normals_ctx.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.voxels.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.geom.bind_active(),
-                    },
-                ],
-            })
+            ctx.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("normals bind group"),
+                    layout: &ctx.normals_ctx.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.voxels.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.geom.bind_active(),
+                        },
+                    ],
+                })
         })
     }
 }
@@ -2219,9 +2241,11 @@ impl Context {
     ///
     /// If render timestamps are desirable, then the device should be
     /// initialized with [`wgpu::Features::TIMESTAMP_QUERY`].
-    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
-        let has_timestamps =
-            device.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+    pub fn new(gpu: &Gpu) -> Self {
+        let has_timestamps = gpu
+            .device
+            .features()
+            .contains(wgpu::Features::TIMESTAMP_QUERY);
         if !has_timestamps {
             log::warn!(
                 "WGPU device is missing `TIMESTAMP_QUERY`; \
@@ -2230,62 +2254,63 @@ impl Context {
         }
 
         // Create bind group layout and bind group
-        let common_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let common_bind_group_layout = gpu.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
                 label: Some("common bind group layout"),
                 entries: &[
                     buffer_rw(0), // config (including tape buffer)
                     buffer_rw(1), // tile_tape (hierarchical)
                 ],
-            });
-        let vars_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            },
+        );
+        let vars_bind_group_layout = gpu.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
                 label: Some("vars bind group layout"),
                 entries: &[
                     buffer_ro(0), // vars
                 ],
-            });
+            },
+        );
 
         let root_ctx = RootContext::new(
-            &device,
+            &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
         let repack_ctx = RepackContext::new(
-            &device,
+            &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
         let interval_ctx = IntervalContext::new(
-            &device,
+            &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
         let voxel_ctx = VoxelContext::new(
-            &device,
+            &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
         let normals_ctx = NormalsContext::new(
-            &device,
+            &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
         let merge_ctx = MergeContext::new(
-            &device,
+            &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
         let reset_ctx = ResetContext::new();
         let clear_ctx = ClearContext::new(
-            &device,
+            &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
 
         Self {
-            device,
-            queue,
+            gpu: gpu.clone(),
             has_timestamps,
             common_bind_group_layout,
             vars_bind_group_layout,
@@ -2310,7 +2335,7 @@ impl Context {
         &self,
         image_size: VoxelSize,
     ) -> Result<Buffers, BuffersError> {
-        Buffers::new(&self.device, image_size, self.has_timestamps)
+        Buffers::new(&self.gpu.device, image_size, self.has_timestamps)
     }
 
     /// Returns an [`ImageReadBuffer`], sized to read from a [`Buffers`] object
@@ -2320,7 +2345,7 @@ impl Context {
     /// it's constructed separately).
     pub fn image_buffer(&self, buffers: &Buffers) -> ImageReadBuffer {
         ImageReadBuffer::new(
-            &self.device,
+            &self.gpu.device,
             "image".to_owned(),
             buffers.image_size,
         )
@@ -2335,7 +2360,7 @@ impl Context {
         &self,
         shape: &VmShape,
     ) -> Result<RenderShape, RenderShapeError> {
-        RenderShape::new(shape, &self.device)
+        RenderShape::new(shape, &self.gpu.device)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2473,6 +2498,7 @@ impl Context {
             // We load the `Config` and shape tape data.
             let config_len = std::mem::size_of_val(&config);
             let mut writer = self
+                .gpu
                 .queue
                 .write_buffer_with(
                     &buffers.config_buf,
@@ -2493,6 +2519,7 @@ impl Context {
         // Copy vars (if present)
         if let Some(var_size) = NonZeroU64::new(shape.vars.size()) {
             let mut writer = self
+                .gpu
                 .queue
                 .write_buffer_with(&shape.vars, 0, var_size)
                 .unwrap();
@@ -2513,7 +2540,7 @@ impl Context {
         }
 
         // Create a command encoder and dispatch the compute work
-        let mut encoder = self.device.create_command_encoder(
+        let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
 
@@ -2583,10 +2610,12 @@ impl Context {
         // Resolve the raw GPU ticks into the resolve buffer, then copy them
         // into the last 16 bytes of the image buffer
         if let Some(image) = out {
-            image.grow_to_fit(&self.device, buffers.image_size).expect(
-                "buffers.image_size should always be \
+            image
+                .grow_to_fit(&self.gpu.device, buffers.image_size)
+                .expect(
+                    "buffers.image_size should always be \
                  a valid size for ImageReadBuffer::grow_to_fit",
-            );
+                );
             if let Some(timestamps) = &buffers.timestamps {
                 encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
                 encoder.copy_buffer_to_buffer(
@@ -2609,7 +2638,7 @@ impl Context {
         }
 
         // Submit the commands and wait for the GPU to complete
-        self.queue.submit(Some(encoder.finish()));
+        self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 
@@ -2627,14 +2656,15 @@ impl Context {
         image: &'a mut ImageReadBuffer,
     ) -> MappedImage<'a> {
         let slice = image.buffer.map_async(|_| {});
-        self.device
+        self.gpu
+            .device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         MappedImage {
             image,
             slice,
             ns_per_tick: if self.has_timestamps {
-                Some(self.queue.get_timestamp_period())
+                Some(self.gpu.queue.get_timestamp_period())
             } else {
                 None
             },
@@ -2677,7 +2707,7 @@ impl Context {
         buffers: &mut Buffers,
         image_size: VoxelSize,
     ) -> Result<(), BuffersError> {
-        buffers.set_image_size(&self.device, image_size)
+        buffers.set_image_size(&self.gpu.device, image_size)
     }
 }
 

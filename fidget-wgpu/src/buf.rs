@@ -3,7 +3,7 @@
 //! This module is mostly internal to the crate, but is public because its types
 //! appear as return values and arguments.
 use fidget_core::render::ImageSize;
-use zerocopy::{FromBytes, Immutable};
+use zerocopy::FromBytes;
 
 /// Handle around a growable GPU buffer
 ///
@@ -177,6 +177,11 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     /// Returns the total buffer capacity (in bytes)
     pub(crate) fn capacity(&self) -> u64 {
         self.data.size()
+    }
+
+    /// Returns the buffer name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Maps the active portion of the buffer for reading
@@ -376,37 +381,4 @@ pub(crate) fn buffer_rw(binding: u32) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Debug function to read a buffer to a `Vec<T>`
-#[allow(unused)]
-pub(crate) fn read_buffer<T: FromBytes + Immutable + Clone + Copy>(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    buf: &wgpu::Buffer,
-) -> Vec<T> {
-    let scratch = device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: buf.size(),
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("read_buffer"),
-        });
-    encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
-    queue.submit(Some(encoder.finish()));
-
-    let buffer_slice = scratch.slice(..);
-    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-
-    let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
-        .unwrap()
-        .to_vec();
-    scratch.unmap();
-    result
 }
