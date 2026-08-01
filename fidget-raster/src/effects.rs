@@ -5,8 +5,7 @@ use super::{
     voxel,
 };
 use nalgebra::{
-    Const, Matrix3, MatrixXx2, MatrixXx3, OMatrix, RowVector2, RowVector3,
-    Vector3, Vector4,
+    Const, Matrix2xX, Matrix3, Matrix3xX, OMatrix, Vector2, Vector3, Vector4,
 };
 use rand::prelude::*;
 
@@ -151,6 +150,23 @@ fn shade_pixel(
     [c, c, c]
 }
 
+/// Hash function to mix X and Y integer values
+///
+/// Source: "Hash Functions for GPU Rendering", Jarzynski & Olano, 2020
+/// ([PDF](https://jcgt.org/published/0009/03/02/paper.pdf))
+fn pcg2d(mut x: u32, mut y: u32) -> u32 {
+    x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+    y = y.wrapping_mul(1664525).wrapping_add(1013904223);
+    x = x.wrapping_add(y.wrapping_mul(1664525));
+    y = y.wrapping_add(x.wrapping_mul(1664525));
+    x ^= x >> 16;
+    y ^= y >> 16;
+    // we skip the final multiply and xor for `y`, since it's not used
+    x = x.wrapping_add(y.wrapping_mul(1664525));
+    x ^= x >> 16;
+    x
+}
+
 /// Compute an SSAO shading factor for a single pixel
 ///
 /// Returns NAN if the pixel is empty (i.e. its depth is 0)
@@ -158,8 +174,8 @@ fn compute_pixel_ssao(
     image: &voxel::Image,
     x: usize,
     y: usize,
-    kernel: &OMatrix<f32, nalgebra::Dyn, Const<3>>,
-    noise: &OMatrix<f32, nalgebra::Dyn, Const<2>>,
+    kernel: &OMatrix<f32, Const<3>, nalgebra::Dyn>,
+    noise: &OMatrix<f32, Const<2>, nalgebra::Dyn>,
 ) -> f32 {
     let pos = (y, x);
     let voxel::GeometryPixel {
@@ -171,19 +187,33 @@ fn compute_pixel_ssao(
         return f32::NAN;
     }
 
-    // XXX The implementation in libfive-cuda adds a 0.5 pixel offset
+    // Compute a scale which compensates for image aspect ratio
+    let scale_min = image
+        .size
+        .width()
+        .min(image.size.height())
+        .min(image.size.depth()) as f32;
+    let (scale_x, scale_y, scale_z) = (
+        scale_min / image.size.width() as f32,
+        scale_min / image.size.height() as f32,
+        scale_min / image.size.depth() as f32,
+    );
+
+    // XY pixel offset prevents a small bias.  You can test with a sphere / Z
+    // plane union to see the difference if you're curious; without the offset,
+    // one quadrant of the sphere will be darker than the others.
     let p = Vector3::new(
-        (((x as f32) / image.width() as f32) - 0.5) * 2.0,
-        (((y as f32) / image.height() as f32) - 0.5) * 2.0,
+        (((x as f32 + 0.5) / image.width() as f32) - 0.5) * 2.0,
+        (((y as f32 + 0.5) / image.height() as f32) - 0.5) * 2.0,
         ((d as f32 / image.depth() as f32) - 0.5) * 2.0,
     );
 
     // Get normal from the image
     let n = Vector3::new(nx, ny, nz).normalize();
 
-    // Get a rotation vector based on pixel index, and add a Z coordinate
-    let idx = pos.0 + pos.1 * image.width();
-    let rvec = noise.row((idx * 19) % noise.nrows()).transpose();
+    // Get a rotation vector based on hashed pixel index, and add a Z coordinate
+    let rvec = noise
+        .column(pcg2d(pos.0 as u32, pos.1 as u32) as usize % noise.ncols());
     let rvec = Vector3::new(rvec.x, rvec.y, 0.0);
 
     // Build our transform matrix, using the Gram-Schmidt process
@@ -193,12 +223,17 @@ fn compute_pixel_ssao(
 
     const RADIUS: f32 = 0.1;
     let mut occlusion = 0.0;
-    for i in 0..kernel.nrows() {
+    for i in 0..kernel.ncols() {
+        // offset in world coordinates (with compensation for aspect ratio)
+        let mut offset = tbn * kernel.column(i) * RADIUS;
+        offset.x *= scale_x;
+        offset.y *= scale_y;
+        offset.z *= scale_z;
+
         // position in world coordinates
-        let sample_pos = tbn * kernel.row(i).transpose() * RADIUS + p;
+        let sample_pos = offset + p;
 
         // convert to pixel coordinates
-        // XXX this distorts samples for non-square images
         let px = ((sample_pos.x / 2.0) + 0.5) * image.width() as f32;
         let py = ((sample_pos.y / 2.0) + 0.5) * image.height() as f32;
 
@@ -222,7 +257,7 @@ fn compute_pixel_ssao(
             occlusion += ((RADIUS - (dz - RADIUS)) / RADIUS).powi(2);
         }
     }
-    1.0 - (occlusion / kernel.nrows() as f32)
+    1.0 - (occlusion / kernel.ncols() as f32)
 }
 
 /// If the pixel has a back-facing normal, then pick a normal from neighbors
@@ -365,25 +400,32 @@ fn compute_pixel_blur(
 /// hemisphere with a maximum radius of 1.0, used for sampling the depth buffer.
 ///
 /// It should be reoriented based on the surface normal.
-pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
+pub fn ssao_kernel(n: usize) -> OMatrix<f32, Const<3>, nalgebra::Dyn> {
     // Based on http://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
     use rand::prelude::*;
 
-    let mut kernel = MatrixXx3::<f32>::zeros(n);
+    let mut kernel = Matrix3xX::<f32>::zeros(n);
     let mut rng = rand::rng();
     let xy_range = rand::distr::Uniform::new_inclusive(-1.0, 1.0).unwrap();
     let z_range = rand::distr::Uniform::new_inclusive(0.0, 1.0).unwrap();
 
     for i in 0..n {
-        let row = RowVector3::<f32>::new(
-            rng.sample(xy_range),
-            rng.sample(xy_range),
-            rng.sample(z_range),
-        );
-        // Scale to keep most samples near the center
-        let scale =
-            ((i as f32) / (kernel.nrows() as f32 - 1.0)).powi(2) * 0.9 + 0.1;
-        kernel.set_row(i, &(row * scale / row.norm()));
+        loop {
+            let row = Vector3::<f32>::new(
+                rng.sample(xy_range),
+                rng.sample(xy_range),
+                rng.sample(z_range),
+            );
+            // Rejection sampling to ensure even distribution
+            if row.norm() < 1.0 && row.norm() > f32::EPSILON {
+                // Scale to keep most samples near the center
+                let scale =
+                    ((i as f32) / (kernel.ncols() as f32 - 1.0)).powi(2) * 0.9
+                        + 0.1;
+                kernel.set_column(i, &(row * scale / row.norm()));
+                break;
+            }
+        }
     }
     kernel
 }
@@ -392,14 +434,20 @@ pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
 ///
 /// The noise matrix is a list of row vectors representing random XY rotations,
 /// which can be applied to the kernel vectors to reduce banding.
-pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
-    let mut noise = MatrixXx2::<f32>::zeros(n);
+pub fn ssao_noise(n: usize) -> OMatrix<f32, Const<2>, nalgebra::Dyn> {
+    let mut noise = Matrix2xX::<f32>::zeros(n);
     let mut rng = rand::rng();
     let xy_range = rand::distr::Uniform::new_inclusive(-1.0, 1.0).unwrap();
     for i in 0..n {
-        let row =
-            RowVector2::<f32>::new(rng.sample(xy_range), rng.sample(xy_range));
-        noise.set_row(i, &(row / row.norm()));
+        loop {
+            let row =
+                Vector2::<f32>::new(rng.sample(xy_range), rng.sample(xy_range));
+            // Rejection sampling to ensure even distribution
+            if row.norm() < 1.0 && row.norm() > f32::EPSILON {
+                noise.set_column(i, &(row / row.norm()));
+                break;
+            }
+        }
     }
     noise
 }
