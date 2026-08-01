@@ -200,11 +200,10 @@ fn compute_pixel_ssao(
         scale_min / image.size.depth() as f32,
     );
 
-    // XXX The implementation in libfive-cuda adds a 0.5 pixel offset
     let p = Vector3::new(
-        (((x as f32) / image.width() as f32) - 0.5) * 2.0,
-        (((y as f32) / image.height() as f32) - 0.5) * 2.0,
-        ((d as f32 / image.depth() as f32) - 0.5) * 2.0,
+        (((x as f32 + 0.5) / image.width() as f32) - 0.5) * 2.0,
+        (((y as f32 + 0.5) / image.height() as f32) - 0.5) * 2.0,
+        (((d as f32 + 0.5) / image.depth() as f32) - 0.5) * 2.0,
     );
 
     // Get normal from the image
