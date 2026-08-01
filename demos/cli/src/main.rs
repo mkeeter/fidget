@@ -26,6 +26,7 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Rasterizes to a 2D image
     Render2d {
         #[clap(flatten)]
         settings: ImageSettings,
@@ -42,6 +43,7 @@ enum Command {
         center: [f32; 2],
     },
 
+    /// Rasterizes to a 3D image
     Render3d {
         #[clap(flatten)]
         settings: ImageSettings,
@@ -65,6 +67,10 @@ enum Command {
         /// Rotation about the Z axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
         roll: f32,
+
+        /// Image depth (in voxels)
+        #[clap(long, requires_all = ["width", "height"])]
+        depth: Option<u32>,
 
         /// Center point of the render
         #[clap(
@@ -97,6 +103,7 @@ enum Command {
         #[clap(long)]
         perspective: Option<f32>,
     },
+    /// Builds a mesh
     Mesh {
         #[clap(flatten)]
         settings: MeshSettings,
@@ -161,13 +168,50 @@ struct ImageSettings {
     #[clap(short = 'N', default_value_t = 1)]
     n: usize,
 
-    /// Image size
-    #[clap(short, long, default_value_t = 128)]
-    size: u32,
+    /// Image size (in pixels)
+    #[clap(short, long, conflicts_with_all = ["width", "height", "depth"])]
+    size: Option<u32>,
+
+    /// Image width (in pixels)
+    #[clap(long, requires = "height")]
+    width: Option<u32>,
+
+    /// Image height (in pixels)
+    #[clap(long, requires = "width")]
+    height: Option<u32>,
 
     /// Scale applied to the model before rendering
     #[clap(long, default_value_t = 1.0)]
     scale: f32,
+}
+
+impl ImageSettings {
+    const DEFAULT_SIZE: u32 = 128;
+
+    fn voxel_size(&self, depth: Option<u32>) -> fidget::render::VoxelSize {
+        match (self.size, self.width, self.height, depth) {
+            (Some(s), None, None, None) => s.into(),
+            (None, Some(w), Some(h), d) => {
+                let d = d.unwrap_or(w.max(h));
+                fidget::render::VoxelSize::new(w, h, d)
+            }
+            (None, None, None, None) => Self::DEFAULT_SIZE.into(),
+            _ => panic!(
+                "invalid size combination (this should be enforced by clap)"
+            ),
+        }
+    }
+
+    fn image_size(&self) -> fidget::render::ImageSize {
+        match (self.size, self.width, self.height) {
+            (Some(s), None, None) => s.into(),
+            (None, Some(w), Some(h)) => fidget::render::ImageSize::new(w, h),
+            (None, None, None) => Self::DEFAULT_SIZE.into(),
+            _ => panic!(
+                "invalid size combination (this should be enforced by clap)"
+            ),
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -270,10 +314,11 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
+    depth: Option<u32>,
     threads: Option<&fidget::render::ThreadPool>,
 ) -> fidget::raster::voxel::Image {
     let cfg = fidget::raster::voxel::RenderConfig {
-        image_size: fidget::render::VoxelSize::from(settings.size),
+        image_size: settings.voxel_size(depth),
         threads,
         world_to_model,
         ..Default::default()
@@ -302,6 +347,7 @@ fn run3d_wgpu(
     shape: fidget::vm::VmShape,
     world_to_model: nalgebra::Matrix4<f32>,
     settings: &ImageSettings,
+    depth: Option<u32>,
     mode: RenderMode3D,
 ) -> Result<Vec<u8>> {
     // Build a WGPU context
@@ -309,7 +355,7 @@ fn run3d_wgpu(
         pollster::block_on(async move { fidget::wgpu::init().await })?;
 
     let ctx = fidget::wgpu::voxel::Context::new(device.clone(), queue.clone());
-    let image_size = fidget::render::VoxelSize::from(settings.size);
+    let image_size = settings.voxel_size(depth);
     let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
     let mut image = Default::default();
     let start = std::time::Instant::now();
@@ -475,6 +521,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &ImageSettings,
     mode: RenderMode2D,
 ) -> Vec<u8> {
+    let size = settings.image_size();
     if matches!(mode, RenderMode2D::Brute) {
         let tape = shape.float_slice_tape(Default::default());
         let mut eval = fidget::shape::Shape::<F>::new_float_slice_eval();
@@ -482,11 +529,20 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         for _ in 0..settings.n {
             let mut xs = vec![];
             let mut ys = vec![];
-            let div = (settings.size - 1) as f64;
-            for i in 0..settings.size {
-                let y = -(-1.0 + 2.0 * (i as f64) / div);
-                for j in 0..settings.size {
-                    let x = -1.0 + 2.0 * (j as f64) / div;
+            let div_x = (size.width() - 1) as f64;
+            let div_y = (size.height() - 1) as f64;
+            for i in 0..size.height() {
+                let y = if div_y == 0.0 {
+                    0.0
+                } else {
+                    -(-1.0 + 2.0 * (i as f64) / div_y)
+                };
+                for j in 0..size.width() {
+                    let x = if div_x == 0.0 {
+                        0.0
+                    } else {
+                        -1.0 + 2.0 * (j as f64) / div_x
+                    };
                     xs.push(x as f32);
                     ys.push(y as f32);
                 }
@@ -514,7 +570,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             None => Some(fidget::render::ThreadPool::Global),
         };
         let cfg = fidget::raster::pixel::RenderConfig {
-            image_size: fidget::render::ImageSize::from(settings.size),
+            image_size: size,
             threads: threads.as_ref(),
             pixel_perfect: matches!(mode, RenderMode2D::Sdf),
             world_to_model,
@@ -704,12 +760,13 @@ fn main() -> Result<()> {
                     / 1000.0
                     / (settings.n as f64)
             );
-            if let Some(out) = settings.out {
+            if let Some(out) = &settings.out {
+                let image_size = settings.image_size();
                 image::save_buffer(
                     out,
                     &buffer,
-                    settings.size,
-                    settings.size,
+                    image_size.width(),
+                    image_size.height(),
                     image::ColorType::Rgba8,
                 )?;
             }
@@ -725,6 +782,7 @@ fn main() -> Result<()> {
             roll,
             center,
             perspective,
+            depth,
             ssao,
             no_denoise,
         } => {
@@ -810,31 +868,32 @@ fn main() -> Result<()> {
                     bail!("can't combine --wgpu and --jit");
                 }
                 let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                run3d_wgpu(shape, t, &settings, mode)?
+                run3d_wgpu(shape, t, &settings, depth, mode)?
             } else {
                 let image = match settings.eval {
                     #[cfg(feature = "jit")]
                     EvalMode::Jit => {
                         let shape = fidget::jit::JitShape::new(&ctx, root)?;
                         info!("Built shape in {:?}", start.elapsed());
-                        run3d(shape, t, &settings, threads.as_ref())
+                        run3d(shape, t, &settings, depth, threads.as_ref())
                     }
                     EvalMode::Vm => {
                         let shape = fidget::vm::VmShape::new(&ctx, root)?;
                         info!("Built shape in {:?}", start.elapsed());
-                        run3d(shape, t, &settings, threads.as_ref())
+                        run3d(shape, t, &settings, depth, threads.as_ref())
                     }
                 };
                 postprocess3d(image, mode, threads.as_ref())
             };
 
-            if let Some(out) = settings.out {
+            if let Some(out) = &settings.out {
+                let image_size = settings.image_size();
                 info!("Writing image to {out:?}");
                 image::save_buffer(
                     out,
                     &buffer,
-                    settings.size,
-                    settings.size,
+                    image_size.width(),
+                    image_size.height(),
                     image::ColorType::Rgba8,
                 )?;
             }
