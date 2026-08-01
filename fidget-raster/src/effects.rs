@@ -151,6 +151,23 @@ fn shade_pixel(
     [c, c, c]
 }
 
+/// Hash function to mix X and Y integer values
+///
+/// Source: "Hash Functions for GPU Rendering" (Jarzynski & Olano, 2020)
+/// https://jcgt.org/published/0009/03/02/paper.pdf
+fn pcg2d(mut x: u32, mut y: u32) -> u32 {
+    x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+    y = y.wrapping_mul(1664525).wrapping_add(1013904223);
+    x = x.wrapping_add(y.wrapping_mul(1664525));
+    y = y.wrapping_add(x.wrapping_mul(1664525));
+    x ^= x >> 16;
+    y ^= y >> 16;
+    // we skip the final multiply and xor for `y`, since it's not used
+    x = x.wrapping_add(y.wrapping_mul(1664525));
+    x ^= x >> 16;
+    x
+}
+
 /// Compute an SSAO shading factor for a single pixel
 ///
 /// Returns NAN if the pixel is empty (i.e. its depth is 0)
@@ -181,9 +198,10 @@ fn compute_pixel_ssao(
     // Get normal from the image
     let n = Vector3::new(nx, ny, nz).normalize();
 
-    // Get a rotation vector based on pixel index, and add a Z coordinate
-    let idx = pos.0 + pos.1 * image.width();
-    let rvec = noise.row((idx * 19) % noise.nrows()).transpose();
+    // Get a rotation vector based on hashed pixel index, and add a Z coordinate
+    let rvec = noise
+        .row(pcg2d(pos.0 as u32, pos.1 as u32) as usize % noise.nrows())
+        .transpose();
     let rvec = Vector3::new(rvec.x, rvec.y, 0.0);
 
     // Build our transform matrix, using the Gram-Schmidt process
