@@ -35,8 +35,16 @@ fn ssao_main(
     let size_f32 = vec3<f32>(config.image_size);
     let pos_f32 = vec3<f32>(vec2<f32>(global_id.xy), f32(pixel.depth));
 
+    let scale_min = f32(min(
+        config.image_size.x,
+        min(config.image_size.y, config.image_size.z)
+    ));
+    let scale_x = scale_min / f32(config.image_size.x);
+    let scale_y = scale_min / f32(config.image_size.y);
+    let scale_z = scale_min / f32(config.image_size.z);
+
     // See writeup in `fidget_raster` for details here
-    let p = ((pos_f32 / size_f32) - 0.5) * 2.0;
+    let p = (((pos_f32 + 0.5) / size_f32) - 0.5) * 2.0;
     let rvec = vec3f(noise[pcg2d(global_id.xy).x % arrayLength(&noise)], 0.0);
     let tangent = normalize(rvec - n * dot(rvec, n));
     let bitangent = cross(n, tangent);
@@ -44,8 +52,15 @@ fn ssao_main(
 
     var occlusion = 0.0;
     for (var j=0u; j < arrayLength(&kernel); j++) {
+        // offset in world coordinates (with compensation for aspect ratio)
         let k = vec3f(kernel[j][0], kernel[j][1], kernel[j][2]);
-        let sample_pos = tbn * k * config.radius + p;
+        var offset = tbn * k * config.radius;
+        offset.x *= scale_x;
+        offset.y *= scale_y;
+        offset.z *= scale_z;
+
+        // position in world coordinates
+        let sample_pos = p + offset;
 
         // XXX the implementation in `fidget_raster` says "this distorts samples
         // for non-square images"; is this true?

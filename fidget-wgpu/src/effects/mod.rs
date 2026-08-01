@@ -638,9 +638,7 @@ impl SsaoContext {
             fidget_raster::effects::ssao_kernel(KERNEL_SIZE);
         ssao_kernel
             .get_mapped_range_mut(0..ssao_kernel_size_bytes as u64)
-            .copy_from_slice(
-                ssao_kernel_values.transpose().as_slice().as_bytes(),
-            );
+            .copy_from_slice(ssao_kernel_values.as_slice().as_bytes());
 
         let ssao_noise_size_bytes =
             NOISE_SIZE * std::mem::size_of::<[f32; 2]>();
@@ -653,9 +651,7 @@ impl SsaoContext {
         let ssao_noise_values = fidget_raster::effects::ssao_noise(NOISE_SIZE);
         ssao_noise
             .get_mapped_range_mut(0..ssao_noise_size_bytes as u64)
-            .copy_from_slice(
-                ssao_noise_values.transpose().as_slice().as_bytes(),
-            );
+            .copy_from_slice(ssao_noise_values.as_slice().as_bytes());
 
         let ssao_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
