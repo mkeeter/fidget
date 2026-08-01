@@ -188,6 +188,18 @@ fn compute_pixel_ssao(
         return f32::NAN;
     }
 
+    // Compensate for aspect ratio
+    let scale_min = image
+        .size
+        .width()
+        .min(image.size.height())
+        .min(image.size.depth()) as f32;
+    let (scale_x, scale_y, scale_z) = (
+        scale_min / image.size.width() as f32,
+        scale_min / image.size.height() as f32,
+        scale_min / image.size.depth() as f32,
+    );
+
     // XXX The implementation in libfive-cuda adds a 0.5 pixel offset
     let p = Vector3::new(
         (((x as f32) / image.width() as f32) - 0.5) * 2.0,
@@ -213,7 +225,11 @@ fn compute_pixel_ssao(
     let mut occlusion = 0.0;
     for i in 0..kernel.nrows() {
         // position in world coordinates
-        let sample_pos = tbn * kernel.row(i).transpose() * RADIUS + p;
+        let mut offset = tbn * kernel.row(i).transpose() * RADIUS;
+        offset.x *= scale_x;
+        offset.y *= scale_y;
+        offset.z *= scale_z;
+        let sample_pos = offset + p;
 
         // convert to pixel coordinates
         // XXX this distorts samples for non-square images
