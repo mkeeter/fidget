@@ -5,8 +5,7 @@ use super::{
     voxel,
 };
 use nalgebra::{
-    Const, Matrix3, MatrixXx2, MatrixXx3, OMatrix, RowVector2, RowVector3,
-    Vector3, Vector4,
+    Const, Matrix2xX, Matrix3, Matrix3xX, OMatrix, Vector2, Vector3, Vector4,
 };
 use rand::prelude::*;
 
@@ -175,8 +174,8 @@ fn compute_pixel_ssao(
     image: &voxel::Image,
     x: usize,
     y: usize,
-    kernel: &OMatrix<f32, nalgebra::Dyn, Const<3>>,
-    noise: &OMatrix<f32, nalgebra::Dyn, Const<2>>,
+    kernel: &OMatrix<f32, Const<3>, nalgebra::Dyn>,
+    noise: &OMatrix<f32, Const<2>, nalgebra::Dyn>,
 ) -> f32 {
     let pos = (y, x);
     let voxel::GeometryPixel {
@@ -214,8 +213,7 @@ fn compute_pixel_ssao(
 
     // Get a rotation vector based on hashed pixel index, and add a Z coordinate
     let rvec = noise
-        .row(pcg2d(pos.0 as u32, pos.1 as u32) as usize % noise.nrows())
-        .transpose();
+        .column(pcg2d(pos.0 as u32, pos.1 as u32) as usize % noise.ncols());
     let rvec = Vector3::new(rvec.x, rvec.y, 0.0);
 
     // Build our transform matrix, using the Gram-Schmidt process
@@ -225,9 +223,9 @@ fn compute_pixel_ssao(
 
     const RADIUS: f32 = 0.1;
     let mut occlusion = 0.0;
-    for i in 0..kernel.nrows() {
+    for i in 0..kernel.ncols() {
         // offset in world coordinates (with compensation for aspect ratio)
-        let mut offset = tbn * kernel.row(i).transpose() * RADIUS;
+        let mut offset = tbn * kernel.column(i) * RADIUS;
         offset.x *= scale_x;
         offset.y *= scale_y;
         offset.z *= scale_z;
@@ -259,7 +257,7 @@ fn compute_pixel_ssao(
             occlusion += ((RADIUS - (dz - RADIUS)) / RADIUS).powi(2);
         }
     }
-    1.0 - (occlusion / kernel.nrows() as f32)
+    1.0 - (occlusion / kernel.ncols() as f32)
 }
 
 /// If the pixel has a back-facing normal, then pick a normal from neighbors
@@ -402,18 +400,18 @@ fn compute_pixel_blur(
 /// hemisphere with a maximum radius of 1.0, used for sampling the depth buffer.
 ///
 /// It should be reoriented based on the surface normal.
-pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
+pub fn ssao_kernel(n: usize) -> OMatrix<f32, Const<3>, nalgebra::Dyn> {
     // Based on http://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
     use rand::prelude::*;
 
-    let mut kernel = MatrixXx3::<f32>::zeros(n);
+    let mut kernel = Matrix3xX::<f32>::zeros(n);
     let mut rng = rand::rng();
     let xy_range = rand::distr::Uniform::new_inclusive(-1.0, 1.0).unwrap();
     let z_range = rand::distr::Uniform::new_inclusive(0.0, 1.0).unwrap();
 
     for i in 0..n {
         loop {
-            let row = RowVector3::<f32>::new(
+            let row = Vector3::<f32>::new(
                 rng.sample(xy_range),
                 rng.sample(xy_range),
                 rng.sample(z_range),
@@ -422,9 +420,9 @@ pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
             if row.norm() < 1.0 && row.norm() > 0.1 {
                 // Scale to keep most samples near the center
                 let scale =
-                    ((i as f32) / (kernel.nrows() as f32 - 1.0)).powi(2) * 0.9
+                    ((i as f32) / (kernel.ncols() as f32 - 1.0)).powi(2) * 0.9
                         + 0.1;
-                kernel.set_row(i, &(row * scale / row.norm()));
+                kernel.set_column(i, &(row * scale / row.norm()));
                 break;
             }
         }
@@ -436,19 +434,17 @@ pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
 ///
 /// The noise matrix is a list of row vectors representing random XY rotations,
 /// which can be applied to the kernel vectors to reduce banding.
-pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
-    let mut noise = MatrixXx2::<f32>::zeros(n);
+pub fn ssao_noise(n: usize) -> OMatrix<f32, Const<2>, nalgebra::Dyn> {
+    let mut noise = Matrix2xX::<f32>::zeros(n);
     let mut rng = rand::rng();
     let xy_range = rand::distr::Uniform::new_inclusive(-1.0, 1.0).unwrap();
     for i in 0..n {
         loop {
-            let row = RowVector2::<f32>::new(
-                rng.sample(xy_range),
-                rng.sample(xy_range),
-            );
+            let row =
+                Vector2::<f32>::new(rng.sample(xy_range), rng.sample(xy_range));
             // Rejection sampling to ensure even distribution
             if row.norm() < 1.0 && row.norm() > 0.1 {
-                noise.set_row(i, &(row / row.norm()));
+                noise.set_column(i, &(row / row.norm()));
                 break;
             }
         }
