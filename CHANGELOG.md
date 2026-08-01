@@ -69,6 +69,13 @@
 - Add `From<VoxelSize> for ImageSize` (which drops the depth value)
 - Add `Image::as_bytes()`, which returns the raw byte array (e.g. for saving to
   a file).
+- Improve `fidget_raster::effects::compute_ssao`
+    - Fix pixel-center bias
+    - Make noise sampling more random, eliminating patterns that led to
+      horizontal striations
+    - Correctly handle non-square images
+    - Use rejection sampling when building kernel and noise arrays (this is
+      probably overkill, but can prevent very subtle biases)
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

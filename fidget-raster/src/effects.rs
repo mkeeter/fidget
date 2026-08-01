@@ -188,7 +188,7 @@ fn compute_pixel_ssao(
         return f32::NAN;
     }
 
-    // Compensate for aspect ratio
+    // Compute a scale which compensates for image aspect ratio
     let scale_min = image
         .size
         .width()
@@ -200,6 +200,9 @@ fn compute_pixel_ssao(
         scale_min / image.size.depth() as f32,
     );
 
+    // Pixel offset prevents a small bias.  You can test with a sphere / Z plane
+    // union to see the difference if you're curious; without the offset, one
+    // quadrant of the sphere will be darker than the others.
     let p = Vector3::new(
         (((x as f32 + 0.5) / image.width() as f32) - 0.5) * 2.0,
         (((y as f32 + 0.5) / image.height() as f32) - 0.5) * 2.0,
@@ -223,15 +226,16 @@ fn compute_pixel_ssao(
     const RADIUS: f32 = 0.1;
     let mut occlusion = 0.0;
     for i in 0..kernel.nrows() {
-        // position in world coordinates
+        // offset in world coordinates (with compensation for aspect ratio)
         let mut offset = tbn * kernel.row(i).transpose() * RADIUS;
         offset.x *= scale_x;
         offset.y *= scale_y;
         offset.z *= scale_z;
+
+        // position in world coordinates
         let sample_pos = offset + p;
 
         // convert to pixel coordinates
-        // XXX this distorts samples for non-square images
         let px = ((sample_pos.x / 2.0) + 0.5) * image.width() as f32;
         let py = ((sample_pos.y / 2.0) + 0.5) * image.height() as f32;
 
