@@ -375,13 +375,15 @@ impl Context {
             .grow_to_fit(&self.gpu.device, size)
             .map_err(MergeError::OutputSize)?;
         let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("merge compute encoder"),
+            },
         );
         // Scope to bound the lifetime of compute_pass
         {
             let mut compute_pass =
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
+                    label: Some("merge compute pass"),
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_pipeline(&self.merge_pipeline);
@@ -465,14 +467,16 @@ impl Context {
             .grow_to_fit(&self.gpu.device, size)
             .map_err(ShadeError::OutputSize)?;
         let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("shade compute encoder"),
+            },
         );
 
         // Scope to bound the lifetime of compute_pass
         {
             let mut compute_pass =
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
+                    label: Some("shade compute pass"),
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_pipeline(&self.shade_pipeline);
@@ -572,12 +576,12 @@ pub struct SsaoBuffers {
 }
 
 impl SsaoBuffers {
-    /// Returns a handle to the raw SSAO occlusion buffer
+    /// Returns a shared handle to the raw SSAO occlusion buffer
     pub fn raw_occlusion(&self) -> &ImageBuffer<SsaoRawBufferTag> {
         &self.raw_occlusion
     }
 
-    /// Returns a handle to the blurred SSAO occlusion buffer
+    /// Returns a shared handle to the blurred SSAO occlusion buffer
     pub fn blurred_occlusion(&self) -> &ImageBuffer<SsaoBlurredBufferTag> {
         &self.blurred_occlusion
     }
@@ -764,14 +768,16 @@ impl SsaoContext {
 
         // TODO make this passed in?
         let mut encoder = gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("ssao command encoder"),
+            },
         );
 
         // Scope to bound the lifetime of compute_pass
         {
             let mut compute_pass =
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
+                    label: Some("ssao compute pass"),
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_pipeline(&self.ssao_pipeline);
@@ -827,7 +833,7 @@ impl SsaoContext {
         {
             let mut compute_pass =
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
+                    label: Some("ssao blur compute pass"),
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_pipeline(&self.blur_pipeline);
@@ -886,6 +892,8 @@ impl SsaoContext {
 #[cfg(test)]
 mod test {
     use super::*;
+    use fidget_core::{context::Tree, vm::VmShape};
+    use fidget_raster::voxel::RenderSize;
 
     #[test]
     fn packed_voxel_size() {
@@ -902,6 +910,85 @@ mod test {
             (blur_shader(), "blur"),
         ] {
             crate::compile_shader(&src, desc);
+        }
+    }
+
+    /// Render a sphere-plane union and check for occlusion bias
+    ///
+    /// Because the image is perfectly symmetrical, we'd expect the average
+    /// occlusion across each of the four corners to be very similar.  If it's
+    /// not, then that's likely a sampling bias – which we have seen before!
+    #[test]
+    fn ssao_bias() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let voxel_ctx = crate::voxel::Context::new(&gpu);
+        let effects_ctx = crate::effects::Context::new(&gpu);
+
+        let size = 128;
+        let image_size = RenderSize::from(size);
+        let mut buf = voxel_ctx.buffers(image_size).unwrap();
+        let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
+
+        let (x, y, z) = Tree::axes();
+        let sphere =
+            (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
+        let vm_shape = VmShape::from(sphere.min(z));
+        let shape = voxel_ctx.shape(&vm_shape).unwrap();
+
+        voxel_ctx
+            .submit(
+                &shape,
+                &mut buf,
+                None,
+                &crate::voxel::RenderConfig {
+                    world_to_model: nalgebra::Matrix4::identity(),
+                },
+            )
+            .unwrap();
+        effects_ctx
+            .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
+            .unwrap();
+        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
+        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+        let ssao_out = gpu.read_vec::<f32>(ssao_buf.raw_occlusion().data());
+
+        let quadrants =
+            [(0, 0), (size / 2, 0), (0, size / 2), (size / 2, size / 2)];
+        let mut averages = Vec::with_capacity(quadrants.len());
+        for (dx, dy) in quadrants {
+            let mut sum = 0.0;
+            let mut count = 0.0;
+            for x in 0..size / 2 {
+                for y in 0..size / 2 {
+                    let x = (x + dx) as usize;
+                    let y = (y + dy) as usize;
+                    sum += ssao_out[x + y * size as usize];
+                    count += 1.0;
+                }
+            }
+            averages.push(sum / count);
+        }
+        for (i, qa) in quadrants.iter().enumerate() {
+            for (j, qb) in quadrants.iter().enumerate() {
+                let oa = averages[i];
+                let ob = averages[j];
+                let d = (oa - ob).abs();
+                let epsilon = 0.01;
+                if d > epsilon {
+                    panic!(
+                        "average occlusion between quadrants with offsets \
+                        {qa:?} and {qb:?} differs by too much: \
+                        {oa:.3} ≉ {ob:.3}"
+                    );
+                }
+            }
         }
     }
 }
