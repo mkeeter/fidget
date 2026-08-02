@@ -24,9 +24,12 @@ fn ssao_main(
     let i = global_id.x + global_id.y * config.image_size.x;
 
     // Early exit for unpopulated pixels
+    //
+    // Unlike the CPU shader, we use -1.0 as the empty marker (because NaN
+    // handling is iffy on the GPU).
     let pixel = unpack(image[i]).pixel;
     if pixel.depth == 0u {
-        out[i] = nan_f32();
+        out[i] = -1.0;
         return;
     }
     let n = pixel.normal;

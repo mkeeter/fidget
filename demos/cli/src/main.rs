@@ -347,7 +347,7 @@ fn occlusion_to_rgba(data: &[f32]) -> Vec<u8> {
     data.iter()
         .flat_map(|p| {
             if p.is_nan() {
-                [0, 0, 0, 255]
+                [0; 4]
             } else {
                 let v = (p * 255.0).min(255.0) as u8;
                 [v, v, v, 255]

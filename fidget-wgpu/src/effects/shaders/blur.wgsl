@@ -24,13 +24,15 @@ fn blur_main(
         return;
     }
     let i = global_id.x + global_id.y * config.image_size.x;
-    if image[i] != image[i] {
-        out[i] = nan_f32();
+
+    // Propagate empty pixels
+    if image[i] < 0.0 {
+        out[i] = -1.0;
         return;
     }
 
-    // This is a Kuwahara-style filter: we find a value + score across four
-    // quadrants, then pick the best one.
+    // This is a Kuwahara-style edge-preserving filter: we find a value + score
+    // across four quadrants, then pick the best one.
     let a = blur_at(
         i32(global_id.x) - config.radius,
         i32(global_id.y) - config.radius,
@@ -48,20 +50,20 @@ fn blur_main(
         i32(global_id.y),
     );
 
-    var best = d;
-    best = merge(best, c);
+    var best = a;
     best = merge(best, b);
-    best = merge(best, a);
+    best = merge(best, c);
+    best = merge(best, d);
 
-    if best.valid != 0 {
+    if best.valid {
         out[i] = best.mean;
     } else {
-        out[i] = image[i];
+        out[i] = image[i]; // guaranteed to be non-empty
     }
 }
 
 fn merge(best: BlurOutput, other: BlurOutput) -> BlurOutput {
-    if best.valid == 0 || (other.valid != 0 && other.score < best.score) {
+    if !best.valid || (other.valid && other.score < best.score) {
         return other;
     } else {
         return best;
@@ -71,7 +73,7 @@ fn merge(best: BlurOutput, other: BlurOutput) -> BlurOutput {
 struct BlurOutput {
     mean: f32,
     score: f32,
-    valid: u32,
+    valid: bool,
 }
 
 fn blur_at(x: i32, y: i32) -> BlurOutput {
@@ -87,14 +89,17 @@ fn blur_at(x: i32, y: i32) -> BlurOutput {
                 u32(ty) < config.image_size.y
             {
                 let s = image[u32(tx) + u32(ty) * config.image_size.x];
-                if s == s {
+                if s >= 0.0 {
                     sum += s;
                     count += 1.0;
-                } else {
-                    return BlurOutput(0.0, 0.0, 0);
                 }
             }
         }
+    }
+
+    // Only count squares with a sufficient number of valid pixels
+    if count < f32(config.radius * config.radius) * 0.5 {
+        return BlurOutput(0.0, 0.0, false);
     }
     let mean = sum / count;
     var stdev = 0.0;
@@ -109,12 +114,12 @@ fn blur_at(x: i32, y: i32) -> BlurOutput {
                 u32(ty) < config.image_size.y
             {
                 let s = image[u32(tx) + u32(ty) * config.image_size.x];
-                if s == s {
+                if s >= 0.0 {
                     stdev += pow(mean - s, 2);
                 }
             }
         }
     }
 
-    return BlurOutput(mean, stdev / count, 1);
+    return BlurOutput(mean, stdev / count, true);
 }
