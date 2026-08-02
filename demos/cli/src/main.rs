@@ -346,7 +346,8 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 fn occlusion_to_rgba(data: &[f32]) -> Vec<u8> {
     data.iter()
         .flat_map(|p| {
-            if p.is_nan() {
+            // CPU uses NaN, GPU uses -1.0
+            if p.is_nan() || *p < 0.0 {
                 [0; 4]
             } else {
                 let v = (p * 255.0).min(255.0) as u8;
@@ -363,8 +364,8 @@ fn run3d_wgpu(
     depth: Option<u32>,
     mode: RenderMode3D,
 ) -> Result<Vec<u8>> {
-    // Build a WGPU context
-    let gpu = pollster::block_on(async move { fidget::wgpu::init().await })?;
+    // Build a fidget gpu context
+    let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?;
 
     let ctx = fidget::wgpu::voxel::Context::new(&gpu);
     let image_size = settings.voxel_size(depth);
@@ -426,7 +427,7 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             if ssao {
-                effects.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+                effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
             }
 
             let mut out_buf = gpu.read_buffer_for(shade_buf.output());

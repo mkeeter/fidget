@@ -2691,7 +2691,7 @@ impl Context {
             image,
             slice,
             ns_per_tick: if self.has_timestamps {
-                Some(self.queue.get_timestamp_period())
+                Some(self.gpu.queue.get_timestamp_period())
             } else {
                 None
             },

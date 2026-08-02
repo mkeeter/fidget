@@ -3,7 +3,7 @@ struct BlurConfig {
     image_size: vec2u,
 
     /// Blur radius, also in pixels
-    radius: i32,
+    radius: u32,
 
     // Padding to 16 bytes
     _pad: u32,
@@ -34,15 +34,15 @@ fn blur_main(
     // This is a Kuwahara-style edge-preserving filter: we find a value + score
     // across four quadrants, then pick the best one.
     let a = blur_at(
-        i32(global_id.x) - config.radius,
-        i32(global_id.y) - config.radius,
+        i32(global_id.x) - i32(config.radius),
+        i32(global_id.y) - i32(config.radius),
     );
     let b = blur_at(
         i32(global_id.x),
-        i32(global_id.y) - config.radius,
+        i32(global_id.y) - i32(config.radius),
     );
     let c = blur_at(
-        i32(global_id.x) - config.radius,
+        i32(global_id.x) - i32(config.radius),
         i32(global_id.y),
     );
     let d = blur_at(
@@ -80,10 +80,10 @@ fn blur_at(x: i32, y: i32) -> BlurOutput {
     // Find the average value in a square with corner [x, y]
     var sum = 0.0;
     var count = 0.0;
-    for (var i = 0; i <= config.radius; i += 1) {
-        for (var j = 0; j <= config.radius; j += 1) {
-            let tx = x + i;
-            let ty = y + j;
+    for (var i = 0u; i <= config.radius; i += 1) {
+        for (var j = 0u; j <= config.radius; j += 1) {
+            let tx = x + i32(i);
+            let ty = y + i32(j);
             if tx >= 0 && ty >= 0 &&
                 u32(tx) < config.image_size.x &&
                 u32(ty) < config.image_size.y
@@ -105,10 +105,10 @@ fn blur_at(x: i32, y: i32) -> BlurOutput {
     var stdev = 0.0;
 
     // Find the standard deviation of that square patch
-    for (var i = 0; i <= config.radius; i += 1) {
-        for (var j = 0; j <= config.radius; j += 1) {
-            let tx = x + i;
-            let ty = y + j;
+    for (var i = 0u; i <= config.radius; i += 1) {
+        for (var j = 0u; j <= config.radius; j += 1) {
+            let tx = x + i32(i);
+            let ty = y + i32(j);
             if tx >= 0 && ty >= 0 &&
                 u32(tx) < config.image_size.x &&
                 u32(ty) < config.image_size.y

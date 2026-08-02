@@ -12,8 +12,8 @@
 use crate::{
     Gpu,
     buf::{
-        BufferSizeError, BufferTag, ImageBuffer, ImageReadBuffer, MappedImage,
-        buffer_ro, buffer_rw, buffer_uniform,
+        BufferSizeError, ImageBuffer, ImageReadBuffer, buffer_ro, buffer_rw,
+        buffer_uniform,
     },
     tag,
     voxel::GeomBufferTag,
@@ -32,61 +32,6 @@ pub struct Context {
     shade_pipeline: wgpu::ComputePipeline,
 
     ssao_ctx: SsaoContext,
-}
-
-impl Gpu {
-    /// Returns a readable buffer for the given image buffer
-    pub fn read_buffer_for<T: BufferTag>(
-        &self,
-        buf: &ImageBuffer<T>,
-    ) -> ImageReadBuffer<T> {
-        ImageBuffer::new(
-            &self.device,
-            format!("{} (read)", buf.name()),
-            buf.size(),
-        )
-        .expect("buf.size should always be a valid size for ImageBuffer::new")
-    }
-
-    /// Maps a readable image buffer, returning a mapped image
-    pub fn map<'a, T: BufferTag>(
-        &self,
-        buf: &'a mut ImageReadBuffer<T>,
-    ) -> MappedImage<'a, T> {
-        MappedImage::map(&self.device, buf)
-    }
-
-    /// Debug function to read from a buffer to a `Vec<T>`
-    pub fn read_vec<T: FromBytes + Immutable + Clone + Copy>(
-        &self,
-        buf: &wgpu::Buffer,
-    ) -> Vec<T> {
-        let scratch = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: buf.size(),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("read_buffer"),
-            },
-        );
-        encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
-        self.queue.submit(Some(encoder.finish()));
-
-        let buffer_slice = scratch.slice(..);
-        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
-            .unwrap()
-            .to_vec();
-        scratch.unmap();
-        result
-    }
 }
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
@@ -195,6 +140,7 @@ pub enum MergeError {
     /// Image sizes in the slice are not consistent
     #[error(transparent)]
     ImageSizeMismatch(#[from] ImageSizeMismatch),
+
     /// An error occurred while resizing the output buffer
     #[error(transparent)]
     OutputSize(BufferSizeError),
@@ -203,6 +149,14 @@ pub enum MergeError {
 /// Error returned when submitting a shade operation
 #[derive(Debug, thiserror::Error)]
 pub enum ShadeError {
+    /// An error occurred while resizing the output buffer
+    #[error(transparent)]
+    OutputSize(BufferSizeError),
+}
+
+/// Error returned when submitting an SSAO operation
+#[derive(Debug, thiserror::Error)]
+pub enum SsaoError {
     /// An error occurred while resizing the output buffer
     #[error(transparent)]
     OutputSize(BufferSizeError),
@@ -354,7 +308,7 @@ impl Context {
         Ok(ShadeBuffers { config, out })
     }
 
-    /// Builds a new set of [`MergeBuffers`] for the given image size
+    /// Builds a new set of [`SsaoBuffers`] for the given image size
     pub fn ssao_buffers(
         &self,
         image_size: VoxelSize,
@@ -596,7 +550,7 @@ impl Context {
         &self,
         image: &MergeBuffers,
         buf: &mut SsaoBuffers,
-    ) -> Result<(), BufferSizeError> {
+    ) -> Result<(), SsaoError> {
         self.ssao_ctx.submit(image, buf, &self.gpu)
     }
 }
@@ -604,9 +558,9 @@ impl Context {
 ////////////////////////////////////////////////////////////////////////////////
 
 tag!(pub SsaoRawBufferTag, f32, STORAGE | COPY_SRC,
-    "tag for a raw SSAO occlusion buffer");
+    "Tag for a raw SSAO occlusion buffer");
 tag!(pub SsaoBlurredBufferTag, f32, STORAGE | COPY_SRC,
-    "tag for a blurred SSAO occlusion buffer");
+    "Tag for a blurred SSAO occlusion buffer");
 
 /// Handle to a set of buffers used when running an SSAO pass
 pub struct SsaoBuffers {
@@ -701,6 +655,7 @@ impl SsaoContext {
         ssao_kernel
             .get_mapped_range_mut(0..ssao_kernel_size_bytes as u64)
             .copy_from_slice(ssao_kernel_values.as_slice().as_bytes());
+        ssao_kernel.unmap();
 
         let ssao_noise_size_bytes =
             NOISE_SIZE * std::mem::size_of::<[f32; 2]>();
@@ -714,6 +669,7 @@ impl SsaoContext {
         ssao_noise
             .get_mapped_range_mut(0..ssao_noise_size_bytes as u64)
             .copy_from_slice(ssao_noise_values.as_slice().as_bytes());
+        ssao_noise.unmap();
 
         let ssao_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -797,10 +753,14 @@ impl SsaoContext {
         image: &MergeBuffers,
         buf: &mut SsaoBuffers,
         gpu: &Gpu,
-    ) -> Result<(), BufferSizeError> {
+    ) -> Result<(), SsaoError> {
         let image_size = image.out.size();
-        buf.raw_occlusion.grow_to_fit(&gpu.device, image_size)?;
-        buf.blurred_occlusion.grow_to_fit(&gpu.device, image_size)?;
+        buf.raw_occlusion
+            .grow_to_fit(&gpu.device, image_size)
+            .map_err(SsaoError::OutputSize)?;
+        buf.blurred_occlusion
+            .grow_to_fit(&gpu.device, image_size)
+            .map_err(SsaoError::OutputSize)?;
 
         // TODO make this passed in?
         let mut encoder = gpu.device.create_command_encoder(

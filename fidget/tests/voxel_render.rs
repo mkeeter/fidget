@@ -107,8 +107,7 @@ mod wgpu {
             return;
         }
 
-        let gpu =
-            pollster::block_on(async { fidget_wgpu::init().await.unwrap() });
+        let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
         let ctx = fidget_wgpu::voxel::Context::new(&gpu);
@@ -152,10 +151,7 @@ mod wgpu {
             return;
         }
 
-        // Build a WGPU instance without any special features
-        // (e.g. no timestamp queries)
-        let gpu =
-            pollster::block_on(async { fidget::wgpu::init().await.unwrap() });
+        let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
         let v = Var::new();

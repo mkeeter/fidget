@@ -2,6 +2,7 @@
 #![warn(missing_docs)]
 
 use heck::ToShoutySnakeCase;
+use zerocopy::{FromBytes, Immutable};
 
 pub mod buf;
 pub mod effects;
@@ -25,7 +26,7 @@ fn opcode_constants() -> String {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Error type for [`init`]
+/// Error type for GPU initialization
 #[derive(Debug, thiserror::Error)]
 pub enum InitError {
     /// Error when requesting an adapter
@@ -37,31 +38,6 @@ pub enum InitError {
     Device(#[from] wgpu::RequestDeviceError),
 }
 
-/// Returns a WebGPU device and queue with appropriate settings
-///
-/// Non-default settings are as follows:
-/// - We request a [`wgpu::PowerPreference::HighPerformance`] adapter
-/// - We enable the [`wgpu::Features::TIMESTAMP_QUERY`] feature
-///
-/// This is a helper function for simplicity; more sophisticated systems will
-/// likely construct the adapter, device, and queue themselves.
-pub async fn init() -> Result<Gpu, InitError> {
-    let instance = wgpu::Instance::default();
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..wgpu::RequestAdapterOptions::default()
-        })
-        .await?;
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            required_features: wgpu::Features::TIMESTAMP_QUERY,
-            ..wgpu::DeviceDescriptor::default()
-        })
-        .await?;
-    Ok(Gpu { device, queue })
-}
-
 /// Handle to a GPU device
 #[derive(Clone)]
 pub struct Gpu {
@@ -69,6 +45,101 @@ pub struct Gpu {
     pub device: wgpu::Device,
     /// GPU queue
     pub queue: wgpu::Queue,
+}
+
+impl Gpu {
+    /// Returns a [`Gpu`] object with customized settings
+    ///
+    /// Non-default settings are as follows:
+    /// - We request a [`wgpu::PowerPreference::HighPerformance`] adapter
+    /// - We enable the [`wgpu::Features::TIMESTAMP_QUERY`] feature
+    ///
+    /// This is a helper function for simplicity; more sophisticated systems
+    /// will likely construct the adapter, device, and queue themselves.
+    pub async fn init() -> Result<Gpu, InitError> {
+        let instance = wgpu::Instance::default();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                ..wgpu::RequestAdapterOptions::default()
+            })
+            .await?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::TIMESTAMP_QUERY,
+                ..wgpu::DeviceDescriptor::default()
+            })
+            .await?;
+        Ok(Gpu { device, queue })
+    }
+
+    /// Returns a [`Gpu`] object with default settings
+    ///
+    /// This is useful for CI, where `TIMESTAMP_QUERY` is unsupported
+    #[doc(hidden)]
+    pub async fn init_basic() -> Result<Gpu, InitError> {
+        let instance = wgpu::Instance::default();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await?;
+        Ok(Gpu { device, queue })
+    }
+
+    /// Returns a readable buffer for the given image buffer
+    pub fn read_buffer_for<T: buf::BufferTag>(
+        &self,
+        buf: &buf::ImageBuffer<T>,
+    ) -> buf::ImageReadBuffer<T> {
+        buf::ImageBuffer::new(
+            &self.device,
+            format!("{} (read)", buf.name()),
+            buf.size(),
+        )
+        .expect("buf.size should always be a valid size for ImageBuffer::new")
+    }
+
+    /// Maps a readable image buffer, returning a mapped image
+    pub fn map<'a, T: buf::BufferTag>(
+        &self,
+        buf: &'a mut buf::ImageReadBuffer<T>,
+    ) -> buf::MappedImage<'a, T> {
+        buf::MappedImage::map(&self.device, buf)
+    }
+
+    /// Debug function to read from a buffer to a `Vec<T>`
+    pub fn read_vec<T: FromBytes + Immutable + Clone + Copy>(
+        &self,
+        buf: &wgpu::Buffer,
+    ) -> Vec<T> {
+        let scratch = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: buf.size(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("read_buffer"),
+            },
+        );
+        encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = scratch.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+
+        let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+            .unwrap()
+            .to_vec();
+        scratch.unmap();
+        result
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -121,8 +192,7 @@ mod test {
             return;
         }
 
-        let gpu = pollster::block_on(async { init().await.unwrap() });
-
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let voxel_ctx = voxel::Context::new(&gpu);
         let effects_ctx = effects::Context::new(&gpu);
 
