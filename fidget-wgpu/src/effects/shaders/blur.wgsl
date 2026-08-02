@@ -1,6 +1,8 @@
 struct BlurConfig {
     /// Image size, in pixels
     image_size: vec2u,
+
+    /// Blur radius, also in pixels
     radius: i32,
 }
 
@@ -39,4 +41,75 @@ fn blur_main(
         i32(global_id.y),
     );
 
+    var best = BlurOutput(0.0, 0.0, 0);
+    best = merge(best, a);
+    best = merge(best, b);
+    best = merge(best, c);
+    best = merge(best, d);
+
+    if best.valid != 0 {
+        out[i] = best.mean;
+    } else {
+        out[i] = image[i];
+    }
+}
+
+fn merge(best: BlurOutput, other: BlurOutput) -> BlurOutput {
+    if best.valid == 0 || (other.valid != 0 && other.score > best.score) {
+        return other;
+    } else {
+        return best;
+    }
+}
+
+struct BlurOutput {
+    mean: f32,
+    score: f32,
+    valid: u32,
+}
+
+fn blur_at(x: i32, y: i32) -> BlurOutput {
+    var sum = 0.0;
+    var count = 0.0;
+    for (var i = 0; i <= config.radius; i += 1) {
+        for (var j = 0; j <= config.radius; j += 1) {
+            let tx = x + i;
+            let ty = y + j;
+            if tx >= 0 && ty >= 0 &&
+                u32(tx) < config.image_size.x &&
+                u32(ty) < config.image_size.y
+            {
+                let s = image[u32(tx) + u32(ty) * config.image_size.x];
+                if s == s {
+                    sum += s;
+                    count += 1.0;
+                }
+
+            }
+        }
+    }
+
+    if count == 0.0 {
+        return BlurOutput(0.0, 0.0, 0);
+    }
+    let mean = sum / count;
+    var stdev = 0.0;
+
+    for (var i = 0; i <= config.radius; i += 1) {
+        for (var j = 0; j <= config.radius; j += 1) {
+            let tx = x + i;
+            let ty = y + j;
+            if tx >= 0 && ty >= 0 &&
+                u32(tx) < config.image_size.x &&
+                u32(ty) < config.image_size.y
+            {
+                let s = image[u32(tx) + u32(ty) * config.image_size.x];
+                if s == s {
+                    stdev += pow(mean - s, 2);
+                }
+            }
+        }
+    }
+
+    return BlurOutput(mean, stdev / count, 1);
 }

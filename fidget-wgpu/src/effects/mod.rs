@@ -93,6 +93,7 @@ const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const SHADE_SHADER: &str = include_str!("shaders/shade.wgsl");
 const SSAO_SHADER: &str = include_str!("shaders/ssao.wgsl");
+const BLUR_SHADER: &str = include_str!("shaders/blur.wgsl");
 
 fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
@@ -104,6 +105,10 @@ fn shade_shader() -> String {
 
 fn ssao_shader() -> String {
     SSAO_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+}
+
+fn blur_shader() -> String {
+    BLUR_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
 }
 
 /// Packed voxel structure used on the GPU
@@ -603,10 +608,12 @@ struct SsaoContext {
 
     /// Pipeline for computing per-pixel SSAO
     ssao_pipeline: wgpu::ComputePipeline,
-    /*
+
+    /// Layout for blur pipeline
+    blur_bind_group_layout: wgpu::BindGroupLayout,
+
     /// Pipeline for blurring an SSAO image
     blur_pipeline: wgpu::ComputePipeline,
-    */
 }
 
 impl SsaoContext {
@@ -693,10 +700,40 @@ impl SsaoContext {
                 compilation_options: Default::default(),
                 cache: None,
             });
+
+        let blur_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[buffer_uniform(0), buffer_ro(1), buffer_rw(2)],
+            });
+        let shader_code = blur_shader();
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("effects blur pipeline"),
+                bind_group_layouts: &[Some(&blur_bind_group_layout)],
+                immediate_size: 0u32,
+            });
+        let shader_module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("effects blur shader module"),
+                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+            });
+        let blur_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("effects blur compute pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("blur_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
         Self {
             ssao_bind_group,
             ssao_bind_group_layout: ssao_user_bind_group_layout,
             ssao_pipeline,
+            blur_bind_group_layout,
+            blur_pipeline,
         }
     }
 
@@ -793,6 +830,7 @@ mod test {
             (merge_shader(), "merge"),
             (shade_shader(), "shade"),
             (ssao_shader(), "ssao"),
+            (blur_shader(), "blur"),
         ] {
             crate::compile_shader(&src, desc);
         }
