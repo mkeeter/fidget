@@ -902,7 +902,6 @@ mod test {
 
     #[test]
     fn compile_shaders() {
-        #[allow(clippy::single_element_loop)] // there will be more
         for (src, desc) in [
             (merge_shader(), "merge"),
             (shade_shader(), "shade"),
