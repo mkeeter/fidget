@@ -36,7 +36,7 @@ fn ssao_main(
 
     // Convert to [-1, 1] coordinate space
     let size_f32 = vec3<f32>(config.image_size);
-    let pos_f32 = vec3<f32>(vec2<f32>(global_id.xy), f32(pixel.depth));
+    let pos_f32 = vec3<f32>(vec2<f32>(global_id.xy) + 0.5, f32(pixel.depth));
 
     let scale_min = f32(min(
         config.image_size.x,

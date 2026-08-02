@@ -913,7 +913,7 @@ mod test {
         }
     }
 
-    /// Render a sphere-plane intersection and check for occlusion bias
+    /// Render a sphere-plane union and check for occlusion bias
     ///
     /// Because the image is perfectly symmetrical, we'd expect the average
     /// occlusion across each of the four corners to be very similar.  If it's
@@ -990,6 +990,5 @@ mod test {
                 }
             }
         }
-        println!("{averages:?}");
     }
 }
