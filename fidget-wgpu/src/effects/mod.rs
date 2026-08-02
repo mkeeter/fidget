@@ -356,18 +356,38 @@ impl Context {
         &self,
         image_size: VoxelSize,
     ) -> Result<SsaoBuffers, BufferSizeError> {
-        let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: std::mem::size_of::<SsaoConfig>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let out = ImageBuffer::new(
+        let ssao_config =
+            self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("ssao config"),
+                size: std::mem::size_of::<SsaoConfig>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        let raw_occlusion = ImageBuffer::new(
             &self.gpu.device,
-            "ssao output".to_owned(),
+            "ssao raw occlusion".to_owned(),
             ImageSize::new(image_size.width(), image_size.height()),
         )?;
-        Ok(SsaoBuffers { config, out })
+        let blur_config =
+            self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("blur config"),
+                size: std::mem::size_of::<BlurConfig>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        let blurred_occlusion = ImageBuffer::new(
+            &self.gpu.device,
+            "ssao blurred occlusion".to_owned(),
+            ImageSize::new(image_size.width(), image_size.height()),
+        )?;
+        Ok(SsaoBuffers {
+            ssao_config,
+            blur_config,
+            raw_occlusion,
+            blurred_occlusion,
+        })
     }
 
     /// Submits a set of merge operations to combine all of the images
@@ -571,19 +591,29 @@ impl Context {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-tag!(pub SsaoBufferTag, f32, STORAGE | COPY_SRC,
+tag!(pub SsaoRawBufferTag, f32, STORAGE | COPY_SRC,
     "tag for a raw SSAO occlusion buffer");
+tag!(pub SsaoBlurredBufferTag, f32, STORAGE | COPY_SRC,
+    "tag for a blurred SSAO occlusion buffer");
 
 /// Handle to a set of buffers used when running an SSAO pass
 pub struct SsaoBuffers {
-    config: wgpu::Buffer,
-    pub(crate) out: ImageBuffer<SsaoBufferTag>,
+    ssao_config: wgpu::Buffer,
+    raw_occlusion: ImageBuffer<SsaoRawBufferTag>,
+
+    blur_config: wgpu::Buffer,
+    blurred_occlusion: ImageBuffer<SsaoBlurredBufferTag>,
 }
 
 impl SsaoBuffers {
     /// Returns a handle to the raw SSAO occlusion buffer
-    pub fn occlusion(&self) -> &ImageBuffer<SsaoBufferTag> {
-        &self.out
+    pub fn raw_occlusion(&self) -> &ImageBuffer<SsaoRawBufferTag> {
+        &self.raw_occlusion
+    }
+
+    /// Returns a handle to the blurred SSAO occlusion buffer
+    pub fn blurred_occlusion(&self) -> &ImageBuffer<SsaoBlurredBufferTag> {
+        &self.blurred_occlusion
     }
 }
 
@@ -593,8 +623,21 @@ struct SsaoConfig {
     /// Image size, in voxels
     image_size: [u32; 3],
 
-    /// Whether or not to denoise when merging (non-zero is true)
+    /// Radius of SSAO sampling
     radius: f32,
+}
+
+#[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[repr(C)]
+struct BlurConfig {
+    /// Image size, in pixels
+    image_size: [u32; 2],
+
+    /// Pixel radius of blur
+    radius: u32,
+
+    /// Padding to 16 bytes
+    _pad: u32,
 }
 
 struct SsaoContext {
@@ -744,7 +787,8 @@ impl SsaoContext {
         gpu: &Gpu,
     ) -> Result<(), BufferSizeError> {
         let image_size = image.out.size();
-        buf.out.grow_to_fit(&gpu.device, image_size)?;
+        buf.raw_occlusion.grow_to_fit(&gpu.device, image_size)?;
+        buf.blurred_occlusion.grow_to_fit(&gpu.device, image_size)?;
 
         // TODO make this passed in?
         let mut encoder = gpu.device.create_command_encoder(
@@ -771,7 +815,7 @@ impl SsaoContext {
                 let mut writer = gpu
                     .queue
                     .write_buffer_with(
-                        &buf.config,
+                        &buf.ssao_config,
                         0,
                         (std::mem::size_of::<SsaoConfig>() as u64)
                             .try_into()
@@ -787,7 +831,7 @@ impl SsaoContext {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: buf.config.as_entire_binding(),
+                        resource: buf.ssao_config.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -795,7 +839,7 @@ impl SsaoContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: buf.out.bind_active(),
+                        resource: buf.raw_occlusion.bind_active(),
                     },
                 ],
             });
@@ -807,6 +851,59 @@ impl SsaoContext {
                 1,
             );
         }
+
+        {
+            let mut compute_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None, // TODO add timestamps?
+                });
+            compute_pass.set_pipeline(&self.blur_pipeline);
+            let cfg = BlurConfig {
+                image_size: [image_size.width(), image_size.height()],
+                radius: 2,
+                _pad: 0,
+            };
+            {
+                let mut writer = gpu
+                    .queue
+                    .write_buffer_with(
+                        &buf.blur_config,
+                        0,
+                        (std::mem::size_of::<BlurConfig>() as u64)
+                            .try_into()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                writer.copy_from_slice(cfg.as_bytes());
+            }
+
+            let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("blur bind group"),
+                layout: &self.blur_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buf.blur_config.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: buf.raw_occlusion.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buf.blurred_occlusion.bind_active(),
+                    },
+                ],
+            });
+            compute_pass.set_bind_group(0, Some(&bg), &[]);
+            compute_pass.dispatch_workgroups(
+                image_size.width().div_ceil(8),
+                image_size.height().div_ceil(8),
+                1,
+            );
+        }
+
         gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }

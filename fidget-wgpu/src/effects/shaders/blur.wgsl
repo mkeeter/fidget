@@ -4,6 +4,9 @@ struct BlurConfig {
 
     /// Blur radius, also in pixels
     radius: i32,
+
+    // Padding to 16 bytes
+    _pad: u32,
 }
 
 @group(0) @binding(0) var<uniform> config: BlurConfig;
@@ -22,7 +25,7 @@ fn blur_main(
     }
     let i = global_id.x + global_id.y * config.image_size.x;
 
-    // This is a Kuwahara-style filter: we find a value + store across four
+    // This is a Kuwahara-style filter: we find a value + score across four
     // quadrants, then pick the best one.
     let a = blur_at(
         i32(global_id.x) - config.radius,
@@ -41,8 +44,7 @@ fn blur_main(
         i32(global_id.y),
     );
 
-    var best = BlurOutput(0.0, 0.0, 0);
-    best = merge(best, a);
+    var best = a;
     best = merge(best, b);
     best = merge(best, c);
     best = merge(best, d);
@@ -55,7 +57,7 @@ fn blur_main(
 }
 
 fn merge(best: BlurOutput, other: BlurOutput) -> BlurOutput {
-    if best.valid == 0 || (other.valid != 0 && other.score > best.score) {
+    if best.valid == 0 || (other.valid != 0 && other.score < best.score) {
         return other;
     } else {
         return best;
@@ -69,6 +71,7 @@ struct BlurOutput {
 }
 
 fn blur_at(x: i32, y: i32) -> BlurOutput {
+    // Find the average value in a square with corner [x, y]
     var sum = 0.0;
     var count = 0.0;
     for (var i = 0; i <= config.radius; i += 1) {
@@ -84,7 +87,6 @@ fn blur_at(x: i32, y: i32) -> BlurOutput {
                     sum += s;
                     count += 1.0;
                 }
-
             }
         }
     }
@@ -95,6 +97,7 @@ fn blur_at(x: i32, y: i32) -> BlurOutput {
     let mean = sum / count;
     var stdev = 0.0;
 
+    // Find the standard deviation of that square patch
     for (var i = 0; i <= config.radius; i += 1) {
         for (var j = 0; j <= config.radius; j += 1) {
             let tx = x + i;

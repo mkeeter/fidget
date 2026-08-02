@@ -396,10 +396,18 @@ fn run3d_wgpu(
 
     let start = std::time::Instant::now();
     let out_bytes = match mode {
-        RenderMode3D::Heightmap
-        | RenderMode3D::Normals { .. }
-        | RenderMode3D::BlurredOcclusion { .. } => {
+        RenderMode3D::Heightmap | RenderMode3D::Normals { .. } => {
             bail!("only shaded rendering is supported on the GPU")
+        }
+        RenderMode3D::BlurredOcclusion { denoise } => {
+            effects.submit_merge(
+                &[buffers.image_storage_buffer()],
+                denoise,
+                &mut merge_buf,
+            )?;
+            effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+            let ssao = gpu.read_vec::<f32>(ssao_buf.blurred_occlusion().data());
+            occlusion_to_rgba(&ssao)
         }
         RenderMode3D::RawOcclusion { denoise } => {
             effects.submit_merge(
@@ -408,7 +416,7 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
-            let ssao = gpu.read_vec::<f32>(ssao_buf.occlusion().data());
+            let ssao = gpu.read_vec::<f32>(ssao_buf.raw_occlusion().data());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
