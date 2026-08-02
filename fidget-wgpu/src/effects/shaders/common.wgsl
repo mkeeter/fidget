@@ -37,9 +37,9 @@ fn pack(p: TaggedGeometryPixel) -> PackedVoxel {
 fn unpack(p: PackedVoxel) -> TaggedGeometryPixel {
     let depth = p.depth;
     let index = p.norm_index >> 16;
-    let signed = bitcast<i32>(p.norm_index);
-    let dx_i = extractBits(signed, 0, 8);
-    let dy_i = extractBits(signed, 8, 8);
+    let norm_index_i32 = bitcast<i32>(p.norm_index);
+    let dx_i = extractBits(norm_index_i32, 0, 8);
+    let dy_i = extractBits(norm_index_i32, 8, 8);
 
     // Start with an invalid normal, then populate it if this isn't the tagged
     // case of [-128, -128].

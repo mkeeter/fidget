@@ -107,23 +107,10 @@ mod wgpu {
             return;
         }
 
-        // Build a WGPU instance without any special features
-        // (e.g. no timestamp queries)
-        use fidget_wgpu::wgpu;
-        let instance = wgpu::Instance::default();
-        let (device, queue) = pollster::block_on(async {
-            let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions::default())
-                .await
-                .unwrap();
-            adapter
-                .request_device(&wgpu::DeviceDescriptor::default())
-                .await
-                .unwrap()
-        });
+        let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
-        let ctx = fidget_wgpu::voxel::Context::new(device, queue);
+        let ctx = fidget_wgpu::voxel::Context::new(&gpu);
 
         let size = 32;
         let image_size = RenderSize::from(size);
@@ -164,27 +151,14 @@ mod wgpu {
             return;
         }
 
-        // Build a WGPU instance without any special features
-        // (e.g. no timestamp queries)
-        use fidget_wgpu::wgpu;
-        let instance = wgpu::Instance::default();
-        let (device, queue) = pollster::block_on(async {
-            let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions::default())
-                .await
-                .unwrap();
-            adapter
-                .request_device(&wgpu::DeviceDescriptor::default())
-                .await
-                .unwrap()
-        });
+        let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
         let v = Var::new();
         let c = Tree::from(v);
         let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
         let shape = fidget::vm::VmShape::from(sphere);
-        let ctx = fidget_wgpu::voxel::Context::new(device, queue);
+        let ctx = fidget_wgpu::voxel::Context::new(&gpu);
         let render_shape = ctx.shape(&shape).unwrap();
 
         let size = 32;

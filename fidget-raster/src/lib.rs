@@ -316,6 +316,11 @@ impl<P, S: Clone> Image<P, S> {
         }
     }
 
+    /// Returns the pixel data as a slice
+    pub fn as_slice(&self) -> &[P] {
+        &self.data
+    }
+
     /// Decomposes the image into its components
     pub fn take(self) -> (Vec<P>, S) {
         (self.data, self.size)

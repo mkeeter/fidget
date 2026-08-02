@@ -343,6 +343,20 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     image
 }
 
+fn occlusion_to_rgba(data: &[f32]) -> Vec<u8> {
+    data.iter()
+        .flat_map(|p| {
+            // CPU uses NaN, GPU uses -1.0
+            if p.is_nan() || *p < 0.0 {
+                [0; 4]
+            } else {
+                let v = (p * 255.0).min(255.0) as u8;
+                [v, v, v, 255]
+            }
+        })
+        .collect()
+}
+
 fn run3d_wgpu(
     shape: fidget::vm::VmShape,
     world_to_model: nalgebra::Matrix4<f32>,
@@ -350,11 +364,10 @@ fn run3d_wgpu(
     depth: Option<u32>,
     mode: RenderMode3D,
 ) -> Result<Vec<u8>> {
-    // Build a WGPU context
-    let (device, queue) =
-        pollster::block_on(async move { fidget::wgpu::init().await })?;
+    // Build a fidget gpu context
+    let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?;
 
-    let ctx = fidget::wgpu::voxel::Context::new(device.clone(), queue.clone());
+    let ctx = fidget::wgpu::voxel::Context::new(&gpu);
     let image_size = settings.voxel_size(depth);
     let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
     let mut image = Default::default();
@@ -377,33 +390,57 @@ fn run3d_wgpu(
         compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
 
-    let effects = fidget::wgpu::effects::Context::new(device, queue);
+    let effects = fidget::wgpu::effects::Context::new(&gpu);
     let mut merge_buf = effects.merge_buffers(image_size)?;
+    let mut ssao_buf = effects.ssao_buffers(image_size)?;
     let mut shade_buf = effects.shade_buffers(image_size.into())?;
-    let mut out_buf = effects.shaded_read_buffer(&shade_buf);
 
     let start = std::time::Instant::now();
-    match mode {
-        RenderMode3D::Heightmap
-        | RenderMode3D::Normals { .. }
-        | RenderMode3D::RawOcclusion { .. }
-        | RenderMode3D::BlurredOcclusion { .. } => {
+    let out_bytes = match mode {
+        RenderMode3D::Heightmap | RenderMode3D::Normals { .. } => {
             bail!("only shaded rendering is supported on the GPU")
         }
-        RenderMode3D::Shaded { denoise, ssao } => {
-            if ssao {
-                bail!("SSAO is not supported using the WGPU backend");
-            }
+        RenderMode3D::BlurredOcclusion { denoise } => {
             effects.submit_merge(
                 &[buffers.image_storage_buffer()],
                 denoise,
                 &mut merge_buf,
             )?;
+            effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+            let ssao = gpu.read_vec::<f32>(ssao_buf.blurred_occlusion().data());
+            occlusion_to_rgba(&ssao)
+        }
+        RenderMode3D::RawOcclusion { denoise } => {
+            effects.submit_merge(
+                &[buffers.image_storage_buffer()],
+                denoise,
+                &mut merge_buf,
+            )?;
+            effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+            let ssao = gpu.read_vec::<f32>(ssao_buf.raw_occlusion().data());
+            occlusion_to_rgba(&ssao)
+        }
+        RenderMode3D::Shaded { denoise, ssao } => {
+            effects.submit_merge(
+                &[buffers.image_storage_buffer()],
+                denoise,
+                &mut merge_buf,
+            )?;
+            if ssao {
+                effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+            }
+
+            let mut out_buf = gpu.read_buffer_for(shade_buf.output());
+            effects.submit_shade(
+                &merge_buf,
+                if ssao { Some(&ssao_buf) } else { None },
+                &mut shade_buf,
+                Some(&mut out_buf),
+            )?;
+            let out = gpu.map(&mut out_buf);
+            out.image().as_bytes().to_vec()
         }
     };
-    effects.submit_shade(&merge_buf, &mut shade_buf, Some(&mut out_buf))?;
-    let out = effects.map_shaded_image(&mut out_buf);
-    let out_bytes = out.image().as_bytes().to_vec();
     info!("Post-processed image in {:?}", start.elapsed());
 
     Ok(out_bytes)
@@ -461,16 +498,7 @@ fn postprocess3d(
                 image
             };
             let ssao = fidget::raster::effects::compute_ssao(&image, threads);
-            ssao.into_iter()
-                .flat_map(|p| {
-                    if p.is_nan() {
-                        [255; 4]
-                    } else {
-                        let v = (p * 255.0).min(255.0) as u8;
-                        [v, v, v, 255]
-                    }
-                })
-                .collect()
+            occlusion_to_rgba(ssao.as_slice())
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             let image = if denoise {
@@ -480,17 +508,7 @@ fn postprocess3d(
             };
             let ssao = fidget::raster::effects::compute_ssao(&image, threads);
             let blurred = fidget::raster::effects::blur_ssao(&ssao, threads);
-            blurred
-                .into_iter()
-                .flat_map(|p| {
-                    if p.is_nan() {
-                        [255; 4]
-                    } else {
-                        let v = (p * 255.0).min(255.0) as u8;
-                        [v, v, v, 255]
-                    }
-                })
-                .collect()
+            occlusion_to_rgba(blurred.as_slice())
         }
         RenderMode3D::Heightmap => {
             let z_max =

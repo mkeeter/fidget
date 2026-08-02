@@ -69,6 +69,7 @@
 - Add `From<VoxelSize> for ImageSize` (which drops the depth value)
 - Add `Image::as_bytes()`, which returns the raw byte array (e.g. for saving to
   a file).
+- Add `Image::as_slice()`, which returns the raw pixel array as a slice
 - Improve `fidget_raster::effects::compute_ssao`
     - Fix pixel-center position (which caused a subtle bias)
     - Make noise sampling more random, eliminating cyclic patterns that led to
