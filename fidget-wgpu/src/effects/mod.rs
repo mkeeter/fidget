@@ -157,7 +157,9 @@ struct MergeConfig {
 struct ShadeConfig {
     /// Image size, in pixels
     image_size: [u32; 3],
-    _pad: u32,
+
+    /// Flag to determine whether the SSAO buffer is valid (0 / 1)
+    has_ssao: u32,
 }
 
 tag!(MergeVoxelBufferTag, PackedVoxel, STORAGE | COPY_SRC);
@@ -268,7 +270,8 @@ impl Context {
                 entries: &[
                     buffer_uniform(0),
                     buffer_ro(1), // image
-                    buffer_rw(2), // out
+                    buffer_ro(2), // ssao occlusion
+                    buffer_rw(3), // out
                 ],
             },
         );
@@ -499,6 +502,7 @@ impl Context {
     pub fn submit_shade(
         &self,
         image: &MergeBuffers,
+        ssao: Option<&SsaoBuffers>,
         buf: &mut ShadeBuffers,
         out: Option<&mut ImageReadBuffer<ShadedImageTag>>,
     ) -> Result<(), ShadeError> {
@@ -520,7 +524,7 @@ impl Context {
             compute_pass.set_pipeline(&self.shade_pipeline);
             let cfg = ShadeConfig {
                 image_size: [size.width(), size.height(), image.depth],
-                _pad: 0u32,
+                has_ssao: ssao.is_some() as u32,
             };
             {
                 let mut writer = self
@@ -551,6 +555,14 @@ impl Context {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
+                                resource: ssao
+                                    .map(|s| {
+                                        s.blurred_occlusion().bind_active()
+                                    })
+                                    .unwrap_or_else(|| image.out.bind_active()),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
                                 resource: buf.out.bind_active(),
                             },
                         ],

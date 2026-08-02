@@ -44,7 +44,7 @@ fn ssao_main(
     let scale_z = scale_min / f32(config.image_size.z);
 
     // See writeup in `fidget_raster` for details here
-    let p = (((pos_f32 + 0.5) / size_f32) - 0.5) * 2.0;
+    let p = ((pos_f32 / size_f32) - 0.5) * 2.0;
     let rvec = vec3f(noise[pcg2d(global_id.xy).x % arrayLength(&noise)], 0.0);
     let tangent = normalize(rvec - n * dot(rvec, n));
     let bitangent = cross(n, tangent);

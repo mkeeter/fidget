@@ -1,7 +1,9 @@
 struct ShadeConfig {
     /// Image size, in voxels
     image_size: vec3u,
-    _pad: u32,
+
+    /// Whether to use the `occlusion` data
+    has_ssao: u32,
 }
 
 struct Light {
@@ -12,7 +14,8 @@ struct Light {
 @group(0) @binding(0) var<uniform> config: ShadeConfig;
 
 @group(0) @binding(1) var<storage, read> image: array<PackedVoxel>;
-@group(0) @binding(2) var<storage, read_write> out: array<u32>;
+@group(0) @binding(2) var<storage, read> occlusion: array<f32>;
+@group(0) @binding(3) var<storage, read_write> out: array<u32>;
 
 /// Applies shading to get an RGBA image
 @compute @workgroup_size(8, 8)
@@ -51,6 +54,9 @@ fn shade_main(
         let light = LIGHTS[i];
         let light_dir = normalize(light.position - pos);
         accum = accum + max(dot(light_dir, gp.normal), 0.0) * light.intensity;
+    }
+    if config.has_ssao != 0 {
+        accum *= occlusion[i] * 0.6 + 0.4;
     }
     let intensity = u32(clamp(accum, 0.0, 1.0) * 255);
     out[i] = intensity | (intensity << 8) | (intensity << 16) | (0xFF << 24);

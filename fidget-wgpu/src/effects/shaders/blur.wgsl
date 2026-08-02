@@ -24,6 +24,10 @@ fn blur_main(
         return;
     }
     let i = global_id.x + global_id.y * config.image_size.x;
+    if image[i] != image[i] {
+        out[i] = nan_f32();
+        return;
+    }
 
     // This is a Kuwahara-style filter: we find a value + score across four
     // quadrants, then pick the best one.
@@ -44,10 +48,10 @@ fn blur_main(
         i32(global_id.y),
     );
 
-    var best = a;
-    best = merge(best, b);
+    var best = d;
     best = merge(best, c);
-    best = merge(best, d);
+    best = merge(best, b);
+    best = merge(best, a);
 
     if best.valid != 0 {
         out[i] = best.mean;
@@ -86,13 +90,11 @@ fn blur_at(x: i32, y: i32) -> BlurOutput {
                 if s == s {
                     sum += s;
                     count += 1.0;
+                } else {
+                    return BlurOutput(0.0, 0.0, 0);
                 }
             }
         }
-    }
-
-    if count == 0.0 {
-        return BlurOutput(0.0, 0.0, 0);
     }
     let mean = sum / count;
     var stdev = 0.0;

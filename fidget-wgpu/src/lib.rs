@@ -131,7 +131,7 @@ mod test {
         let mut buf = voxel_ctx.buffers(image_size).unwrap();
         let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
         let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
-        let mut shade_out = gpu.read_buffer_for(&shade_buf.output());
+        let mut shade_out = gpu.read_buffer_for(shade_buf.output());
 
         let (x, y, z) = Tree::axes();
         let x_ = x.clone() - 0.2;
@@ -156,33 +156,19 @@ mod test {
         effects_ctx
             .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
             .unwrap();
+        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
+        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
         effects_ctx
-            .submit_shade(&merge_buf, &mut shade_buf, Some(&mut shade_out))
+            .submit_shade(
+                &merge_buf,
+                Some(&ssao_buf),
+                &mut shade_buf,
+                Some(&mut shade_out),
+            )
             .unwrap();
         let img = gpu.map(&mut shade_out);
         let (_out, img_size) = img.image().take();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
-
-        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
-        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
-        let out: Vec<f32> = gpu.read_vec(ssao_buf.out.data());
-        let mut img_out = vec![];
-        for o in out {
-            img_out.extend(if o.is_nan() {
-                [0; 4]
-            } else {
-                let d = (o * 255.0) as u8;
-                [d, d, d, 0xFF]
-            });
-        }
-        image::save_buffer(
-            "ssao.png",
-            &img_out,
-            size,
-            size,
-            image::ColorType::Rgba8,
-        )
-        .unwrap();
     }
 }

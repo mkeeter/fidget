@@ -347,7 +347,7 @@ fn occlusion_to_rgba(data: &[f32]) -> Vec<u8> {
     data.iter()
         .flat_map(|p| {
             if p.is_nan() {
-                [255; 4]
+                [0, 0, 0, 255]
             } else {
                 let v = (p * 255.0).min(255.0) as u8;
                 [v, v, v, 255]
@@ -420,18 +420,19 @@ fn run3d_wgpu(
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
-            if ssao {
-                bail!("SSAO is not supported using the WGPU backend");
-            }
             effects.submit_merge(
                 &[buffers.image_storage_buffer()],
                 denoise,
                 &mut merge_buf,
             )?;
+            if ssao {
+                effects.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+            }
 
             let mut out_buf = gpu.read_buffer_for(shade_buf.output());
             effects.submit_shade(
                 &merge_buf,
+                if ssao { Some(&ssao_buf) } else { None },
                 &mut shade_buf,
                 Some(&mut out_buf),
             )?;
