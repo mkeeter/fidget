@@ -98,26 +98,28 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
             Some(ThreadPool::Custom(i)) => i.current_num_threads().to_string(),
             Some(ThreadPool::Global) => "N".to_string(),
         };
-        let cfg = &fidget::raster::pixel::RenderConfig {
+        let render_cfg =
+            &fidget::raster::pixel::RenderConfig::from_size(1024.into());
+        let eval_cfg = &fidget::raster::pixel::EvalConfig {
             threads,
-            ..fidget::raster::pixel::RenderConfig::from_size(1024.into())
+            ..Default::default()
         };
         group.bench_function(BenchmarkId::new("vm", &name), move |b| {
             b.iter(|| {
                 let tape = shape_vm.clone();
-                black_box(cfg.run(tape))
+                black_box(fidget::raster::pixel::render(
+                    tape, render_cfg, eval_cfg,
+                ))
             })
         });
         #[cfg(feature = "jit")]
         {
-            let cfg = &fidget::raster::pixel::RenderConfig {
-                threads,
-                ..fidget::raster::pixel::RenderConfig::from_size(1024.into())
-            };
             group.bench_function(BenchmarkId::new("jit", &name), move |b| {
                 b.iter(|| {
                     let tape = shape_jit.clone();
-                    black_box(cfg.run(tape))
+                    black_box(fidget::raster::pixel::render(
+                        tape, render_cfg, eval_cfg,
+                    ))
                 })
             });
         }

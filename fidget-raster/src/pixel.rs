@@ -23,7 +23,8 @@ pub type Image = GenericImage<RawDistancePixel>;
 pub type RenderSize = fidget_core::render::ImageSize;
 
 /// Settings for 2D rendering
-pub struct RenderConfig<'a> {
+#[derive(Copy, Clone, Debug)]
+pub struct RenderConfig {
     /// Render size
     pub image_size: RenderSize,
 
@@ -32,7 +33,10 @@ pub struct RenderConfig<'a> {
 
     /// Render the distance values of individual pixels
     pub pixel_perfect: bool,
+}
 
+/// Evaluation settings for 2D rendering
+pub struct EvalConfig<'a> {
     /// Tile sizes to use during evaluation.
     ///
     /// If this is `None`, then evaluation will use
@@ -49,7 +53,7 @@ pub struct RenderConfig<'a> {
     pub cancel: CancelToken,
 }
 
-impl crate::RenderConfig for RenderConfig<'_> {
+impl crate::EvalConfig for EvalConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
     }
@@ -58,7 +62,17 @@ impl crate::RenderConfig for RenderConfig<'_> {
     }
 }
 
-impl crate::RenderSize for RenderConfig<'_> {
+impl Default for EvalConfig<'_> {
+    fn default() -> Self {
+        Self {
+            tile_sizes: None,
+            threads: Some(&ThreadPool::Global),
+            cancel: CancelToken::new(),
+        }
+    }
+}
+
+impl crate::RenderSize for RenderConfig {
     fn width(&self) -> u32 {
         self.image_size.width()
     }
@@ -67,12 +81,10 @@ impl crate::RenderSize for RenderConfig<'_> {
     }
 }
 
-impl RenderConfig<'_> {
+impl RenderConfig {
     /// Constructs a [`RenderConfig`] with reasonable defaults
     ///
-    /// This config uses the global thread pool for rendering, has an identity
-    /// transform matrix, uses render hints to choose tile sizes, and is not
-    /// pixel-perfect.
+    /// This config has an identity transform matrix and is not pixel-perfect.
     ///
     /// To build a somewhat-customized `RenderConfig`, it's typical to use this
     /// as the base object, then replace individual fields:
@@ -87,23 +99,18 @@ impl RenderConfig<'_> {
     pub fn from_size(image_size: RenderSize) -> Self {
         Self {
             image_size,
-            tile_sizes: None,
             world_to_model: Matrix3::identity(),
             pixel_perfect: false,
-            threads: Some(&ThreadPool::Global),
-            cancel: CancelToken::new(),
         }
     }
 
-    /// Render a shape in 2D using this configuration
-    ///
-    /// Returns [`Some(Image)`](Image) of pixel data on success, or `None`
-    /// if the render was cancelled.
+    /// Render a shape in 2D using this configuration and default [`EvalConfig`]
     pub fn run<F: Function + RenderHints>(
         &self,
         shape: BoundShape<F, f32>,
-    ) -> Option<Image> {
-        render(shape, self)
+    ) -> Image {
+        render(shape, self, &Default::default())
+            .expect("no cancellation is possible")
     }
 
     /// Returns the combined screen-to-model transform matrix
@@ -255,7 +262,7 @@ struct Worker<'a, F: Function> {
 }
 
 impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
-    type Config = RenderConfig<'a>;
+    type Config = RenderConfig;
     type Output = Image;
     fn new(
         cfg: &'a Self::Config,
@@ -429,31 +436,33 @@ impl<F: Function> Worker<'_, F> {
 /// configuration supplies resolution, transforms, etc.
 ///
 /// Returns [`Some(Image)`](Image) of pixel data if rendering succeeds, or
-/// `None` if rendering was cancelled (using the [`RenderConfig::cancel`].
+/// `None` if rendering was cancelled (using the [`EvalConfig::cancel`].
 pub fn render<F: Function + RenderHints>(
     b: BoundShape<F, f32>,
-    config: &RenderConfig,
+    render_config: &RenderConfig,
+    eval_config: &EvalConfig,
 ) -> Option<Image> {
     let shape = b.shape();
     let vars = b.vars();
-    let max_size = config.width().max(config.height()) as usize;
+    let max_size = render_config.width().max(render_config.height()) as usize;
     let default_tile_sizes;
-    let tile_sizes = if let Some(ts) = &config.tile_sizes {
+    let tile_sizes = if let Some(ts) = &eval_config.tile_sizes {
         TileSizesRef::new(ts, max_size)
     } else {
         default_tile_sizes = F::tile_sizes_2d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles = super::render_tiles::<F, Worker<F>>(
+    let tiles = super::render_tiles::<F, Worker<F>, _>(
         shape.clone(),
         vars,
-        config,
+        render_config,
+        eval_config,
         tile_sizes,
     )?;
 
-    let width = config.image_size.width() as usize;
-    let height = config.image_size.height() as usize;
-    let mut image = Image::new(config.image_size);
+    let width = render_config.image_size.width() as usize;
+    let height = render_config.image_size.height() as usize;
+    let mut image = Image::new(render_config.image_size);
     for (tile, data) in tiles.iter() {
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -491,10 +500,11 @@ mod test {
             .try_into()
             .expect("no vars");
 
-        let cfg = RenderConfig::from_size(64.into());
-        let cancel = cfg.cancel.clone();
+        let render_cfg = RenderConfig::from_size(128.into());
+        let eval_cfg = EvalConfig::default();
+        let cancel = eval_cfg.cancel.clone();
         cancel.cancel();
-        assert!(cfg.run(shape).is_none());
+        assert!(render(shape, &render_cfg, &eval_cfg).is_none());
     }
 
     #[test]
@@ -510,8 +520,7 @@ mod test {
         let mut vars = ShapeVars::new();
         let i = var.index().expect("expected Var::V");
         vars.insert(i, 1.0);
-        cfg.run::<_>(shape.bind(&vars).expect("all vars present"))
-            .expect("not cancelled");
+        cfg.run(shape.bind(&vars).expect("all vars present"));
     }
 
     #[test]

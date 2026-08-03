@@ -57,20 +57,25 @@ pub fn render_2d(
         view: View2,
         cancel: CancelToken,
     ) -> Option<Vec<u8>> {
-        let cfg = pixel::RenderConfig {
+        let render_cfg = pixel::RenderConfig {
             image_size: ImageSize::from(image_size as u32),
-            threads: Some(&ThreadPool::Global),
-            tile_sizes: Some(TileSizes::new(&[64, 16, 8]).unwrap()),
             pixel_perfect: false,
             world_to_model: view.world_to_model(),
+        };
+        let eval_cfg = pixel::EvalConfig {
+            threads: Some(&ThreadPool::Global),
+            tile_sizes: Some(TileSizes::new(&[64, 16, 8]).unwrap()),
             cancel,
         };
 
         // Unwrap errors, propagate cancellation
         let bound_shape = shape.try_into().expect("no vars");
-        let tmp = cfg.run(bound_shape)?;
-        let out =
-            fidget::raster::effects::to_rgba_bitmap(tmp, false, cfg.threads);
+        let tmp = pixel::render(bound_shape, &render_cfg, &eval_cfg)?;
+        let out = fidget::raster::effects::to_rgba_bitmap(
+            tmp,
+            false,
+            eval_cfg.threads,
+        );
         Some(out.into_iter().flatten().collect())
     }
     inner(shape.0, image_size, camera.0, cancel.0)
@@ -125,16 +130,18 @@ fn render_3d_inner(
     view: View3,
     cancel: CancelToken,
 ) -> Option<voxel::Image> {
-    let cfg = voxel::RenderConfig {
+    let render_cfg = voxel::RenderConfig {
         image_size: VoxelSize::from(image_size as u32),
+        world_to_model: view.world_to_model(),
+    };
+    let eval_cfg = voxel::EvalConfig {
         threads: Some(&ThreadPool::Global),
         tile_sizes: Some(TileSizes::new(&[128, 64, 32, 16, 8]).unwrap()),
-        world_to_model: view.world_to_model(),
         cancel,
     };
     // Unwrap errors, propagate cancellation
     let bound_shape = shape.try_into().expect("no vars");
-    cfg.run(bound_shape)
+    voxel::render(bound_shape, &render_cfg, &eval_cfg)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
