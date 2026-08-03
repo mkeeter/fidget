@@ -49,18 +49,6 @@ pub struct RenderConfig<'a> {
     pub cancel: CancelToken,
 }
 
-impl Default for RenderConfig<'_> {
-    fn default() -> Self {
-        Self {
-            image_size: RenderSize::from(512),
-            tile_sizes: None,
-            world_to_model: Matrix4::identity(),
-            threads: Some(&ThreadPool::Global),
-            cancel: CancelToken::new(),
-        }
-    }
-}
-
 impl crate::RenderConfig for RenderConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
@@ -80,6 +68,30 @@ impl crate::RenderSize for RenderConfig<'_> {
 }
 
 impl RenderConfig<'_> {
+    /// Constructs a [`RenderConfig`] with reasonable defaults
+    ///
+    /// This config uses the global thread pool for rendering, has an identity
+    /// transform matrix, and uses the render hints to choose tile sizes.
+    ///
+    /// To build a somewhat-customized `RenderConfig`, it's typical to use this
+    /// as the base object, then replace individual fields:
+    ///
+    /// ```
+    /// # use fidget_raster::voxel::RenderConfig;
+    /// let cfg = RenderConfig {
+    ///     threads: None, // override field
+    ///     ..RenderConfig::from_size(1024.into()) // base
+    /// };
+    /// ```
+    pub fn from_size(image_size: RenderSize) -> Self {
+        Self {
+            image_size,
+            tile_sizes: None,
+            world_to_model: Matrix4::identity(),
+            threads: Some(&ThreadPool::Global),
+            cancel: CancelToken::new(),
+        }
+    }
     /// Render a shape in 3D using this configuration
     ///
     /// In the resulting image, saturated pixels (i.e. pixels in the image which
@@ -543,10 +555,7 @@ mod test {
         let x = ctx.x();
         let shape = VmShape::new(&ctx, x).unwrap().try_into().unwrap();
 
-        let cfg = RenderConfig {
-            image_size: RenderSize::from(128), // very small!
-            ..Default::default()
-        };
+        let cfg = RenderConfig::from_size(128.into()); // very small
         let image = cfg.run(shape).expect("rendering should not be cancelled");
         assert_eq!(image.len(), 128 * 128);
     }
@@ -557,10 +566,7 @@ mod test {
         let x = ctx.x();
         let shape = VmShape::new(&ctx, x).unwrap().try_into().unwrap();
 
-        let cfg = RenderConfig {
-            image_size: RenderSize::new(64, 64, 64),
-            ..Default::default()
-        };
+        let cfg = RenderConfig::from_size(64.into());
         let cancel = cfg.cancel.clone();
         cancel.cancel();
         assert!(cfg.run::<_>(shape).is_none());
@@ -575,10 +581,7 @@ mod test {
         let s = ctx.sub(x, v).unwrap();
         let shape = VmShape::new(&ctx, s).unwrap();
 
-        let cfg = RenderConfig {
-            image_size: RenderSize::new(64, 64, 64),
-            ..Default::default()
-        };
+        let cfg = RenderConfig::from_size(64.into());
 
         let mut vars = ShapeVars::new();
         let i = var.index().expect("expected Var::V");

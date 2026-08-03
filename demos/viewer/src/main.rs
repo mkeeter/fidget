@@ -176,10 +176,9 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     color: [u8; 3],
 ) -> Vec<[u8; 4]> {
     let config = ImageRenderConfig {
-        image_size,
         world_to_model: view.world_to_model(),
         pixel_perfect: matches!(mode, Mode2D::Sdf),
-        ..Default::default()
+        ..ImageRenderConfig::from_size(image_size)
     };
 
     let bound_shape = shape.try_into().expect("no vars allowed");
@@ -210,9 +209,8 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     image_size: fidget::render::VoxelSize,
 ) -> Vec<draw3d::FloatPixel> {
     let config = VoxelRenderConfig {
-        image_size,
         world_to_model: view.world_to_model(),
-        ..Default::default()
+        ..VoxelRenderConfig::from_size(image_size)
     };
 
     // Get the geometry buffer from the voxel rendering process

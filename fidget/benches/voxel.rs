@@ -30,8 +30,7 @@ pub fn colonnade_voxel_exemplary(c: &mut Criterion) {
 
     let cfg = &fidget::raster::voxel::RenderConfig {
         world_to_model: t,
-        image_size: fidget::render::VoxelSize::from(1024),
-        ..Default::default()
+        ..fidget::raster::voxel::RenderConfig::from_size(1024.into())
     };
     group.bench_function("vm", move |b| {
         b.iter(|| {

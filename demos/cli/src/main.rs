@@ -318,10 +318,11 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     threads: Option<&fidget::render::ThreadPool>,
 ) -> fidget::raster::voxel::Image {
     let cfg = fidget::raster::voxel::RenderConfig {
-        image_size: settings.voxel_size(depth),
         threads,
         world_to_model,
-        ..Default::default()
+        ..fidget::raster::voxel::RenderConfig::from_size(
+            settings.voxel_size(depth),
+        )
     };
 
     let mut image = Default::default();
@@ -588,11 +589,10 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             None => Some(fidget::render::ThreadPool::Global),
         };
         let cfg = fidget::raster::pixel::RenderConfig {
-            image_size: size,
             threads: threads.as_ref(),
             pixel_perfect: matches!(mode, RenderMode2D::Sdf),
             world_to_model,
-            ..Default::default()
+            ..fidget::raster::pixel::RenderConfig::from_size(size)
         };
         let mut image = fidget::raster::Image::default();
         for _ in 0..settings.n {
