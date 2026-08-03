@@ -1,4 +1,12 @@
-# 0.4.4 (unpublished)
+# 0.5.0
+This is a large release with a bunch of small features, reorganization, and one
+big new crate (`fidget-wgpu`, re-exported as `fidget::wgpu`).  The goal of
+`fidget::wgpu` is to perform all pixel-processing operations on the GPU,
+including both rasterization (function evaluation) and shading.  Right now, the
+crate has building blocks for voxel rendering; pixel rendering is coming in a
+subsequent release.  Expect the APIs to change shape as I actually try to use
+them in an application.
+
 - Big reorganization of `fidget::raster`
     - `render2d` and `render3d` modules are renamed to `pixel` and `voxel`,
       respectively
@@ -41,7 +49,8 @@
 - Add `fidget-wgpu` crate
     - This is even more experimental than the rest of Fidget!
     - There are two user-facing modules: `voxel` does voxel rasterization (depth
-      + normal), and `effects` does raster effects (e.g. shading)
+      and normal), and `effects` does raster effects (e.g. shading)
+    - More to come (e.g. RGB evaluation and pixel / 2D rasterization)
 - Add `VarMap::iter` to iterate over `(var, index)` tuples
 - Simplified `Shape`, which was doing too much
     - It no longer has its own transform matrix; bring your own to the
