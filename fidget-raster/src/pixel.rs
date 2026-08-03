@@ -33,6 +33,9 @@ pub struct RenderConfig {
 
     /// Render the distance values of individual pixels
     pub pixel_perfect: bool,
+
+    /// Z position at which to render the slice
+    pub z: f32,
 }
 
 /// Evaluation settings for 2D rendering
@@ -84,7 +87,8 @@ impl crate::RenderSize for RenderConfig {
 impl RenderConfig {
     /// Constructs a [`RenderConfig`] with reasonable defaults
     ///
-    /// This config has an identity transform matrix and is not pixel-perfect.
+    /// The default config has an identity transform matrix, is not
+    /// pixel-perfect, and renders at Z = 0.
     ///
     /// To build a somewhat-customized `RenderConfig`, it's typical to use this
     /// as the base object, then replace individual fields:
@@ -101,6 +105,7 @@ impl RenderConfig {
             image_size,
             world_to_model: Matrix3::identity(),
             pixel_perfect: false,
+            z: 0.0,
         }
     }
 
@@ -238,6 +243,7 @@ impl From<f32> for RawDistancePixel {
 struct Worker<'a, F: Function> {
     tile_sizes: TileSizesRef<'a>,
     vars: &'a ShapeVars<f32>,
+    z: f32,
 
     pixel_perfect: bool,
     scratch: Scratch,
@@ -272,7 +278,8 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
         // Convert to a 4x4 matrix and apply to the shape
         let transform = cfg.mat();
         let transform = transform.insert_row(2, 0.0);
-        let transform = transform.insert_column(2, 0.0);
+        let mut transform = transform.insert_column(2, 0.0);
+        transform[(2, 2)] = 1.0; // preserve Z
 
         Worker::<F> {
             tile_sizes,
@@ -281,6 +288,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
 
             scratch: Scratch::new(tile_sizes.last().pow(2)),
             pixel_perfect: cfg.pixel_perfect,
+            z: cfg.z,
             image: Default::default(),
             eval_float_slice: Default::default(),
             eval_interval: Default::default(),
@@ -314,7 +322,7 @@ impl<F: Function> Worker<'_, F> {
         let base = Point2::from(tile.corner).cast::<f32>();
         let x = Interval::new(base.x, base.x + tile_size as f32);
         let y = Interval::new(base.y, base.y + tile_size as f32);
-        let z = Interval::new(0.0, 0.0);
+        let z = Interval::new(self.z, self.z);
 
         // Evaluation applies the world-to-model transform.  We know that vars
         // are valid because we check them at the top of `render`
@@ -397,6 +405,7 @@ impl<F: Function> Worker<'_, F> {
             for i in 0..tile_size {
                 self.scratch.x[index] = (tile.corner[0] + i) as f32;
                 self.scratch.y[index] = (tile.corner[1] + j) as f32;
+                self.scratch.z[index] = self.z;
                 index += 1;
             }
         }
@@ -430,7 +439,7 @@ impl<F: Function> Worker<'_, F> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Renders a shape into a 2D image at Z = 0, with the provided configuration
+/// Renders a shape into a 2D image, with the provided configuration
 ///
 /// The shape provides the evaluator backend (`F`) and bound variables; the
 /// configuration supplies resolution, transforms, etc.
@@ -521,6 +530,40 @@ mod test {
         let i = var.index().expect("expected Var::V");
         vars.insert(i, 1.0);
         cfg.run(shape.bind(&vars).expect("all vars present"));
+    }
+
+    #[test]
+    fn render_config_z() {
+        let mut ctx = Context::new();
+        let z = ctx.z();
+        let shape = VmShape::new(&ctx, z).unwrap();
+
+        let out = RenderConfig {
+            z: -1.0,
+            ..RenderConfig::from_size(64.into())
+        }
+        .run(shape.clone().try_into().expect("no vars"));
+        for p in out.iter() {
+            assert!(p.inside());
+        }
+
+        let out = RenderConfig {
+            z: 0.0,
+            ..RenderConfig::from_size(64.into())
+        }
+        .run(shape.clone().try_into().expect("no vars"));
+        for p in out.iter() {
+            assert!(!p.inside());
+        }
+
+        let out = RenderConfig {
+            z: 1.0,
+            ..RenderConfig::from_size(64.into())
+        }
+        .run(shape.try_into().expect("no vars"));
+        for p in out.iter() {
+            assert!(!p.inside());
+        }
     }
 
     #[test]

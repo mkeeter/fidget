@@ -61,6 +61,7 @@ pub fn render_2d(
             image_size: ImageSize::from(image_size as u32),
             pixel_perfect: false,
             world_to_model: view.world_to_model(),
+            z: 0.0,
         };
         let eval_cfg = pixel::EvalConfig {
             threads: Some(&ThreadPool::Global),
