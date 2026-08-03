@@ -81,6 +81,10 @@
     - Transposed `ssao_kernel` and `ssao_noise` matrices so that they can be
       directly uploaded to the GPU as `array<array<f32, 3>>` and `array<vec2f>`
       buffers respectively
+- Remove `Default` from `fidget_raster::{voxel, pixel}::RenderConfig`, because
+  baking in a size is a questionable API choice.  Added
+  `RenderConfig::from_size` as a replacement, which can similarly be used as a
+  base for constructing a semi-custom instance.
 
 # 0.4.3
 - Fixed bug in x86 interval `OR` function ([#395](https://github.com/mkeeter/fidget/pull/395)),

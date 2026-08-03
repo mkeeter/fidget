@@ -39,9 +39,8 @@ impl Cfg {
     ) {
         let width = if self.wide { 64 } else { 32 };
         let cfg = RenderConfig {
-            image_size: RenderSize::new(width, 32),
             world_to_model: world_to_model * self.view.world_to_model(),
-            ..Default::default()
+            ..RenderConfig::from_size(RenderSize::new(width, 32))
         };
         let bound_shape = shape.bind(&self.vars).expect("all vars present");
         let out = cfg
@@ -375,10 +374,9 @@ fn check_neg_infinity<F: Function + MathFunction + RenderHints>() {
     let shape = Shape::<F>::new(&ctx, root).unwrap().try_into().unwrap();
 
     let cfg = RenderConfig {
-        image_size: RenderSize::new(256, 256),
         pixel_perfect: true,
         threads: None,
-        ..Default::default()
+        ..RenderConfig::from_size(256.into())
     };
     let out = cfg.run(shape).expect("rendering should not be cancelled");
     assert!(out.into_iter().all(|i| i.inside()));
@@ -429,13 +427,12 @@ render_tests!(jit, fidget::jit::JitFunction);
 #[test]
 fn test_camera_render_config() {
     let config = RenderConfig {
-        image_size: RenderSize::from(512),
         world_to_model: View2::from_center_and_scale(
             nalgebra::Vector2::new(0.5, 0.5),
             0.5,
         )
         .world_to_model(),
-        ..Default::default()
+        ..RenderConfig::from_size(512.into())
     };
     let mat = config.mat();
     assert_eq!(
@@ -452,13 +449,12 @@ fn test_camera_render_config() {
     );
 
     let config = RenderConfig {
-        image_size: RenderSize::from(512),
         world_to_model: View2::from_center_and_scale(
             nalgebra::Vector2::new(0.5, 0.5),
             0.25,
         )
         .world_to_model(),
-        ..Default::default()
+        ..RenderConfig::from_size(512.into())
     };
     let mat = config.mat();
     assert_eq!(

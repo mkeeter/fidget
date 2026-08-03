@@ -1,8 +1,5 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use fidget::{
-    render::{ImageSize, ThreadPool},
-    shape::BoundShape,
-};
+use fidget::{render::ThreadPool, shape::BoundShape};
 use std::hint::black_box;
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
@@ -14,10 +11,7 @@ pub fn prospero_exemplary(c: &mut Criterion) {
             .unwrap();
 
     let mut group = c.benchmark_group("prospero-exemplary");
-    let cfg = &fidget::raster::pixel::RenderConfig {
-        image_size: fidget::render::ImageSize::from(1024),
-        ..Default::default()
-    };
+    let cfg = &fidget::raster::pixel::RenderConfig::from_size(1024.into());
     group.bench_function("vm", move |b| {
         b.iter(|| {
             let tape = shape_vm.clone();
@@ -54,10 +48,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
     let mut group =
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
     for size in [256, 512, 768, 1024, 1280, 1546, 1792, 2048] {
-        let cfg = &fidget::raster::pixel::RenderConfig {
-            image_size: fidget::render::ImageSize::from(size),
-            ..Default::default()
-        };
+        let cfg = &fidget::raster::pixel::RenderConfig::from_size(size.into());
         group.bench_function(BenchmarkId::new("vm", size), move |b| {
             b.iter(|| {
                 let tape = shape_vm.clone();
@@ -67,10 +58,8 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
 
         #[cfg(feature = "jit")]
         {
-            let cfg = &fidget::raster::pixel::RenderConfig {
-                image_size: fidget::render::ImageSize::from(size),
-                ..Default::default()
-            };
+            let cfg =
+                &fidget::raster::pixel::RenderConfig::from_size(size.into());
             group.bench_function(BenchmarkId::new("jit", size), move |b| {
                 b.iter(|| {
                     let tape = shape_jit.clone();
@@ -110,9 +99,8 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
             Some(ThreadPool::Global) => "N".to_string(),
         };
         let cfg = &fidget::raster::pixel::RenderConfig {
-            image_size: ImageSize::from(1024),
             threads,
-            ..Default::default()
+            ..fidget::raster::pixel::RenderConfig::from_size(1024.into())
         };
         group.bench_function(BenchmarkId::new("vm", &name), move |b| {
             b.iter(|| {
@@ -123,9 +111,8 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         #[cfg(feature = "jit")]
         {
             let cfg = &fidget::raster::pixel::RenderConfig {
-                image_size: ImageSize::from(1024),
                 threads,
-                ..Default::default()
+                ..fidget::raster::pixel::RenderConfig::from_size(1024.into())
             };
             group.bench_function(BenchmarkId::new("jit", &name), move |b| {
                 b.iter(|| {

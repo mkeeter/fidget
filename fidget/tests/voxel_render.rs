@@ -20,13 +20,12 @@ fn sphere_var<F: Function + MathFunction + RenderHints>() {
     let size = 32;
     for scale in [1.0, 0.5] {
         let cfg = RenderConfig {
-            image_size: RenderSize::from(size),
             world_to_model: View3::from_center_and_scale(
                 Vector3::zeros(),
                 scale,
             )
             .world_to_model(),
-            ..Default::default()
+            ..RenderConfig::from_size(size.into())
         };
         for r in [0.5, 0.75] {
             let mut vars = ShapeVars::new();

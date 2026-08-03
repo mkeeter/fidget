@@ -215,10 +215,7 @@
 //! let x = Tree::x();
 //! let y = Tree::y();
 //! let tree = (x.square() + y.square()).sqrt() - 1.0;
-//! let cfg = RenderConfig {
-//!     image_size: RenderSize::from(32),
-//!     ..Default::default()
-//! };
+//! let cfg = RenderConfig::from_size(RenderSize::from(32));
 //! let shape = VmShape::from(tree);
 //! let bound_shape = shape.try_into().expect("shape has no vars");
 //! let out = cfg

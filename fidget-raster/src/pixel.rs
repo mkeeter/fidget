@@ -49,19 +49,6 @@ pub struct RenderConfig<'a> {
     pub cancel: CancelToken,
 }
 
-impl Default for RenderConfig<'_> {
-    fn default() -> Self {
-        Self {
-            image_size: RenderSize::from(512),
-            tile_sizes: None,
-            world_to_model: Matrix3::identity(),
-            pixel_perfect: false,
-            threads: Some(&ThreadPool::Global),
-            cancel: CancelToken::new(),
-        }
-    }
-}
-
 impl crate::RenderConfig for RenderConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
@@ -81,6 +68,33 @@ impl crate::RenderSize for RenderConfig<'_> {
 }
 
 impl RenderConfig<'_> {
+    /// Constructs a [`RenderConfig`] with reasonable defaults
+    ///
+    /// This config uses the global thread pool for rendering, has an identity
+    /// transform matrix, uses render hints to choose tile sizes, and is not
+    /// pixel-perfect.
+    ///
+    /// To build a somewhat-customized `RenderConfig`, it's typical to use this
+    /// as the base object, then replace individual fields:
+    ///
+    /// ```
+    /// # use fidget_raster::pixel::RenderConfig;
+    /// let cfg = RenderConfig {
+    ///     pixel_perfect: true, // override field
+    ///     ..RenderConfig::from_size(1024.into()) // base
+    /// };
+    /// ```
+    pub fn from_size(image_size: RenderSize) -> Self {
+        Self {
+            image_size,
+            tile_sizes: None,
+            world_to_model: Matrix3::identity(),
+            pixel_perfect: false,
+            threads: Some(&ThreadPool::Global),
+            cancel: CancelToken::new(),
+        }
+    }
+
     /// Render a shape in 2D using this configuration
     ///
     /// Returns [`Some(Image)`](Image) of pixel data on success, or `None`
@@ -477,10 +491,7 @@ mod test {
             .try_into()
             .expect("no vars");
 
-        let cfg = RenderConfig {
-            image_size: RenderSize::new(64, 64),
-            ..Default::default()
-        };
+        let cfg = RenderConfig::from_size(64.into());
         let cancel = cfg.cancel.clone();
         cancel.cancel();
         assert!(cfg.run(shape).is_none());
@@ -495,10 +506,7 @@ mod test {
         let s = ctx.sub(x, v).unwrap();
         let shape = VmShape::new(&ctx, s).unwrap();
 
-        let cfg = RenderConfig {
-            image_size: RenderSize::new(64, 64),
-            ..Default::default()
-        };
+        let cfg = RenderConfig::from_size(64.into());
         let mut vars = ShapeVars::new();
         let i = var.index().expect("expected Var::V");
         vars.insert(i, 1.0);
@@ -507,11 +515,8 @@ mod test {
     }
 
     #[test]
-    fn test_default_render_config() {
-        let config = RenderConfig {
-            image_size: RenderSize::from(512),
-            ..Default::default()
-        };
+    fn test_render_config_transforms() {
+        let config = RenderConfig::from_size(512.into());
         let mat = config.mat();
         assert_eq!(
             mat.transform_point(&Point2::new(0.0, -1.0)),
@@ -526,10 +531,7 @@ mod test {
             Point2::new(1.0, -1.0)
         );
 
-        let config = RenderConfig {
-            image_size: RenderSize::from(575),
-            ..Default::default()
-        };
+        let config = RenderConfig::from_size(575.into());
         let mat = config.mat();
         assert_eq!(
             mat.transform_point(&Point2::new(0.0, -1.0)),
