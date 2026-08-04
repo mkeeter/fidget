@@ -103,12 +103,12 @@
 //! in [`Buffers::image_storage_buffer`] for subsequent pipelines.
 
 use crate::{
-    Gpu,
+    Gpu, RegPipeline,
     buf::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_ro_dyn, buffer_rw,
     },
-    opcode_constants, tag,
+    opcode_constants, shaders, tag,
 };
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
@@ -120,23 +120,18 @@ use fidget_core::{
 };
 pub use fidget_raster::voxel::RenderConfig;
 use fidget_raster::voxel::{GeometryPixel, Image};
-use std::{collections::BTreeMap, num::NonZeroU64};
+use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
-const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
-const DUMMY_STACK_SHADER: &str = include_str!("shaders/dummy_stack.wgsl");
 const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
 const REPACK_SHADER: &str = include_str!("shaders/repack.wgsl");
 const SORT_SHADER: &str = include_str!("shaders/sort.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
-const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const CLEAR_SHADER: &str = include_str!("shaders/clear.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
-const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
-const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 
 /// Error type when resizing intermediate tile buffers
 #[derive(Debug, thiserror::Error)]
@@ -359,13 +354,13 @@ struct TapeWord {
 fn interval_root_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += INTERVAL_ROOT_SHADER;
-    shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += STACK_SHADER;
-    shader_code += TAPE_SIMPLIFY;
+    shader_code += INTERVAL_ROOT_SHADER;
+    shader_code += shaders::INTERVAL_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::STACK;
+    shader_code += shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
@@ -374,7 +369,7 @@ fn repack_shader() -> String {
     let mut shader_code = String::new();
     shader_code += REPACK_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
+    shader_code += shaders::COMMON;
     shader_code
 }
 
@@ -383,7 +378,7 @@ fn sort_shader() -> String {
     let mut shader_code = String::new();
     shader_code += SORT_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
+    shader_code += shaders::COMMON;
     shader_code
 }
 
@@ -392,12 +387,12 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
-    shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += STACK_SHADER;
-    shader_code += TAPE_SIMPLIFY;
+    shader_code += shaders::INTERVAL_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::STACK;
+    shader_code += shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
@@ -407,9 +402,10 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += DUMMY_STACK_SHADER;
+    shader_code += shaders::FLOAT_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::DUMMY_STACK;
     shader_code
 }
 
@@ -419,50 +415,24 @@ fn normals_shader(reg_count: u8) -> String {
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += DUMMY_STACK_SHADER;
+    shader_code += shaders::GRAD_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::DUMMY_STACK;
     shader_code
 }
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 /// Returns a shader for clearing counters in between strata passes
 fn clear_shader() -> String {
-    CLEAR_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    CLEAR_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-/// Container of multiple pipelines, parameterized by register count
-struct RegPipeline(BTreeMap<u8, wgpu::ComputePipeline>);
-
-impl RegPipeline {
-    fn build<F: Fn(u8) -> wgpu::ComputePipeline>(builder: F) -> Self {
-        let mut out = BTreeMap::new();
-        for reg_count in [8, 16, 32, 64, 128, 192, 255] {
-            out.insert(reg_count, builder(reg_count));
-        }
-        Self(out)
-    }
-
-    /// Returns the pipeline with sufficient registers to render `reg_count`
-    ///
-    /// # Panics
-    /// If `reg_count` is 256 (which is not allowed in bytecode tapes)
-    fn get(&self, reg_count: u8) -> &wgpu::ComputePipeline {
-        let (r, v) = self
-            .0
-            .range(reg_count..)
-            .next()
-            .expect("bytecode tape cannot use more than 255 registers");
-        assert!(*r >= reg_count);
-        v
-    }
-}
 
 /// Root context, which produces a list of 64³ tiles
 struct RootContext {
@@ -2943,22 +2913,6 @@ impl ResetContext {
 #[cfg(test)]
 mod test {
     use super::*;
-    use heck::ToShoutySnakeCase;
-
-    #[test]
-    fn shader_has_all_ops() {
-        for (op, _) in fidget_bytecode::iter_ops() {
-            let op = format!("OP_{}", op.to_shouty_snake_case());
-            assert!(
-                TAPE_INTERPRETER.contains(&op),
-                "tape interpreter is missing {op}"
-            );
-            assert!(
-                TAPE_SIMPLIFY.contains(&op),
-                "tape simplification is missing {op}"
-            );
-        }
-    }
 
     #[test]
     fn compile_shaders() {

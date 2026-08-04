@@ -2,6 +2,7 @@
 #![warn(missing_docs)]
 
 use heck::ToShoutySnakeCase;
+use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable};
 
 pub mod buf;
@@ -11,7 +12,17 @@ pub mod voxel;
 /// Re-export the `wgpu` module
 pub use wgpu;
 
-const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+pub(crate) mod shaders {
+    pub const COMMON: &str = include_str!("shaders/common.wgsl");
+    pub const DUMMY_STACK: &str = include_str!("shaders/dummy_stack.wgsl");
+    pub const FLOAT_OPS: &str = include_str!("shaders/float_ops.wgsl");
+    pub const GRAD_OPS: &str = include_str!("shaders/grad_ops.wgsl");
+    pub const INTERVAL_OPS: &str = include_str!("shaders/interval_ops.wgsl");
+    pub const STACK: &str = include_str!("shaders/stack.wgsl");
+    pub const TAPE_INTERPRETER: &str =
+        include_str!("shaders/tape_interpreter.wgsl");
+    pub const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -144,6 +155,35 @@ impl Gpu {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Container of multiple pipelines, parameterized by register count
+pub(crate) struct RegPipeline(BTreeMap<u8, wgpu::ComputePipeline>);
+
+impl RegPipeline {
+    pub fn build<F: Fn(u8) -> wgpu::ComputePipeline>(builder: F) -> Self {
+        let mut out = BTreeMap::new();
+        for reg_count in [8, 16, 32, 64, 128, 192, 255] {
+            out.insert(reg_count, builder(reg_count));
+        }
+        Self(out)
+    }
+
+    /// Returns the pipeline with sufficient registers to render `reg_count`
+    ///
+    /// # Panics
+    /// If `reg_count` is 256 (which is not allowed in bytecode tapes)
+    pub fn get(&self, reg_count: u8) -> &wgpu::ComputePipeline {
+        let (r, v) = self
+            .0
+            .range(reg_count..)
+            .next()
+            .expect("bytecode tape cannot use more than 255 registers");
+        assert!(*r >= reg_count);
+        v
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Helper function for use in unit tests
 #[cfg(test)]
 fn compile_shader(src: &str, desc: &str) {
@@ -241,5 +281,20 @@ mod test {
         let (_out, img_size) = img.image().take();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
+    }
+
+    #[test]
+    fn shader_has_all_ops() {
+        for (op, _) in fidget_bytecode::iter_ops() {
+            let op = format!("OP_{}", op.to_shouty_snake_case());
+            assert!(
+                shaders::TAPE_INTERPRETER.contains(&op),
+                "tape interpreter is missing {op}"
+            );
+            assert!(
+                shaders::TAPE_SIMPLIFY.contains(&op),
+                "tape simplification is missing {op}"
+            );
+        }
     }
 }
