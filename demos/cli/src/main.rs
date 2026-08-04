@@ -317,12 +317,13 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     depth: Option<u32>,
     threads: Option<&fidget::render::ThreadPool>,
 ) -> fidget::raster::voxel::Image {
-    let cfg = fidget::raster::voxel::RenderConfig {
-        threads,
+    let render_cfg = fidget::raster::voxel::RenderConfig {
         world_to_model,
-        ..fidget::raster::voxel::RenderConfig::from_size(
-            settings.voxel_size(depth),
-        )
+        image_size: settings.voxel_size(depth),
+    };
+    let eval_cfg = fidget::raster::voxel::EvalConfig {
+        threads,
+        ..Default::default()
     };
 
     let mut image = Default::default();
@@ -332,9 +333,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     let start = std::time::Instant::now();
     for _ in 0..settings.n {
         // Unwrap both cancellation and errors
-        image = cfg
-            .run(bound_shape.clone())
-            .expect("rendering should not be cancelled");
+        image = fidget::raster::voxel::render(
+            bound_shape.clone(),
+            &render_cfg,
+            &eval_cfg,
+        )
+        .expect("rendering should not be cancelled");
     }
     info!(
         "Rendered {}× at {:?} ms/frame",
@@ -370,10 +374,13 @@ fn run3d_wgpu(
 
     let ctx = fidget::wgpu::voxel::Context::new(&gpu);
     let image_size = settings.voxel_size(depth);
-    let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
+    let cfg = fidget::wgpu::voxel::RenderConfig {
+        world_to_model,
+        image_size,
+    };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let mut buffers = ctx.buffers(image_size)?;
+    let mut buffers = ctx.buffers();
     let mut out = ctx.image_buffer(&buffers);
     let shape = ctx.shape(&shape)?;
     let mut compute_pass_time = std::time::Duration::ZERO;
@@ -588,35 +595,41 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             )),
             None => Some(fidget::render::ThreadPool::Global),
         };
-        let cfg = fidget::raster::pixel::RenderConfig {
-            threads: threads.as_ref(),
+        let render_cfg = fidget::raster::pixel::RenderConfig {
             pixel_perfect: matches!(mode, RenderMode2D::Sdf),
             world_to_model,
             ..fidget::raster::pixel::RenderConfig::from_size(size)
         };
+        let eval_cfg = fidget::raster::pixel::EvalConfig {
+            threads: threads.as_ref(),
+            ..Default::default()
+        };
         let mut image = fidget::raster::Image::default();
         for _ in 0..settings.n {
-            let tmp = cfg
-                .run::<_>(bound_shape.clone())
-                .expect("render should not be cancelled");
+            let tmp = fidget::raster::pixel::render(
+                bound_shape.clone(),
+                &render_cfg,
+                &eval_cfg,
+            )
+            .expect("render should not be cancelled");
             match mode {
                 RenderMode2D::Mono => {
                     image = fidget::raster::effects::to_rgba_bitmap(
                         tmp,
                         false,
-                        cfg.threads,
+                        eval_cfg.threads,
                     );
                 }
                 RenderMode2D::Sdf => {
                     image = fidget::raster::effects::to_rgba_distance(
                         tmp,
-                        cfg.threads,
+                        eval_cfg.threads,
                     );
                 }
                 RenderMode2D::Debug => {
                     image = fidget::raster::effects::to_debug_bitmap(
                         tmp,
-                        cfg.threads,
+                        eval_cfg.threads,
                     );
                 }
                 RenderMode2D::Brute => unreachable!(),

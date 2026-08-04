@@ -30,9 +30,7 @@ fn sphere_var<F: Function + MathFunction + RenderHints>() {
         for r in [0.5, 0.75] {
             let mut vars = ShapeVars::new();
             vars.insert(v.index().unwrap(), r);
-            let image = cfg
-                .run::<_>(shape.bind(&vars).unwrap())
-                .expect("rendering should not be cancelled");
+            let image = cfg.run::<_>(shape.bind(&vars).unwrap());
 
             check_sphere(image, size, scale, r);
         }
@@ -113,7 +111,7 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let buf = ctx.buffers(image_size).unwrap();
+        let mut buf = ctx.buffers();
         let mut out = ctx.image_buffer(&buf);
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
@@ -124,9 +122,10 @@ mod wgpu {
                 let image = ctx
                     .run(
                         &shape,
-                        &buf,
+                        &mut buf,
                         &mut out,
-                        fidget::wgpu::voxel::RenderConfig {
+                        fidget::raster::voxel::RenderConfig {
+                            image_size,
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
@@ -162,7 +161,7 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let buf = ctx.buffers(image_size).unwrap();
+        let mut buf = ctx.buffers();
         let mut out = ctx.image_buffer(&buf);
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
@@ -172,9 +171,10 @@ mod wgpu {
                     .run_with_vars(
                         &render_shape,
                         &vars,
-                        &buf,
+                        &mut buf,
                         &mut out,
-                        fidget::wgpu::voxel::RenderConfig {
+                        fidget::raster::voxel::RenderConfig {
+                            image_size,
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,

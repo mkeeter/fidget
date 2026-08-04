@@ -175,16 +175,20 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     image_size: fidget::render::ImageSize,
     color: [u8; 3],
 ) -> Vec<[u8; 4]> {
-    let config = ImageRenderConfig {
+    let render_config = ImageRenderConfig {
         world_to_model: view.world_to_model(),
         pixel_perfect: matches!(mode, Mode2D::Sdf),
         ..ImageRenderConfig::from_size(image_size)
     };
+    let eval_config = fidget::raster::pixel::EvalConfig::default();
 
     let bound_shape = shape.try_into().expect("no vars allowed");
-    let tmp = config
-        .run(bound_shape)
-        .expect("rendering should not be cancelled");
+    let tmp = fidget::raster::pixel::render(
+        bound_shape,
+        &render_config,
+        &eval_config,
+    )
+    .expect("rendering should not be cancelled");
     let out = match mode {
         Mode2D::Color => {
             let c = [color[0], color[1], color[2], u8::MAX];
@@ -192,11 +196,11 @@ fn render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
 
         Mode2D::Sdf => {
-            fidget::raster::effects::to_rgba_distance(tmp, config.threads)
+            fidget::raster::effects::to_rgba_distance(tmp, eval_config.threads)
         }
 
         Mode2D::Debug => {
-            fidget::raster::effects::to_debug_bitmap(tmp, config.threads)
+            fidget::raster::effects::to_debug_bitmap(tmp, eval_config.threads)
         }
     };
     let (data, _) = out.take();
@@ -215,9 +219,7 @@ fn render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     // Get the geometry buffer from the voxel rendering process
     let bound_shape = shape.try_into().expect("no variables allowed");
-    let geometry_buffer = config
-        .run(bound_shape)
-        .expect("rendering should not be cancelled");
+    let geometry_buffer = config.run(bound_shape);
 
     // For both rendering modes, we'll convert the GeometryPixel data into
     // FloatPixels then pass them to the GPU, which will apply the appropriate

@@ -96,21 +96,23 @@ impl TileSizesRef<'_> {
 /// parallel (using [`rayon`] for parallelism at the tile level).
 ///
 /// It returns a set of output tiles, or `None` if rendering has been cancelled
-pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F>>(
+pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F>, C>(
     shape: Shape<F>,
     vars: &'a ShapeVars<f32>,
-    config: &'a W::Config,
+    render_config: &'a W::Config,
+    eval_config: &'a C,
     tile_sizes: TileSizesRef<'a>,
 ) -> Option<Vec<(Tile<2>, W::Output)>>
 where
     W::Config: Send + Sync,
+    C: EvalConfig + Send + Sync,
 {
     use rayon::prelude::*;
 
     let mut tiles = vec![];
     let t = tile_sizes[0];
-    let width = config.width() as usize;
-    let height = config.height() as usize;
+    let width = render_config.width() as usize;
+    let height = render_config.height() as usize;
     for i in 0..width.div_ceil(t) {
         for j in 0..height.div_ceil(t) {
             tiles.push(Tile::new(Point2::new(
@@ -126,17 +128,17 @@ where
     let ts = tile_sizes;
     let init = || {
         let rh = rh.clone();
-        let worker = W::new(config, ts, vars);
+        let worker = W::new(render_config, ts, vars);
         (worker, rh)
     };
 
-    match config.threads() {
+    match eval_config.threads() {
         None => {
-            let mut worker = W::new(config, tile_sizes, vars);
+            let mut worker = W::new(render_config, tile_sizes, vars);
             tiles
                 .into_iter()
                 .map(|tile| {
-                    if config.is_cancelled() {
+                    if eval_config.is_cancelled() {
                         Err(())
                     } else {
                         let pixels = worker.render_tile(&mut rh, tile);
@@ -151,7 +153,7 @@ where
             tiles
                 .into_par_iter()
                 .map_init(init, |(w, rh), tile| {
-                    if config.is_cancelled() {
+                    if eval_config.is_cancelled() {
                         Err(())
                     } else {
                         let pixels = w.render_tile(rh, tile);
@@ -165,7 +167,7 @@ where
 }
 
 /// Helper trait for tiled rendering configuration
-pub(crate) trait RenderConfig: RenderSize {
+pub(crate) trait EvalConfig {
     fn threads(&self) -> Option<&ThreadPool>;
     fn is_cancelled(&self) -> bool;
 }
@@ -180,7 +182,7 @@ pub trait RenderSize {
 
 /// Helper trait for a tiled renderer worker
 pub(crate) trait RenderWorker<'a, F: Function> {
-    type Config: RenderConfig;
+    type Config: RenderSize;
     type Output: Send;
 
     /// Build a new worker

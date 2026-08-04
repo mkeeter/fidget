@@ -218,9 +218,7 @@
 //! let cfg = RenderConfig::from_size(RenderSize::from(32));
 //! let shape = VmShape::from(tree);
 //! let bound_shape = shape.try_into().expect("shape has no vars");
-//! let out = cfg
-//!     .run(bound_shape)
-//!     .expect("render is not cancelled");
+//! let out = cfg.run(bound_shape);
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size.height() {
 //!     for x in 0..cfg.image_size.width() {

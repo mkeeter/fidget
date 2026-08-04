@@ -92,9 +92,9 @@ fidget-bytecode = { path = "fidget-bytecode", version = "=0.5.0" }
 fidget-gui      = { path = "fidget-gui",      version = "=0.5.0" }
 fidget-jit      = { path = "fidget-jit",      version = "=0.5.0" }
 fidget-mesh     = { path = "fidget-mesh",     version = "=0.5.0" }
-fidget-raster   = { path = "fidget-raster",   version = "=0.5.0" }
+fidget-raster   = { path = "fidget-raster",   version = "=0.5.1" }
 fidget-rhai     = { path = "fidget-rhai",     version = "=0.5.0" }
 fidget-shapes   = { path = "fidget-shapes",   version = "=0.5.0" }
 fidget-solver   = { path = "fidget-solver",   version = "=0.5.0" }
-fidget-wgpu     = { path = "fidget-wgpu",     version = "=0.5.0" }
+fidget-wgpu     = { path = "fidget-wgpu",     version = "=0.5.1" }
 workspace-hack  = { path = "workspace-hack",  version = "0.1" }

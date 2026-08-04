@@ -43,9 +43,12 @@ impl Cfg {
             ..RenderConfig::from_size(RenderSize::new(width, 32))
         };
         let bound_shape = shape.bind(&self.vars).expect("all vars present");
-        let out = cfg
-            .run(bound_shape)
-            .expect("rendering should not be cancelled");
+        let out = fidget::raster::pixel::render(
+            bound_shape,
+            &cfg,
+            &Default::default(),
+        )
+        .expect("rendering should not be cancelled");
         let mut img_str = String::new();
         for (i, b) in out.iter().enumerate() {
             if i % width as usize == 0 {
@@ -375,10 +378,9 @@ fn check_neg_infinity<F: Function + MathFunction + RenderHints>() {
 
     let cfg = RenderConfig {
         pixel_perfect: true,
-        threads: None,
         ..RenderConfig::from_size(256.into())
     };
-    let out = cfg.run(shape).expect("rendering should not be cancelled");
+    let out = cfg.run(shape);
     assert!(out.into_iter().all(|i| i.inside()));
 }
 

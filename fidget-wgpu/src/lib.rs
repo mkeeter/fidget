@@ -198,7 +198,7 @@ mod test {
 
         let size = 128;
         let image_size = RenderSize::from(size);
-        let mut buf = voxel_ctx.buffers(image_size).unwrap();
+        let mut buf = voxel_ctx.buffers();
         let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
         let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
         let mut shade_out = gpu.read_buffer_for(shade_buf.output());
@@ -219,6 +219,7 @@ mod test {
                 &mut buf,
                 None,
                 &voxel::RenderConfig {
+                    image_size,
                     world_to_model: nalgebra::Matrix4::identity(),
                 },
             )

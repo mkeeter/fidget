@@ -1,3 +1,16 @@
+# 0.5.1 (unpublished)
+- In `fidget::raster`, reorganize `RenderConfig` to separate out the render
+  settings (transform, size, etc) from evaluation settings (thread count,
+  cancellation, etc); the latter are now in a new `EvalConfig`.
+- `fidget::wgpu` now uses the `RenderConfig` type from `fidget::raster` instead
+  of its own, slightly-different `RenderConfig`.  This was, in fact, the
+  motivation for the reorganization!
+    - Render size in `fidget::wgpu::voxel` is now set by the `RenderConfig`,
+      instead of by the `Buffers` object.  This means that buffers are generated
+      without a size, and resized when passed to render functions.  Functions
+      which do resizing have a new possible error variant if the render size is
+      too large for WGPU buffers.
+
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
 big new crate (`fidget-wgpu`, re-exported as `fidget::wgpu`).  The goal of

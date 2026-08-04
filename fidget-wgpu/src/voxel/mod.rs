@@ -118,6 +118,7 @@ use fidget_core::{
     var::Var,
     vm::VmShape,
 };
+pub use fidget_raster::voxel::RenderConfig;
 use fidget_raster::voxel::{GeometryPixel, Image};
 use std::{collections::BTreeMap, num::NonZeroU64};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -247,25 +248,15 @@ pub struct BuffersError {
     pub err: BufferSizeError,
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-/// Settings for 3D rendering
-///
-/// Note that this object only contains the world-to-model transform; the image
-/// size is set by the [`Buffers`] object passed into [`run`](Context::run) or
-/// [`run_async`](Context::run_async).
-#[derive(Copy, Clone)]
-pub struct RenderConfig {
-    /// World-to-model transform
-    pub world_to_model: nalgebra::Matrix4<f32>,
-}
-
-impl Default for RenderConfig {
-    fn default() -> Self {
-        Self {
-            world_to_model: nalgebra::Matrix4::identity(),
-        }
-    }
+/// Error returned when submitting a voxel rasterization job to the GPU
+#[derive(Debug, thiserror::Error)]
+pub enum SubmitError {
+    /// Missing variable when evaluating
+    #[error(transparent)]
+    MissingVar(#[from] MissingVar),
+    /// Error while resizing buffers
+    #[error(transparent)]
+    Buffers(#[from] BuffersError),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2325,17 +2316,14 @@ impl Context {
         }
     }
 
-    /// Builds a new [`Buffers`] object for the given render size
+    /// Builds a new [`Buffers`] object for use in rendering
     ///
-    /// An image rendered with the resulting buffers will have the given width
-    /// and height; `image_size.depth()` sets the number of voxels to evaluate
-    /// within each pixel of the image (stacked into a column going into the
-    /// screen).
-    pub fn buffers(
-        &self,
-        image_size: VoxelSize,
-    ) -> Result<Buffers, BuffersError> {
-        Buffers::new(&self.gpu.device, image_size, self.has_timestamps)
+    /// The buffers are initialized with a dummy size and resized automatically
+    /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
+    /// [`submit`](Self::submit)).
+    pub fn buffers(&self) -> Buffers {
+        Buffers::new(&self.gpu.device, 64.into(), self.has_timestamps)
+            .expect("64 is always a valid buffers size")
     }
 
     /// Returns an [`ImageReadBuffer`], sized to read from a [`Buffers`] object
@@ -2370,10 +2358,10 @@ impl Context {
     pub fn run(
         &self,
         shape: &RenderShape,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
-    ) -> Result<Image, MissingVar> {
+    ) -> Result<Image, SubmitError> {
         self.run_with_vars(shape, &Default::default(), buffers, out, settings)
     }
 
@@ -2385,10 +2373,10 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
-    ) -> Result<Image, MissingVar> {
+    ) -> Result<Image, SubmitError> {
         self.submit_with_vars(shape, vars, buffers, Some(out), &settings)?;
         let image = self.map_image(out);
         Ok(image.image())
@@ -2401,10 +2389,10 @@ impl Context {
     pub async fn run_async(
         &self,
         shape: &RenderShape,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
-    ) -> Result<Image, MissingVar> {
+    ) -> Result<Image, SubmitError> {
         self.run_with_vars_async(
             shape,
             &Default::default(),
@@ -2423,10 +2411,10 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
-    ) -> Result<Image, MissingVar> {
+    ) -> Result<Image, SubmitError> {
         self.submit_with_vars(shape, vars, buffers, Some(out), &settings)?;
         let image = self.map_image_async(out).await;
         Ok(image.image())
@@ -2448,7 +2436,7 @@ impl Context {
         buffers: &mut Buffers,
         out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
-    ) -> Result<(), MissingVar> {
+    ) -> Result<(), SubmitError> {
         self.submit_with_vars(
             shape,
             &Default::default(),
@@ -2465,10 +2453,11 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &Buffers,
+        buffers: &mut Buffers,
         out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
-    ) -> Result<(), MissingVar> {
+    ) -> Result<(), SubmitError> {
+        buffers.set_image_size(&self.gpu.device, settings.image_size)?;
         let render_size = TileRenderSize::from(buffers.image_size);
 
         let mat =
@@ -2528,7 +2517,7 @@ impl Context {
                     Var::X | Var::Y | Var::Z => (),
                     Var::V(vi) => {
                         let Some(value) = vars.get(vi) else {
-                            return Err(MissingVar { var: vi });
+                            return Err(MissingVar { var: vi }.into());
                         };
                         let offset = i * std::mem::size_of::<f32>();
                         writer

@@ -22,7 +22,8 @@ pub type RenderSize = fidget_core::render::VoxelSize;
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Settings for 3D rendering
-pub struct RenderConfig<'a> {
+#[derive(Copy, Clone, Debug)]
+pub struct RenderConfig {
     /// Render size
     ///
     /// The resulting image will have the given width and height; depth sets the
@@ -32,7 +33,10 @@ pub struct RenderConfig<'a> {
 
     /// World-to-model transform
     pub world_to_model: Matrix4<f32>,
+}
 
+/// Evaluation settings for 3D rendering
+pub struct EvalConfig<'a> {
     /// Tile sizes to use during evaluation.
     ///
     /// If this is `None`, then evaluation will use
@@ -49,7 +53,7 @@ pub struct RenderConfig<'a> {
     pub cancel: CancelToken,
 }
 
-impl crate::RenderConfig for RenderConfig<'_> {
+impl crate::EvalConfig for EvalConfig<'_> {
     fn threads(&self) -> Option<&ThreadPool> {
         self.threads
     }
@@ -58,7 +62,17 @@ impl crate::RenderConfig for RenderConfig<'_> {
     }
 }
 
-impl crate::RenderSize for RenderConfig<'_> {
+impl Default for EvalConfig<'_> {
+    fn default() -> Self {
+        Self {
+            tile_sizes: None,
+            threads: Some(&ThreadPool::Global),
+            cancel: CancelToken::new(),
+        }
+    }
+}
+
+impl crate::RenderSize for RenderConfig {
     fn width(&self) -> u32 {
         self.image_size.width()
     }
@@ -67,32 +81,16 @@ impl crate::RenderSize for RenderConfig<'_> {
     }
 }
 
-impl RenderConfig<'_> {
-    /// Constructs a [`RenderConfig`] with reasonable defaults
-    ///
-    /// This config uses the global thread pool for rendering, has an identity
-    /// transform matrix, and uses the render hints to choose tile sizes.
-    ///
-    /// To build a somewhat-customized `RenderConfig`, it's typical to use this
-    /// as the base object, then replace individual fields:
-    ///
-    /// ```
-    /// # use fidget_raster::voxel::RenderConfig;
-    /// let cfg = RenderConfig {
-    ///     threads: None, // override field
-    ///     ..RenderConfig::from_size(1024.into()) // base
-    /// };
-    /// ```
+impl RenderConfig {
+    /// Constructs a [`RenderConfig`] with an identity transform and given size
     pub fn from_size(image_size: RenderSize) -> Self {
         Self {
             image_size,
-            tile_sizes: None,
             world_to_model: Matrix4::identity(),
-            threads: Some(&ThreadPool::Global),
-            cancel: CancelToken::new(),
         }
     }
-    /// Render a shape in 3D using this configuration
+
+    /// Render a shape in 3D using this configuration and default [`EvalConfig`]
     ///
     /// In the resulting image, saturated pixels (i.e. pixels in the image which
     /// are fully occupied up to the camera) are represented with `depth =
@@ -100,8 +98,9 @@ impl RenderConfig<'_> {
     pub fn run<F: Function + RenderHints>(
         &self,
         shape: BoundShape<F, f32>,
-    ) -> Option<Image> {
-        render(shape, self)
+    ) -> Image {
+        render(shape, self, &Default::default())
+            .expect("no cancellation is possible")
     }
 
     /// Returns the combined screen-to-model transform matrix
@@ -211,7 +210,7 @@ struct Worker<'a, F: Function> {
 }
 
 impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
-    type Config = RenderConfig<'a>;
+    type Config = RenderConfig;
     type Output = Image;
 
     fn new(
@@ -487,34 +486,44 @@ impl<F: Function> Worker<'_, F> {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Renders the given shape into a 3D image with a particular configuration
-/// configuration.
 ///
 /// The shape provides the evaluator backend (`F`) and bound variables; the
-/// configuration supplies resolution, transforms, etc.
+/// render configuration supplies resolution, transforms, etc; the evaluation
+/// configuration supplies thread pool and cancellation.
+///
+/// In the resulting image, saturated pixels (i.e. pixels in the image which are
+/// fully occupied up to the camera) are represented with `depth =
+/// render_config.image_size.depth()` and a normal of `[0, 0, 1]`.
 ///
 /// Returns [`Some(Image)`](Image) of pixel data on success, or `None` if
 /// the render was cancelled.
 pub fn render<F: Function + RenderHints>(
     b: BoundShape<F, f32>,
-    config: &RenderConfig,
+    render_config: &RenderConfig,
+    eval_config: &EvalConfig,
 ) -> Option<Image> {
     let shape = b.shape().clone();
     let vars = b.vars();
-    let max_size = config.width().max(config.height()) as usize;
+    let max_size = render_config.width().max(render_config.height()) as usize;
     let default_tile_sizes;
 
-    let tile_sizes = if let Some(ts) = &config.tile_sizes {
+    let tile_sizes = if let Some(ts) = &eval_config.tile_sizes {
         TileSizesRef::new(ts, max_size)
     } else {
         default_tile_sizes = F::tile_sizes_3d();
         TileSizesRef::new(&default_tile_sizes, max_size)
     };
-    let tiles =
-        super::render_tiles::<F, Worker<F>>(shape, vars, config, tile_sizes)?;
+    let tiles = super::render_tiles::<F, Worker<F>, _>(
+        shape,
+        vars,
+        render_config,
+        eval_config,
+        tile_sizes,
+    )?;
 
-    let width = config.image_size.width() as usize;
-    let height = config.image_size.height() as usize;
-    let mut image = Image::new(config.image_size);
+    let width = render_config.image_size.width() as usize;
+    let height = render_config.image_size.height() as usize;
+    let mut image = Image::new(render_config.image_size);
     for (tile, out) in tiles {
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -525,7 +534,7 @@ pub fn render<F: Function + RenderHints>(
                     let o = y * width + x;
                     if out[index].depth >= image[o].depth {
                         // Clamp voxels to the image depth
-                        let d = config.image_size.depth() - 1;
+                        let d = render_config.image_size.depth() - 1;
                         if out[index].depth >= d {
                             image[o] = GeometryPixel {
                                 depth: d + 1,
@@ -556,7 +565,7 @@ mod test {
         let shape = VmShape::new(&ctx, x).unwrap().try_into().unwrap();
 
         let cfg = RenderConfig::from_size(128.into()); // very small
-        let image = cfg.run(shape).expect("rendering should not be cancelled");
+        let image = cfg.run(shape);
         assert_eq!(image.len(), 128 * 128);
     }
 
@@ -566,10 +575,11 @@ mod test {
         let x = ctx.x();
         let shape = VmShape::new(&ctx, x).unwrap().try_into().unwrap();
 
-        let cfg = RenderConfig::from_size(64.into());
-        let cancel = cfg.cancel.clone();
+        let render_cfg = RenderConfig::from_size(64.into());
+        let eval_cfg = EvalConfig::default();
+        let cancel = eval_cfg.cancel.clone();
         cancel.cancel();
-        assert!(cfg.run::<_>(shape).is_none());
+        assert!(render(shape, &render_cfg, &eval_cfg).is_none());
     }
 
     #[test]
@@ -586,7 +596,6 @@ mod test {
         let mut vars = ShapeVars::new();
         let i = var.index().expect("expected Var::V");
         vars.insert(i, 1.0);
-        cfg.run::<_>(shape.bind(&vars).expect("all vars present"))
-            .expect("not cancelled");
+        cfg.run(shape.bind(&vars).expect("all vars present"));
     }
 }

@@ -661,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-raster"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "fidget-core",
  "nalgebra",
@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-wgpu"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "fidget-bytecode",
  "fidget-core",
