@@ -7,6 +7,7 @@ use zerocopy::{FromBytes, Immutable};
 
 pub mod buf;
 pub mod effects;
+pub mod pixel;
 pub mod voxel;
 
 /// Re-export the `wgpu` module
