@@ -15,7 +15,7 @@ use crate::{
         BufferSizeError, ImageBuffer, ImageReadBuffer, buffer_ro, buffer_rw,
         buffer_uniform,
     },
-    tag,
+    shaders, tag,
     voxel::GeomBufferTag,
 };
 use fidget_core::render::{ImageSize, VoxelSize};
@@ -41,19 +41,19 @@ const SSAO_SHADER: &str = include_str!("shaders/ssao.wgsl");
 const BLUR_SHADER: &str = include_str!("shaders/blur.wgsl");
 
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 fn shade_shader() -> String {
-    SHADE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    SHADE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 fn ssao_shader() -> String {
-    SSAO_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    SSAO_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 fn blur_shader() -> String {
-    BLUR_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    BLUR_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 /// Packed voxel structure used on the GPU

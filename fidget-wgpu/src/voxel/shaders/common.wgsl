@@ -29,27 +29,6 @@ struct Config {
     tape_data: array<TapeWord>,
 }
 
-struct TapeWord {
-    op: u32,
-    imm: u32,
-}
-
-/// Dynamic list of tiles, using an atomic bump allocator
-struct TileListOutput {
-    wg_size: array<atomic<u32>, 3>,
-    count: atomic<u32>,
-
-    /// Flexible array member
-    active_tiles: array<u32>,
-}
-
-/// Read-only version of `TileListOutput`
-struct TileListInput {
-    wg_size: array<u32, 3>,
-    count: u32,
-    active_tiles: array<u32>,
-}
-
 /// Common render configuration and tape data
 @group(0) @binding(0) var<storage, read_write> config: Config;
 
