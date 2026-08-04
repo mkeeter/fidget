@@ -10,6 +10,7 @@
       without a size, and resized when passed to render functions.  Functions
       which do resizing have a new possible error variant if the render size is
       too large for WGPU buffers.
+- Add `z` to `fidget::raster::pixel::RenderConfig` to set the Z evaluation level
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
