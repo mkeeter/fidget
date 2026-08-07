@@ -407,7 +407,7 @@ mod test {
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let pixel_ctx = pixel::Context::new(&gpu);
 
-        let size = 64;
+        let size = 8;
         let image_size = pixel::RenderSize::from(size);
         let mut buf = pixel_ctx.buffers();
 
@@ -419,11 +419,12 @@ mod test {
         let spheres = sphere1.min(sphere2);
         let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
 
+        let mut pixel_out = pixel_ctx.image_buffer();
         pixel_ctx
             .submit(
                 &shape,
                 &mut buf,
-                None,
+                Some(&mut pixel_out),
                 &pixel::RenderConfig {
                     image_size,
                     world_to_model: nalgebra::Matrix3::identity(),
@@ -432,13 +433,13 @@ mod test {
                 },
             )
             .unwrap();
-        let mut pixel_out = pixel_ctx.image_buffer(&buf);
         let img = pixel_ctx.map_image(&mut pixel_out);
         let img_out = img.image();
         let img_size = img_out.size();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
 
+        img_out.iter().for_each(|p| println!("{:?}", p.unpack()));
         for y in 0..size {
             for x in 0..size {
                 let p = &img_out[(y as usize, x as usize)];

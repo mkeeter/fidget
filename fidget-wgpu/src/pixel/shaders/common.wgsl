@@ -3,6 +3,8 @@
 /// Variables are ordered to require no padding
 struct Config {
     /// Screen-to-model transform matrix, converting pixels to model space
+    ///
+    /// Note that each row is padded to 16 bytes
     mat: mat3x3f,
 
     /// Mapping from X, Y, Z to input indices

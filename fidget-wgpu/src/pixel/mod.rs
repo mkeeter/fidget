@@ -359,7 +359,10 @@ impl PixelTilesContext {
 #[repr(C)]
 struct Config {
     /// Screen-to-model transform matrix
-    mat: [f32; 9],
+    ///
+    /// This is a 3x3 matrix in WGSL, but each row is padded to 16 bytes, so
+    /// it's a total of 12 floats.
+    mat: [f32; 12],
 
     /// Input index of X, Y, Z axes
     ///
@@ -1185,22 +1188,10 @@ impl Context {
             .expect("64 is always a valid buffers size")
     }
 
-    /// Returns an [`ImageReadBuffer`], sized to read from a [`Buffers`] object
-    ///
-    /// This is infallible because the [`Buffers`] constructor also ensures that
-    /// the image size is appropriate for the image read buffer (even though
-    /// it's constructed separately).
-    pub fn image_buffer(&self, buffers: &Buffers) -> ImageReadBuffer {
-        ImageReadBuffer::new(
-            &self.gpu.device,
-            "image".to_owned(),
-            buffers.image_size,
-        )
-        .expect(
-            "buffers.image_size should always be \
-             a valid size for ImageReadBuffer::new",
-        )
-        // TODO make this just return a dummy size and resize when mapping?
+    /// Returns an [`ImageReadBuffer`] to read from a [`Buffers`] object
+    pub fn image_buffer(&self) -> ImageReadBuffer {
+        ImageReadBuffer::new(&self.gpu.device, "image".to_owned(), 64.into())
+            .expect("64 should always be a valid size for ImageReadBuffer::new")
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1312,13 +1303,17 @@ impl Context {
         buffers.set_image_size(&self.gpu.device, settings.image_size)?;
         let render_size = TileRenderSize::from(buffers.image_size);
 
+        // The WebGPU config type has a mat3x3f, but that type pads each row to
+        // 16 bytes, so we'll just use a mat4x4 for simplicity
         let mat =
             settings.world_to_model * buffers.image_size.screen_to_world();
+        let mut mat4 = nalgebra::Matrix3x4::<f32>::identity();
+        mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
 
         // Divide by 2 to go from `u32` -> `TapeWord`
         let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
         let config = Config {
-            mat: mat.data.as_slice().try_into().unwrap(),
+            mat: mat4.data.as_slice().try_into().unwrap(),
             axes: shape.axes,
             render_size: [render_size.width(), render_size.height()],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),

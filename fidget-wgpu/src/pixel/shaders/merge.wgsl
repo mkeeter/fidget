@@ -8,6 +8,7 @@
 fn merge_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
+    pixels[0] = RawDistancePixel(bitcast<u32>(config.image_size.x)); // XXX DEBUG
     // the two `tiles` buffers are rounded up, but `pixels` is original size, so
     // it's a tigher bound here.
     if global_id.x >= config.image_size.x ||
@@ -32,6 +33,7 @@ fn merge_main(
     out = merge_pixel(out, tile64_zmin[index64]);
 
     pixels[index1] = out;
+
 }
 
 fn merge_pixel(a: RawDistancePixel, b: RawDistancePixel) -> RawDistancePixel {
