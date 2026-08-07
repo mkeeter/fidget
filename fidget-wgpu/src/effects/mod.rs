@@ -568,7 +568,7 @@ tag!(pub SsaoBlurredBufferTag, f32, STORAGE | COPY_SRC,
 
 /// Handle to a set of buffers used when running an SSAO pass
 pub struct SsaoBuffers {
-    ssao_config: wgpu::Buffer,
+    ssao_config: wgpu::Buffer, // TODO add a `ConfigBuffer` type?
     raw_occlusion: ImageBuffer<SsaoRawBufferTag>,
 
     blur_config: wgpu::Buffer,

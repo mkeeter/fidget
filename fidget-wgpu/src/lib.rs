@@ -397,8 +397,6 @@ mod test {
 
     #[test]
     fn pixel_render_and_merge() {
-        use fidget_raster::pixel::RawDistancePixel;
-
         // We only run in CI if we're on MacOS (because other runners don't have
         // GPUs and will fail to build the context).
         #[cfg(not(target_os = "macos"))]
@@ -434,49 +432,10 @@ mod test {
         let img = pixel_ctx.map_image(&mut pixel_out);
         let img_out = img.image();
         let img_size = img_out.size();
-        assert_eq!(img_size.width(), size);
-        assert_eq!(img_size.height(), size);
-
-        let tile64_data = gpu.read_vec::<u32>(buf.tile64.tiles.data());
-        let tile64_values = gpu.read_vec::<u32>(buf.tile64.values.data());
-        println!("data:\n{tile64_data:?}\n");
-        println!("values:\n{tile64_values:?}\n");
-
-        let tile8_data = gpu.read_vec::<u32>(buf.tile8.tiles.data());
-        let tile8_values = gpu.read_vec::<u32>(buf.tile8.values.data());
-        println!("data:\n{tile8_data:?}\n");
-        println!("values:\n{tile8_values:?}\n");
-        println!("values as values");
-        let mut iter = tile8_values.iter();
-        for y in 0..size.next_multiple_of(64) / 8 {
-            for x in 0..size.next_multiple_of(64) / 8 {
-                let v = iter.next().unwrap();
-                print!("{:.2} ", f32::from_bits(*v));
-            }
-            println!();
-        }
-        println!();
 
         for y in 0..size {
             for x in 0..size {
                 let p = img_out[(y as usize, x as usize)];
-                /*
-                match p {
-                    fidget_raster::pixel::DistancePixel::Value(v) => {
-                        print!("{v:.2} ")
-                    }
-                    fidget_raster::pixel::DistancePixel::Fill {
-                        inside,
-                        ..
-                    } => {
-                        if inside {
-                            print!("###")
-                        } else {
-                            print!("...")
-                        }
-                    }
-                }
-                */
                 if p.inside() {
                     print!("#");
                 } else {

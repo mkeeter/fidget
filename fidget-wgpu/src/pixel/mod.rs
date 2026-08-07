@@ -417,13 +417,13 @@ pub struct Buffers {
     tile_tapes: ArrayBuffer<TileTapesBufferTag>,
 
     /// Root tile buffers (64²)
-    pub(crate) tile64: TileBuffers<64>, // TODO make private
+    tile64: TileBuffers<64>,
 
     /// Second-stage tile buffers (8²)
-    pub(crate) tile8: TileBuffers<8>, // TODO make private
+    tile8: TileBuffers<8>,
 
     /// Pixel data
-    pub(crate) pixels: ImageBuffer<PixelBufferTag>, // TODO make private
+    pixels: ImageBuffer<PixelBufferTag>,
 
     /// Query set for timestamps
     ///
@@ -957,18 +957,16 @@ impl MappedImage<'_> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// TODO make these private and remove COPY_SRC
-tag!(pub(crate) TilesBufferTag, u32, STORAGE | COPY_DST | COPY_SRC | INDIRECT);
-tag!(pub(crate) ValuesBufferTag, u32, STORAGE | COPY_SRC | COPY_DST);
+tag!(TilesBufferTag, u32, STORAGE | COPY_DST | INDIRECT);
+tag!(ValuesBufferTag, u32, STORAGE | COPY_DST);
 
 /// Root tile buffers store strata-packed tile lists
-// TODO make private
-pub(crate) struct TileBuffers<const N: usize> {
+struct TileBuffers<const N: usize> {
     /// Output tiles
-    pub(crate) tiles: ArrayBuffer<TilesBufferTag>, // TODO private
+    tiles: ArrayBuffer<TilesBufferTag>,
 
     /// Tile values (empty / full)
-    pub(crate) values: ImageBuffer<ValuesBufferTag>, // TODO private
+    values: ImageBuffer<ValuesBufferTag>,
 }
 
 /// Error type when resizing root tile buffers

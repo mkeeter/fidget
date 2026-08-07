@@ -74,8 +74,6 @@ fn interval_tile_worker(
         (subtile_corner.y * size_subtiles.x);
     subtiles_out.active_tiles[offset] = subtile_index_xy;
 
-    // TODO figure dispatch size for pixel evaluation?
-
     let next = simplify_tape(out.pos, out.count, &stack);
     if next != 0 {
         tape_start = next;
