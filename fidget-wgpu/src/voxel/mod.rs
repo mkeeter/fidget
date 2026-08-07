@@ -2190,21 +2190,10 @@ impl Context {
             .expect("64 is always a valid buffers size")
     }
 
-    /// Returns an [`ImageReadBuffer`], sized to read from a [`Buffers`] object
-    ///
-    /// This is infallible because the [`Buffers`] constructor also ensures that
-    /// the image size is appropriate for the image read buffer (even though
-    /// it's constructed separately).
-    pub fn image_buffer(&self, buffers: &Buffers) -> ImageReadBuffer {
-        ImageReadBuffer::new(
-            &self.gpu.device,
-            "image".to_owned(),
-            buffers.image_size,
-        )
-        .expect(
-            "buffers.image_size should always be \
-             a valid size for ImageReadBuffer::new",
-        )
+    /// Returns an [`ImageReadBuffer`]
+    pub fn image_buffer(&self) -> ImageReadBuffer {
+        ImageReadBuffer::new(&self.gpu.device, "image".to_owned(), 64.into())
+            .expect("64 should always be a valid size for ImageReadBuffer::new")
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2460,7 +2449,7 @@ impl Context {
                 .grow_to_fit(&self.gpu.device, buffers.image_size)
                 .expect(
                     "buffers.image_size should always be \
-                 a valid size for ImageReadBuffer::grow_to_fit",
+                     a valid size for ImageReadBuffer::grow_to_fit",
                 );
             if let Some(timestamps) = &buffers.timestamps {
                 encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
