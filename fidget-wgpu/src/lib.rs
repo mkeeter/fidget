@@ -1,6 +1,9 @@
 //! Shader generation and WGPU-based image rendering
 #![warn(missing_docs)]
 
+use fidget_bytecode::{Bytecode, ReservedRegister};
+use fidget_core::{eval::Function, var::Var, vm::VmShape};
+
 use heck::ToShoutySnakeCase;
 use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable};
@@ -23,6 +26,15 @@ pub(crate) mod shaders {
     pub const TAPE_INTERPRETER: &str =
         include_str!("shaders/tape_interpreter.wgsl");
     pub const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
+}
+
+/// Number of [`TapeWord`] words in the tape data flexible array
+pub(crate) const TAPE_DATA_CAPACITY: usize = 8 * 1024 * 1024; // 8M words, 64 MiB
+
+#[repr(C)]
+pub(crate) struct TapeWord {
+    op: u32,
+    imm: u32,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -152,6 +164,14 @@ impl Gpu {
         scratch.unmap();
         result
     }
+
+    /// Builds a new [`RenderShape`] object for the given shape
+    pub fn shape(
+        &self,
+        shape: &VmShape,
+    ) -> Result<RenderShape, RenderShapeError> {
+        RenderShape::new(shape, &self.device)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -180,6 +200,98 @@ impl RegPipeline {
             .expect("bytecode tape cannot use more than 255 registers");
         assert!(*r >= reg_count);
         v
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Shape for rendering
+///
+/// This object is constructed by [`Gpu::shape`] and may only be used with
+/// that particular [`Gpu`].
+pub struct RenderShape {
+    /// Copy of our shape (kept around for access to the variable map)
+    shape: VmShape,
+    /// Map from X, Y, Z (by index) to the variable slot
+    axes: [u32; 3],
+    /// Serialized bytecode for the shape
+    bytecode: Bytecode,
+    /// GPU buffer to contain variables
+    ///
+    /// This doesn't live in [`Buffers`] because it's dynamically sized based on
+    /// the shape; everything in `Buffers` is based on image size.
+    vars: wgpu::Buffer,
+    /// Lazily-constructed bind group for the vars array
+    ///
+    /// This is not cached in a buffer-specific [`BindGroups`] object because it
+    /// is shape-specific.
+    vars_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
+}
+
+/// Error type when constructing a [`RenderShape`]
+#[derive(Debug, thiserror::Error)]
+pub enum RenderShapeError {
+    /// The shape doesn't fit in the GPU tape buffer
+    #[error(
+        "shape bytecode is {0} tape words (8 bytes each), which exceeds \
+        buffer capacity of {TAPE_DATA_CAPACITY} tape words"
+    )]
+    TooLong(usize),
+    /// The shape uses a reserved register
+    #[error(transparent)]
+    RegisterError(#[from] ReservedRegister),
+}
+
+impl RenderShape {
+    fn new(
+        shape: &VmShape,
+        device: &wgpu::Device,
+    ) -> Result<Self, RenderShapeError> {
+        // Generate bytecode for the root tape
+        let bytecode = Bytecode::new(shape.inner().data())?;
+        if bytecode.len() / 2 > TAPE_DATA_CAPACITY {
+            return Err(RenderShapeError::TooLong(bytecode.len() / 2));
+        }
+
+        // Create the 4x4 transform matrix
+        let vars = shape.inner().vars();
+        let axes = [Var::X, Var::Y, Var::Z]
+            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
+
+        // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
+        // as well, but we special-case them in evaluation.
+        let vars = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vars"),
+            size: u64::try_from(std::mem::size_of::<f32>() * vars.len())
+                .unwrap(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        Ok(Self {
+            shape: shape.clone(),
+            axes,
+            bytecode,
+            vars,
+            vars_bind_group: Default::default(),
+        })
+    }
+
+    fn vars_bind_group(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+    ) -> &wgpu::BindGroup {
+        self.vars_bind_group.get_or_init(|| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("vars bind group"),
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.vars.as_entire_binding(),
+                }],
+            })
+        })
     }
 }
 
@@ -252,7 +364,7 @@ mod test {
         let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
             - Tree::constant(0.5);
         let spheres = sphere1.min(sphere2);
-        let shape = voxel_ctx.shape(&VmShape::from(spheres)).unwrap();
+        let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
 
         voxel_ctx
             .submit(

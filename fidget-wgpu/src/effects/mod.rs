@@ -939,7 +939,7 @@ mod test {
         let sphere =
             (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
         let vm_shape = VmShape::from(sphere.min(z));
-        let shape = voxel_ctx.shape(&vm_shape).unwrap();
+        let shape = gpu.shape(&vm_shape).unwrap();
 
         voxel_ctx
             .submit(

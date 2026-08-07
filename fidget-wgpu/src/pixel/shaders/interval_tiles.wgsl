@@ -11,7 +11,7 @@ const TILE_SIZE: u32 = 64;
 const SUBTILE_SIZE: u32 = 8;
 
 @compute @workgroup_size(8, 8)
-fn interval_tile_main(
+fn interval_tiles_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(num_workgroups) num_workgroups: vec3u,
     @builtin(local_invocation_id) local_id: vec3u

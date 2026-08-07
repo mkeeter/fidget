@@ -156,7 +156,10 @@ impl Scratch {
 /// - Bits 10-17 are a fixed bit pattern, which both ensures that the value is
 ///   treated as `NaN` in the `[empty, depth 0]` case (rather than infinity) and
 ///   distinguishes from `NaN` values generated during normal evaluation
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(
+    Copy, Clone, Debug, Default, zerocopy::FromBytes, zerocopy::Immutable,
+)]
+#[repr(C)]
 pub struct RawDistancePixel(f32);
 
 /// Unpacked data from a [`RawDistancePixel`]
