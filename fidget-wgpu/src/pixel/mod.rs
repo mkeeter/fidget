@@ -16,7 +16,7 @@ use fidget_raster::pixel::{Image, RawDistancePixel};
 use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-pub use fidget_raster::pixel::RenderConfig;
+pub use fidget_raster::pixel::{RenderConfig, RenderSize};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const INTERVAL_INPUT: &str = include_str!("shaders/interval_input.wgsl");
@@ -113,11 +113,6 @@ impl TileRenderSize {
     /// Number of voxels in the Y axis (always a multiple of 64)
     fn height(&self) -> u32 {
         self.0.height() * 64
-    }
-
-    /// Number of pixels in total
-    fn pixels(&self) -> usize {
-        self.width() as usize * self.height() as usize
     }
 }
 
@@ -629,6 +624,50 @@ impl Buffers {
 
         Ok(())
     }
+
+    /// Returns total allocated size (in bytes)
+    pub fn capacity(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let Buffers {
+            image_size: _,
+            config_buf,
+            tile_tapes,
+            tile64,
+            tile8,
+            pixels,
+            timestamps: _,
+            ts_buf,
+            bind_groups: _,
+        } = self;
+        config_buf.size()
+            + tile_tapes.capacity()
+            + tile64.capacity()
+            + tile8.capacity()
+            + pixels.capacity()
+            + ts_buf.size()
+    }
+
+    /// Returns total active size (in bytes)
+    pub fn size(&self) -> u64 {
+        // Destructure to make sure we take all members into account
+        let Buffers {
+            image_size: _,
+            config_buf,
+            tile_tapes,
+            tile64,
+            tile8,
+            pixels,
+            timestamps: _,
+            ts_buf,
+            bind_groups: _,
+        } = self;
+        config_buf.size()
+            + tile_tapes.size_bytes()
+            + tile64.size()
+            + tile8.size()
+            + pixels.size_bytes()
+            + ts_buf.size()
+    }
 }
 
 /// Error returned when resizing a [`Buffers`] object
@@ -772,7 +811,7 @@ impl BindGroups {
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("pixel tiles bind group"),
-                    layout: &ctx.tiles_ctx.bind_group_layout,
+                    layout: &ctx.pixels_ctx.bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
@@ -915,7 +954,7 @@ impl MappedImage<'_> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-tag!(TilesBufferTag, u32, STORAGE | COPY_DST);
+tag!(TilesBufferTag, u32, STORAGE | COPY_DST | INDIRECT);
 tag!(ValuesBufferTag, u32, STORAGE | COPY_DST);
 
 /// Root tile buffers store strata-packed tile lists
@@ -1144,6 +1183,24 @@ impl Context {
     pub fn buffers(&self) -> Buffers {
         Buffers::new(&self.gpu.device, 64.into(), self.has_timestamps)
             .expect("64 is always a valid buffers size")
+    }
+
+    /// Returns an [`ImageReadBuffer`], sized to read from a [`Buffers`] object
+    ///
+    /// This is infallible because the [`Buffers`] constructor also ensures that
+    /// the image size is appropriate for the image read buffer (even though
+    /// it's constructed separately).
+    pub fn image_buffer(&self, buffers: &Buffers) -> ImageReadBuffer {
+        ImageReadBuffer::new(
+            &self.gpu.device,
+            "image".to_owned(),
+            buffers.image_size,
+        )
+        .expect(
+            "buffers.image_size should always be \
+             a valid size for ImageReadBuffer::new",
+        )
+        // TODO make this just return a dummy size and resize when mapping?
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1553,9 +1610,9 @@ struct ResetContext;
 
 impl ResetContext {
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
-        // Clear only the `count` member of the tile64 `tiles_out` buffer
-        encoder.clear_buffer(buffers.tile64.tiles.data(), 12, Some(4));
-        encoder.clear_buffer(buffers.tile8.tiles.data(), 12, Some(4));
+        // Clear `count` and `wg_size` members of the tile output buffers
+        encoder.clear_buffer(buffers.tile64.tiles.data(), 0, Some(16));
+        encoder.clear_buffer(buffers.tile8.tiles.data(), 0, Some(16));
         buffers.tile64.values.clear(encoder);
         buffers.tile8.values.clear(encoder);
         buffers.pixels.clear(encoder);

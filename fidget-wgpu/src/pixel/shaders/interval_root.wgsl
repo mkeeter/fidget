@@ -48,10 +48,8 @@ fn interval_root_main(
         return;
     }
 
-    // We have to subdivide and recurse, which we do by writing the 64^3
+    // We have to subdivide and recurse, which we do by writing the 64^2
     // tile and incrementing our dispatch size
-
-    // TODO we don't have sorting here, so we need to update wg as well?
     let offset = atomicAdd(&tiles_out.count, 1u);
     tiles_out.active_tiles[offset] = tile_index_xy;
 
@@ -61,6 +59,13 @@ fn interval_root_main(
         let tape_index = get_tape_offset_for_level(corner_pos, 64u);
         tile_tape[tape_index] = next;
     }
+
+    // We dispatch a maximum of [32768, 1, 1] and iterate in the shader
+    let count = offset + 1u;
+    let wg_dispatch_x = min(count, 32768u);
+    atomicMax(&tiles_out.wg_size[0], wg_dispatch_x);
+    atomicMax(&tiles_out.wg_size[1], 1u);
+    atomicMax(&tiles_out.wg_size[2], 1u);
 }
 
 /// Allocates a new chunk, returning a past-the-end pointer

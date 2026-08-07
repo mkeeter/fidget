@@ -334,10 +334,9 @@ fn compile_shader(src: &str, desc: &str) {
 mod test {
     use super::*;
     use fidget_core::{context::Tree, vm::VmShape};
-    use fidget_raster::voxel::RenderSize;
 
     #[test]
-    fn render_and_merge() {
+    fn voxel_render_and_merge() {
         // We only run in CI if we're on MacOS (because other runners don't have
         // GPUs and will fail to build the context).
         #[cfg(not(target_os = "macos"))]
@@ -350,7 +349,7 @@ mod test {
         let effects_ctx = effects::Context::new(&gpu);
 
         let size = 128;
-        let image_size = RenderSize::from(size);
+        let image_size = voxel::RenderSize::from(size);
         let mut buf = voxel_ctx.buffers();
         let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
         let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
@@ -394,6 +393,63 @@ mod test {
         let (_out, img_size) = img.image().take();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
+    }
+
+    #[test]
+    fn pixel_render_and_merge() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let pixel_ctx = pixel::Context::new(&gpu);
+
+        let size = 64;
+        let image_size = pixel::RenderSize::from(size);
+        let mut buf = pixel_ctx.buffers();
+
+        let (x, y, _z) = Tree::axes();
+        let x_ = x.clone() - 0.2;
+        let sphere1 = (x_.square() + y.square()).sqrt() - Tree::constant(0.5);
+        let x_ = x + 0.2;
+        let sphere2 = (x_.square() + y.square()).sqrt() - Tree::constant(0.5);
+        let spheres = sphere1.min(sphere2);
+        let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
+
+        pixel_ctx
+            .submit(
+                &shape,
+                &mut buf,
+                None,
+                &pixel::RenderConfig {
+                    image_size,
+                    world_to_model: nalgebra::Matrix3::identity(),
+                    pixel_perfect: false,
+                    z: 0.0,
+                },
+            )
+            .unwrap();
+        let mut pixel_out = pixel_ctx.image_buffer(&buf);
+        let img = pixel_ctx.map_image(&mut pixel_out);
+        let img_out = img.image();
+        let img_size = img_out.size();
+        assert_eq!(img_size.width(), size);
+        assert_eq!(img_size.height(), size);
+
+        for y in 0..size {
+            for x in 0..size {
+                let p = &img_out[(y as usize, x as usize)];
+                if p.inside() {
+                    print!("XX");
+                } else {
+                    print!("  ");
+                }
+            }
+            println!();
+        }
     }
 
     #[test]

@@ -81,6 +81,13 @@ fn interval_tile_worker(
     }
     let next_tape_offset = get_tape_offset_for_level(corner_pos, SUBTILE_SIZE);
     tile_tape[next_tape_offset] = tape_start;
+
+    // We dispatch a maximum of [32768, 1, 1] and iterate in the shader
+    let count = offset + 1u;
+    let wg_dispatch_x = min(count, 32768u);
+    atomicMax(&subtiles_out.wg_size[0], wg_dispatch_x);
+    atomicMax(&subtiles_out.wg_size[1], 1u);
+    atomicMax(&subtiles_out.wg_size[2], 1u);
 }
 
 /// Allocates a new chunk, returning a past-the-end pointer
