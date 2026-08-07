@@ -2311,7 +2311,7 @@ impl Context {
         // Divide by 2 to go from `u32` -> `TapeWord`
         let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
         let config = Config {
-            mat: mat.data.as_slice().try_into().unwrap(),
+            mat: mat.data.as_slice().try_into().unwrap(), // TODO TRANSPOSE??
             axes: shape.axes,
             render_size: [
                 render_size.width(),

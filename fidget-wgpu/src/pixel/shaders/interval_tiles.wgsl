@@ -57,6 +57,7 @@ fn interval_tile_worker(
     let out = run_tape(tape_start, m, &stack);
 
     let v = out.value.v;
+
     if v[1] < 0.0 {
         // write a full distance pixel
         subtile_values[subtile_index_xy] = distance_pixel_fill(1, true);

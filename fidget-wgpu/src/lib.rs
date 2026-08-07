@@ -414,8 +414,8 @@ mod test {
         let mut buf = pixel_ctx.buffers();
 
         let (x, y, _z) = Tree::axes();
-        //let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
-        let shape = gpu.shape(&VmShape::from(x)).unwrap();
+        let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
+        let shape = gpu.shape(&VmShape::from(circle)).unwrap();
 
         let mut pixel_out = pixel_ctx.image_buffer();
         pixel_ctx
@@ -446,11 +446,37 @@ mod test {
         let tile8_values = gpu.read_vec::<u32>(buf.tile8.values.data());
         println!("data:\n{tile8_data:?}\n");
         println!("values:\n{tile8_values:?}\n");
+        println!("values as values");
+        let mut iter = tile8_values.iter();
+        for y in 0..size.next_multiple_of(64) / 8 {
+            for x in 0..size.next_multiple_of(64) / 8 {
+                let v = iter.next().unwrap();
+                print!("{:.2} ", f32::from_bits(*v));
+            }
+            println!();
+        }
+        println!();
 
-        img_out.iter().for_each(|p| println!("{:?}", p.unpack()));
         for y in 0..size {
             for x in 0..size {
-                let p = &img_out[(y as usize, x as usize)];
+                let p = img_out[(y as usize, x as usize)];
+                /*
+                match p {
+                    fidget_raster::pixel::DistancePixel::Value(v) => {
+                        print!("{v:.2} ")
+                    }
+                    fidget_raster::pixel::DistancePixel::Fill {
+                        inside,
+                        ..
+                    } => {
+                        if inside {
+                            print!("###")
+                        } else {
+                            print!("...")
+                        }
+                    }
+                }
+                */
                 if p.inside() {
                     print!("#");
                 } else {

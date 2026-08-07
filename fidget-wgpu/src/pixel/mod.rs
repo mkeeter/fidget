@@ -1316,7 +1316,7 @@ impl Context {
         // 16 bytes, so we'll just use a mat4x4 for simplicity
         let mat =
             settings.world_to_model * buffers.image_size.screen_to_world();
-        let mut mat4 = nalgebra::Matrix3x4::<f32>::identity();
+        let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
 
         // Divide by 2 to go from `u32` -> `TapeWord`
@@ -1335,6 +1335,9 @@ impl Context {
             pixel_perfect: settings.pixel_perfect as u32,
             _pad: 0,
         };
+        println!("{config:?}");
+        println!("mat:\n{mat}");
+        println!("mat4:\n{mat4}");
 
         {
             // We load the `Config` and shape tape data.
