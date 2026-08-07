@@ -417,13 +417,13 @@ pub struct Buffers {
     tile_tapes: ArrayBuffer<TileTapesBufferTag>,
 
     /// Root tile buffers (64²)
-    tile64: TileBuffers<64>,
+    pub(crate) tile64: TileBuffers<64>, // TODO make private
 
     /// Second-stage tile buffers (8²)
-    tile8: TileBuffers<8>,
+    pub(crate) tile8: TileBuffers<8>, // TODO make private
 
     /// Pixel data
-    pixels: ImageBuffer<PixelBufferTag>,
+    pub(crate) pixels: ImageBuffer<PixelBufferTag>, // TODO make private
 
     /// Query set for timestamps
     ///
@@ -957,16 +957,18 @@ impl MappedImage<'_> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-tag!(TilesBufferTag, u32, STORAGE | COPY_DST | INDIRECT);
-tag!(ValuesBufferTag, u32, STORAGE | COPY_DST);
+// TODO make these private and remove COPY_SRC
+tag!(pub(crate) TilesBufferTag, u32, STORAGE | COPY_DST | COPY_SRC | INDIRECT);
+tag!(pub(crate) ValuesBufferTag, u32, STORAGE | COPY_SRC | COPY_DST);
 
 /// Root tile buffers store strata-packed tile lists
-struct TileBuffers<const N: usize> {
+// TODO make private
+pub(crate) struct TileBuffers<const N: usize> {
     /// Output tiles
-    tiles: ArrayBuffer<TilesBufferTag>,
+    pub(crate) tiles: ArrayBuffer<TilesBufferTag>, // TODO private
 
     /// Tile values (empty / full)
-    values: ImageBuffer<ValuesBufferTag>,
+    pub(crate) values: ImageBuffer<ValuesBufferTag>, // TODO private
 }
 
 /// Error type when resizing root tile buffers
@@ -1033,11 +1035,18 @@ impl<const N: usize> TileBuffers<N> {
         let ny = usize::try_from(render_size.ny()).unwrap();
         // wg_dispatch: [u32; 3] (unused)
         // count: u32,
-        4 + nx * ny
+        4 + nx
+            .checked_mul(ny)
+            .unwrap()
+            .checked_mul((64 / N) * (64 / N))
+            .unwrap()
     }
 
     fn values_buf_size(render_size: TileRenderSize) -> ImageSize {
-        ImageSize::new(render_size.nx(), render_size.ny())
+        ImageSize::new(
+            render_size.nx().checked_mul(64 / N as u32).unwrap(),
+            render_size.ny().checked_mul(64 / N as u32).unwrap(),
+        )
     }
 
     /// Grows all of the buffers to fit a particular render size

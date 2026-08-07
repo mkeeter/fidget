@@ -397,6 +397,8 @@ mod test {
 
     #[test]
     fn pixel_render_and_merge() {
+        use fidget_raster::pixel::RawDistancePixel;
+
         // We only run in CI if we're on MacOS (because other runners don't have
         // GPUs and will fail to build the context).
         #[cfg(not(target_os = "macos"))]
@@ -407,17 +409,13 @@ mod test {
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let pixel_ctx = pixel::Context::new(&gpu);
 
-        let size = 8;
+        let size = 64;
         let image_size = pixel::RenderSize::from(size);
         let mut buf = pixel_ctx.buffers();
 
         let (x, y, _z) = Tree::axes();
-        let x_ = x.clone() - 0.2;
-        let sphere1 = (x_.square() + y.square()).sqrt() - Tree::constant(0.5);
-        let x_ = x + 0.2;
-        let sphere2 = (x_.square() + y.square()).sqrt() - Tree::constant(0.5);
-        let spheres = sphere1.min(sphere2);
-        let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
+        //let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
+        let shape = gpu.shape(&VmShape::from(x)).unwrap();
 
         let mut pixel_out = pixel_ctx.image_buffer();
         pixel_ctx
@@ -439,14 +437,24 @@ mod test {
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
 
+        let tile64_data = gpu.read_vec::<u32>(buf.tile64.tiles.data());
+        let tile64_values = gpu.read_vec::<u32>(buf.tile64.values.data());
+        println!("data:\n{tile64_data:?}\n");
+        println!("values:\n{tile64_values:?}\n");
+
+        let tile8_data = gpu.read_vec::<u32>(buf.tile8.tiles.data());
+        let tile8_values = gpu.read_vec::<u32>(buf.tile8.values.data());
+        println!("data:\n{tile8_data:?}\n");
+        println!("values:\n{tile8_values:?}\n");
+
         img_out.iter().for_each(|p| println!("{:?}", p.unpack()));
         for y in 0..size {
             for x in 0..size {
                 let p = &img_out[(y as usize, x as usize)];
                 if p.inside() {
-                    print!("XX");
+                    print!("#");
                 } else {
-                    print!("  ");
+                    print!(".");
                 }
             }
             println!();
