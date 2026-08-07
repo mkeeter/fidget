@@ -120,7 +120,7 @@ use fidget_raster::voxel::{GeometryPixel, Image};
 use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-pub use fidget_raster::voxel::RenderConfig;
+pub use fidget_raster::voxel::{RenderConfig, RenderSize};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const INTERVAL_INPUT: &str = include_str!("shaders/interval_input.wgsl");
