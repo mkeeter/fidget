@@ -1333,9 +1333,6 @@ impl Context {
             pixel_perfect: settings.pixel_perfect as u32,
             _pad: 0,
         };
-        println!("{config:?}");
-        println!("mat:\n{mat}");
-        println!("mat4:\n{mat4}");
 
         {
             // We load the `Config` and shape tape data.
