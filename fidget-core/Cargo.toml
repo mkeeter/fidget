@@ -29,6 +29,14 @@ getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] 
 getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
 
 [features]
+## Implement [`Hash`] for [`Tree`](crate::context::Tree) and
+## [`TreeOp`](crate::context::TreeOp).
+##
+## The hash is purely structural and consistent with `Tree`'s `PartialEq`,
+## which is what makes a tree usable as a cache key for whatever was built
+## from it. Off by default because it commits the crate to that hashing
+## contract; it pulls in no dependencies and costs nothing when disabled.
+hash = []
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each
 ## evaluator type, e.g. `float_slice_tests!(...)`.
