@@ -41,6 +41,10 @@ enum Command {
             value_parser = parse_vec2
         )]
         center: [f32; 2],
+
+        /// Render on the GPU
+        #[clap(long)]
+        wgpu: bool,
     },
 
     /// Rasterizes to a 3D image
@@ -546,6 +550,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     world_to_model: nalgebra::Matrix3<f32>,
     settings: &ImageSettings,
     mode: RenderMode2D,
+    threads: Option<&fidget::render::ThreadPool>,
 ) -> Vec<u8> {
     let size = settings.image_size();
     if matches!(mode, RenderMode2D::Brute) {
@@ -585,23 +590,13 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     } else {
         let bound_shape = fidget::shape::BoundShape::try_from(shape)
             .expect("no vars allowed");
-        let threads = match settings.threads {
-            Some(n) if n.get() == 1 => None,
-            Some(n) => Some(fidget::render::ThreadPool::Custom(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(n.get())
-                    .build()
-                    .unwrap(),
-            )),
-            None => Some(fidget::render::ThreadPool::Global),
-        };
         let render_cfg = fidget::raster::pixel::RenderConfig {
             pixel_perfect: matches!(mode, RenderMode2D::Sdf),
             world_to_model,
             ..fidget::raster::pixel::RenderConfig::from_size(size)
         };
         let eval_cfg = fidget::raster::pixel::EvalConfig {
-            threads: threads.as_ref(),
+            threads,
             ..Default::default()
         };
         let mut image = fidget::raster::Image::default();
@@ -612,31 +607,75 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 &eval_cfg,
             )
             .expect("render should not be cancelled");
-            match mode {
-                RenderMode2D::Mono => {
-                    image = fidget::raster::effects::to_rgba_bitmap(
-                        tmp,
-                        false,
-                        eval_cfg.threads,
-                    );
-                }
-                RenderMode2D::Sdf => {
-                    image = fidget::raster::effects::to_rgba_distance(
-                        tmp,
-                        eval_cfg.threads,
-                    );
-                }
-                RenderMode2D::Debug => {
-                    image = fidget::raster::effects::to_debug_bitmap(
-                        tmp,
-                        eval_cfg.threads,
-                    );
-                }
-                RenderMode2D::Brute => unreachable!(),
-            }
+            image = postprocess2d(tmp, &mode, threads);
         }
         image.into_iter().flatten().collect()
     }
+}
+
+fn postprocess2d(
+    image: fidget::raster::pixel::Image,
+    mode: &RenderMode2D,
+    threads: Option<&fidget::render::ThreadPool>,
+) -> fidget::raster::RgbaImage {
+    match mode {
+        RenderMode2D::Mono => {
+            fidget::raster::effects::to_rgba_bitmap(image, false, threads)
+        }
+        RenderMode2D::Sdf => {
+            fidget::raster::effects::to_rgba_distance(image, threads)
+        }
+        RenderMode2D::Debug => {
+            fidget::raster::effects::to_debug_bitmap(image, threads)
+        }
+        RenderMode2D::Brute => unreachable!(),
+    }
+}
+
+fn run2d_wgpu(
+    shape: fidget::vm::VmShape,
+    world_to_model: nalgebra::Matrix3<f32>,
+    settings: &ImageSettings,
+    mode: RenderMode2D,
+    threads: Option<&fidget::render::ThreadPool>,
+) -> Result<Vec<u8>> {
+    if matches!(mode, RenderMode2D::Brute) {
+        bail!("cannot render in brute-force mode with --wgpu");
+    }
+
+    // Build a fidget gpu context
+    let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?;
+
+    let ctx = fidget::wgpu::pixel::Context::new(&gpu);
+    let image_size = settings.image_size();
+    let cfg = fidget::wgpu::pixel::RenderConfig {
+        pixel_perfect: matches!(mode, RenderMode2D::Sdf),
+        world_to_model,
+        image_size,
+        z: 0.0,
+    };
+    let mut image = Default::default();
+    let start = std::time::Instant::now();
+    let mut buffers = ctx.buffers();
+    let mut out = ctx.image_buffer();
+    let shape = gpu.shape(&shape)?;
+    let mut compute_pass_time = std::time::Duration::ZERO;
+    for _ in 0..settings.n {
+        ctx.submit(&shape, &mut buffers, Some(&mut out), &cfg)?;
+        let img = ctx.map_image(&mut out);
+        compute_pass_time += img.time().unwrap();
+        image = postprocess2d(img.image(), &mode, threads);
+    }
+    info!(
+        "Rendered {}× at {:.2?} ms/frame ({:.2?} ms/compute pass)",
+        settings.n,
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
+        compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
+    );
+
+    info!("Post-processed image in {:?}", start.elapsed());
+
+    Ok(image.as_bytes().to_owned())
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -763,6 +802,7 @@ fn main() -> Result<()> {
             settings,
             mode,
             center,
+            wgpu,
         } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
@@ -770,17 +810,38 @@ fn main() -> Result<()> {
             let scale = nalgebra::Scale2::new(s, s);
             let center = nalgebra::Translation2::new(-center[0], -center[1]);
             let t = center.to_homogeneous() * scale.to_homogeneous();
-            let buffer = match settings.eval {
+
+            let threads = match settings.threads {
+                Some(n) if n.get() == 1 => None,
+                Some(n) => Some(fidget::render::ThreadPool::Custom(
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(n.get())
+                        .build()
+                        .unwrap(),
+                )),
+                None => Some(fidget::render::ThreadPool::Global),
+            };
+
+            let buffer = if wgpu {
                 #[cfg(feature = "jit")]
-                EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, t, &settings, mode)
+                if matches!(settings.eval, EvalMode::Jit) {
+                    bail!("can't combine --wgpu and --jit");
                 }
-                EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, t, &settings, mode)
+                let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                run2d_wgpu(shape, t, &settings, mode, threads.as_ref())?
+            } else {
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run2d(shape, t, &settings, mode, threads.as_ref())
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run2d(shape, t, &settings, mode, threads.as_ref())
+                    }
                 }
             };
 

@@ -472,6 +472,9 @@ impl<P: Default + Copy + Clone> Image<P, voxel::RenderSize> {
 /// Three-channel color image
 pub type ColorImage = Image<[u8; 3]>;
 
+/// Four-channel color image
+pub type RgbaImage = Image<[u8; 4]>;
+
 /// Error type for image builder
 #[derive(thiserror::Error, Debug, PartialEq)]
 #[error(
