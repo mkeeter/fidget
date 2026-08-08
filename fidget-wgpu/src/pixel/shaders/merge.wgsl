@@ -1,6 +1,6 @@
 /// Merge all tile stages into a pixel array
-@group(2) @binding(0) var<storage, read> tile64_zmin: array<RawDistancePixel>;
-@group(2) @binding(1) var<storage, read> tile8_zmin: array<RawDistancePixel>;
+@group(2) @binding(0) var<storage, read> tile64_values: array<RawDistancePixel>;
+@group(2) @binding(1) var<storage, read> tile8_values: array<RawDistancePixel>;
 @group(2) @binding(2) var<storage, read_write> pixels: array<RawDistancePixel>;
 
 // Dispatched as an 2D workgroup across render_size pixels
@@ -28,8 +28,8 @@ fn merge_main(
 
     // Merge tiles into the voxels image, preferring higher resolution
     var out = pixels[index1];
-    out = merge_pixel(out, tile8_zmin[index8]);
-    out = merge_pixel(out, tile64_zmin[index64]);
+    out = merge_pixel(out, tile8_values[index8]);
+    out = merge_pixel(out, tile64_values[index64]);
 
     pixels[index1] = out;
 
