@@ -38,14 +38,14 @@ fn interval_tile_worker(
     let tile_corner = vec2u(tx, ty);
 
     // Subtile corner position
-    let subtile_corner = tile_corner * 4 + local_id;
+    let subtile_corner = tile_corner * 8 + local_id;
     let subtile_index_xy = subtile_corner.x + subtile_corner.y * size_subtiles.x;
 
     // Subtile corner position, in voxels
     let corner_pos = subtile_corner * SUBTILE_SIZE;
 
     // Compute transformed interval regions (XY only)
-    let m_xy = interval_inputs(tile_corner, TILE_SIZE);
+    let m_xy = interval_inputs(subtile_corner, SUBTILE_SIZE);
 
     // Patch in the Z value from the render config
     let m = array(m_xy[0], m_xy[1], build_imm(config.z));
