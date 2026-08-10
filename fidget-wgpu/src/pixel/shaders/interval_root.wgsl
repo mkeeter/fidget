@@ -40,10 +40,10 @@ fn interval_root_main(
 
     // If the tile is completely empty or full, then we write an appropriate
     // value to the output and return immediately.
-    if v[0] > 0.0 && config.pixel_perfect != 0 {
+    if v[0] > 0.0 && config.pixel_perfect == 0 {
         tile_values[tile_index_xy] = distance_pixel_fill(0, false);
         return;
-    } else if v[1] < 0.0 && config.pixel_perfect != 0 {
+    } else if v[1] < 0.0 && config.pixel_perfect == 0 {
         tile_values[tile_index_xy] = distance_pixel_fill(0, true);
         return;
     }
