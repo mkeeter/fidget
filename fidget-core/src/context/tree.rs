@@ -67,7 +67,8 @@ impl Drop for TreeOp {
 /// clone of the other (due to pointer equality) but un-equal if they were
 /// constructed separately (due to float semantics).
 ///
-/// In addition, this makes equality reflexive, allowing us to implement `Eq`.
+/// In addition, this makes equality reflexive, allowing us to implement `Eq`
+/// (and to store values in hashmaps).
 impl PartialEq for TreeOp {
     fn eq(&self, other: &Self) -> bool {
         if std::ptr::eq(self, other) {
@@ -233,14 +234,14 @@ impl From<TreeOp> for Tree {
 
 /// Owned handle for a standalone math tree
 ///
-/// Note that trees use [`OrderedFloat`] semantics for comparisons, not
-/// floating-point semantics.  This makes it possible to quickly compare trees
-/// by checking inner [`TreeOp`] pointer equality, and makes equality reflexive
-/// (so that trees can derive `Eq` instead of just `PartialEq`).  It would be
-/// surprising if this mattered to anyone, because it only affects behavior
-/// around `NAN` values, and storing `NAN` values in a tree constant or
+/// Note that trees use [`OrderedFloat`] semantics for comparisons and hashing,
+/// not floating-point semantics.  This makes it possible to quickly compare
+/// trees by checking inner [`TreeOp`] pointer equality, and makes equality
+/// reflexive (so that trees can derive `Eq` instead of just `PartialEq`).  It
+/// would be surprising if this mattered to anyone, because it only affects
+/// behavior around `NAN` values, and storing `NAN` values in a tree constant or
 /// transform matrix would be a strange thing to do.
-#[derive(Clone, Debug, PartialEq, Eq, facet::Facet)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, facet::Facet)]
 pub struct Tree(#[facet(opaque)] Arc<TreeOp>);
 
 impl std::ops::Deref for Tree {
@@ -505,6 +506,7 @@ impl std::ops::Neg for Tree {
 mod test {
     use super::*;
     use crate::Context;
+    use std::hash::BuildHasher;
 
     #[test]
     fn tree_x() {
@@ -681,6 +683,20 @@ mod test {
     }
 
     #[test]
+    fn deep_recursion_hash() {
+        let mut x1 = Tree::x();
+        for _ in 0..1_000_000 {
+            x1 += 1.0;
+        }
+        let mut x2 = Tree::x();
+        for _ in 0..1_000_000 {
+            x2 += 1.0;
+        }
+        let state = std::hash::RandomState::new();
+        assert_eq!(state.hash_one(&x1), state.hash_one(&x2));
+    }
+
+    #[test]
     fn deep_recursion_import() {
         let mut x = Tree::x();
         for _ in 0..1_000_000 {
@@ -844,6 +860,35 @@ mod test {
         let c = Tree::from(1.0) + Tree::y();
         assert_ne!(a, c);
         assert_ne!(b, c);
+
+        let a = Tree::x().cos();
+        let a_ = Tree::x().cos();
+        let b = Tree::x().sin();
+        assert_eq!(a, a_);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn tree_hash_simple() {
+        let a = Tree::from(1.0) + Tree::x();
+        let a_ = a.clone();
+        let b = Tree::from(1.0) + Tree::x();
+        let state = std::hash::RandomState::new();
+
+        assert_eq!(state.hash_one(&a), state.hash_one(&b));
+        assert_eq!(state.hash_one(&a), state.hash_one(&a_));
+
+        let c = Tree::from(1.0) + Tree::y();
+        assert_ne!(state.hash_one(&a), state.hash_one(&c));
+
+        let d = Tree::from(1.0) * Tree::x();
+        assert_ne!(state.hash_one(&a), state.hash_one(&d));
+
+        let a = Tree::x().cos();
+        let a_ = Tree::x().cos();
+        let b = Tree::x().sin();
+        assert_eq!(state.hash_one(&a), state.hash_one(&a_));
+        assert_ne!(state.hash_one(&a), state.hash_one(&b));
     }
 
     #[test]
@@ -862,5 +907,29 @@ mod test {
         let a = Tree::x().remap_affine(affine);
         let b = Tree::x().remap_affine(affine);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn tree_hash_nan() {
+        let a = Tree::from(f32::NAN);
+        let a_ = a.clone();
+        let b = Tree::from(f32::NAN);
+        let c = Tree::from(1.0);
+        let state = std::hash::RandomState::new();
+
+        assert_eq!(state.hash_one(&a), state.hash_one(a_));
+        assert_eq!(state.hash_one(&a), state.hash_one(&b));
+        assert_ne!(state.hash_one(&a), state.hash_one(&c));
+
+        let affine: nalgebra::Affine3<_> =
+            nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, f64::NAN));
+        let a = Tree::x().remap_affine(affine);
+        let b = Tree::x().remap_affine(affine);
+        assert_eq!(state.hash_one(&a), state.hash_one(&b));
+
+        let affine: nalgebra::Affine3<_> =
+            nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, 3.0));
+        let c = Tree::x().remap_affine(affine);
+        assert_ne!(state.hash_one(&a), state.hash_one(&c));
     }
 }
