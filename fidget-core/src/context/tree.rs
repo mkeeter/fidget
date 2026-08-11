@@ -59,6 +59,79 @@ impl Drop for TreeOp {
     }
 }
 
+/// `TreeOp` equality uses [`OrderedFloat`] semantics for comparisons
+///
+/// This is subtle, but it ensures consistent behavior while uses pointer
+/// equality for short-circuiting recursive checks.  If we instead used standard
+/// floating-point semantics, two `NAN` trees would considered equal if one is a
+/// clone of the other (due to pointer equality) but un-equal if they were
+/// constructed separately (due to float semantics).
+///
+/// In addition, this makes equality reflexive, allowing us to implement `Eq`.
+impl PartialEq for TreeOp {
+    fn eq(&self, other: &Self) -> bool {
+        if std::ptr::eq(self, other) {
+            return true;
+        }
+        // Heap recursion using a `Vec`, to avoid blowing up the stack
+        let mut todo = vec![(self, other)];
+        while let Some((a, b)) = todo.pop() {
+            // Pointer equality lets us short-circuit deep checks
+            if std::ptr::eq(a, b) {
+                continue;
+            }
+            // Otherwise, we check opcodes then recurse
+            match (a, b) {
+                (TreeOp::Input(a), TreeOp::Input(b)) => {
+                    if *a != *b {
+                        return false;
+                    }
+                }
+                (TreeOp::Const(a), TreeOp::Const(b)) => {
+                    if OrderedFloat(*a) != OrderedFloat(*b) {
+                        return false;
+                    }
+                }
+                (TreeOp::Unary(op_a, ..), TreeOp::Unary(op_b, ..)) => {
+                    if *op_a != *op_b {
+                        return false;
+                    }
+                }
+                (TreeOp::Binary(op_a, ..), TreeOp::Binary(op_b, ..)) => {
+                    if *op_a != *op_b {
+                        return false;
+                    }
+                }
+                (TreeOp::RemapAxes { .. }, TreeOp::RemapAxes { .. }) => {
+                    // No non-recursive state to compare
+                }
+                (
+                    TreeOp::RemapAffine { mat: mat_a, .. },
+                    TreeOp::RemapAffine { mat: mat_b, .. },
+                ) => {
+                    if mat_a
+                        .matrix()
+                        .iter()
+                        .zip(mat_b.matrix().iter())
+                        .any(|(a, b)| OrderedFloat(*a) != OrderedFloat(*b))
+                    {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+            todo.extend(
+                a.iter_children()
+                    .zip(b.iter_children())
+                    .map(|(a, b)| (a.as_ref(), b.as_ref())),
+            )
+        }
+        true
+    }
+}
+
+impl Eq for TreeOp {}
+
 impl TreeOp {
     /// Checks whether the given tree is eligible for fast dropping
     ///
@@ -138,7 +211,15 @@ impl From<TreeOp> for Tree {
 }
 
 /// Owned handle for a standalone math tree
-#[derive(Clone, Debug, facet::Facet)]
+///
+/// Note that trees use [`OrderedFloat`] semantics for comparisons, not
+/// floating-point semantics.  This makes it possible to quickly compare trees
+/// by checking inner [`TreeOp`] pointer equality, and makes equality reflexive
+/// (so that trees can derive `Eq` instead of just `PartialEq`).  It would be
+/// surprising if this mattered to anyone, because it only affects behavior
+/// around `NAN` values, and storing `NAN` values in a tree constant or
+/// transform matrix would be a strange thing to do.
+#[derive(Clone, Debug, PartialEq, Eq, facet::Facet)]
 pub struct Tree(#[facet(opaque)] Arc<TreeOp>);
 
 impl std::ops::Deref for Tree {
@@ -147,103 +228,6 @@ impl std::ops::Deref for Tree {
         &self.0
     }
 }
-
-/// Tree equality uses [`OrderedFloat`] semantics for comparisons
-///
-/// This is subtle, but it ensures consistent behavior while uses pointer
-/// equality for short-circuiting recursive checks.  If we instead used standard
-/// floating-point semantics, two `NAN` trees would considered equal if one is a
-/// clone of the other (due to pointer equality) but un-equal if they were
-/// constructed separately (due to float semantics).
-///
-/// In addition, this makes equality reflexive, allowing us to implement `Eq`.
-impl PartialEq for Tree {
-    fn eq(&self, other: &Self) -> bool {
-        if self.ptr_eq(other) {
-            return true;
-        }
-        // Heap recursion using a `Vec`, to avoid blowing up the stack
-        let mut todo = vec![(&self.0, &other.0)];
-        while let Some((a, b)) = todo.pop() {
-            // Pointer equality lets us short-circuit deep checks
-            if Arc::as_ptr(a) == Arc::as_ptr(b) {
-                continue;
-            }
-            // Otherwise, we check opcodes then recurse
-            match (a.as_ref(), b.as_ref()) {
-                (TreeOp::Input(a), TreeOp::Input(b)) => {
-                    if *a != *b {
-                        return false;
-                    }
-                }
-                (TreeOp::Const(a), TreeOp::Const(b)) => {
-                    if OrderedFloat(*a) != OrderedFloat(*b) {
-                        return false;
-                    }
-                }
-                (TreeOp::Unary(op_a, arg_a), TreeOp::Unary(op_b, arg_b)) => {
-                    if *op_a != *op_b {
-                        return false;
-                    }
-                    todo.push((arg_a, arg_b));
-                }
-                (
-                    TreeOp::Binary(op_a, lhs_a, rhs_a),
-                    TreeOp::Binary(op_b, lhs_b, rhs_b),
-                ) => {
-                    if *op_a != *op_b {
-                        return false;
-                    }
-                    todo.push((lhs_a, lhs_b));
-                    todo.push((rhs_a, rhs_b));
-                }
-                (
-                    TreeOp::RemapAxes {
-                        target: t_a,
-                        x: x_a,
-                        y: y_a,
-                        z: z_a,
-                    },
-                    TreeOp::RemapAxes {
-                        target: t_b,
-                        x: x_b,
-                        y: y_b,
-                        z: z_b,
-                    },
-                ) => {
-                    todo.push((t_a, t_b));
-                    todo.push((x_a, x_b));
-                    todo.push((y_a, y_b));
-                    todo.push((z_a, z_b));
-                }
-                (
-                    TreeOp::RemapAffine {
-                        target: t_a,
-                        mat: mat_a,
-                    },
-                    TreeOp::RemapAffine {
-                        target: t_b,
-                        mat: mat_b,
-                    },
-                ) => {
-                    if mat_a
-                        .matrix()
-                        .iter()
-                        .zip(mat_b.matrix().iter())
-                        .any(|(a, b)| OrderedFloat(*a) != OrderedFloat(*b))
-                    {
-                        return false;
-                    }
-                    todo.push((t_a, t_b));
-                }
-                _ => return false,
-            }
-        }
-        true
-    }
-}
-
-impl Eq for Tree {}
 
 impl Tree {
     /// Returns an `(x, y, z)` tuple
@@ -826,6 +810,19 @@ mod test {
         let mut ctx = Context::new();
         let node = ctx.import(&t.tree);
         assert_eq!(ctx.eval_xyz(node, 1.0, 2.0, 3.0).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn tree_eq_simple() {
+        let a = Tree::from(1.0) + Tree::x();
+        let a_ = a.clone();
+        let b = Tree::from(1.0) + Tree::x();
+        assert_eq!(a_, a);
+        assert_eq!(a, b);
+
+        let c = Tree::from(1.0) + Tree::y();
+        assert_ne!(a, c);
+        assert_ne!(b, c);
     }
 
     #[test]
