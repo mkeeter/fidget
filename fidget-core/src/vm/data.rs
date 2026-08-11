@@ -190,7 +190,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::AtanReg(index, arg)
                 | SsaOp::ExpReg(index, arg)
                 | SsaOp::LnReg(index, arg)
-                | SsaOp::NotReg(index, arg) => {
+                | SsaOp::NotReg(index, arg)
+                | SsaOp::RandReg(index, arg) => {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
                 }
@@ -274,6 +275,7 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::DivRegReg(index, lhs, rhs)
                 | SsaOp::AtanRegReg(index, lhs, rhs)
                 | SsaOp::CompareRegReg(index, lhs, rhs)
+                | SsaOp::MixRegReg(index, lhs, rhs)
                 | SsaOp::ModRegReg(index, lhs, rhs) => {
                     *index = new_index;
                     *lhs = workspace.get_or_insert_active(*lhs);
@@ -289,6 +291,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::AtanRegImm(index, arg, _imm)
                 | SsaOp::CompareRegImm(index, arg, _imm)
                 | SsaOp::CompareImmReg(index, arg, _imm)
+                | SsaOp::MixRegImm(index, arg, _imm)
+                | SsaOp::MixImmReg(index, arg, _imm)
                 | SsaOp::ModRegImm(index, arg, _imm)
                 | SsaOp::ModImmReg(index, arg, _imm) => {
                     *index = new_index;

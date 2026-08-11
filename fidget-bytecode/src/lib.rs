@@ -79,6 +79,7 @@ pub enum BytecodeOp {
     Ceil,
     Round,
     Not,
+    Rand,
     Sin,
     Cos,
     Tan,
@@ -93,6 +94,7 @@ pub enum BytecodeOp {
     Div,
     Atan2,
     Compare,
+    Mix,
     Mod,
     Min,
     Max,
@@ -123,6 +125,7 @@ impl From<RegOp> for BytecodeOp {
             RegOp::ExpReg(..) => BytecodeOp::Exp,
             RegOp::LnReg(..) => BytecodeOp::Ln,
             RegOp::NotReg(..) => BytecodeOp::Not,
+            RegOp::RandReg(..) => BytecodeOp::Rand,
             RegOp::Load(..) | RegOp::Store(..) => BytecodeOp::Mem,
             RegOp::CopyImm(..) | RegOp::CopyReg(..) => BytecodeOp::Copy,
 
@@ -142,6 +145,9 @@ impl From<RegOp> for BytecodeOp {
             RegOp::CompareRegReg(..)
             | RegOp::CompareRegImm(..)
             | RegOp::CompareImmReg(..) => BytecodeOp::Compare,
+            RegOp::MixRegReg(..)
+            | RegOp::MixRegImm(..)
+            | RegOp::MixImmReg(..) => BytecodeOp::Mix,
             RegOp::ModRegReg(..)
             | RegOp::ModRegImm(..)
             | RegOp::ModImmReg(..) => BytecodeOp::Mod,
@@ -258,7 +264,8 @@ impl Bytecode {
                 | RegOp::AtanReg(out, reg)
                 | RegOp::ExpReg(out, reg)
                 | RegOp::LnReg(out, reg)
-                | RegOp::NotReg(out, reg) => {
+                | RegOp::NotReg(out, reg)
+                | RegOp::RandReg(out, reg) => {
                     store_reg(1, out)?;
                     store_reg(2, reg)?;
                 }
@@ -271,6 +278,7 @@ impl Bytecode {
                 | RegOp::MinRegImm(out, reg, imm_f32)
                 | RegOp::MaxRegImm(out, reg, imm_f32)
                 | RegOp::CompareRegImm(out, reg, imm_f32)
+                | RegOp::MixRegImm(out, reg, imm_f32)
                 | RegOp::ModRegImm(out, reg, imm_f32)
                 | RegOp::AndRegImm(out, reg, imm_f32)
                 | RegOp::OrRegImm(out, reg, imm_f32) => {
@@ -284,6 +292,7 @@ impl Bytecode {
                 | RegOp::SubImmReg(out, reg, imm_f32)
                 | RegOp::AtanImmReg(out, reg, imm_f32)
                 | RegOp::CompareImmReg(out, reg, imm_f32)
+                | RegOp::MixImmReg(out, reg, imm_f32)
                 | RegOp::ModImmReg(out, reg, imm_f32) => {
                     store_reg(1, out)?;
                     store_reg(3, reg)?;
@@ -299,6 +308,7 @@ impl Bytecode {
                 | RegOp::MinRegReg(out, lhs, rhs)
                 | RegOp::MaxRegReg(out, lhs, rhs)
                 | RegOp::CompareRegReg(out, lhs, rhs)
+                | RegOp::MixRegReg(out, lhs, rhs)
                 | RegOp::ModRegReg(out, lhs, rhs)
                 | RegOp::AndRegReg(out, lhs, rhs)
                 | RegOp::OrRegReg(out, lhs, rhs) => {

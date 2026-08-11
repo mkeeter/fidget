@@ -25,6 +25,7 @@ pub enum UnaryOpcode {
     Exp,
     Ln,
     Not,
+    Rand,
 }
 
 /// A two-argument math operation
@@ -42,6 +43,7 @@ pub enum BinaryOpcode {
     Mod,
     And,
     Or,
+    Mix,
 }
 
 impl BinaryOpcode {
@@ -74,6 +76,10 @@ impl BinaryOpcode {
                     b
                 }
             }
+            BinaryOpcode::Mix => f32::from_bits(crate::rng::mix(
+                (a as f32).to_bits(),
+                (a as f32).to_bits(),
+            )) as f64,
         }
     }
 }
@@ -99,6 +105,7 @@ impl UnaryOpcode {
             UnaryOpcode::Exp => a.exp(),
             UnaryOpcode::Ln => a.ln(),
             UnaryOpcode::Not => (a == 0.0).into(),
+            UnaryOpcode::Rand => crate::rng::rand((a as f32).to_bits()) as f64,
         }
     }
 }

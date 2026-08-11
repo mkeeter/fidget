@@ -288,7 +288,8 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::AtanReg(..)
             | SsaOp::ExpReg(..)
             | SsaOp::LnReg(..)
-            | SsaOp::NotReg(..) => self.op_reg(op),
+            | SsaOp::NotReg(..)
+            | SsaOp::RandReg(..) => self.op_reg(op),
 
             SsaOp::AddRegImm(..)
             | SsaOp::SubRegImm(..)
@@ -302,6 +303,8 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::MaxRegImm(..)
             | SsaOp::CompareRegImm(..)
             | SsaOp::CompareImmReg(..)
+            | SsaOp::MixRegImm(..)
+            | SsaOp::MixImmReg(..)
             | SsaOp::ModRegImm(..)
             | SsaOp::ModImmReg(..)
             | SsaOp::AndRegImm(..)
@@ -315,6 +318,7 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::MinRegReg(..)
             | SsaOp::MaxRegReg(..)
             | SsaOp::CompareRegReg(..)
+            | SsaOp::MixRegReg(..)
             | SsaOp::ModRegReg(..)
             | SsaOp::AndRegReg(..)
             | SsaOp::OrRegReg(..) => self.op_reg_reg(op),

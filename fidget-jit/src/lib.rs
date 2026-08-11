@@ -173,7 +173,7 @@ trait Assembler {
     /// Natural log
     fn build_ln(&mut self, out_reg: u8, lhs_reg: u8);
 
-    /// Less than
+    /// Compare
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
     /// Square
