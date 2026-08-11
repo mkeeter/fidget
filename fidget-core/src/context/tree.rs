@@ -227,7 +227,6 @@ impl PartialEq for Tree {
         true
     }
 }
-impl Eq for Tree {}
 
 impl Tree {
     /// Returns an `(x, y, z)` tuple
