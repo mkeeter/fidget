@@ -1,6 +1,7 @@
 //! Context-free math trees
 use super::op::{BinaryOpcode, UnaryOpcode};
 use crate::{context::NotAVar, var::Var};
+use ordered_float::OrderedFloat;
 use std::{cmp::Ordering, sync::Arc};
 
 /// Opcode type for trees
@@ -147,6 +148,15 @@ impl std::ops::Deref for Tree {
     }
 }
 
+/// Tree equality uses [`OrderedFloat`] semantics for comparisons
+///
+/// This is subtle, but it ensures consistent behavior while uses pointer
+/// equality for short-circuiting recursive checks.  If we instead used standard
+/// floating-point semantics, two `NAN` trees would considered equal if one is a
+/// clone of the other (due to pointer equality) but un-equal if they were
+/// constructed separately (due to float semantics).
+///
+/// In addition, this makes equality reflexive, allowing us to implement `Eq`.
 impl PartialEq for Tree {
     fn eq(&self, other: &Self) -> bool {
         if self.ptr_eq(other) {
@@ -167,7 +177,7 @@ impl PartialEq for Tree {
                     }
                 }
                 (TreeOp::Const(a), TreeOp::Const(b)) => {
-                    if *a != *b {
+                    if OrderedFloat(*a) != OrderedFloat(*b) {
                         return false;
                     }
                 }
@@ -216,7 +226,12 @@ impl PartialEq for Tree {
                         mat: mat_b,
                     },
                 ) => {
-                    if *mat_a != *mat_b {
+                    if mat_a
+                        .matrix()
+                        .iter()
+                        .zip(mat_b.matrix().iter())
+                        .any(|(a, b)| OrderedFloat(*a) != OrderedFloat(*b))
+                    {
                         return false;
                     }
                     todo.push((t_a, t_b));
@@ -227,6 +242,8 @@ impl PartialEq for Tree {
         true
     }
 }
+
+impl Eq for Tree {}
 
 impl Tree {
     /// Returns an `(x, y, z)` tuple
@@ -809,5 +826,23 @@ mod test {
         let mut ctx = Context::new();
         let node = ctx.import(&t.tree);
         assert_eq!(ctx.eval_xyz(node, 1.0, 2.0, 3.0).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn tree_eq_nan() {
+        let a = Tree::from(f32::NAN);
+        let a_ = a.clone();
+        let b = Tree::from(f32::NAN);
+
+        assert!(a.ptr_eq(&a_));
+        assert_eq!(a, a_);
+        assert!(!a.ptr_eq(&b));
+        assert_eq!(a, b);
+
+        let affine: nalgebra::Affine3<_> =
+            nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, f64::NAN));
+        let a = Tree::x().remap_affine(affine);
+        let b = Tree::x().remap_affine(affine);
+        assert_eq!(a, b);
     }
 }
