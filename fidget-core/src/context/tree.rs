@@ -180,6 +180,27 @@ impl TreeOp {
     }
 }
 
+impl std::hash::Hash for TreeOp {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let mut todo = vec![self];
+        while let Some(t) = todo.pop() {
+            std::mem::discriminant(t).hash(state);
+            match t {
+                TreeOp::Input(i) => i.hash(state),
+                TreeOp::Const(v) => OrderedFloat(*v).hash(state),
+                TreeOp::Binary(op, _lhs, _rhs) => op.hash(state),
+                TreeOp::Unary(op, _arg) => op.hash(state),
+                TreeOp::RemapAxes { .. } => (), // no non-recursive state
+                TreeOp::RemapAffine { target: _, mat } => mat
+                    .matrix()
+                    .iter()
+                    .for_each(|f| OrderedFloat(*f).hash(state)),
+            }
+            todo.extend(t.iter_children().map(|t| t.as_ref()))
+        }
+    }
+}
+
 impl From<f64> for Tree {
     fn from(v: f64) -> Tree {
         Tree::constant(v)
