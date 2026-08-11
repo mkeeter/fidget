@@ -61,10 +61,10 @@ impl Drop for TreeOp {
 
 /// `TreeOp` equality uses [`OrderedFloat`] semantics for comparisons
 ///
-/// This is subtle, but it ensures consistent behavior while uses pointer
+/// This is subtle, but it ensures consistent behavior while using pointer
 /// equality for short-circuiting recursive checks.  If we instead used standard
-/// floating-point semantics, two `NAN` trees would considered equal if one is a
-/// clone of the other (due to pointer equality) but un-equal if they were
+/// floating-point semantics, two `NAN` trees would be considered equal if one
+/// is a clone of the other (due to pointer equality) but unequal if they were
 /// constructed separately (due to float semantics).
 ///
 /// In addition, this makes equality reflexive, allowing us to implement `Eq`

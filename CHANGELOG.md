@@ -12,7 +12,12 @@
       too large for WGPU buffers.
 - Add `z` to `fidget::raster::pixel::RenderConfig` to set the Z evaluation level
 - Move `PartialEq` implementation from `Tree` to `TreeOp`; switch to
-  `OrderedFloat` semantics so that pointer comparisons are valid.
+  `OrderedFloat` semantics so that pointer comparisons are valid.  Previously,
+  the `Eq` implementation on `Tree` was invalid (due to non-reflexive `NaN`
+  comparisons), but it's now fixed.
+- Add a `Hash` implementation to `Tree` and `TreeOp`, again using `OrderedFloat`
+  semantics.  This allows trees to be stored in hashmaps; thanks to @virtualritz
+  for the suggestion!
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
