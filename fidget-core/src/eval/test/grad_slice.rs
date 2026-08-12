@@ -456,7 +456,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 let v = if C::ONLY_32BIT {
                     let v = C::eval_f32(a.v);
                     let err = (v - o.v).abs();
-                    let err_frac = err / (v.abs() as f32).max(o.v.abs());
+                    let err_frac = err / v.abs().max(o.v.abs());
                     assert!(
                         o.v == v
                             || err < 1e-6
@@ -596,6 +596,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 }
             }
         }
+        println!();
     }
 
     pub fn test_binary_reg_reg<C: CanonicalBinaryOp>() {
