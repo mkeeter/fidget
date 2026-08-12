@@ -202,15 +202,6 @@ fn build_imm(v: f32) -> Value {
     return Value(vec2f(v));
 }
 
-fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
-    let r = lhs % rhs;
-    if r < 0.0 {
-        return r + abs(rhs);
-    } else {
-        return r;
-    }
-}
-
 fn op_mod(lhs: Value, rhs: Value) -> Value {
     if has_nan(lhs) || has_nan(rhs) {
         return nan_i();

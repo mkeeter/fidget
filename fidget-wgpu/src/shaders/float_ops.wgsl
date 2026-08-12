@@ -127,11 +127,9 @@ fn op_or(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
 }
 
 fn op_not(lhs: Value) -> Value {
-    return Value(f32(lhs.v != 0.0));
+    return Value(f32(lhs.v == 0.0));
 }
 
 fn op_mod(lhs: Value, rhs: Value) -> Value {
-    var out = lhs.v % rhs.v;
-    out -= rhs.v * min(0.0, floor(out / rhs.v));
-    return Value(out);
+    return Value(rem_euclid(lhs.v, rhs.v));
 }

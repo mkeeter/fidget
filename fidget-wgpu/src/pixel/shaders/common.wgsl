@@ -84,6 +84,11 @@ fn distance_pixel_fill(depth: u32, inside: bool) -> RawDistancePixel {
 }
 
 fn distance_pixel_value(v: f32) -> RawDistancePixel {
-    // we don't canonicalize float NaNs here; maybe we should?
-    return RawDistancePixel(bitcast<u32>(v));
+    if v != v {
+        // attempt to canonicalize NaN values, in case someone is trying to do
+        // something weird (???)
+        return RawDistancePixel(bitcast<u32>(nan_f32()));
+    } else {
+        return RawDistancePixel(bitcast<u32>(v));
+    }
 }

@@ -117,28 +117,6 @@ fn build_imm(v: f32) -> Value {
     return Value(vec4f(0.0, 0.0, 0.0, v));
 }
 
-fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
-    let r = lhs % rhs;
-    if r < 0.0 {
-        return r + abs(rhs);
-    } else {
-        return r;
-    }
-}
-
-fn div_euclid(lhs: f32, rhs: f32) -> f32 {
-    let q = trunc(lhs / rhs);
-    if lhs % rhs < 0.0 {
-        if rhs > 0.0 {
-            return q - 1.0;
-        } else {
-            return q + 1.0;
-        }
-    } else {
-        return q;
-    }
-}
-
 fn op_mod(lhs: Value, rhs: Value) -> Value {
     let e = div_euclid(lhs.v.w, rhs.v.w);
     return Value(vec4f(

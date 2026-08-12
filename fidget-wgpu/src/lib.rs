@@ -396,7 +396,7 @@ mod test {
     }
 
     #[test]
-    fn pixel_render_and_merge() {
+    fn pixel_render() {
         // We only run in CI if we're on MacOS (because other runners don't have
         // GPUs and will fail to build the context).
         #[cfg(not(target_os = "macos"))]
@@ -406,43 +406,60 @@ mod test {
 
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let pixel_ctx = pixel::Context::new(&gpu);
-
-        let size = 64;
-        let image_size = pixel::RenderSize::from(size);
         let mut buf = pixel_ctx.buffers();
 
         let (x, y, _z) = Tree::axes();
         let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
         let shape = gpu.shape(&VmShape::from(circle)).unwrap();
 
-        let mut pixel_out = pixel_ctx.image_buffer();
-        pixel_ctx
-            .submit(
-                &shape,
-                &mut buf,
-                Some(&mut pixel_out),
-                &pixel::RenderConfig {
-                    image_size,
-                    world_to_model: nalgebra::Matrix3::identity(),
-                    pixel_perfect: false,
-                    z: 0.0,
-                },
-            )
-            .unwrap();
-        let img = pixel_ctx.map_image(&mut pixel_out);
-        let img_out = img.image();
-        let img_size = img_out.size();
+        // Test a variety of image sizes for correctness
+        for image_size in [
+            pixel::RenderSize::new(64, 64),
+            pixel::RenderSize::new(128, 64),
+            pixel::RenderSize::new(64, 128),
+            pixel::RenderSize::new(27, 51),
+        ] {
+            let mut pixel_out = pixel_ctx.image_buffer();
+            pixel_ctx
+                .submit(
+                    &shape,
+                    &mut buf,
+                    Some(&mut pixel_out),
+                    &pixel::RenderConfig {
+                        image_size,
+                        world_to_model: nalgebra::Matrix3::identity(),
+                        pixel_perfect: false,
+                        z: 0.0,
+                    },
+                )
+                .unwrap();
+            let img_out = pixel_ctx.map_image(&mut pixel_out).image();
+            assert_eq!(img_out.size(), image_size);
 
-        for y in 0..size {
-            for x in 0..size {
-                let p = img_out[(y as usize, x as usize)];
-                if p.inside() {
-                    print!("#");
-                } else {
-                    print!(".");
+            // Basic circle inside/outside check
+            let mat = image_size.screen_to_world();
+            for j in 0..image_size.height() {
+                for i in 0..image_size.width() {
+                    let pos = mat.transform_point(&nalgebra::Point2::new(
+                        i as f32, j as f32,
+                    ));
+                    let p = img_out[(j as usize, i as usize)];
+                    let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
+                    if r < 0.5 {
+                        assert!(
+                            p.inside(),
+                            "pixel should be inside at pixel ({i}, {j}) \
+                            (pos {pos}) with radius {r}"
+                        );
+                    } else {
+                        assert!(
+                            !p.inside(),
+                            "pixel should be outside at pixel ({i}, {j}) \
+                            (pos {pos}) with radius {r}"
+                        );
+                    }
                 }
             }
-            println!();
         }
     }
 

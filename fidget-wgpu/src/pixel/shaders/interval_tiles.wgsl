@@ -58,11 +58,11 @@ fn interval_tile_worker(
 
     let v = out.value.v;
 
-    if v[1] < 0.0 {
+    if v[1] < 0.0 && config.pixel_perfect == 0 {
         // write a full distance pixel
         subtile_values[subtile_index_xy] = distance_pixel_fill(1, true);
         return;
-    } else if v[0] > 0.0 {
+    } else if v[0] > 0.0 && config.pixel_perfect == 0 {
         // write an empty distance pixel
         subtile_values[subtile_index_xy] = distance_pixel_fill(1, false);
         return;

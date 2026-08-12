@@ -31,3 +31,26 @@ struct TileListInput {
     count: u32,
     active_tiles: array<u32>,
 }
+
+fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
+    let r = lhs % rhs;
+    if r < 0.0 {
+        return r + abs(rhs);
+    } else {
+        return r;
+    }
+}
+
+fn div_euclid(lhs: f32, rhs: f32) -> f32 {
+    let q = trunc(lhs / rhs);
+    if lhs % rhs < 0.0 {
+        if rhs > 0.0 {
+            return q - 1.0;
+        } else {
+            return q + 1.0;
+        }
+    } else {
+        return q;
+    }
+}
+
