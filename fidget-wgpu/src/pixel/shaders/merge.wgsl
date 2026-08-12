@@ -32,7 +32,6 @@ fn merge_main(
     out = merge_pixel(out, tile64_values[index64]);
 
     pixels[index1] = out;
-
 }
 
 fn merge_pixel(a: RawDistancePixel, b: RawDistancePixel) -> RawDistancePixel {

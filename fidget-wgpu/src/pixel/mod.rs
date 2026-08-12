@@ -443,11 +443,10 @@ pub struct Buffers {
 }
 
 impl Buffers {
-    fn new(
-        device: &wgpu::Device,
-        image_size: ImageSize,
-        has_timestamps: bool,
-    ) -> Result<Self, BuffersError> {
+    /// Builds a new set of buffers with a default size
+    ///
+    /// It is expected that these will be resized before being used
+    fn new(device: &wgpu::Device, has_timestamps: bool) -> Self {
         // The config buffer is statically sized, so we can check it here
         static_assertions::const_assert!(
             (std::mem::size_of::<Config>()
@@ -456,13 +455,8 @@ impl Buffers {
                 <= BufferType::Storage.max_size()
         );
 
-        // Check that we can build an `ImageReadBuffer` of the appropriate
-        // size (even though they are stored separately)
-        ImageReadArrayBuffer::check_size(Self::image_buf_size(image_size))
-            .map_err(|err| BuffersError {
-                buf: BufferName::Image,
-                err,
-            })?;
+        // Dummy size for infallible construction
+        let image_size = 64.into();
 
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
@@ -479,16 +473,10 @@ impl Buffers {
             "tile tape".to_string(),
             Self::tile_tapes_buf_size(render_size),
         )
-        .map_err(|err| BuffersError {
-            buf: BufferName::TileTapes,
-            err,
-        })?;
+        .unwrap();
 
-        let pixels = ImageBuffer::new(device, "pixels".to_string(), image_size)
-            .map_err(|err| BuffersError {
-                buf: BufferName::Pixel,
-                err,
-            })?;
+        let pixels =
+            ImageBuffer::new(device, "pixels".to_string(), image_size).unwrap();
 
         let ts_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ts"),
@@ -498,18 +486,8 @@ impl Buffers {
             mapped_at_creation: false,
         });
 
-        let tile64 = TileBuffers::new(device, render_size).map_err(|e| {
-            BuffersError {
-                buf: BufferName::Tile64(e.buf),
-                err: e.err,
-            }
-        })?;
-        let tile8 = TileBuffers::new(device, render_size).map_err(|e| {
-            BuffersError {
-                buf: BufferName::Tile8(e.buf),
-                err: e.err,
-            }
-        })?;
+        let tile64 = TileBuffers::new(device, render_size).unwrap();
+        let tile8 = TileBuffers::new(device, render_size).unwrap();
 
         let timestamps = if has_timestamps {
             Some(device.create_query_set(&wgpu::QuerySetDescriptor {
@@ -521,7 +499,7 @@ impl Buffers {
             None
         };
 
-        Ok(Self {
+        Self {
             config_buf,
             image_size,
             tile_tapes,
@@ -531,7 +509,7 @@ impl Buffers {
             timestamps,
             ts_buf,
             bind_groups: Default::default(),
-        })
+        }
     }
 
     /// Returns image buffer size (in bytes)
@@ -1205,8 +1183,7 @@ impl Context {
     /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
     /// [`submit`](Self::submit)).
     pub fn buffers(&self) -> Buffers {
-        Buffers::new(&self.gpu.device, 64.into(), self.has_timestamps)
-            .expect("64 is always a valid buffers size")
+        Buffers::new(&self.gpu.device, self.has_timestamps)
     }
 
     /// Returns an [`ImageReadBuffer`] to read from a [`Buffers`] object
