@@ -453,33 +453,17 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 .collect::<Vec<Grad>>();
             let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
             for (a, &o) in args.iter().zip(out[0].iter()) {
-                let v = if C::ONLY_32BIT {
-                    let v = C::eval_f32(a.v);
-                    let err = (v - o.v).abs();
-                    let err_frac = err / v.abs().max(o.v.abs());
-                    assert!(
-                        o.v == v
-                            || err < 1e-6
-                            || err_frac < 1e-6
-                            || (v.is_nan() && o.v.is_nan()),
-                        "mismatch in '{}' at {a}: {v} != {o} ({err})",
-                        C::NAME,
-                    );
-                    v as f64
-                } else {
-                    let v = C::eval_f64(a.v as f64);
-                    let err = (v as f32 - o.v).abs();
-                    let err_frac = err / (v.abs() as f32).max(o.v.abs());
-                    assert!(
-                        o.v == v as f32
-                            || err < 1e-6
-                            || err_frac < 1e-6
-                            || (v.is_nan() && o.v.is_nan()),
-                        "mismatch in '{}' at {a}: {v} != {o} ({err})",
-                        C::NAME,
-                    );
-                    v
-                };
+                let v = C::eval_f64(a.v as f64);
+                let err = (v as f32 - o.v).abs();
+                let err_frac = err / (v.abs() as f32).max(o.v.abs());
+                assert!(
+                    o.v == v as f32
+                        || err < 1e-6
+                        || err_frac < 1e-6
+                        || (v.is_nan() && o.v.is_nan()),
+                    "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                    C::NAME,
+                );
 
                 if C::discontinuous_at(a.v) {
                     continue;

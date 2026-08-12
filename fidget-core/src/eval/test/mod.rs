@@ -99,7 +99,6 @@ fn bind_xyz<T: Tape, V, G: Into<V>>(
 /// Trait for canonical evaluation testing of unary operations
 pub trait CanonicalUnaryOp {
     const NAME: &'static str;
-    const ONLY_32BIT: bool; // 64-bit evaluations are not meaningful
 
     fn build(ctx: &mut Context, arg: Node) -> Node;
     fn eval_f32(arg: f32) -> f32;
@@ -139,11 +138,10 @@ pub trait CanonicalBinaryOp {
 }
 
 macro_rules! declare_canonical_unary {
-    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr, $o:expr) => {
+    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
         pub struct $i;
         impl CanonicalUnaryOp for $i {
             const NAME: &'static str = stringify!($i);
-            const ONLY_32BIT: bool = $o;
             fn build(ctx: &mut Context, arg: Node) -> Node {
                 Context::$i(ctx, arg).unwrap()
             }
@@ -158,16 +156,8 @@ macro_rules! declare_canonical_unary {
             }
         }
     };
-    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
-        declare_canonical_unary!(Context::$i, |$a| $t, |$b| $u, false);
-    };
     (Context::$i:ident, |$lhs:ident| $t:expr) => {
         declare_canonical_unary!(Context::$i, |$lhs| $t, |_a| false);
-    };
-}
-macro_rules! declare_canonical_unary_32bit {
-    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
-        declare_canonical_unary!(Context::$i, |$a| $t, |$b| $u, true);
     };
 }
 
@@ -278,9 +268,9 @@ pub mod canonical {
     declare_canonical_unary!(Context::ceil, |a| a.ceil());
     declare_canonical_unary!(Context::round, |a| a.round());
     declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
-    declare_canonical_unary_32bit!(
+    declare_canonical_unary!(
         Context::rand,
-        |a| crate::rng::rand(a.to_bits() as u32).into(),
+        |a| crate::rng::rand((a as f32).to_bits()).into(),
         |_a| true // always discontinuous, so ignore all gradients
     );
 
