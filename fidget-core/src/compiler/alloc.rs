@@ -258,6 +258,7 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::LnReg(out, arg) => (out, arg, RegOp::LnReg),
             SsaOp::NotReg(out, arg) => (out, arg, RegOp::NotReg),
             SsaOp::CopyReg(out, arg) => (out, arg, RegOp::CopyReg),
+            SsaOp::RandReg(out, arg) => (out, arg, RegOp::RandReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, op);

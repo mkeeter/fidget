@@ -99,6 +99,8 @@ fn bind_xyz<T: Tape, V, G: Into<V>>(
 /// Trait for canonical evaluation testing of unary operations
 pub trait CanonicalUnaryOp {
     const NAME: &'static str;
+    const ONLY_32BIT: bool; // 64-bit evaluations are not meaningful
+
     fn build(ctx: &mut Context, arg: Node) -> Node;
     fn eval_f32(arg: f32) -> f32;
     fn eval_f64(arg: f64) -> f64;
@@ -137,10 +139,11 @@ pub trait CanonicalBinaryOp {
 }
 
 macro_rules! declare_canonical_unary {
-    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
+    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr, $o:expr) => {
         pub struct $i;
         impl CanonicalUnaryOp for $i {
             const NAME: &'static str = stringify!($i);
+            const ONLY_32BIT: bool = $o;
             fn build(ctx: &mut Context, arg: Node) -> Node {
                 Context::$i(ctx, arg).unwrap()
             }
@@ -155,8 +158,16 @@ macro_rules! declare_canonical_unary {
             }
         }
     };
+    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
+        declare_canonical_unary!(Context::$i, |$a| $t, |$b| $u, false);
+    };
     (Context::$i:ident, |$lhs:ident| $t:expr) => {
         declare_canonical_unary!(Context::$i, |$lhs| $t, |_a| false);
+    };
+}
+macro_rules! declare_canonical_unary_32bit {
+    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
+        declare_canonical_unary!(Context::$i, |$a| $t, |$b| $u, true);
     };
 }
 
@@ -242,7 +253,11 @@ macro_rules! declare_canonical_binary_full {
     };
 }
 
-#[allow(non_camel_case_types, clippy::useless_conversion)]
+#[allow(
+    non_camel_case_types,
+    clippy::useless_conversion,
+    clippy::unnecessary_cast
+)]
 pub mod canonical {
     use super::*;
 
@@ -263,6 +278,11 @@ pub mod canonical {
     declare_canonical_unary!(Context::ceil, |a| a.ceil());
     declare_canonical_unary!(Context::round, |a| a.round());
     declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
+    declare_canonical_unary_32bit!(
+        Context::rand,
+        |a| crate::rng::rand(a.to_bits() as u32).into(),
+        |_a| true // always discontinuous, so ignore all gradients
+    );
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
     declare_canonical_binary!(Context::sub, |a, b| a - b);
@@ -363,6 +383,7 @@ macro_rules! all_unary_tests {
         $crate::one_unary_test!($tester, ceil);
         $crate::one_unary_test!($tester, round);
         $crate::one_unary_test!($tester, sqrt);
+        $crate::one_unary_test!($tester, rand);
     };
 }
 

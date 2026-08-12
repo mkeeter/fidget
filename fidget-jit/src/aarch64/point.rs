@@ -342,6 +342,12 @@ impl Assembler for PointAssembler {
             ; and V(reg(out_reg)).b8, V(reg(out_reg)).b8, v6.b8
         );
     }
+    fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
+        extern "C" fn float_rand(a: f32) -> f32 {
+            fidget_core::rng::rand(a.to_bits())
+        }
+        self.call_fn_unary(out_reg, arg_reg, float_rand);
+    }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fcmeq s6, S(reg(lhs_reg)), 0.0
@@ -427,6 +433,13 @@ impl Assembler for PointAssembler {
             // Apply NAN mask to NAN positions
             ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v7.b8
         );
+    }
+
+    fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "C" fn float_mix(a: f32, b: f32) -> f32 {
+            f32::from_bits(fidget_core::rng::mix(a.to_bits(), b.to_bits()))
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mix);
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary

@@ -248,6 +248,21 @@ impl Assembler for IntervalAssembler {
             // <- end
         )
     }
+    fn build_mix(&mut self, out_reg: u8, _lhs_reg: u8, _rhs_reg: u8) {
+        // Always return the NAN interval
+        dynasm!(self.0.ops
+            ; mov w15, f32::NAN.to_bits()
+            ; dup V(reg(out_reg)).s2, w15
+        );
+    }
+    fn build_rand(&mut self, out_reg: u8, _arg_reg: u8) {
+        // Always return the [0, 1] interval
+        dynasm!(self.0.ops
+            ; movi D(reg(out_reg)), 0
+            ; mov w15, 1.0f32.to_bits()
+            ; mov V(reg(out_reg)).s[1], w15
+        );
+    }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             // Store lhs < 0.0 in x15

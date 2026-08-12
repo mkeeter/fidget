@@ -176,6 +176,9 @@ trait Assembler {
     /// Compare
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
+    /// Pseudo-random value mixing
+    fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
     /// Square
     ///
     /// This has a default implementation, but can be overloaded for efficiency;
@@ -196,6 +199,9 @@ trait Assembler {
 
     /// Logical not
     fn build_not(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Pseudo-random value generation
+    fn build_rand(&mut self, out_reg: u8, lhs_reg: u8);
 
     /// Logical and (short-circuiting)
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
@@ -743,6 +749,9 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::NotReg(out, arg) => {
                 asm.build_not(out, arg);
             }
+            RegOp::RandReg(out, arg) => {
+                asm.build_rand(out, arg);
+            }
             RegOp::AddRegReg(out, lhs, rhs) => {
                 asm.build_add(out, lhs, rhs);
             }
@@ -839,6 +848,17 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::CompareImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_compare(out, reg, arg);
+            }
+            RegOp::MixRegReg(out, lhs, rhs) => {
+                asm.build_mix(out, lhs, rhs);
+            }
+            RegOp::MixRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_mix(out, arg, reg);
+            }
+            RegOp::MixImmReg(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_mix(out, reg, arg);
             }
         }
     }
