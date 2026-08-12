@@ -68,7 +68,8 @@
 //!
 //! With all that out of the way, usage is pretty simple:
 //! - Build a [`Context`]
-//! - Use [`Context::shape`] to convert from a [`VmShape`] to a [`RenderShape`]
+//! - Use [`Gpu::shape`] to convert from a [`VmShape`](fidget_core::vm::VmShape)
+//!   to a [`RenderShape`]
 //! - Use [`Context::buffers`] to get [`Buffers`] at a particular image size
 //! - Use [`Context::image_buffer`] to get an [`ImageReadBuffer`]
 //! - Call [`Context::run`] or [`Context::run_async`] to get an image

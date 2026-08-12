@@ -218,12 +218,12 @@ pub struct RenderShape {
     bytecode: Bytecode,
     /// GPU buffer to contain variables
     ///
-    /// This doesn't live in [`Buffers`] because it's dynamically sized based on
-    /// the shape; everything in `Buffers` is based on image size.
+    /// This doesn't live in a `Buffers` object because it's dynamically sized
+    /// based on the shape; everything in `Buffers` is based on image size.
     vars: wgpu::Buffer,
     /// Lazily-constructed bind group for the vars array
     ///
-    /// This is not cached in a buffer-specific [`BindGroups`] object because it
+    /// This is not cached in a buffer-specific `BindGroups` object because it
     /// is shape-specific.
     vars_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
 }

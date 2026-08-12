@@ -1,3 +1,7 @@
+//! GPU-accelerated 2D rendering
+//!
+//! See the [`voxel`](crate::voxel) module for details docs; this module is
+//! analogous (down to the naming of types).
 use crate::{
     Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
@@ -671,6 +675,16 @@ impl Buffers {
             + pixels.size_bytes()
             + ts_buf.size()
     }
+
+    /// Returns a handle to the image storage buffer
+    ///
+    /// This is intended for subsequent shaders which want to use the
+    /// [`RawDistancePixel`] image data without copying to the CPU.  It requires
+    /// a exclusive borrow of the `Buffers` object (and then extends that
+    /// lifetime) so that other callers can't simultaneously touch the buffer.
+    pub fn image_storage_buffer(&mut self) -> &ImageBuffer<PixelBufferTag> {
+        &self.pixels
+    }
 }
 
 /// Error returned when resizing a [`Buffers`] object
@@ -1272,8 +1286,8 @@ impl Context {
 
     /// Submits a single image to be rendered on the GPU
     ///
-    /// The resulting image (as a buffer of [`GeometryPixel`] data) is available
-    /// on the GPU in
+    /// The resulting image (as a buffer of [`RawDistancePixel`] data) is
+    /// available on the GPU in
     /// [`buffers.image_storage_buffer()`](Buffers::image_storage_buffer).
     ///
     /// If `out` is present, then the rendered image is also copied to that
