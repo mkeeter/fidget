@@ -21,6 +21,8 @@
 - Add `fidget::wgpu::pixel` module for 2D rasterization on the GPU.  This is
   often slower than the CPU evaluator – there just aren't enough pixels for
   parallelism to really kick in – but it's useful for consistency.
+- Move more VM functions onto `Grad` and `Interval` (out of the VM
+  implementation); add a `FloatExt` trait which adds them to `f32` as well.
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one

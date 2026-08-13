@@ -107,7 +107,8 @@ impl Interval {
     /// Compares two values
     ///
     /// - If `lhs.upper() < rhs.lower()`, then the result is -1
-    /// - If `lhs.lower() < rhs.upper()`, then the result is +1
+    /// - If `lhs.lower() > rhs.upper()`, then the result is +1
+    /// - If `lhs` and `rhs` are both equal unit intervals, then the result is 0
     /// - If either side is `NaN`, then the result is the `NaN` interval
     /// - Otherwise, the result is `[-1, +1]`
     #[inline]
@@ -120,6 +121,11 @@ impl Interval {
             Interval::from(-1.0)
         } else if lhs.lower() > rhs.upper() {
             Interval::from(1.0)
+        } else if lhs.lower() == lhs.upper()
+            && rhs.lower() == rhs.upper()
+            && lhs.lower() == rhs.lower()
+        {
+            Interval::new(0.0, 0.0)
         } else {
             Interval::new(-1.0, 1.0)
         }
