@@ -104,6 +104,33 @@ impl Interval {
         }
     }
 
+    /// Compares two values
+    ///
+    /// - If `lhs.upper() < rhs.lower()`, then the result is -1
+    /// - If `lhs.lower() > rhs.upper()`, then the result is +1
+    /// - If `lhs` and `rhs` are both equal unit intervals, then the result is 0
+    /// - If either side is `NaN`, then the result is the `NaN` interval
+    /// - Otherwise, the result is `[-1, +1]`
+    #[inline]
+    pub fn compare<T: Into<Self>, U: Into<Self>>(lhs: T, rhs: U) -> Self {
+        let lhs = lhs.into();
+        let rhs = rhs.into();
+        if lhs.has_nan() || rhs.has_nan() {
+            f32::NAN.into()
+        } else if lhs.upper() < rhs.lower() {
+            Interval::from(-1.0)
+        } else if lhs.lower() > rhs.upper() {
+            Interval::from(1.0)
+        } else if lhs.lower() == lhs.upper()
+            && rhs.lower() == rhs.upper()
+            && lhs.lower() == rhs.lower()
+        {
+            Interval::new(0.0, 0.0)
+        } else {
+            Interval::new(-1.0, 1.0)
+        }
+    }
+
     /// Computes the sine of the interval
     #[inline]
     pub fn sin(self) -> Self {
@@ -481,6 +508,22 @@ impl Interval {
     #[inline]
     pub fn round(&self) -> Self {
         Interval::new(self.lower.round(), self.upper.round())
+    }
+
+    /// Logical not
+    ///
+    /// - If the interval does not contain 0, then this is always 0
+    /// - If the interval is exactly 0, then this is always 1
+    /// - Otherwise (or if `NaN` values are involved), returns `[0, 1]`
+    #[inline]
+    pub fn not(&self) -> Self {
+        if !self.contains(0.0) && !self.has_nan() {
+            Interval::new(0.0, 0.0)
+        } else if self.lower() == 0.0 && self.upper() == 0.0 {
+            Interval::new(1.0, 1.0)
+        } else {
+            Interval::new(0.0, 1.0)
+        }
     }
 
     /// Four-quadrant arctangent

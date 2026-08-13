@@ -167,15 +167,31 @@ impl Grad {
     }
 
     /// Minimum of two values
+    ///
+    /// If either value is `NAN`, then this returns `NAN` (with empty gradients)
     #[inline]
     pub fn min(self, rhs: Self) -> Self {
-        if self.v < rhs.v { self } else { rhs }
+        if self.v.is_nan() || rhs.v.is_nan() {
+            f32::NAN.into()
+        } else if self.v < rhs.v {
+            self
+        } else {
+            rhs
+        }
     }
 
     /// Maximum of two values
+    ///
+    /// If either value is `NAN`, then this returns `NAN` (with empty gradients)
     #[inline]
     pub fn max(self, rhs: Self) -> Self {
-        if self.v > rhs.v { self } else { rhs }
+        if self.v.is_nan() || rhs.v.is_nan() {
+            f32::NAN.into()
+        } else if self.v > rhs.v {
+            self
+        } else {
+            rhs
+        }
     }
 
     /// Least non-negative remainder
@@ -188,6 +204,22 @@ impl Grad {
             dy: self.dy - rhs.dy * e,
             dz: self.dz - rhs.dz * e,
         }
+    }
+
+    /// Logical AND
+    ///
+    /// Returns `self` if `self.v == 0`; otherwise returns `rhs`
+    #[inline]
+    pub fn and(&self, rhs: Grad) -> Self {
+        if self.v == 0.0 { *self } else { rhs }
+    }
+
+    /// Logical OR
+    ///
+    /// Returns `self` if `self.v != 0`; otherwise returns `rhs`
+    #[inline]
+    pub fn or(&self, rhs: Grad) -> Self {
+        if self.v != 0.0 { *self } else { rhs }
     }
 
     /// Snap to the largest less-than-or-equal value
@@ -235,6 +267,21 @@ impl Grad {
             dy: (x.v * y.dy - y.v * x.dy) / d,
             dz: (x.v * y.dz - y.v * x.dz) / d,
         }
+    }
+
+    /// Signed comparison of two values
+    pub fn compare(&self, other: Self) -> Self {
+        self.v
+            .partial_cmp(&other.v)
+            .map(|c| c as i8 as f32)
+            .unwrap_or(f32::NAN)
+            .into()
+    }
+
+    /// Logical not
+    #[inline]
+    pub fn not(&self) -> Self {
+        f32::from(self.v == 0.0).into()
     }
 
     /// Checks that the two values are roughly equal, panicking otherwise

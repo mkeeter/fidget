@@ -9,7 +9,7 @@ use crate::{
     },
     render::{RenderHints, TileSizes},
     shape::Shape,
-    types::{Grad, Interval},
+    types::{FloatExt, Grad, Interval},
     var::VarMap,
 };
 use std::sync::Arc;
@@ -398,13 +398,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     v[out] = v[arg].ln();
                 }
                 RegOp::NotReg(out, arg) => {
-                    v[out] = if !v[arg].contains(0.0) && !v[arg].has_nan() {
-                        Interval::new(0.0, 0.0)
-                    } else if v[arg].lower() == 0.0 && v[arg].upper() == 0.0 {
-                        Interval::new(1.0, 1.0)
-                    } else {
-                        Interval::new(0.0, 1.0)
-                    };
+                    v[out] = v[arg].not();
                 }
                 RegOp::CopyReg(out, arg) => v[out] = v[arg],
                 RegOp::AddRegImm(out, arg, imm) => {
@@ -486,37 +480,13 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
                 RegOp::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
                 RegOp::CompareRegReg(out, lhs, rhs) => {
-                    v[out] = if v[lhs].has_nan() || v[rhs].has_nan() {
-                        f32::NAN.into()
-                    } else if v[lhs].upper() < v[rhs].lower() {
-                        Interval::from(-1.0)
-                    } else if v[lhs].lower() > v[rhs].upper() {
-                        Interval::from(1.0)
-                    } else {
-                        Interval::new(-1.0, 1.0)
-                    };
+                    v[out] = Interval::compare(v[lhs], v[rhs]);
                 }
                 RegOp::CompareRegImm(out, arg, imm) => {
-                    v[out] = if v[arg].has_nan() || imm.is_nan() {
-                        f32::NAN.into()
-                    } else if v[arg].upper() < imm {
-                        Interval::from(-1.0)
-                    } else if v[arg].lower() > imm {
-                        Interval::from(1.0)
-                    } else {
-                        Interval::new(-1.0, 1.0)
-                    };
+                    v[out] = Interval::compare(v[arg], imm);
                 }
                 RegOp::CompareImmReg(out, arg, imm) => {
-                    v[out] = if v[arg].has_nan() || imm.is_nan() {
-                        f32::NAN.into()
-                    } else if imm < v[arg].lower() {
-                        Interval::from(-1.0)
-                    } else if imm > v[arg].upper() {
-                        Interval::from(1.0)
-                    } else {
-                        Interval::new(-1.0, 1.0)
-                    };
+                    v[out] = Interval::compare(imm, v[arg]);
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
@@ -663,63 +633,25 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     v[out] = v[arg] - imm;
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
-                    let a = v[arg];
-                    let (choice, value) = if a < imm {
-                        (Choice::Left, a)
-                    } else if imm < a {
-                        (Choice::Right, imm)
-                    } else {
-                        (
-                            Choice::Both,
-                            if a.is_nan() || imm.is_nan() {
-                                f32::NAN
-                            } else {
-                                imm
-                            },
-                        )
-                    };
+                    let (value, choice) = v[arg].min_choice(imm);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
-                    let a = v[arg];
-                    let (choice, value) = if a > imm {
-                        (Choice::Left, a)
-                    } else if imm > a {
-                        (Choice::Right, imm)
-                    } else {
-                        (
-                            Choice::Both,
-                            if a.is_nan() || imm.is_nan() {
-                                f32::NAN
-                            } else {
-                                imm
-                            },
-                        )
-                    };
+                    let (value, choice) = v[arg].max_choice(imm);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::AndRegImm(out, arg, imm) => {
-                    let a = v[arg];
-                    let (choice, value) = if a == 0.0 {
-                        (Choice::Left, a)
-                    } else {
-                        (Choice::Right, imm)
-                    };
+                    let (value, choice) = v[arg].and_choice(imm);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::OrRegImm(out, arg, imm) => {
-                    let a = v[arg];
-                    let (choice, value) = if a != 0.0 {
-                        (Choice::Left, a)
-                    } else {
-                        (Choice::Right, imm)
-                    };
+                    let (value, choice) = v[arg].or_choice(imm);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
@@ -743,88 +675,37 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     v[out] = v[lhs] / v[rhs];
                 }
                 RegOp::CompareRegReg(out, lhs, rhs) => {
-                    v[out] = v[lhs]
-                        .partial_cmp(&v[rhs])
-                        .map(|c| c as i8 as f32)
-                        .unwrap_or(f32::NAN)
+                    v[out] = v[lhs].compare(v[rhs]);
                 }
                 RegOp::CompareRegImm(out, arg, imm) => {
-                    v[out] = v[arg]
-                        .partial_cmp(&imm)
-                        .map(|c| c as i8 as f32)
-                        .unwrap_or(f32::NAN)
+                    v[out] = v[arg].compare(imm);
                 }
                 RegOp::CompareImmReg(out, arg, imm) => {
-                    v[out] = imm
-                        .partial_cmp(&v[arg])
-                        .map(|c| c as i8 as f32)
-                        .unwrap_or(f32::NAN)
+                    v[out] = imm.compare(v[arg]);
                 }
                 RegOp::SubRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] - v[rhs];
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
-                    let a = v[lhs];
-                    let b = v[rhs];
-                    let (choice, value) = if a < b {
-                        (Choice::Left, a)
-                    } else if b < a {
-                        (Choice::Right, b)
-                    } else {
-                        (
-                            Choice::Both,
-                            if a.is_nan() || b.is_nan() {
-                                f32::NAN
-                            } else {
-                                b
-                            },
-                        )
-                    };
+                    let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
-                    let a = v[lhs];
-                    let b = v[rhs];
-                    let (choice, value) = if a > b {
-                        (Choice::Left, a)
-                    } else if b > a {
-                        (Choice::Right, b)
-                    } else {
-                        (
-                            Choice::Both,
-                            if a.is_nan() || b.is_nan() {
-                                f32::NAN
-                            } else {
-                                b
-                            },
-                        )
-                    };
+                    let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::AndRegReg(out, lhs, rhs) => {
-                    let a = v[lhs];
-                    let b = v[rhs];
-                    let (choice, value) = if a == 0.0 {
-                        (Choice::Left, a)
-                    } else {
-                        (Choice::Right, b)
-                    };
+                    let (value, choice) = v[lhs].and_choice(v[rhs]);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::OrRegReg(out, lhs, rhs) => {
-                    let a = v[lhs];
-                    let b = v[rhs];
-                    let (choice, value) = if a != 0.0 {
-                        (Choice::Left, a)
-                    } else {
-                        (Choice::Right, b)
-                    };
+                    let (value, choice) = v[lhs].or_choice(v[rhs]);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
@@ -1048,48 +929,32 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::CompareImmReg(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = imm
-                            .partial_cmp(&v[arg][i])
-                            .map(|c| c as i8 as f32)
-                            .unwrap_or(f32::NAN)
+                        v[out][i] = imm.compare(v[arg][i]);
                     }
                 }
                 RegOp::CompareRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i]
-                            .partial_cmp(&imm)
-                            .map(|c| c as i8 as f32)
-                            .unwrap_or(f32::NAN)
+                        v[out][i] = v[arg][i].compare(imm);
                     }
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            v[arg][i].min(imm)
-                        };
+                        v[out][i] = v[arg][i].min_choice(imm).0;
                     }
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            v[arg][i].max(imm)
-                        };
+                        v[out][i] = v[arg][i].max_choice(imm).0;
                     }
                 }
                 RegOp::AndRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] =
-                            if v[arg][i] == 0.0 { v[arg][i] } else { imm };
+                        v[out][i] = v[arg][i].and_choice(imm).0;
                     }
                 }
                 RegOp::OrRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] =
-                            if v[arg][i] != 0.0 { v[arg][i] } else { imm };
+                        v[out][i] = v[arg][i].or_choice(imm).0;
                     }
                 }
                 RegOp::ModRegReg(out, lhs, rhs) => {
@@ -1129,48 +994,27 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::CompareRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = v[lhs][i]
-                            .partial_cmp(&v[rhs][i])
-                            .map(|c| c as i8 as f32)
-                            .unwrap_or(f32::NAN)
+                        v[out][i] = v[lhs][i].compare(v[rhs][i]);
                     }
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i].is_nan() || v[rhs][i].is_nan()
-                        {
-                            f32::NAN
-                        } else {
-                            v[lhs][i].min(v[rhs][i])
-                        };
+                        v[out][i] = v[lhs][i].min_choice(v[rhs][i]).0;
                     }
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i].is_nan() || v[rhs][i].is_nan()
-                        {
-                            f32::NAN
-                        } else {
-                            v[lhs][i].max(v[rhs][i])
-                        };
+                        v[out][i] = v[lhs][i].max_choice(v[rhs][i]).0;
                     }
                 }
                 RegOp::AndRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i] == 0.0 {
-                            v[lhs][i]
-                        } else {
-                            v[rhs][i]
-                        };
+                        v[out][i] = v[lhs][i].and_choice(v[rhs][i]).0;
                     }
                 }
                 RegOp::OrRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i] != 0.0 {
-                            v[lhs][i]
-                        } else {
-                            v[rhs][i]
-                        };
+                        v[out][i] = v[lhs][i].or_choice(v[rhs][i]).0;
                     }
                 }
                 RegOp::CopyImm(out, imm) => {
@@ -1307,7 +1151,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::NotReg(out, arg) => {
                     for i in 0..size {
-                        v[out][i] = f32::from(v[arg][i].v == 0.0).into();
+                        v[out][i] = v[arg][i].not();
                     }
                 }
                 RegOp::CopyReg(out, arg) => {
@@ -1366,42 +1210,27 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                     }
                 }
                 RegOp::CompareImmReg(out, arg, imm) => {
+                    let imm: Grad = imm.into();
                     for i in 0..size {
-                        let p = imm
-                            .partial_cmp(&v[arg][i].v)
-                            .map(|c| c as i8 as f32)
-                            .unwrap_or(f32::NAN);
-                        v[out][i] = Grad::new(p, 0.0, 0.0, 0.0);
+                        v[out][i] = imm.compare(v[arg][i]);
                     }
                 }
                 RegOp::CompareRegImm(out, arg, imm) => {
+                    let imm = imm.into();
                     for i in 0..size {
-                        let p = v[arg][i]
-                            .v
-                            .partial_cmp(&imm)
-                            .map(|c| c as i8 as f32)
-                            .unwrap_or(f32::NAN);
-                        v[out][i] = Grad::new(p, 0.0, 0.0, 0.0);
+                        v[out][i] = v[arg][i].compare(imm);
                     }
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].v.is_nan() || imm.v.is_nan() {
-                            f32::NAN.into()
-                        } else {
-                            v[arg][i].min(imm)
-                        };
+                        v[out][i] = v[arg][i].min(imm);
                     }
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].v.is_nan() || imm.v.is_nan() {
-                            f32::NAN.into()
-                        } else {
-                            v[arg][i].max(imm)
-                        };
+                        v[out][i] = v[arg][i].max(imm)
                     }
                 }
                 RegOp::ModRegReg(out, lhs, rhs) => {
@@ -1431,38 +1260,24 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::AndRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i].v == 0.0 {
-                            v[lhs][i]
-                        } else {
-                            v[rhs][i]
-                        };
+                        v[out][i] = v[lhs][i].and(v[rhs][i]);
                     }
                 }
                 RegOp::AndRegImm(out, arg, imm) => {
+                    let imm = imm.into();
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].v == 0.0 {
-                            v[arg][i]
-                        } else {
-                            imm.into()
-                        };
+                        v[out][i] = v[arg][i].and(imm);
                     }
                 }
                 RegOp::OrRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i].v != 0.0 {
-                            v[lhs][i]
-                        } else {
-                            v[rhs][i]
-                        };
+                        v[out][i] = v[lhs][i].or(v[rhs][i]);
                     }
                 }
                 RegOp::OrRegImm(out, arg, imm) => {
+                    let imm = imm.into();
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].v != 0.0 {
-                            v[arg][i]
-                        } else {
-                            imm.into()
-                        };
+                        v[out][i] = v[arg][i].or(imm);
                     }
                 }
                 RegOp::DivRegReg(out, lhs, rhs) => {
@@ -1477,32 +1292,17 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::CompareRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        let p = v[lhs][i]
-                            .v
-                            .partial_cmp(&v[rhs][i].v)
-                            .map(|c| c as i8 as f32)
-                            .unwrap_or(f32::NAN);
-                        v[out][i] = Grad::new(p, 0.0, 0.0, 0.0);
+                        v[out][i] = v[lhs][i].compare(v[rhs][i]);
                     }
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] =
-                            if v[lhs][i].v.is_nan() || v[rhs][i].v.is_nan() {
-                                f32::NAN.into()
-                            } else {
-                                v[lhs][i].min(v[rhs][i])
-                            };
+                        v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] =
-                            if v[lhs][i].v.is_nan() || v[rhs][i].v.is_nan() {
-                                f32::NAN.into()
-                            } else {
-                                v[lhs][i].max(v[rhs][i])
-                            };
+                        v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
                 RegOp::CopyImm(out, imm) => {
