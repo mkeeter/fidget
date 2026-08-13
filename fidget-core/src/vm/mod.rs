@@ -400,7 +400,14 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::NotReg(out, arg) => {
                     v[out] = v[arg].not();
                 }
-                RegOp::RandReg(out, _arg) => v[out] = Interval::new(0.0, 1.0),
+                RegOp::RandReg(out, arg) => {
+                    let arg = v[arg];
+                    v[out] = if arg.lower() == arg.upper() {
+                        crate::rng::rand(arg.lower().to_bits()).into()
+                    } else {
+                        Interval::new(0.0, 1.0)
+                    };
+                }
                 RegOp::CopyReg(out, arg) => v[out] = v[arg],
                 RegOp::AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm.into();
