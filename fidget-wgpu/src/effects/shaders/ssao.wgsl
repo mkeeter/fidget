@@ -64,9 +64,6 @@ fn ssao_main(
 
         // position in world coordinates
         let sample_pos = p + offset;
-
-        // XXX the implementation in `fidget_raster` says "this distorts samples
-        // for non-square images"; is this true?
         let pos_voxels = vec3i((sample_pos / 2.0 + 0.5) * vec3f(config.image_size));
 
         // actual_h is the height from the heightmap image

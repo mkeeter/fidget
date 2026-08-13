@@ -68,7 +68,8 @@
 //!
 //! With all that out of the way, usage is pretty simple:
 //! - Build a [`Context`]
-//! - Use [`Context::shape`] to convert from a [`VmShape`] to a [`RenderShape`]
+//! - Use [`Gpu::shape`] to convert from a [`VmShape`](fidget_core::vm::VmShape)
+//!   to a [`RenderShape`]
 //! - Use [`Context::buffers`] to get [`Buffers`] at a particular image size
 //! - Use [`Context::image_buffer`] to get an [`ImageReadBuffer`]
 //! - Call [`Context::run`] or [`Context::run_async`] to get an image
@@ -103,40 +104,36 @@
 //! in [`Buffers::image_storage_buffer`] for subsequent pipelines.
 
 use crate::{
-    Gpu,
+    Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_ro_dyn, buffer_rw,
     },
-    opcode_constants, tag,
+    opcode_constants, shaders, tag,
 };
-use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
     eval::Function,
     render::{ImageSize, VoxelSize},
     shape::{MissingVar, ShapeVars},
     var::Var,
-    vm::VmShape,
 };
-pub use fidget_raster::voxel::RenderConfig;
 use fidget_raster::voxel::{GeometryPixel, Image};
-use std::{collections::BTreeMap, num::NonZeroU64};
+use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+pub use fidget_raster::voxel::{RenderConfig, RenderSize};
+
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+const INTERVAL_INPUT: &str = include_str!("shaders/interval_input.wgsl");
+const TRANSFORM_INPUT: &str = include_str!("shaders/transform_input.wgsl");
 const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
-const STACK_SHADER: &str = include_str!("shaders/stack.wgsl");
-const DUMMY_STACK_SHADER: &str = include_str!("shaders/dummy_stack.wgsl");
 const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
 const REPACK_SHADER: &str = include_str!("shaders/repack.wgsl");
 const SORT_SHADER: &str = include_str!("shaders/sort.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
-const INTERVAL_OPS_SHADER: &str = include_str!("shaders/interval_ops.wgsl");
 const CLEAR_SHADER: &str = include_str!("shaders/clear.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
-const TAPE_INTERPRETER: &str = include_str!("shaders/tape_interpreter.wgsl");
-const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 
 /// Error type when resizing intermediate tile buffers
 #[derive(Debug, thiserror::Error)]
@@ -238,13 +235,12 @@ impl std::fmt::Display for BufferName {
 
 /// Error returned when resizing a [`Buffers`] object
 #[derive(Debug, thiserror::Error)]
-#[error("failed to build {buf} buffer when requesting size {requested:?}")]
+#[error("failed to build {buf} buffer")]
 pub struct BuffersError {
-    /// Requested size
-    pub requested: VoxelSize,
     /// Buffer which failed to resize
     pub buf: BufferName,
     /// Error returned by buffer resizing
+    #[source]
     pub err: BufferSizeError,
 }
 
@@ -346,26 +342,19 @@ impl TileRenderSize {
     }
 }
 
-/// Number of [`TapeWord`] words in the tape data flexible array
-const TAPE_DATA_CAPACITY: usize = 8 * 1024 * 1024; // 8M words, 64 MiB
-
-#[repr(C)]
-struct TapeWord {
-    op: u32,
-    imm: u32,
-}
-
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += INTERVAL_ROOT_SHADER;
-    shader_code += INTERVAL_OPS_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += STACK_SHADER;
-    shader_code += TAPE_SIMPLIFY;
+    shader_code += INTERVAL_ROOT_SHADER;
+    shader_code += INTERVAL_INPUT;
+    shader_code += TRANSFORM_INPUT;
+    shader_code += shaders::INTERVAL_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::STACK;
+    shader_code += shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
@@ -374,7 +363,7 @@ fn repack_shader() -> String {
     let mut shader_code = String::new();
     shader_code += REPACK_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
+    shader_code += shaders::COMMON;
     shader_code
 }
 
@@ -383,7 +372,7 @@ fn sort_shader() -> String {
     let mut shader_code = String::new();
     shader_code += SORT_SHADER;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
+    shader_code += shaders::COMMON;
     shader_code
 }
 
@@ -392,12 +381,14 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
-    shader_code += INTERVAL_OPS_SHADER;
+    shader_code += INTERVAL_INPUT;
+    shader_code += TRANSFORM_INPUT;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += STACK_SHADER;
-    shader_code += TAPE_SIMPLIFY;
+    shader_code += shaders::INTERVAL_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::STACK;
+    shader_code += shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
@@ -406,10 +397,12 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
+    shader_code += TRANSFORM_INPUT;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += DUMMY_STACK_SHADER;
+    shader_code += shaders::FLOAT_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::DUMMY_STACK;
     shader_code
 }
 
@@ -418,51 +411,26 @@ fn normals_shader(reg_count: u8) -> String {
     let mut shader_code = opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
+    shader_code += TRANSFORM_INPUT;
     shader_code += COMMON_SHADER;
-    shader_code += crate::COMMON_SHADER;
-    shader_code += TAPE_INTERPRETER;
-    shader_code += DUMMY_STACK_SHADER;
+    shader_code += shaders::GRAD_OPS;
+    shader_code += shaders::COMMON;
+    shader_code += shaders::TAPE_INTERPRETER;
+    shader_code += shaders::DUMMY_STACK;
     shader_code
 }
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 /// Returns a shader for clearing counters in between strata passes
 fn clear_shader() -> String {
-    CLEAR_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    CLEAR_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-/// Container of multiple pipelines, parameterized by register count
-struct RegPipeline(BTreeMap<u8, wgpu::ComputePipeline>);
-
-impl RegPipeline {
-    fn build<F: Fn(u8) -> wgpu::ComputePipeline>(builder: F) -> Self {
-        let mut out = BTreeMap::new();
-        for reg_count in [8, 16, 32, 64, 128, 192, 255] {
-            out.insert(reg_count, builder(reg_count));
-        }
-        Self(out)
-    }
-
-    /// Returns the pipeline with sufficient registers to render `reg_count`
-    ///
-    /// # Panics
-    /// If `reg_count` is 256 (which is not allowed in bytecode tapes)
-    fn get(&self, reg_count: u8) -> &wgpu::ComputePipeline {
-        let (r, v) = self
-            .0
-            .range(reg_count..)
-            .next()
-            .expect("bytecode tape cannot use more than 255 registers");
-        assert!(*r >= reg_count);
-        v
-    }
-}
 
 /// Root context, which produces a list of 64³ tiles
 struct RootContext {
@@ -499,19 +467,18 @@ impl RootContext {
                 ],
             });
 
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    Some(common_bind_group_layout),
+                    Some(vars_bind_group_layout),
+                    Some(&bind_group_layout),
+                ],
+                immediate_size: 0u32,
+            });
         let root_pipeline = RegPipeline::build(|reg_count| {
             let shader_code = interval_root_shader(reg_count);
-            let pipeline_layout = device.create_pipeline_layout(
-                &wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[
-                        Some(common_bind_group_layout),
-                        Some(vars_bind_group_layout),
-                        Some(&bind_group_layout),
-                    ],
-                    immediate_size: 0u32,
-                },
-            );
             let shader_module =
                 device.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
@@ -895,19 +862,18 @@ impl VoxelContext {
                 ],
             });
 
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("voxel pipeline layout"),
+                bind_group_layouts: &[
+                    Some(common_bind_group_layout),
+                    Some(vars_bind_group_layout),
+                    Some(&bind_group_layout),
+                ],
+                immediate_size: 0u32,
+            });
         let voxel_pipeline = RegPipeline::build(|reg_count| {
             let shader_code = voxel_tiles_shader(reg_count);
-            let pipeline_layout = device.create_pipeline_layout(
-                &wgpu::PipelineLayoutDescriptor {
-                    label: Some("voxel pipeline layout"),
-                    bind_group_layouts: &[
-                        Some(common_bind_group_layout),
-                        Some(vars_bind_group_layout),
-                        Some(&bind_group_layout),
-                    ],
-                    immediate_size: 0u32,
-                },
-            );
             // SAFETY: The shader is careful, good luck
             let shader_module = unsafe {
                 device.create_shader_module_trusted(
@@ -982,19 +948,18 @@ impl NormalsContext {
                 ],
             });
 
+        let pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("normals pipeline"),
+                bind_group_layouts: &[
+                    Some(common_bind_group_layout),
+                    Some(vars_bind_group_layout),
+                    Some(&bind_group_layout),
+                ],
+                immediate_size: 0u32,
+            });
         let normals_pipeline = RegPipeline::build(|reg_count| {
             let shader_code = normals_shader(reg_count);
-            let pipeline_layout = device.create_pipeline_layout(
-                &wgpu::PipelineLayoutDescriptor {
-                    label: Some("normals pipeline"),
-                    bind_group_layouts: &[
-                        Some(common_bind_group_layout),
-                        Some(vars_bind_group_layout),
-                        Some(&bind_group_layout),
-                    ],
-                    immediate_size: 0u32,
-                },
-            );
             let shader_module =
                 device.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("normals shader module"),
@@ -1337,106 +1302,18 @@ impl RootTileBuffers {
     }
 }
 
-/// Shape for rendering
-///
-/// This object is constructed by [`Context::shape`] and may only be used with
-/// that particular [`Context`].
-pub struct RenderShape {
-    /// Copy of our shape (kept around for access to the variable map)
-    shape: VmShape,
-    /// Map from X, Y, Z (by index) to the variable slot
-    axes: [u32; 3],
-    /// Serialized bytecode for the shape
-    bytecode: Bytecode,
-    /// GPU buffer to contain variables
-    ///
-    /// This doesn't live in [`Buffers`] because it's dynamically sized based on
-    /// the shape; everything in `Buffers` is based on image size.
-    vars: wgpu::Buffer,
-    /// Lazily-constructed bind group for the vars array
-    ///
-    /// This is not cached in a buffer-specific [`BindGroups`] object because it
-    /// is shape-specific.
-    vars_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
-}
-
-/// Error type when constructing a [`RenderShape`]
-#[derive(Debug, thiserror::Error)]
-pub enum RenderShapeError {
-    /// The shape doesn't fit in the GPU tape buffer
-    #[error(
-        "shape bytecode is {0} tape words (8 bytes each), which exceeds \
-        buffer capacity of {TAPE_DATA_CAPACITY} tape words"
-    )]
-    TooLong(usize),
-    /// The shape uses a reserved register
-    #[error(transparent)]
-    RegisterError(#[from] ReservedRegister),
-}
-
-impl RenderShape {
-    fn new(
-        shape: &VmShape,
-        device: &wgpu::Device,
-    ) -> Result<Self, RenderShapeError> {
-        // Generate bytecode for the root tape
-        let bytecode = Bytecode::new(shape.inner().data())?;
-        if bytecode.len() / 2 > TAPE_DATA_CAPACITY {
-            return Err(RenderShapeError::TooLong(bytecode.len() / 2));
-        }
-
-        // Create the 4x4 transform matrix
-        let vars = shape.inner().vars();
-        let axes = [Var::X, Var::Y, Var::Z]
-            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
-
-        // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
-        // as well, but we special-case them in evaluation.
-        let vars = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vars"),
-            size: u64::try_from(std::mem::size_of::<f32>() * vars.len())
-                .unwrap(),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        Ok(Self {
-            shape: shape.clone(),
-            axes,
-            bytecode,
-            vars,
-            vars_bind_group: Default::default(),
-        })
-    }
-
-    fn vars_bind_group(&self, ctx: &Context) -> &wgpu::BindGroup {
-        self.vars_bind_group.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("vars bind group"),
-                    layout: &ctx.vars_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.vars.as_entire_binding(),
-                    }],
-                })
-        })
-    }
-}
-
 tag!(TileTapesBufferTag, u32, STORAGE | COPY_DST);
 tag!(VoxelsBufferTag, u32, STORAGE | COPY_DST);
 tag!(pub GeomBufferTag, GeometryPixel, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`GeometryPixel`] values");
 
-/// Buffers for rendering, which control the rendered image size
+/// Buffers for rendering
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
 /// that particular [`Context`].
 ///
-/// A successfully constructed `Buffers` object also guarantees infallible
-/// construction of an [`ImageReadBuffer`] object of the same size.
+/// A successfully constructed (or resized) `Buffers` object also guarantees
+/// infallible construction of an [`ImageReadBuffer`] object of the same size.
 pub struct Buffers {
     /// Image render size
     ///
@@ -1468,10 +1345,12 @@ pub struct Buffers {
     /// Z heights for filled second-stage tiles (4³)
     tile4: TileBuffers<4>,
 
-    /// Z heights for voxels
-    voxels: ArrayBuffer<VoxelsBufferTag>,
+    /// Z heights for voxel tile evaluation (rounded up)
+    voxels: ArrayBuffer<VoxelsBufferTag>, // XXX should this be an ImageBuffer?
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
+    ///
+    /// This is at the original image size
     geom: ImageBuffer<GeomBufferTag>,
 
     /// Query set for timestamps
@@ -1882,11 +1761,7 @@ impl Buffers {
         &self.geom
     }
 
-    fn new(
-        device: &wgpu::Device,
-        image_size: VoxelSize,
-        has_timestamps: bool,
-    ) -> Result<Self, BuffersError> {
+    fn new(device: &wgpu::Device, has_timestamps: bool) -> Self {
         // The config buffer is statically sized, so we can check it here
         static_assertions::const_assert!(
             (std::mem::size_of::<Config>()
@@ -1895,14 +1770,7 @@ impl Buffers {
                 <= BufferType::Storage.max_size()
         );
 
-        // Check that we can build an `ImageReadBuffer` of the appropriate
-        // size (even though they are stored separately)
-        ImageReadArrayBuffer::check_size(Self::image_buf_size(image_size))
-            .map_err(|err| BuffersError {
-                requested: image_size,
-                buf: BufferName::Image,
-                err,
-            })?;
+        let image_size = 64.into();
 
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
@@ -1919,32 +1787,20 @@ impl Buffers {
             "voxels".to_string(),
             Self::voxels_buf_size(render_size),
         )
-        .map_err(|err| BuffersError {
-            requested: image_size,
-            buf: BufferName::Voxels,
-            err,
-        })?;
+        .unwrap();
         let tile_tapes = ArrayBuffer::new(
             device,
             "tile tape".to_string(),
             Self::tile_tapes_buf_size(render_size),
         )
-        .map_err(|err| BuffersError {
-            requested: image_size,
-            buf: BufferName::TileTapes,
-            err,
-        })?;
+        .unwrap();
 
         let geom = ImageBuffer::new(
             device,
             "geom".to_string(),
             Self::geom_buf_size(image_size),
         )
-        .map_err(|err| BuffersError {
-            requested: image_size,
-            buf: BufferName::Geom,
-            err,
-        })?;
+        .unwrap();
 
         let ts_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ts"),
@@ -1954,28 +1810,9 @@ impl Buffers {
             mapped_at_creation: false,
         });
 
-        let tile64 =
-            RootTileBuffers::new(device, render_size).map_err(|e| {
-                BuffersError {
-                    requested: image_size,
-                    buf: BufferName::Tile64(e.buf),
-                    err: e.err,
-                }
-            })?;
-        let tile16 = TileBuffers::new(device, render_size).map_err(|e| {
-            BuffersError {
-                requested: image_size,
-                buf: BufferName::Tile16(e.buf),
-                err: e.err,
-            }
-        })?;
-        let tile4 = TileBuffers::new(device, render_size).map_err(|e| {
-            BuffersError {
-                requested: image_size,
-                buf: BufferName::Tile4(e.buf),
-                err: e.err,
-            }
-        })?;
+        let tile64 = RootTileBuffers::new(device, render_size).unwrap();
+        let tile16 = TileBuffers::new(device, render_size).unwrap();
+        let tile4 = TileBuffers::new(device, render_size).unwrap();
 
         let timestamps = if has_timestamps {
             Some(device.create_query_set(&wgpu::QuerySetDescriptor {
@@ -1999,7 +1836,7 @@ impl Buffers {
             mapped_at_creation: false,
         });
 
-        Ok(Self {
+        Self {
             config_buf,
             image_size,
             tile_tapes,
@@ -2012,7 +1849,7 @@ impl Buffers {
             z_hist_buf,
             ts_buf,
             bind_groups: Default::default(),
-        })
+        }
     }
 
     fn render_size(&self) -> TileRenderSize {
@@ -2068,7 +1905,7 @@ impl Buffers {
 
     /// Returns the image size for the `geom` buffer
     fn geom_buf_size(image_size: VoxelSize) -> ImageSize {
-        ImageSize::new(image_size.width(), image_size.height())
+        image_size.into()
     }
 
     /// Returns image buffer size (in bytes)
@@ -2118,28 +1955,24 @@ impl Buffers {
         tile_tapes
             .grow_to_fit(device, Self::tile_tapes_buf_size(render_size))
             .map_err(|err| BuffersError {
-                requested: image_size,
                 buf: BufferName::TileTapes,
                 err,
             })?;
         tile64
             .grow_to_fit(device, render_size)
             .map_err(|e| BuffersError {
-                requested: image_size,
                 buf: BufferName::Tile64(e.buf),
                 err: e.err,
             })?;
         tile16
             .grow_to_fit(device, render_size)
             .map_err(|e| BuffersError {
-                requested: image_size,
                 buf: BufferName::Tile16(e.buf),
                 err: e.err,
             })?;
         tile4
             .grow_to_fit(device, render_size)
             .map_err(|e| BuffersError {
-                requested: image_size,
                 buf: BufferName::Tile4(e.buf),
                 err: e.err,
             })?;
@@ -2147,13 +1980,11 @@ impl Buffers {
         voxels
             .grow_to_fit(device, Self::voxels_buf_size(render_size))
             .map_err(|err| BuffersError {
-                requested: image_size,
                 buf: BufferName::Voxels,
                 err,
             })?;
         geom.grow_to_fit(device, Self::geom_buf_size(image_size))
             .map_err(|err| BuffersError {
-                requested: image_size,
                 buf: BufferName::Geom,
                 err,
             })?;
@@ -2162,7 +1993,6 @@ impl Buffers {
         // size (even though they are stored separately)
         ImageReadArrayBuffer::check_size(Self::image_buf_size(image_size))
             .map_err(|err| BuffersError {
-                requested: image_size,
                 buf: BufferName::Image,
                 err,
             })?;
@@ -2293,12 +2123,12 @@ impl Context {
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
-        let reset_ctx = ResetContext::new();
         let clear_ctx = ClearContext::new(
             &gpu.device,
             &common_bind_group_layout,
             &vars_bind_group_layout,
         );
+        let reset_ctx = ResetContext;
 
         Self {
             gpu: gpu.clone(),
@@ -2322,33 +2152,13 @@ impl Context {
     /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
     /// [`submit`](Self::submit)).
     pub fn buffers(&self) -> Buffers {
-        Buffers::new(&self.gpu.device, 64.into(), self.has_timestamps)
-            .expect("64 is always a valid buffers size")
+        Buffers::new(&self.gpu.device, self.has_timestamps)
     }
 
-    /// Returns an [`ImageReadBuffer`], sized to read from a [`Buffers`] object
-    ///
-    /// This is infallible because the [`Buffers`] constructor also ensures that
-    /// the image size is appropriate for the image read buffer (even though
-    /// it's constructed separately).
-    pub fn image_buffer(&self, buffers: &Buffers) -> ImageReadBuffer {
-        ImageReadBuffer::new(
-            &self.gpu.device,
-            "image".to_owned(),
-            buffers.image_size,
-        )
-        .expect(
-            "buffers.image_size should always be \
-             a valid size for ImageReadBuffer::new",
-        )
-    }
-
-    /// Builds a new [`RenderShape`] object for the given shape
-    pub fn shape(
-        &self,
-        shape: &VmShape,
-    ) -> Result<RenderShape, RenderShapeError> {
-        RenderShape::new(shape, &self.gpu.device)
+    /// Returns an [`ImageReadBuffer`]
+    pub fn image_buffer(&self) -> ImageReadBuffer {
+        ImageReadBuffer::new(&self.gpu.device, "image".to_owned(), 64.into())
+            .expect("64 should always be a valid size for ImageReadBuffer::new")
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2551,7 +2361,8 @@ impl Context {
         // Build the common config buffer
         let common_bind_group = buffers.bind_groups.common(self, buffers);
         compute_pass.set_bind_group(0, common_bind_group, &[]);
-        let vars_bind_group = shape.vars_bind_group(self);
+        let vars_bind_group = shape
+            .vars_bind_group(&self.gpu.device, &self.vars_bind_group_layout);
         compute_pass.set_bind_group(1, vars_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
@@ -2603,7 +2414,7 @@ impl Context {
                 .grow_to_fit(&self.gpu.device, buffers.image_size)
                 .expect(
                     "buffers.image_size should always be \
-                 a valid size for ImageReadBuffer::grow_to_fit",
+                     a valid size for ImageReadBuffer::grow_to_fit",
                 );
             if let Some(timestamps) = &buffers.timestamps {
                 encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
@@ -2905,10 +2716,6 @@ impl MergeContext {
 struct ResetContext;
 
 impl ResetContext {
-    fn new() -> Self {
-        ResetContext
-    }
-
     fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
         // Clear only the `count` member of the tile64 `tiles_out` buffer
         encoder.clear_buffer(buffers.tile64.tiles.data(), 12, Some(4));
@@ -2943,22 +2750,6 @@ impl ResetContext {
 #[cfg(test)]
 mod test {
     use super::*;
-    use heck::ToShoutySnakeCase;
-
-    #[test]
-    fn shader_has_all_ops() {
-        for (op, _) in fidget_bytecode::iter_ops() {
-            let op = format!("OP_{}", op.to_shouty_snake_case());
-            assert!(
-                TAPE_INTERPRETER.contains(&op),
-                "tape interpreter is missing {op}"
-            );
-            assert!(
-                TAPE_SIMPLIFY.contains(&op),
-                "tape simplification is missing {op}"
-            );
-        }
-    }
 
     #[test]
     fn compile_shaders() {

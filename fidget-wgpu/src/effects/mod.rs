@@ -15,7 +15,7 @@ use crate::{
         BufferSizeError, ImageBuffer, ImageReadBuffer, buffer_ro, buffer_rw,
         buffer_uniform,
     },
-    tag,
+    shaders, tag,
     voxel::GeomBufferTag,
 };
 use fidget_core::render::{ImageSize, VoxelSize};
@@ -41,19 +41,19 @@ const SSAO_SHADER: &str = include_str!("shaders/ssao.wgsl");
 const BLUR_SHADER: &str = include_str!("shaders/blur.wgsl");
 
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 fn shade_shader() -> String {
-    SHADE_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    SHADE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 fn ssao_shader() -> String {
-    SSAO_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    SSAO_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 fn blur_shader() -> String {
-    BLUR_SHADER.to_owned() + COMMON_SHADER + crate::COMMON_SHADER
+    BLUR_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 /// Packed voxel structure used on the GPU
@@ -568,7 +568,7 @@ tag!(pub SsaoBlurredBufferTag, f32, STORAGE | COPY_SRC,
 
 /// Handle to a set of buffers used when running an SSAO pass
 pub struct SsaoBuffers {
-    ssao_config: wgpu::Buffer,
+    ssao_config: wgpu::Buffer, // TODO add a `ConfigBuffer` type?
     raw_occlusion: ImageBuffer<SsaoRawBufferTag>,
 
     blur_config: wgpu::Buffer,
@@ -939,7 +939,7 @@ mod test {
         let sphere =
             (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
         let vm_shape = VmShape::from(sphere.min(z));
-        let shape = voxel_ctx.shape(&vm_shape).unwrap();
+        let shape = gpu.shape(&vm_shape).unwrap();
 
         voxel_ctx
             .submit(

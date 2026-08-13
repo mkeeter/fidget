@@ -18,6 +18,9 @@
 - Add a `Hash` implementation to `Tree` and `TreeOp`, again using `OrderedFloat`
   semantics.  This allows trees to be stored in hashmaps; thanks to @virtualritz
   for the suggestion!
+- Add `fidget::wgpu::pixel` module for 2D rasterization on the GPU.  This is
+  often slower than the CPU evaluator – there just aren't enough pixels for
+  parallelism to really kick in – but it's useful for consistency.
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one

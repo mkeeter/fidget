@@ -9,3 +9,48 @@ fn nan_f32() -> f32 {
   let bits = 0xffffffffu;
   return bitcast<f32>(bits);
 }
+
+/// Single word in an expression tape
+struct TapeWord {
+    op: u32,
+    imm: u32,
+}
+
+/// Dynamic list of tiles, using an atomic bump allocator
+struct TileListOutput {
+    wg_size: array<atomic<u32>, 3>,
+    count: atomic<u32>,
+
+    /// Flexible array member
+    active_tiles: array<u32>,
+}
+
+/// Read-only version of `TileListOutput`
+struct TileListInput {
+    wg_size: array<u32, 3>,
+    count: u32,
+    active_tiles: array<u32>,
+}
+
+fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
+    let r = lhs % rhs;
+    if r < 0.0 {
+        return r + abs(rhs);
+    } else {
+        return r;
+    }
+}
+
+fn div_euclid(lhs: f32, rhs: f32) -> f32 {
+    let q = trunc(lhs / rhs);
+    if lhs % rhs < 0.0 {
+        if rhs > 0.0 {
+            return q - 1.0;
+        } else {
+            return q + 1.0;
+        }
+    } else {
+        return q;
+    }
+}
+

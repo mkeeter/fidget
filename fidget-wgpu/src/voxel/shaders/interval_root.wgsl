@@ -1,7 +1,4 @@
 // Interval root tile evaluation
-//
-// This must be combined with opcode definitions and the generic interpreter
-// from `tape_interpreter.wgsl`
 
 @group(2) @binding(0) var<storage, read_write> tiles_out: TileListOutput;
 @group(2) @binding(1) var<storage, read_write> tile64_zmax: array<atomic<u32>>;
