@@ -110,6 +110,10 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
     }
 }
 
+fn op_mix(lhs: Value, rhs: Value) -> Value {
+    return Value(bitcast<f32>(mix(bitcast<u32>(lhs.v), bitcast<u32>(rhs.v))));
+}
+
 fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
     if lhs.v == 0.0 {
         return lhs;
@@ -128,6 +132,10 @@ fn op_or(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
 
 fn op_not(lhs: Value) -> Value {
     return Value(f32(lhs.v == 0.0));
+}
+
+fn op_rand(lhs: Value) -> Value {
+    return Value(rand(bitcast<u32>(lhs.v)));
 }
 
 fn op_mod(lhs: Value, rhs: Value) -> Value {

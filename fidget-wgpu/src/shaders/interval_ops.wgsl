@@ -158,6 +158,10 @@ fn op_not(lhs: Value) -> Value {
     }
 }
 
+fn op_rand(lhs: Value) -> Value {
+    return Value(vec2f(0.0, 1.0));
+}
+
 fn contains_i(i: Value, v: f32) -> bool {
     return (i.v[0] <= v && v <= i.v[1]);
 }
@@ -174,6 +178,10 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
     } else {
         return Value(vec2f(-1.0, 1.0));
     }
+}
+
+fn op_mix(lhs: Value, rhs: Value) -> Value {
+    return nan_i();
 }
 
 fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
