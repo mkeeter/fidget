@@ -580,7 +580,6 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 }
             }
         }
-        println!();
     }
 
     pub fn test_binary_reg_reg<C: CanonicalBinaryOp>() {

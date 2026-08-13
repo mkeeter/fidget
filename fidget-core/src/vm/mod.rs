@@ -702,22 +702,13 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     v[out] = imm.compare(v[arg]);
                 }
                 RegOp::MixRegReg(out, lhs, rhs) => {
-                    v[out] = f32::from_bits(crate::rng::mix(
-                        v[lhs].to_bits(),
-                        v[rhs].to_bits(),
-                    ))
+                    v[out] = v[lhs].mix(v[rhs]);
                 }
                 RegOp::MixRegImm(out, arg, imm) => {
-                    v[out] = f32::from_bits(crate::rng::mix(
-                        v[arg].to_bits(),
-                        imm.to_bits(),
-                    ))
+                    v[out] = v[arg].mix(imm);
                 }
                 RegOp::MixImmReg(out, arg, imm) => {
-                    v[out] = f32::from_bits(crate::rng::mix(
-                        imm.to_bits(),
-                        v[arg].to_bits(),
-                    ))
+                    v[out] = imm.mix(v[arg]);
                 }
                 RegOp::SubRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] - v[rhs];
@@ -980,26 +971,17 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::MixRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = f32::from_bits(crate::rng::mix(
-                            v[lhs][i].to_bits(),
-                            v[rhs][i].to_bits(),
-                        ))
+                        v[out][i] = v[lhs][i].mix(v[rhs][i]);
                     }
                 }
                 RegOp::MixRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = f32::from_bits(crate::rng::mix(
-                            v[arg][i].to_bits(),
-                            imm.to_bits(),
-                        ))
+                        v[out][i] = v[arg][i].min(imm);
                     }
                 }
                 RegOp::MixImmReg(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = f32::from_bits(crate::rng::mix(
-                            imm.to_bits(),
-                            v[arg][i].to_bits(),
-                        ))
+                        v[out][i] = imm.mix(v[arg][i]);
                     }
                 }
                 RegOp::MinRegImm(out, arg, imm) => {

@@ -3,6 +3,7 @@ use crate::{
     float_slice::FloatSliceAssembler, mmap::Mmap, reg,
 };
 use dynasmrt::{DynasmApi, DynasmError, DynasmLabelApi, dynasm};
+use fidget_core::types::FloatExt;
 
 pub const SIMD_WIDTH: usize = 4;
 
@@ -320,7 +321,7 @@ impl Assembler for FloatSliceAssembler {
     }
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         extern "C" fn float_mix(a: f32, b: f32) -> f32 {
-            f32::from_bits(fidget_core::rng::mix(a.to_bits(), b.to_bits()))
+            a.mix(b)
         }
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mix);
     }
@@ -353,7 +354,7 @@ impl Assembler for FloatSliceAssembler {
     }
     fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
         extern "C" fn float_rand(a: f32) -> f32 {
-            fidget_core::rng::rand(a.to_bits())
+            a.rand()
         }
         self.call_fn_unary(out_reg, arg_reg, float_rand);
     }

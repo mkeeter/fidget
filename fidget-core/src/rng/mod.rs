@@ -4,6 +4,7 @@
 ///
 /// This function is sourced from "Hash Functions for GPU Rendering", Jarzynski
 /// & Olano, 2020 ([PDF](https://jcgt.org/published/0009/03/02/paper.pdf))
+#[inline]
 pub fn hash(v: u32) -> u32 {
     let state = v.wrapping_mul(747796405).wrapping_add(2891336453);
     let word = ((state >> ((state >> 28) + 4)) ^ state).wrapping_mul(277803737);

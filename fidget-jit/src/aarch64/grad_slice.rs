@@ -374,8 +374,7 @@ impl Assembler for GradSliceAssembler {
 
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         extern "C" fn grad_mix(a: Grad, b: Grad) -> Grad {
-            f32::from_bits(fidget_core::rng::mix(a.v.to_bits(), b.v.to_bits()))
-                .into()
+            a.mix(b)
         }
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_mix);
     }
@@ -551,7 +550,7 @@ impl Assembler for GradSliceAssembler {
 
     fn build_rand(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn grad_rand(v: Grad) -> Grad {
-            fidget_core::rng::rand(v.v.to_bits()).into()
+            v.rand()
         }
         self.call_fn_unary(out_reg, lhs_reg, grad_rand);
     }

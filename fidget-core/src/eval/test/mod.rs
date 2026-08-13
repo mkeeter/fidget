@@ -99,7 +99,6 @@ fn bind_xyz<T: Tape, V, G: Into<V>>(
 /// Trait for canonical evaluation testing of unary operations
 pub trait CanonicalUnaryOp {
     const NAME: &'static str;
-
     fn build(ctx: &mut Context, arg: Node) -> Node;
     fn eval_f32(arg: f32) -> f32;
     fn eval_f64(arg: f64) -> f64;
