@@ -667,7 +667,7 @@ impl Context {
         self.op_binary(a, b, BinaryOpcode::Compare)
     }
 
-    /// Builds a node performs pseudo-random mixing of two values
+    /// Builds a node which performs pseudo-random mixing of two values
     pub fn mix<A: IntoNode, B: IntoNode>(
         &mut self,
         a: A,

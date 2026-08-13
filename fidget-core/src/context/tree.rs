@@ -409,6 +409,9 @@ impl Tree {
     pub fn compare<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Compare)
     }
+    pub fn mix<T: Into<Tree>>(&self, other: T) -> Self {
+        Self::op_binary(self.clone(), other.into(), BinaryOpcode::Mix)
+    }
     pub fn modulo<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Mod)
     }
@@ -429,6 +432,9 @@ impl Tree {
     }
     pub fn sin(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Sin)
+    }
+    pub fn rand(&self) -> Tree {
+        Self::op_unary(self.clone(), UnaryOpcode::Rand)
     }
     pub fn cos(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Cos)
