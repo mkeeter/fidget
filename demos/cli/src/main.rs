@@ -553,10 +553,12 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     threads: Option<&fidget::render::ThreadPool>,
 ) -> Vec<u8> {
     let size = settings.image_size();
-    if matches!(mode, RenderMode2D::Brute) {
+    let start;
+    let out = if matches!(mode, RenderMode2D::Brute) {
         let tape = shape.float_slice_tape(Default::default());
         let mut eval = fidget::shape::Shape::<F>::new_float_slice_eval();
         let mut out: Vec<bool> = vec![];
+        start = std::time::Instant::now();
         for _ in 0..settings.n {
             let mut xs = vec![];
             let mut ys = vec![];
@@ -600,6 +602,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             ..Default::default()
         };
         let mut image = fidget::raster::Image::default();
+        start = std::time::Instant::now();
         for _ in 0..settings.n {
             let tmp = fidget::raster::pixel::render(
                 bound_shape.clone(),
@@ -610,7 +613,13 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             image = postprocess2d(tmp, &mode, threads);
         }
         image.into_iter().flatten().collect()
-    }
+    };
+    info!(
+        "Rendered {}× at {:.2?} ms/frame",
+        settings.n,
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
+    );
+    out
 }
 
 fn postprocess2d(
