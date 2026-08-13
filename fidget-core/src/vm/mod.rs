@@ -401,12 +401,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     v[out] = v[arg].not();
                 }
                 RegOp::RandReg(out, arg) => {
-                    let arg = v[arg];
-                    v[out] = if arg.lower() == arg.upper() {
-                        crate::rng::rand(arg.lower().to_bits()).into()
-                    } else {
-                        Interval::new(0.0, 1.0)
-                    };
+                    v[out] = v[arg].rand();
                 }
                 RegOp::CopyReg(out, arg) => v[out] = v[arg],
                 RegOp::AddRegImm(out, arg, imm) => {
@@ -499,45 +494,13 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 // Mix operations may produce literally anything, unless the
                 // interval is a single value
                 RegOp::MixRegReg(out, lhs, rhs) => {
-                    let lhs = v[lhs];
-                    let rhs = v[rhs];
-                    // TODO should we do bitwise comparisons here instead of
-                    // floating-point comparisons?
-                    v[out] = if lhs.lower() == lhs.upper()
-                        && rhs.lower() == rhs.upper()
-                    {
-                        f32::from_bits(crate::rng::mix(
-                            lhs.lower().to_bits(),
-                            rhs.lower().to_bits(),
-                        ))
-                        .into()
-                    } else {
-                        f32::NAN.into()
-                    };
+                    v[out] = v[lhs].mix(v[rhs]);
                 }
                 RegOp::MixRegImm(out, arg, imm) => {
-                    let arg = v[arg];
-                    v[out] = if arg.lower() == arg.upper() {
-                        f32::from_bits(crate::rng::mix(
-                            arg.lower().to_bits(),
-                            imm.to_bits(),
-                        ))
-                        .into()
-                    } else {
-                        f32::NAN.into()
-                    }
+                    v[out] = v[arg].mix(imm.into());
                 }
                 RegOp::MixImmReg(out, arg, imm) => {
-                    let arg = v[arg];
-                    v[out] = if arg.lower() == arg.upper() {
-                        f32::from_bits(crate::rng::mix(
-                            imm.to_bits(),
-                            arg.lower().to_bits(),
-                        ))
-                        .into()
-                    } else {
-                        f32::NAN.into()
-                    }
+                    v[out] = Interval::from(imm).mix(v[arg]);
                 }
 
                 RegOp::MinRegReg(out, lhs, rhs) => {
@@ -655,7 +618,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 }
                 RegOp::NotReg(out, arg) => v[out] = (v[arg] == 0.0).into(),
                 RegOp::RandReg(out, arg) => {
-                    v[out] = crate::rng::rand(v[arg].to_bits())
+                    v[out] = v[arg].rand();
                 }
                 RegOp::CopyReg(out, arg) => {
                     v[out] = v[arg];
@@ -952,7 +915,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::RandReg(out, arg) => {
                     for i in 0..size {
-                        v[out][i] = crate::rng::rand(v[arg][i].to_bits())
+                        v[out][i] = v[arg][i].rand();
                     }
                 }
                 RegOp::CopyReg(out, arg) => {
@@ -1258,8 +1221,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::RandReg(out, arg) => {
                     for i in 0..size {
-                        v[out][i] =
-                            crate::rng::rand(v[arg][i].v.to_bits()).into();
+                        v[out][i] = v[arg][i].rand();
                     }
                 }
                 RegOp::CopyReg(out, arg) => {
@@ -1320,48 +1282,24 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::CompareImmReg(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-<<<<<<< conflict 1 of 3
-%%%%%%% diff from: ospkuuzt 218cdd42 "Add fidget_core::rng module" (parents of rebased revision)
-\\\\\\\        to: ospkuuzt 58b1ca21 "Add fidget_core::rng module" (rebase destination)
--                        let p = imm
--                            .partial_cmp(&v[arg][i].v)
--                            .map(|c| c as i8 as f32)
--                            .unwrap_or(f32::NAN);
--                        v[out][i] = Grad::new(p, 0.0, 0.0, 0.0);
-+                        v[out][i] = imm.compare(v[arg][i]);
-+++++++ mwymyrtv 99d588bb "Working on mix and rand" (rebased revision)
-                        v[out][i] = imm
-                            .partial_cmp(&v[arg][i].v)
-                            .map(|c| c as i8 as f32)
-                            .unwrap_or(f32::NAN)
-                            .into();
+                        v[out][i] = imm.compare(v[arg][i]);
                     }
                 }
                 RegOp::MixRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = f32::from_bits(crate::rng::mix(
-                            v[lhs][i].v.to_bits(),
-                            v[rhs][i].v.to_bits(),
-                        ))
-                        .into()
+                        v[out][i] = v[lhs][i].mix(v[rhs][i]);
                     }
                 }
                 RegOp::MixRegImm(out, arg, imm) => {
+                    let imm = imm.into();
                     for i in 0..size {
-                        v[out][i] = f32::from_bits(crate::rng::mix(
-                            v[arg][i].v.to_bits(),
-                            imm.to_bits(),
-                        ))
-                        .into()
+                        v[out][i] = v[arg][i].mix(imm);
                     }
                 }
                 RegOp::MixImmReg(out, arg, imm) => {
+                    let imm = Grad::from(imm);
                     for i in 0..size {
-                        v[out][i] = f32::from_bits(crate::rng::mix(
-                            imm.to_bits(),
-                            v[arg][i].v.to_bits(),
-                        ))
-                        .into()
+                        v[out][i] = imm.mix(v[arg][i]);
                     }
                 }
                 RegOp::CompareRegImm(out, arg, imm) => {

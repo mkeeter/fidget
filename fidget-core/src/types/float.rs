@@ -52,6 +52,9 @@ pub trait FloatExt: Sized {
 
     /// Signed comparison of two values
     fn compare(self, other: Self) -> Self;
+
+    /// Pseudo-random number generation
+    fn rand(self) -> f32;
 }
 
 impl FloatExt for f32 {
@@ -114,5 +117,10 @@ impl FloatExt for f32 {
         } else {
             (other, Choice::Right)
         }
+    }
+
+    #[inline]
+    fn rand(self) -> Self {
+        crate::rng::rand(self.to_bits())
     }
 }

@@ -595,6 +595,30 @@ impl Interval {
             }
         }
     }
+
+    /// Pseudo-random seed generation
+    pub fn mix(self: Interval, rhs: Interval) -> Interval {
+        // TODO should we do bitwise comparisons here instead of
+        // floating-point comparisons?
+        if self.lower() == self.upper() && rhs.lower() == rhs.upper() {
+            f32::from_bits(crate::rng::mix(
+                self.lower().to_bits(),
+                rhs.lower().to_bits(),
+            ))
+            .into()
+        } else {
+            f32::NAN.into()
+        }
+    }
+
+    /// Pseudo-random number generation
+    pub fn rand(&self) -> Interval {
+        if self.lower() == self.upper() {
+            crate::rng::rand(self.lower().to_bits()).into()
+        } else {
+            Interval::new(0.0, 1.0)
+        }
+    }
 }
 
 impl std::fmt::Display for Interval {
