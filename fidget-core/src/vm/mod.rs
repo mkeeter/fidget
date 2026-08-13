@@ -489,10 +489,49 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::CompareImmReg(out, arg, imm) => {
                     v[out] = Interval::compare(imm, v[arg]);
                 }
-                // Mix operations may produce literally anything
-                RegOp::MixRegReg(out, ..)
-                | RegOp::MixRegImm(out, ..)
-                | RegOp::MixImmReg(out, ..) => v[out] = f32::NAN.into(),
+                // Mix operations may produce literally anything, unless the
+                // interval is a single value
+                RegOp::MixRegReg(out, lhs, rhs) => {
+                    let lhs = v[lhs];
+                    let rhs = v[rhs];
+                    // TODO should we do bitwise comparisons here instead of
+                    // floating-point comparisons?
+                    v[out] = if lhs.lower() == lhs.upper()
+                        && rhs.lower() == rhs.upper()
+                    {
+                        f32::from_bits(crate::rng::mix(
+                            lhs.lower().to_bits(),
+                            rhs.lower().to_bits(),
+                        ))
+                        .into()
+                    } else {
+                        f32::NAN.into()
+                    };
+                }
+                RegOp::MixRegImm(out, arg, imm) => {
+                    let arg = v[arg];
+                    v[out] = if arg.lower() == arg.upper() {
+                        f32::from_bits(crate::rng::mix(
+                            arg.lower().to_bits(),
+                            imm.to_bits(),
+                        ))
+                        .into()
+                    } else {
+                        f32::NAN.into()
+                    }
+                }
+                RegOp::MixImmReg(out, arg, imm) => {
+                    let arg = v[arg];
+                    v[out] = if arg.lower() == arg.upper() {
+                        f32::from_bits(crate::rng::mix(
+                            imm.to_bits(),
+                            arg.lower().to_bits(),
+                        ))
+                        .into()
+                    } else {
+                        f32::NAN.into()
+                    }
+                }
 
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
