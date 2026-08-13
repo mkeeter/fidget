@@ -159,7 +159,11 @@ fn op_not(lhs: Value) -> Value {
 }
 
 fn op_rand(lhs: Value) -> Value {
-    return Value(vec2f(0.0, 1.0));
+    if lhs.v[0] == lhs.v[1] {
+        return Value(vec2f(rand(bitcast<u32>(lhs.v[0]))));
+    } else {
+        return Value(vec2f(0.0, 1.0));
+    }
 }
 
 fn contains_i(i: Value, v: f32) -> bool {
@@ -181,7 +185,13 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_mix(lhs: Value, rhs: Value) -> Value {
-    return nan_i();
+    if lhs.v[0] == lhs.v[1] && rhs.v[0] == rhs.v[1] {
+        return Value(vec2f(bitcast<f32>(
+            mix(bitcast<u32>(lhs.v[0]), bitcast<u32>(rhs.v[0])))
+        ));
+    } else {
+        return nan_i();
+    }
 }
 
 fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
