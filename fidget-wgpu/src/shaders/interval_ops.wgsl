@@ -159,10 +159,10 @@ fn op_not(lhs: Value) -> Value {
 }
 
 fn op_rand(lhs: Value) -> Value {
-    if lhs.v[0] == lhs.v[1] {
-        return Value(vec2f(rand(bitcast<u32>(lhs.v[0]))));
-    } else {
+    if has_nan(lhs) || bitcast<u32>(lhs.v[0]) != bitcast<u32>(lhs.v[1]) {
         return Value(vec2f(0.0, 1.0));
+    } else {
+        return Value(vec2f(rand(bitcast<u32>(lhs.v[0]))));
     }
 }
 
@@ -185,12 +185,16 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_mix(lhs: Value, rhs: Value) -> Value {
-    if lhs.v[0] == lhs.v[1] && rhs.v[0] == rhs.v[1] {
+    if has_nan(lhs)
+        || has_nan(rhs)
+        || bitcast<u32>(lhs.v[0]) != bitcast<u32>(lhs.v[1])
+        || bitcast<u32>(rhs.v[0]) != bitcast<u32>(rhs.v[1])
+    {
+        return nan_i();
+    } else {
         return Value(vec2f(bitcast<f32>(
             mix(bitcast<u32>(lhs.v[0]), bitcast<u32>(rhs.v[0])))
         ));
-    } else {
-        return nan_i();
     }
 }
 

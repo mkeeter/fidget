@@ -78,7 +78,7 @@ impl BinaryOpcode {
             }
             BinaryOpcode::Mix => f32::from_bits(crate::rng::mix(
                 (a as f32).to_bits(),
-                (a as f32).to_bits(),
+                (b as f32).to_bits(),
             )) as f64,
         }
     }

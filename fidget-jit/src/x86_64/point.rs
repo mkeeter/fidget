@@ -3,6 +3,7 @@ use crate::{
     OFFSET, REGISTER_LIMIT, mmap::Mmap, point::PointAssembler, reg,
 };
 use dynasmrt::{DynasmApi, DynasmError, DynasmLabelApi, dynasm};
+use fidget_core::types::FloatExt;
 
 /// Implementation of the single-point assembler on `x86_64`
 ///
@@ -325,6 +326,12 @@ impl Assembler for PointAssembler {
             ; vandpd Rx(reg(out_reg)), Rx(reg(out_reg)), xmm1
         );
     }
+    fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
+        extern "sysv64" fn float_rand(a: f32) -> f32 {
+            a.rand()
+        }
+        self.call_fn_unary(out_reg, arg_reg, float_rand);
+    }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Based on Godbolt, so perhaps less readable than usual
@@ -398,6 +405,12 @@ impl Assembler for PointAssembler {
             ; O:
         );
         self.0.ops.commit_local().unwrap()
+    }
+    fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "sysv64" fn float_mix(a: f32, b: f32) -> f32 {
+            a.mix(b)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mix);
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
