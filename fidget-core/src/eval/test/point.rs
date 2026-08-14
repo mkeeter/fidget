@@ -10,6 +10,7 @@ use crate::{
     context::Context,
     eval::{Function, MathFunction, Tape, TracingEvaluator},
     shape::{EzShape, Shape, ShapeVars},
+    types::FloatExt,
     var::Var,
     vm::Choice,
 };
@@ -443,6 +444,39 @@ where
         }
     }
 
+    pub fn test_p_rand() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.rand(a).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+
+        assert_eq!(eval.eval(&tape, &[1.0]).unwrap().0[0], 1.0.rand());
+        assert_eq!(eval.eval(&tape, &[2.0]).unwrap().0[0], 2.0.rand());
+    }
+
+    pub fn test_p_mix() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.y();
+        let b = ctx.mix(a, b).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+
+        assert_eq!(
+            eval.eval(&tape, [0.0, 1.0].as_slice()).unwrap().0[0],
+            1.0.mix(0.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, [2.0, 3.0].as_slice()).unwrap().0[0],
+            3.0.mix(2.0)
+        );
+    }
+
     pub fn test_unary<C: CanonicalUnaryOp>() {
         // Pick a bunch of arguments, some of which are spicy
         let args = test_args();
@@ -656,6 +690,8 @@ macro_rules! point_tests {
         $crate::point_test!(test_basic, $t);
         $crate::point_test!(test_p_shape_var, $t);
         $crate::point_test!(test_p_stress, $t);
+        $crate::point_test!(test_p_mix, $t);
+        $crate::point_test!(test_p_rand, $t);
         $crate::point_test!(test_multi_output, $t);
 
         mod p_unary {

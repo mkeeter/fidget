@@ -11,6 +11,7 @@ use crate::{
     context::Context,
     eval::{Function, MathFunction, Tape, TracingEvaluator},
     shape::EzShape,
+    types::FloatExt,
     types::Interval,
     var::Var,
     vm::{Choice, VmShape},
@@ -150,6 +151,68 @@ where
         let v = eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
+    }
+
+    pub fn test_i_rand() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.rand(a).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_interval_eval();
+        let tape = shape.interval_tape(Default::default());
+
+        assert_eq!(
+            eval.eval(&tape, &[Interval::new(1.0, 2.0)]).unwrap().0[0],
+            Interval::new(0.0, 1.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, &[Interval::new(1.0, 1.0)]).unwrap().0[0],
+            1.0.rand().into()
+        );
+        assert_eq!(
+            eval.eval(&tape, &[Interval::from(f32::NAN)]).unwrap().0[0],
+            Interval::new(0.0, 1.0)
+        );
+    }
+
+    pub fn test_i_mix() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.y();
+        let b = ctx.mix(a, b).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_interval_eval();
+        let tape = shape.interval_tape(Default::default());
+
+        assert!(
+            eval.eval(
+                &tape,
+                [Interval::new(0.0, 1.0), Interval::new(1.0, 2.0)].as_slice(),
+            )
+            .unwrap()
+            .0[0]
+                .has_nan()
+        );
+        assert!(
+            eval.eval(
+                &tape,
+                [Interval::from(1.0), Interval::from(f32::NAN)].as_slice(),
+            )
+            .unwrap()
+            .0[0]
+                .has_nan()
+        );
+        assert_eq!(
+            eval.eval(
+                &tape,
+                [Interval::new(1.0, 1.0), Interval::new(2.0, 2.0)].as_slice()
+            )
+            .unwrap()
+            .0[0],
+            Interval::from(2.0.mix(1.0)),
+        );
     }
 
     pub fn test_i_square() {
@@ -1208,6 +1271,8 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_abs, $t);
         $crate::interval_test!(test_i_add_abs, $t);
         $crate::interval_test!(test_i_sqrt, $t);
+        $crate::interval_test!(test_i_mix, $t);
+        $crate::interval_test!(test_i_rand, $t);
         $crate::interval_test!(test_i_square, $t);
         $crate::interval_test!(test_i_sin, $t);
         $crate::interval_test!(test_i_neg, $t);
