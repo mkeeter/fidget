@@ -516,7 +516,7 @@ impl GradSliceAssembler {
             ; vmovups [rsp + 0xb0], xmm15
 
             // call the function, packing the gradient into xmm0 + xmm1
-            ; movsd xmm0, Rx(reg(arg_reg))
+            ; vmovsd xmm0, Rx(reg(arg_reg)), Rx(reg(arg_reg))
             ; vpshufd xmm1, Rx(reg(arg_reg)), 0b1110
             ; mov rdx, QWORD addr as _
             ; call rdx
@@ -579,9 +579,9 @@ impl GradSliceAssembler {
             // Note that we load xmm0 last, because it could be one of our
             // arguments if we're using IMM_REG
             ; vpshufd xmm1, Rx(reg(lhs_reg)), 0b1110
-            ; movsd xmm2, Rx(reg(rhs_reg))
+            ; vmovsd xmm2, Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
             ; vpshufd xmm3, Rx(reg(rhs_reg)), 0b1110
-            ; movsd xmm0, Rx(reg(lhs_reg))
+            ; vmovsd xmm0, Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
             ; mov rdx, QWORD addr as _
             ; call rdx
 
