@@ -432,17 +432,62 @@ impl Assembler for GradSliceAssembler {
     }
 
     fn build_rand(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "sysv64" fn grad_rand(v: Grad) -> Grad {
-            v.rand()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, grad_rand);
+        // Ported straight from Godbolt
+        dynasm!(self.0.ops
+            ; movq    rax, Rx(reg(lhs_reg))
+            ; imul    eax, eax, 747796405
+            ; add     eax, -1403630843
+            ; mov     r8d, eax
+            ; shr     r8d, 28
+            ; add     r8b, 4
+            ; mov     r9d, eax
+            ; shrx    r9d, r9d, r8d
+            ; xor     r9d, eax
+            ; imul    eax, r9d, 277803737
+            ; mov     r8d, eax
+            ; shr     r8d, 31
+            ; shr     eax, 9
+            ; xor     eax, r8d
+            ; or      eax, 0x3f800000
+            ; vmovd   Rx(reg(out_reg)), eax
+            ; mov     rax, 0xbf800000
+            ; vmovd   xmm0, eax
+            ; addss   Rx(reg(out_reg)), xmm0
+        );
     }
 
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        extern "sysv64" fn grad_mix(a: Grad, b: Grad) -> Grad {
-            a.mix(b)
-        }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_mix);
+        // Ported straight from disassembly
+        dynasm!(self.0.ops
+            ; movq    rax, Rx(reg(lhs_reg))
+            ; movq    r8, Rx(reg(rhs_reg))
+            ; imul    r9d, r8d, 747796405
+            ; add     r9d, -1403630843
+            ; mov     r8d, r9d
+            ; shr     r8d, 28
+            ; add     r8b, 4
+            ; mov     r10d, r9d
+            ; shrx    r10d, r9d, r8d
+            ; xor     r10d, r9d
+            ; imul    r8d, r10d, 277803737
+            ; mov     r9d, r8d
+            ; shr     r9d, 22
+            ; xor     r9d, r8d
+            ; add     r9d, eax
+            ; imul    eax, r9d, 747796405
+            ; add     eax, -1403630843
+            ; mov     r8d, eax
+            ; shr     r8d, 28
+            ; add     r8b, 4
+            ; mov     r9d, eax
+            ; shrx    r9d, r9d, r8d
+            ; xor     r9d, eax
+            ; imul    eax, r9d, 277803737
+            ; mov     r8d, eax
+            ; shr     r8d, 22
+            ; xor     r8d, eax
+            ; vmovq   Rx(reg(out_reg)), r8
+        );
     }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -509,7 +554,7 @@ impl GradSliceAssembler {
     ) {
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up X/Y/Z pointers to the stack
+            // Back up input / output / counter registers to the stack
             ; mov [rbp - 0x8], rdi
             ; mov [rbp - 0x10], rsi
             ; mov [rbp - 0x18], rdx
@@ -549,7 +594,7 @@ impl GradSliceAssembler {
             ; vmovups xmm14, [rsp + 0xa0]
             ; vmovups xmm15, [rsp + 0xb0]
 
-            // Restore X/Y/Z pointers
+            // Restore input / output / counter pointers
             ; mov rdi, [rbp - 0x8]
             ; mov rsi, [rbp - 0x10]
             ; mov rdx, [rbp - 0x18]
