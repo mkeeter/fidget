@@ -164,15 +164,18 @@ where
 
         assert_eq!(
             eval.eval(&tape, &[Interval::new(1.0, 2.0)]).unwrap().0[0],
-            Interval::new(0.0, 1.0)
+            Interval::new(0.0, 1.0),
+            "evaluation at [1.0, 2.0]"
         );
         assert_eq!(
             eval.eval(&tape, &[Interval::new(1.0, 1.0)]).unwrap().0[0],
-            1.0.rand().into()
+            1.0.rand().into(),
+            "evaluation at [1.0, 1.0]"
         );
         assert_eq!(
             eval.eval(&tape, &[Interval::from(f32::NAN)]).unwrap().0[0],
-            Interval::new(0.0, 1.0)
+            Interval::new(0.0, 1.0),
+            "evaluation at [NaN, NaN]"
         );
     }
 
