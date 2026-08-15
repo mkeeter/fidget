@@ -287,6 +287,32 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         );
     }
 
+    pub fn test_g_add() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.y();
+        let b = ctx.add(a, b).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_grad_slice_eval();
+        let tape = shape.grad_slice_tape(Default::default());
+
+        // This form happens to produce input arrays that aren't aligned to 16
+        // bytes on Windows, which exercise a vmovups / vmovaps distinction.
+        assert_eq!(
+            &eval
+                .eval(
+                    &tape,
+                    &[
+                        [0.0, 1.0].map(Grad::from).as_slice(),
+                        [2.0, 3.0].map(Grad::from).as_slice()
+                    ]
+                )
+                .unwrap()[0],
+            [2.0.into(), 4.0.into()]
+        );
+    }
+
     pub fn test_g_not() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -713,6 +739,7 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_mul, $t);
         $crate::grad_test!(test_g_min, $t);
         $crate::grad_test!(test_g_max, $t);
+        $crate::grad_test!(test_g_add, $t);
         $crate::grad_test!(test_g_min_max, $t);
         $crate::grad_test!(test_g_not, $t);
         $crate::grad_test!(test_g_div, $t);
