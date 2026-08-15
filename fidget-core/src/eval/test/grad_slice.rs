@@ -291,9 +291,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let a = ctx.x();
         let b = ctx.y();
-        let b = ctx.add(a, b).unwrap();
+        let sum = ctx.add(a, b).unwrap();
 
-        let shape = F::new(&ctx, &[b]).unwrap();
+        let shape = F::new(&ctx, &[sum]).unwrap();
         let mut eval = F::new_grad_slice_eval();
         let tape = shape.grad_slice_tape(Default::default());
 
