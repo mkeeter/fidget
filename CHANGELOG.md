@@ -26,6 +26,7 @@
 - Fix a JIT bug in the gradient evaluator on Windows, where we assumed that
   input `&[Grad]` slices were aligned to 16 bytes.  This caused a Access
   Violation error code when running the JITted function (0xC0000005).
+- Add fast path for interval trigonometry functions when `lower == upper`
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
