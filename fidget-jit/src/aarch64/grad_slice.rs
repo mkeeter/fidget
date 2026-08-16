@@ -26,6 +26,8 @@ use fidget_core::types::Grad;
 /// |----------|------------------------------------------------------|
 /// | `x3`     | byte offset within input arrays                      |
 /// | `x4`     | Staging for loading SIMD values                      |
+/// | `v8-15`  | Tape values (callee-saved)                           |
+/// | `v16-31` | Tape values (caller-saved)                           |
 /// | `v3.s4`  | Immediate value (`IMM_REG`)                          |
 /// | `v7.s4`  | Other immediate values                               |
 /// | `w8-12`  | General purpose registers (caller-saved)             |
