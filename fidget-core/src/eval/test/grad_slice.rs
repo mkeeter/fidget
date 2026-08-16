@@ -465,10 +465,8 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
 
         // Compare values (the `.v` term) with the context's evaluator
         for (i, v) in out.iter().cloned().enumerate() {
-            let q = ctx
-                .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
-                .unwrap();
-            let err = (v.v as f64 - q).abs();
+            let q = ctx.eval_xyz(node, x[i], y[i], z[i]).unwrap();
+            let err = (v.v - q).abs();
             assert!(
                 err < 1e-2, // generous error bounds, for the 512-op case
                 "mismatch at index {i} ({}, {}, {}): {v:?} != {q} [{err}], {}",

@@ -32,7 +32,7 @@ pub struct Circle {
     pub center: Vec2,
     /// Circle radius
     #[facet(default = 1.0)]
-    pub radius: f64,
+    pub radius: f32,
 }
 
 impl From<Circle> for Tree {
@@ -72,7 +72,7 @@ pub struct Sphere {
     pub center: Vec3,
     /// Sphere radius
     #[facet(default = 1.0)]
-    pub radius: f64,
+    pub radius: f32,
 }
 
 impl From<Sphere> for Tree {
@@ -121,7 +121,7 @@ impl From<Union> for Tree {
     fn from(v: Union) -> Self {
         if v.input.is_empty() {
             // XXX should this be an error instead?
-            Tree::constant(f64::INFINITY)
+            Tree::constant(f32::INFINITY)
         } else {
             fn recurse(s: &[Tree]) -> Tree {
                 match s.len() {
@@ -146,7 +146,7 @@ pub struct Blend {
     /// Second shape input
     pub b: Tree,
     /// Blending radius
-    pub radius: f64,
+    pub radius: f32,
 }
 
 impl From<Blend> for Tree {
@@ -174,7 +174,7 @@ impl From<Intersection> for Tree {
     fn from(v: Intersection) -> Self {
         if v.input.is_empty() {
             // XXX should this be an error instead?
-            Tree::constant(-f64::INFINITY)
+            Tree::constant(-f32::INFINITY)
         } else {
             fn recurse(s: &[Tree]) -> Tree {
                 match s.len() {
@@ -231,7 +231,7 @@ pub struct Move {
 impl From<Move> for Tree {
     fn from(v: Move) -> Self {
         v.shape.remap_affine(nalgebra::convert(
-            nalgebra::Translation3::<f64>::new(
+            nalgebra::Translation3::<f32>::new(
                 -v.offset.x,
                 -v.offset.y,
                 -v.offset.z,
@@ -253,7 +253,7 @@ pub struct Scale {
 impl From<Scale> for Tree {
     fn from(v: Scale) -> Self {
         v.shape
-            .remap_affine(nalgebra::convert(nalgebra::Scale3::<f64>::new(
+            .remap_affine(nalgebra::convert(nalgebra::Scale3::<f32>::new(
                 1.0 / v.scale.x,
                 1.0 / v.scale.y,
                 1.0 / v.scale.z,
@@ -268,14 +268,14 @@ pub struct ScaleUniform {
     pub shape: Tree,
     /// Scale to apply
     #[facet(default = 1.0)]
-    pub scale: f64,
+    pub scale: f32,
 }
 
 impl From<ScaleUniform> for Tree {
     fn from(v: ScaleUniform) -> Self {
         let s = 1.0 / v.scale;
         v.shape
-            .remap_affine(nalgebra::convert(nalgebra::Scale3::<f64>::new(
+            .remap_affine(nalgebra::convert(nalgebra::Scale3::<f32>::new(
                 s, s, s,
             )))
     }
@@ -318,7 +318,7 @@ pub struct ReflectX {
 
     /// X offset
     #[facet(default = 0.0)]
-    pub offset: f64,
+    pub offset: f32,
 }
 
 impl From<ReflectX> for Tree {
@@ -342,7 +342,7 @@ pub struct ReflectXY {
 
     /// Plane about which to reflect the shape
     #[facet(default = 0.0)]
-    pub offset: f64,
+    pub offset: f32,
 }
 
 impl From<ReflectXY> for Tree {
@@ -366,7 +366,7 @@ pub struct ReflectY {
 
     /// Y offset
     #[facet(default = 0.0)]
-    pub offset: f64,
+    pub offset: f32,
 }
 
 impl From<ReflectY> for Tree {
@@ -390,7 +390,7 @@ pub struct ReflectZ {
 
     /// Z offset
     #[facet(default = 0.0)]
-    pub offset: f64,
+    pub offset: f32,
 }
 
 impl From<ReflectZ> for Tree {
@@ -418,7 +418,7 @@ pub struct Rotate {
 
     /// Angle to rotate (in degrees)
     #[facet(default = 0.0)]
-    pub angle: f64,
+    pub angle: f32,
 
     /// Center of rotation
     #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
@@ -434,7 +434,7 @@ impl From<Rotate> for Tree {
         let d = -v.angle.to_radians();
         let axis = v.axis.vec();
         let shape = shape.remap_affine(nalgebra::convert(
-            nalgebra::Rotation3::<f64>::new(nalgebra::Vector3::from(d * *axis)),
+            nalgebra::Rotation3::<f32>::new(nalgebra::Vector3::from(d * *axis)),
         ));
         Move {
             shape,
@@ -452,7 +452,7 @@ pub struct RotateX {
 
     /// Angle to rotate (in degrees)
     #[facet(default = 0.0)]
-    pub angle: f64,
+    pub angle: f32,
 
     /// Center of rotation
     #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
@@ -479,7 +479,7 @@ pub struct RotateY {
 
     /// Angle to rotate (in degrees)
     #[facet(default = 0.0)]
-    pub angle: f64,
+    pub angle: f32,
 
     /// Center of rotation
     #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
@@ -506,7 +506,7 @@ pub struct RotateZ {
 
     /// Angle to rotate (in degrees)
     #[facet(default = 0.0)]
-    pub angle: f64,
+    pub angle: f32,
 
     /// Center of rotation
     #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
@@ -534,7 +534,7 @@ pub struct RevolveY {
     pub shape: Tree,
     /// X offset about which to revolve
     #[facet(default = 0.0)]
-    pub offset: f64,
+    pub offset: f32,
 }
 
 impl From<RevolveY> for Tree {
@@ -558,10 +558,10 @@ pub struct ExtrudeZ {
     pub shape: Tree,
     /// Lower bounds of the extrusion
     #[facet(default = 0.0)]
-    pub lower: f64,
+    pub lower: f32,
     /// Upper bounds of the extrusion
     #[facet(default = 1.0)]
-    pub upper: f64,
+    pub upper: f32,
 }
 
 impl From<ExtrudeZ> for Tree {
@@ -581,10 +581,10 @@ pub struct LoftZ {
     pub b: Tree,
     /// Lower bounds of the loft
     #[facet(default = 0.0)]
-    pub lower: f64,
+    pub lower: f32,
     /// Upper bounds of the loft
     #[facet(default = 1.0)]
-    pub upper: f64,
+    pub upper: f32,
 }
 
 impl From<LoftZ> for Tree {
@@ -608,10 +608,10 @@ pub struct RepeatX {
     pub shape: Tree,
     /// Radius of the region to repeat
     #[facet(default = 1.0)]
-    pub radius: f64,
+    pub radius: f32,
     /// X position about which to repeat
     #[facet(default = 0.0)]
-    pub offset: f64,
+    pub offset: f32,
 }
 
 impl From<RepeatX> for Tree {
@@ -805,7 +805,7 @@ mod test {
         #[derive(Clone, facet::Facet)]
         struct BadShape {
             #[facet(default)]
-            center: f64,
+            center: f32,
         }
         impl From<BadShape> for Tree {
             fn from(_: BadShape) -> Tree {
@@ -850,7 +850,7 @@ mod test {
 
         // Check the three repetitions closest to the center
         for i in 0..=1000 {
-            let x = (i as f64 / 1000.0) - (1000.0 - i as f64) / 1000.0;
+            let x = (i as f32 / 1000.0) - (1000.0 - i as f32) / 1000.0;
             let vc = ctx.eval_xyz(c, x, 0.0, 0.0).unwrap();
             let err = (vc - ctx.eval_xyz(r, x, 0.0, 0.0).unwrap()).abs();
             assert!(err < 1e-6, "bad err {err} at {x}");
@@ -876,7 +876,7 @@ mod test {
 
         // Check the three repetitions closest to the center
         for i in 0..=1000 {
-            let x = 0.75 * ((i as f64 / 1000.0) - (1000.0 - i as f64) / 1000.0)
+            let x = 0.75 * ((i as f32 / 1000.0) - (1000.0 - i as f32) / 1000.0)
                 + 1.0;
             let vc = ctx.eval_xyz(c, x, 0.0, 0.0).unwrap();
             let err = (vc - ctx.eval_xyz(r, x, 0.0, 0.0).unwrap()).abs();

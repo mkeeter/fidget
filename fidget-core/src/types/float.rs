@@ -58,6 +58,9 @@ pub trait FloatExt: Sized {
 
     /// Pseudo-random number mixing
     fn mix(self, other: f32) -> f32;
+
+    /// Logical not
+    fn not(self) -> f32;
 }
 
 impl FloatExt for f32 {
@@ -130,5 +133,10 @@ impl FloatExt for f32 {
     #[inline]
     fn mix(self, other: Self) -> Self {
         f32::from_bits(crate::rng::mix(self.to_bits(), other.to_bits()))
+    }
+
+    #[inline]
+    fn not(self) -> Self {
+        (self == 0.0).into()
     }
 }

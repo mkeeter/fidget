@@ -14,7 +14,7 @@ use std::{cmp::Ordering, sync::Arc};
 pub enum TreeOp {
     /// Input (an arbitrary [`Var`])
     Input(Var),
-    Const(f64),
+    Const(f32),
     Binary(BinaryOpcode, Arc<TreeOp>, Arc<TreeOp>),
     Unary(UnaryOpcode, Arc<TreeOp>),
     /// Lazy remapping of trees
@@ -36,7 +36,7 @@ pub enum TreeOp {
     /// be transformed with the provided affine matrix.
     RemapAffine {
         target: Arc<TreeOp>,
-        mat: nalgebra::Affine3<f64>,
+        mat: nalgebra::Affine3<f32>,
     },
 }
 
@@ -202,21 +202,15 @@ impl std::hash::Hash for TreeOp {
     }
 }
 
-impl From<f64> for Tree {
-    fn from(v: f64) -> Tree {
-        Tree::constant(v)
-    }
-}
-
 impl From<f32> for Tree {
     fn from(v: f32) -> Tree {
-        Tree::constant(v as f64)
+        Tree::constant(v)
     }
 }
 
 impl From<i32> for Tree {
     fn from(v: i32) -> Tree {
-        Tree::constant(v as f64)
+        Tree::constant(v as f32)
     }
 }
 
@@ -294,7 +288,7 @@ impl Tree {
     ///
     /// The remapping is lazy; it is not evaluated until the tree is imported
     /// into a `Context`.
-    pub fn remap_affine(&self, mat: nalgebra::Affine3<f64>) -> Tree {
+    pub fn remap_affine(&self, mat: nalgebra::Affine3<f32>) -> Tree {
         // Flatten affine trees
         let out = match &*self.0 {
             TreeOp::RemapAffine { target, mat: next } => TreeOp::RemapAffine {
@@ -376,7 +370,7 @@ impl Tree {
     pub fn z() -> Self {
         Tree(Arc::new(TreeOp::Input(Var::Z)))
     }
-    pub fn constant(f: f64) -> Self {
+    pub fn constant(f: f32) -> Self {
         Tree(Arc::new(TreeOp::Const(f)))
     }
     fn op_unary(a: Tree, op: UnaryOpcode) -> Self {
@@ -487,12 +481,6 @@ macro_rules! impl_binary {
                 Tree::op_binary(self.into(), other, BinaryOpcode::$op)
             }
         }
-        impl std::ops::$op<Tree> for f64 {
-            type Output = Tree;
-            fn $base_fn(self, other: Tree) -> Tree {
-                Tree::op_binary(self.into(), other, BinaryOpcode::$op)
-            }
-        }
     };
 }
 
@@ -595,9 +583,9 @@ mod test {
     fn test_remap_affine() {
         let s = Tree::x();
         // Two rotations by 45° -> 90°
-        let t = nalgebra::convert(nalgebra::Rotation3::<f64>::from_axis_angle(
-            &nalgebra::Vector3::<f64>::z_axis(),
-            -std::f64::consts::FRAC_PI_4,
+        let t = nalgebra::convert(nalgebra::Rotation3::<f32>::from_axis_angle(
+            &nalgebra::Vector3::<f32>::z_axis(),
+            -std::f32::consts::FRAC_PI_4,
         ));
         let s = s.remap_affine(t);
         let s = s.remap_affine(t);
@@ -618,11 +606,11 @@ mod test {
 
     #[test]
     fn test_remap_order() {
-        let translate = nalgebra::convert(nalgebra::Translation3::<f64>::new(
+        let translate = nalgebra::convert(nalgebra::Translation3::<f32>::new(
             3.0, 0.0, 0.0,
         ));
         let scale =
-            nalgebra::convert(nalgebra::Scale3::<f64>::new(0.5, 0.5, 0.5));
+            nalgebra::convert(nalgebra::Scale3::<f32>::new(0.5, 0.5, 0.5));
 
         let s = Tree::x();
         let s = s.remap_affine(translate);
@@ -828,7 +816,7 @@ mod test {
         assert_eq!(ctx.get_const(root).unwrap(), 27.0);
         ctx.clear();
         let root = ctx.import(&c);
-        assert_eq!(ctx.get_const(root).unwrap(), 1.0 / 27.0);
+        assert_eq!(ctx.get_const(root).unwrap(), (1f32 / 3.0).powi(3));
         ctx.clear();
         let root = ctx.import(&d);
         assert_eq!(ctx.get_const(root).unwrap(), 1.0);
@@ -839,14 +827,14 @@ mod test {
         #[derive(facet::Facet)]
         struct Transform {
             tree: Tree,
-            x: f64,
+            x: f32,
         }
 
         let builder = facet::Partial::alloc::<Transform>()
             .unwrap()
             .set_field("tree", Tree::x() + 2.0 * Tree::y())
             .unwrap()
-            .set_field("x", 1.0)
+            .set_field("x", 1.0f32)
             .unwrap();
         let t: Transform = builder.build().unwrap().materialize().unwrap();
         assert_eq!(t.x, 1.0);
@@ -909,7 +897,7 @@ mod test {
         assert_eq!(a, b);
 
         let affine: nalgebra::Affine3<_> =
-            nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, f64::NAN));
+            nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, f32::NAN));
         let a = Tree::x().remap_affine(affine);
         let b = Tree::x().remap_affine(affine);
         assert_eq!(a, b);
@@ -928,7 +916,7 @@ mod test {
         assert_ne!(state.hash_one(&a), state.hash_one(&c));
 
         let affine: nalgebra::Affine3<_> =
-            nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, f64::NAN));
+            nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, f32::NAN));
         let a = Tree::x().remap_affine(affine);
         let b = Tree::x().remap_affine(affine);
         assert_eq!(state.hash_one(&a), state.hash_one(&b));

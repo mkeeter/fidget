@@ -256,7 +256,7 @@ where
             Interval::from(1.0.mix(5.0)),
         );
 
-        let v = ctx.constant(f64::NAN);
+        let v = ctx.constant(f32::NAN);
         let mix = ctx.mix(a, v).unwrap();
         let shape = F::new(&ctx, &[mix]).unwrap();
         let mut eval = F::new_interval_eval();

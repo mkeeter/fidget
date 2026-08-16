@@ -163,7 +163,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         );
 
         // Test mix(reg, imm) and mix(imm, reg) with NAN
-        let n = ctx.constant(f64::NAN);
+        let n = ctx.constant(f32::NAN);
         let mix = ctx.mix(a, n).unwrap();
         let shape = F::new(&ctx, &[mix]).unwrap();
         let mut eval = F::new_float_slice_eval();
@@ -281,10 +281,8 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let out = eval.eval(&tape, &vs(&x, &y, &z)).unwrap();
 
         for (i, v) in out[0].iter().cloned().enumerate() {
-            let q = ctx
-                .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
-                .unwrap();
-            let err = (v as f64 - q).abs();
+            let q = ctx.eval_xyz(node, x[i], y[i], z[i]).unwrap();
+            let err = (v - q).abs();
             assert!(
                 err < 1e-2, // generous error bounds, for the 512-op case
                 "mismatch at index {i} ({}, {}, {}): {v} != {q} [{err}], {}",

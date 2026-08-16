@@ -86,7 +86,7 @@
 //! Shapes are built from a set of Rust primitives, with generous conversions
 //! from Rhai's native types:
 //!
-//! - Scalar values (`f64`)
+//! - Scalar values (`f32`)
 //!     - Both floating-point and integer Rhai values will be accepted
 //! - Vectors (`vec2` and `vec3`)
 //!     - These may be explicitly constructed with `vec2(x, y)` and
@@ -307,16 +307,17 @@ where
     ) -> Result<Self, Box<rhai::EvalAltResult>>;
 }
 
-impl FromDynamic for f64 {
+impl FromDynamic for f32 {
     fn from_dynamic(
         ctx: &rhai::NativeCallContext,
         d: rhai::Dynamic,
-        _default: Option<&f64>,
+        _default: Option<&f32>,
     ) -> Result<Self, Box<rhai::EvalAltResult>> {
         let ty = d.type_name();
         d.clone()
             .try_cast::<f64>()
-            .or_else(|| d.try_cast::<i64>().map(|f| f as f64))
+            .map(|f| f as f32)
+            .or_else(|| d.try_cast::<i64>().map(|f| f as f32))
             .ok_or_else(|| {
                 rhai::EvalAltResult::ErrorMismatchDataType(
                     "float".to_string(),
@@ -380,8 +381,8 @@ mod test {
         let engine = engine();
 
         // Test that PI constant is available
-        let pi: f64 = engine.eval("PI").unwrap();
-        assert!((pi - std::f64::consts::PI).abs() < f64::EPSILON);
+        let pi: f32 = engine.eval("PI").unwrap();
+        assert!((pi - std::f32::consts::PI).abs() < f32::EPSILON);
 
         // Test using constants in angular calculations
         let t = engine
@@ -392,7 +393,7 @@ mod test {
 
         // Evaluate at (1, 1) - should be sqrt(2) since cos(π/4) = sin(π/4) = 1/√2
         let result = ctx.eval_xyz(expr, 1.0, 1.0, 0.0).unwrap();
-        let expected = std::f64::consts::SQRT_2;
+        let expected = std::f32::consts::SQRT_2;
         assert!((result - expected).abs() < 1e-10);
     }
 }

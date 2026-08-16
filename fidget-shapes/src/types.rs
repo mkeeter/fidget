@@ -15,11 +15,11 @@ use fidget_core::context::Tree;
 pub enum AxisError {
     /// Vector is too short to convert to an axis
     #[error("vector is too short to convert to an axis (length: {0})")]
-    TooShort(f64),
+    TooShort(f32),
 
     /// Vector is too long to convert to an axis
     #[error("vector is too long to convert to an axis (length: {0})")]
-    TooLong(f64),
+    TooLong(f32),
 
     /// Could not normalize vector due to an invalid length
     #[error("could not normalize vector due to an invalid length")]
@@ -40,12 +40,12 @@ pub struct WrongType {
 #[derive(Copy, Clone, Debug, PartialEq, Facet)]
 #[allow(missing_docs)]
 pub struct Vec2 {
-    pub x: f64,
-    pub y: f64,
+    pub x: f32,
+    pub y: f32,
 }
 
-impl From<nalgebra::Vector2<f64>> for Vec2 {
-    fn from(value: nalgebra::Vector2<f64>) -> Self {
+impl From<nalgebra::Vector2<f32>> for Vec2 {
+    fn from(value: nalgebra::Vector2<f32>) -> Self {
         Self {
             x: value.x,
             y: value.y,
@@ -53,34 +53,34 @@ impl From<nalgebra::Vector2<f64>> for Vec2 {
     }
 }
 
-impl From<Vec2> for nalgebra::Vector2<f64> {
+impl From<Vec2> for nalgebra::Vector2<f32> {
     fn from(value: Vec2) -> Self {
         Self::new(value.x, value.y)
     }
 }
 
-impl From<f64> for Vec2 {
-    fn from(value: f64) -> Self {
+impl From<f32> for Vec2 {
+    fn from(value: f32) -> Self {
         Self { x: value, y: value }
     }
 }
 
 impl Vec2 {
     /// Builds a new `Vec2` from `x, y` coordinates
-    pub fn new(x: f64, y: f64) -> Self {
+    pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
     /// Returns the L2-norm
-    pub fn norm(&self) -> f64 {
+    pub fn norm(&self) -> f32 {
         (self.x.powi(2) + self.y.powi(2)).sqrt()
     }
-    fn combine<F: Fn(f64, f64) -> f64>(self, rhs: Self, f: F) -> Self {
+    fn combine<F: Fn(f32, f32) -> f32>(self, rhs: Self, f: F) -> Self {
         Self {
             x: f(self.x, rhs.x),
             y: f(self.y, rhs.y),
         }
     }
-    fn map<F: Fn(f64) -> f64>(self, f: F) -> Self {
+    fn map<F: Fn(f32) -> f32>(self, f: F) -> Self {
         Self {
             x: f(self.x),
             y: f(self.y),
@@ -94,13 +94,13 @@ impl Vec2 {
 #[derive(Copy, Clone, Debug, PartialEq, Facet)]
 #[allow(missing_docs)]
 pub struct Vec3 {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
-impl From<nalgebra::Vector3<f64>> for Vec3 {
-    fn from(value: nalgebra::Vector3<f64>) -> Self {
+impl From<nalgebra::Vector3<f32>> for Vec3 {
+    fn from(value: nalgebra::Vector3<f32>) -> Self {
         Self {
             x: value.x,
             y: value.y,
@@ -109,14 +109,14 @@ impl From<nalgebra::Vector3<f64>> for Vec3 {
     }
 }
 
-impl From<Vec3> for nalgebra::Vector3<f64> {
+impl From<Vec3> for nalgebra::Vector3<f32> {
     fn from(value: Vec3) -> Self {
         Self::new(value.x, value.y, value.z)
     }
 }
 
-impl From<f64> for Vec3 {
-    fn from(value: f64) -> Self {
+impl From<f32> for Vec3 {
+    fn from(value: f32) -> Self {
         Self {
             x: value,
             y: value,
@@ -127,21 +127,21 @@ impl From<f64> for Vec3 {
 
 impl Vec3 {
     /// Builds a new `Vec3` from `x, y, z` coordinates
-    pub fn new(x: f64, y: f64, z: f64) -> Self {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
     /// Returns the L2-norm
-    pub fn norm(&self) -> f64 {
+    pub fn norm(&self) -> f32 {
         (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
     }
-    fn combine<F: Fn(f64, f64) -> f64>(self, rhs: Self, f: F) -> Self {
+    fn combine<F: Fn(f32, f32) -> f32>(self, rhs: Self, f: F) -> Self {
         Self {
             x: f(self.x, rhs.x),
             y: f(self.y, rhs.y),
             z: f(self.z, rhs.z),
         }
     }
-    fn map<F: Fn(f64) -> f64>(self, f: F) -> Self {
+    fn map<F: Fn(f32) -> f32>(self, f: F) -> Self {
         Self {
             x: f(self.x),
             y: f(self.y),
@@ -156,14 +156,14 @@ impl Vec3 {
 #[derive(Copy, Clone, Debug, PartialEq, Facet)]
 #[allow(missing_docs)]
 pub struct Vec4 {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-    pub w: f64,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
 }
 
-impl From<nalgebra::Vector4<f64>> for Vec4 {
-    fn from(value: nalgebra::Vector4<f64>) -> Self {
+impl From<nalgebra::Vector4<f32>> for Vec4 {
+    fn from(value: nalgebra::Vector4<f32>) -> Self {
         Self {
             x: value.x,
             y: value.y,
@@ -173,14 +173,14 @@ impl From<nalgebra::Vector4<f64>> for Vec4 {
     }
 }
 
-impl From<Vec4> for nalgebra::Vector4<f64> {
+impl From<Vec4> for nalgebra::Vector4<f32> {
     fn from(value: Vec4) -> Self {
         Self::new(value.x, value.y, value.z, value.w)
     }
 }
 
-impl From<f64> for Vec4 {
-    fn from(value: f64) -> Self {
+impl From<f32> for Vec4 {
+    fn from(value: f32) -> Self {
         Self {
             x: value,
             y: value,
@@ -191,7 +191,7 @@ impl From<f64> for Vec4 {
 }
 
 impl Vec4 {
-    fn combine<F: Fn(f64, f64) -> f64>(self, rhs: Self, f: F) -> Self {
+    fn combine<F: Fn(f32, f32) -> f32>(self, rhs: Self, f: F) -> Self {
         Self {
             x: f(self.x, rhs.x),
             y: f(self.y, rhs.y),
@@ -199,7 +199,7 @@ impl Vec4 {
             w: f(self.w, rhs.w),
         }
     }
-    fn map<F: Fn(f64) -> f64>(self, f: F) -> Self {
+    fn map<F: Fn(f32) -> f32>(self, f: F) -> Self {
         Self {
             x: f(self.x),
             y: f(self.y),
@@ -220,15 +220,15 @@ macro_rules! impl_binary {
                 self.combine(rhs, |a, b| a.$base_fn(b))
             }
         }
-        impl std::ops::$op<$ty> for f64 {
+        impl std::ops::$op<$ty> for f32 {
             type Output = $ty;
             fn $base_fn(self, rhs: $ty) -> $ty {
                 $ty::from(self).$base_fn(rhs)
             }
         }
-        impl std::ops::$op<f64> for $ty {
+        impl std::ops::$op<f32> for $ty {
             type Output = $ty;
-            fn $base_fn(self, rhs: f64) -> $ty {
+            fn $base_fn(self, rhs: f32) -> $ty {
                 self.$base_fn($ty::from(rhs))
             }
         }
@@ -340,7 +340,7 @@ pub struct Plane {
     /// Axis orthogonal to the plane
     pub axis: Axis,
     /// Offset relative to the origin
-    pub offset: f64,
+    pub offset: f32,
 }
 
 impl Plane {
@@ -376,7 +376,7 @@ impl From<Plane> for Tree {
 #[strum_discriminants(name(Type), derive(enum_map::Enum), allow(missing_docs))]
 #[allow(missing_docs)]
 pub enum Value {
-    Float(f64),
+    Float(f32),
     Vec2(Vec2),
     Vec3(Vec3),
     Vec4(Vec4),
@@ -431,7 +431,7 @@ macro_rules! try_from_type {
     };
 }
 
-try_from_type!(f64, Float);
+try_from_type!(f32, Float);
 try_from_type!(Vec2);
 try_from_type!(Vec3);
 try_from_type!(Vec4);
@@ -443,7 +443,7 @@ try_from_type!(Vec<Tree>, VecTree);
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            Type::Float => "f64",
+            Type::Float => "f32",
             Type::Vec2 => "Vec2",
             Type::Vec3 => "Vec3",
             Type::Vec4 => "Vec4",
@@ -460,7 +460,7 @@ impl std::fmt::Display for Type {
 impl TryFrom<facet::ConstTypeId> for Type {
     type Error = facet::ConstTypeId;
     fn try_from(t: facet::ConstTypeId) -> Result<Self, Self::Error> {
-        if t == ConstTypeId::of::<f64>() {
+        if t == ConstTypeId::of::<f32>() {
             Ok(Self::Float)
         } else if t == ConstTypeId::of::<Vec2>() {
             Ok(Self::Vec2)

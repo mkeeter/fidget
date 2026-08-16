@@ -406,10 +406,8 @@ where
         }
 
         for (i, v) in out.iter().cloned().enumerate() {
-            let q = ctx
-                .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
-                .unwrap();
-            let err = (v as f64 - q).abs();
+            let q = ctx.eval_xyz(node, x[i], y[i], z[i]).unwrap();
+            let err = (v - q).abs();
             assert!(
                 err < 1e-2, // generous error bounds, for the 512-op case
                 "mismatch at index {i} ({}, {}, {}): {v} != {q} [{err}], {}",
@@ -517,7 +515,7 @@ where
         );
 
         // Test mix(reg, imm) and mix(imm, reg) with NAN
-        let v = ctx.constant(f64::NAN);
+        let v = ctx.constant(f32::NAN);
         let mix = ctx.mix(a, v).unwrap();
         let shape = F::new(&ctx, &[mix]).unwrap();
         let mut eval = F::new_point_eval();

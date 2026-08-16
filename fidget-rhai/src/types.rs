@@ -31,19 +31,19 @@ macro_rules! register_binary {
         });
         $engine.register_fn($rop, |a: $ty, b: f64| -> $ty {
             $( use std::ops::$op; )?
-            a.$base_fn(b)
+            a.$base_fn(b as f32)
         });
         $engine.register_fn($rop, |a: $ty, b: i64| -> $ty {
             $( use std::ops::$op; )?
-            a.$base_fn(b as f64)
+            a.$base_fn(b as f32)
         });
         $engine.register_fn($rop, |a: f64, b: $ty| -> $ty {
             $( use std::ops::$op; )?
-            $ty::from(a).$base_fn(b)
+            $ty::from(a as f32).$base_fn(b)
         });
         $engine.register_fn($rop, |a: i64, b: $ty| -> $ty {
             $( use std::ops::$op; )?
-            $ty::from(a as f64).$base_fn(b)
+            $ty::from(a as f32).$base_fn(b)
         });
     };
     ($engine:ident, $ty:ident, $base_fn:ident) => {
@@ -81,8 +81,8 @@ fn register_vec2(engine: &mut rhai::Engine) {
              x: rhai::Dynamic,
              y: rhai::Dynamic|
              -> Result<Vec2, Box<EvalAltResult>> {
-                let x = f64::from_dynamic(&ctx, x, None)?;
-                let y = f64::from_dynamic(&ctx, y, None)?;
+                let x = f32::from_dynamic(&ctx, x, None)?;
+                let y = f32::from_dynamic(&ctx, y, None)?;
                 Ok(Vec2 { x, y })
             },
         )
@@ -112,9 +112,9 @@ fn register_vec3(engine: &mut rhai::Engine) {
              y: rhai::Dynamic,
              z: rhai::Dynamic|
              -> Result<Vec3, Box<EvalAltResult>> {
-                let x = f64::from_dynamic(&ctx, x, None)?;
-                let y = f64::from_dynamic(&ctx, y, None)?;
-                let z = f64::from_dynamic(&ctx, z, None)?;
+                let x = f32::from_dynamic(&ctx, x, None)?;
+                let y = f32::from_dynamic(&ctx, y, None)?;
+                let z = f32::from_dynamic(&ctx, z, None)?;
                 Ok(Vec3 { x, y, z })
             },
         )
@@ -158,8 +158,8 @@ fn vec2_from_rhai_array(
 ) -> Result<Vec2, Box<EvalAltResult>> {
     match array.len() {
         2 => {
-            let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-            let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+            let x = f32::from_dynamic(ctx, array[0].clone(), None)?;
+            let y = f32::from_dynamic(ctx, array[1].clone(), None)?;
             Ok(Vec2 { x, y })
         }
         n => Err(EvalAltResult::ErrorMismatchDataType(
@@ -205,15 +205,15 @@ fn vec3_from_rhai_array(
 ) -> Result<Vec3, Box<EvalAltResult>> {
     match array.len() {
         2 => {
-            let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-            let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
+            let x = f32::from_dynamic(ctx, array[0].clone(), None)?;
+            let y = f32::from_dynamic(ctx, array[1].clone(), None)?;
             let z = default.map(|d| d.z).unwrap_or(0.0);
             Ok(Vec3 { x, y, z })
         }
         3 => {
-            let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-            let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
-            let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
+            let x = f32::from_dynamic(ctx, array[0].clone(), None)?;
+            let y = f32::from_dynamic(ctx, array[1].clone(), None)?;
+            let z = f32::from_dynamic(ctx, array[2].clone(), None)?;
             Ok(Vec3 { x, y, z })
         }
         n => Err(EvalAltResult::ErrorMismatchDataType(
@@ -243,10 +243,10 @@ impl FromDynamic for Vec4 {
             })?;
             match array.len() {
                 4 => {
-                    let x = f64::from_dynamic(ctx, array[0].clone(), None)?;
-                    let y = f64::from_dynamic(ctx, array[1].clone(), None)?;
-                    let z = f64::from_dynamic(ctx, array[2].clone(), None)?;
-                    let w = f64::from_dynamic(ctx, array[3].clone(), None)?;
+                    let x = f32::from_dynamic(ctx, array[0].clone(), None)?;
+                    let y = f32::from_dynamic(ctx, array[1].clone(), None)?;
+                    let z = f32::from_dynamic(ctx, array[2].clone(), None)?;
+                    let w = f32::from_dynamic(ctx, array[3].clone(), None)?;
                     Ok(Vec4 { x, y, z, w })
                 }
                 n => Err(EvalAltResult::ErrorMismatchDataType(
@@ -403,7 +403,7 @@ fn register_plane(engine: &mut rhai::Engine) {
             "plane",
             |ctx: rhai::NativeCallContext,
              v: rhai::Dynamic,
-             offset: f64|
+             offset: f32|
              -> Result<Plane, Box<EvalAltResult>> {
                 let plane = Plane::from_dynamic(&ctx, v, None)?;
                 Ok(Plane {

@@ -1,5 +1,6 @@
 use crate::{
     context::{Node, indexed::Index},
+    types::FloatExt,
     var::Var,
 };
 use ordered_float::OrderedFloat;
@@ -48,45 +49,27 @@ pub enum BinaryOpcode {
 
 impl BinaryOpcode {
     /// Evaluates the opcode
-    pub fn eval(&self, a: f64, b: f64) -> f64 {
+    pub fn eval(&self, a: f32, b: f32) -> f32 {
         match self {
             BinaryOpcode::Add => a + b,
             BinaryOpcode::Sub => a - b,
             BinaryOpcode::Mul => a * b,
             BinaryOpcode::Div => a / b,
             BinaryOpcode::Atan => a.atan2(b),
-            BinaryOpcode::Min => a.min(b),
-            BinaryOpcode::Max => a.max(b),
-            BinaryOpcode::Compare => a
-                .partial_cmp(&b)
-                .map(|i| i as i8 as f64)
-                .unwrap_or(f64::NAN),
+            BinaryOpcode::Min => a.min_choice(b).0,
+            BinaryOpcode::Max => a.max_choice(b).0,
+            BinaryOpcode::Compare => a.compare(b),
             BinaryOpcode::Mod => a.rem_euclid(b),
-            BinaryOpcode::And => {
-                if a == 0.0 {
-                    a
-                } else {
-                    b
-                }
-            }
-            BinaryOpcode::Or => {
-                if a != 0.0 {
-                    a
-                } else {
-                    b
-                }
-            }
-            BinaryOpcode::Mix => f32::from_bits(crate::rng::mix(
-                (a as f32).to_bits(),
-                (b as f32).to_bits(),
-            )) as f64,
+            BinaryOpcode::And => a.and_choice(b).0,
+            BinaryOpcode::Or => a.or_choice(b).0,
+            BinaryOpcode::Mix => a.mix(b),
         }
     }
 }
 
 impl UnaryOpcode {
     /// Evaluates the opcode
-    pub fn eval(&self, a: f64) -> f64 {
+    pub fn eval(&self, a: f32) -> f32 {
         match self {
             UnaryOpcode::Neg => -a,
             UnaryOpcode::Abs => a.abs(),
@@ -104,8 +87,8 @@ impl UnaryOpcode {
             UnaryOpcode::Atan => a.atan(),
             UnaryOpcode::Exp => a.exp(),
             UnaryOpcode::Ln => a.ln(),
-            UnaryOpcode::Not => (a == 0.0).into(),
-            UnaryOpcode::Rand => crate::rng::rand((a as f32).to_bits()) as f64,
+            UnaryOpcode::Not => a.not(),
+            UnaryOpcode::Rand => a.rand(),
         }
     }
 }
@@ -123,7 +106,7 @@ impl UnaryOpcode {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Op {
     Input(Var),
-    Const(OrderedFloat<f64>),
+    Const(OrderedFloat<f32>),
     Binary(BinaryOpcode, Node, Node),
     Unary(UnaryOpcode, Node),
 }
