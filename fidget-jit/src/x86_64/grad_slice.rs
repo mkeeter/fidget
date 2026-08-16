@@ -594,7 +594,7 @@ impl GradSliceAssembler {
             ; vmovups xmm14, [rsp + 0xa0]
             ; vmovups xmm15, [rsp + 0xb0]
 
-            // Restore input / output / counter pointers
+            // Restore input / output / counter registers
             ; mov rdi, [rbp - 0x8]
             ; mov rsi, [rbp - 0x10]
             ; mov rdx, [rbp - 0x18]

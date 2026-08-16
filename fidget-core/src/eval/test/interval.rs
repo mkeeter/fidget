@@ -177,6 +177,11 @@ where
             Interval::new(0.0, 1.0),
             "evaluation at [NaN, NaN]"
         );
+        assert_eq!(
+            eval.eval(&tape, &[Interval::new(-0.0, 0.0)]).unwrap().0[0],
+            Interval::new(0.0, 1.0),
+            "evaluation at [NaN, NaN]"
+        );
     }
 
     pub fn test_i_mix() {
@@ -215,6 +220,16 @@ where
             .unwrap()
             .0[0],
             Interval::from(2.0.mix(1.0)),
+        );
+        // the [-0, +0] interval is numerically equal but bitwise different!
+        assert!(
+            eval.eval(
+                &tape,
+                [Interval::new(-0.0, 0.0), Interval::new(-0.0, 0.0)].as_slice(),
+            )
+            .unwrap()
+            .0[0]
+                .has_nan()
         );
 
         let v = ctx.constant(5.0);

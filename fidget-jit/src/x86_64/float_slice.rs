@@ -237,7 +237,7 @@ impl Assembler for FloatSliceAssembler {
             ; vpbroadcastd ymm1, xmm1
             ; vpaddd  Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
 
-            // shift = (state >> 28) + 4 
+            // shift = (state >> 28) + 4
             ; vpsrld  ymm1, Ry(reg(out_reg)), 28
             ; mov     eax, 4
             ; vmovd   xmm2, eax

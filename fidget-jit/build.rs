@@ -14,6 +14,11 @@ fn main() {
                 "`x86_64` build with `jit` enabled requires AVX2 instructions"
             );
             std::process::exit(1);
+        } else if !std::arch::is_x86_feature_detected!("bmi2") {
+            eprintln!(
+                "`x86_64` build with `jit` enabled requires BMI2 instructions"
+            );
+            std::process::exit(1);
         }
 
         #[cfg(target_arch = "aarch64")]

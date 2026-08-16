@@ -559,21 +559,27 @@ impl Assembler for IntervalAssembler {
 
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            // check lhs.lower == lhs.upper (which also checks that they aren't NaN)
-            ; vpshufd xmm1, Rx(reg(lhs_reg)), 0b11111101u8 as i8 // xmm1 = lhs.upper
-            ; vcomiss xmm1, Rx(reg(lhs_reg)) // comparison
-            ; jp >N  // NaN sets the parity flag
-            ; jne >N // NaN handler also handles non-equal case
-
-            // check rhs.lower == rhs.upper (which also checks that they aren't NaN)
-            ; vpshufd xmm1, Rx(reg(rhs_reg)), 0b11111101u8 as i8 // xmm1 = rhs.upper
-            ; vcomiss xmm1, Rx(reg(rhs_reg))
-            ; jp >N
+            // check lhs.lower.to_bits() == lhs.upper.to_bits()
+            ; movq    rax, Rx(reg(lhs_reg))
+            ; mov     r8, rax
+            ; shr     r8, 32
+            ; cmp     eax, r8d
             ; jne >N
 
-            // fallthrough, normal case!
-            ; movq    rax, Rx(reg(lhs_reg))
+            // check rhs.lower.to_bits() == rhs.upper.to_bits()
             ; movq    r8, Rx(reg(rhs_reg))
+            ; mov     r9, r8
+            ; shr     r9, 32
+            ; cmp     r8d, r9d
+            ; jne >N
+
+            // check for NaNs in lhs and rhs (less likely)
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
+            ; jp >N
+            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
+            ; jp >N
+
+            // fallthrough, normal case (LHS is in eax, RHS in r8d)
             ; imul    r9d, r8d, 747796405
             ; add     r9d, -1403630843
             ; mov     r8d, r9d
@@ -617,14 +623,16 @@ impl Assembler for IntervalAssembler {
 
     fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
         dynasm!(self.0.ops
-            // check arg.lower == arg.upper (which also checks that they aren't NaN)
-            ; vpshufd xmm1, Rx(reg(arg_reg)), 0b11111101u8 as i8 // xmm1 = arg.upper
-            ; vcomiss xmm1, Rx(reg(arg_reg)) // comparison
-            ; jp >N  // NaN sets the parity flag
-            ; jne >N // NaN handler also handles non-equal case
-
-            // fallthrough (happy case)
+            // check that arg.lower.to_bits() == arg.upper.to_bits()
             ; movq    rax, Rx(reg(arg_reg))
+            ; mov     r8, rax
+            ; shr     r8, 32
+            ; cmp     eax, r8d
+            ; jne >N
+            ; vcomiss Rx(reg(arg_reg)), Rx(reg(arg_reg))
+            ; jp >N  // NaN sets the parity flag
+
+            // fallthrough (happy case, value is already in eax)
             ; imul    eax, eax, 747796405
             ; add     eax, -1403630843
             ; mov     r8d, eax
