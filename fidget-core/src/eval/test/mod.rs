@@ -101,7 +101,6 @@ pub trait CanonicalUnaryOp {
     const NAME: &'static str;
     fn build(ctx: &mut Context, arg: Node) -> Node;
     fn eval_f32(arg: f32) -> f32;
-    fn eval_f64(arg: f64) -> f64;
 
     /// Returns true if there is a bidirectional discontinuity at a position
     ///
@@ -123,9 +122,6 @@ pub trait CanonicalBinaryOp {
     fn eval_reg_reg_f32(lhs: f32, rhs: f32) -> f32;
     fn eval_reg_imm_f32(lhs: f32, rhs: f32) -> f32;
     fn eval_imm_reg_f32(lhs: f32, rhs: f32) -> f32;
-    fn eval_reg_reg_f64(lhs: f64, rhs: f64) -> f64;
-    fn eval_reg_imm_f64(lhs: f64, rhs: f64) -> f64;
-    fn eval_imm_reg_f64(lhs: f64, rhs: f64) -> f64;
 
     /// Returns true if there is a bidirectional discontinuity at a position
     ///
@@ -145,9 +141,6 @@ macro_rules! declare_canonical_unary {
                 Context::$i(ctx, arg).unwrap()
             }
             fn eval_f32($a: f32) -> f32 {
-                $t
-            }
-            fn eval_f64($a: f64) -> f64 {
                 $t
             }
             fn discontinuous_at($b: f32) -> bool {
@@ -181,15 +174,6 @@ macro_rules! declare_canonical_binary {
                 $t
             }
             fn eval_imm_reg_f32($lhs: f32, $rhs: f32) -> f32 {
-                $t
-            }
-            fn eval_reg_reg_f64($lhs: f64, $rhs: f64) -> f64 {
-                $t
-            }
-            fn eval_reg_imm_f64($lhs: f64, $rhs: f64) -> f64 {
-                $t
-            }
-            fn eval_imm_reg_f64($lhs: f64, $rhs: f64) -> f64 {
                 $t
             }
             fn discontinuous_at($lhs2: f32, $rhs2: f32) -> bool {
@@ -227,15 +211,6 @@ macro_rules! declare_canonical_binary_full {
                 $f_reg_imm
             }
             fn eval_imm_reg_f32($lhs_imm_reg: f32, $rhs_imm_reg: f32) -> f32 {
-                $f_imm_reg
-            }
-            fn eval_reg_reg_f64($lhs_reg_reg: f64, $rhs_reg_reg: f64) -> f64 {
-                $f_reg_reg
-            }
-            fn eval_reg_imm_f64($lhs_reg_imm: f64, $rhs_reg_imm: f64) -> f64 {
-                $f_reg_imm
-            }
-            fn eval_imm_reg_f64($lhs_imm_reg: f64, $rhs_imm_reg: f64) -> f64 {
                 $f_imm_reg
             }
         }

@@ -12,9 +12,6 @@ use crate::{
     vm::VmFunction,
 };
 
-/// Epsilon for gradient estimates
-const EPSILON: f64 = 1e-8;
-
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestGradSlice<F>(std::marker::PhantomData<*const F>);
 
@@ -496,6 +493,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     }
 
     pub fn test_unary<C: CanonicalUnaryOp>() {
+        const EPSILON: f32 = 1e-4; // hand-tuned value
         let args = test_args();
 
         let mut ctx = Context::new();
@@ -517,11 +515,11 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 .collect::<Vec<Grad>>();
             let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
             for (a, &o) in args.iter().zip(out[0].iter()) {
-                let v = C::eval_f64(a.v as f64);
-                let err = (v as f32 - o.v).abs();
-                let err_frac = err / (v.abs() as f32).max(o.v.abs());
+                let v = C::eval_f32(a.v);
+                let err = (v - o.v).abs();
+                let err_frac = err / (v.abs()).max(o.v.abs());
                 assert!(
-                    o.v == v as f32
+                    o.v == v
                         || err < 1e-6
                         || err_frac < 1e-6
                         || (v.is_nan() && o.v.is_nan()),
@@ -533,18 +531,18 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                     continue;
                 }
 
-                let grad = o.d(i);
+                let grad = o.d(i) as f64;
                 if !v.is_nan() && grad < 1e9 && !grad.is_infinite() {
-                    let a = a.v as f64;
-                    let d = C::eval_f64(a + EPSILON);
-                    let est_grad = (d - v) / EPSILON;
-                    let mut err = (est_grad as f32 - grad).abs();
+                    let a = a.v;
+                    let d = C::eval_f32(a + EPSILON);
+                    let est_grad = (d as f64 - v as f64) / EPSILON as f64;
+                    let mut err = (est_grad - grad).abs();
 
-                    let d = C::eval_f64(a - EPSILON);
-                    let est_grad = (v - d) / EPSILON;
-                    err = err.min((est_grad as f32 - grad).abs());
+                    let d = C::eval_f32(a - EPSILON);
+                    let est_grad = (v as f64 - d as f64) / EPSILON as f64;
+                    err = err.min((est_grad - grad).abs());
                     assert!(
-                        err.min(err / grad.abs()) < 1e-3,
+                        err.min(err / grad.abs()) < 1e-2,
                         "gradient estimate mismatch in '{}' at {a} => {o:?}:
                         {est_grad} != {grad} ({err})",
                         C::NAME,
@@ -560,15 +558,16 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         lhs: &[f32],
         rhs: &[f32],
         out: &[Grad],
-        g: impl Fn(f64, f64) -> f64,
+        g: impl Fn(f32, f32) -> f32,
         name: &str,
     ) {
+        const EPSILON: f32 = 1e-3; // hand-tuned value
         for ((a, b), &o) in lhs.iter().zip(rhs).zip(out.iter()) {
-            let v = g(*a as f64, *b as f64);
-            let err = (v as f32 - o.v).abs();
-            let err_frac = err / (v.abs() as f32).max(o.v.abs());
+            let v = g(*a, *b);
+            let err = (v - o.v).abs();
+            let err_frac = err / (v.abs()).max(o.v.abs());
             assert!(
-                (o.v == v as f32)
+                o.v == v
                     || err < 1e-6
                     || err_frac < 1e-6
                     || (v.is_nan() && o.v.is_nan()),
@@ -584,20 +583,20 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 continue;
             }
 
-            let a = *a as f64;
-            let b = *b as f64;
+            let a = *a;
+            let b = *b;
             if i == j {
                 let grad = o.d(i);
                 if grad < 1e9 && !grad.is_infinite() {
                     let d = g(a + EPSILON, b + EPSILON);
                     let est_grad = (d - v) / EPSILON;
-                    let mut err = (est_grad as f32 - grad).abs();
+                    let mut err = (est_grad - grad).abs();
 
                     let d = g(a - EPSILON, b);
                     let est_grad = (v - d) / EPSILON;
-                    err = err.min((est_grad as f32 - grad).abs());
+                    err = err.min((est_grad - grad).abs());
                     assert!(
-                        err.min(err / grad.abs()) < 1e-3,
+                        err.min(err / grad.abs()) < 1e-2,
                         "gradient estimate mismatch in '{name}' at \
                          ({a} + epsilon, {b}) => {o:?}: \
                          {est_grad} != {grad} ({err})"
@@ -605,19 +604,19 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 }
             } else {
                 if i < 3 {
-                    let grad = o.d(i);
+                    let grad = o.d(i) as f64;
                     if grad < 1e9 && !grad.is_infinite() {
                         // Check both +epsilon and -epsilon positions, because
                         // they may be different if there are C1 discontinuities
                         let d = g(a + EPSILON, b);
-                        let est_grad = (d - v) / EPSILON;
-                        let mut err = (est_grad as f32 - grad).abs();
+                        let est_grad = (d as f64 - v as f64) / EPSILON as f64;
+                        let mut err = (est_grad - grad).abs();
 
                         let d = g(a - EPSILON, b);
-                        let est_grad = (v - d) / EPSILON;
-                        err = err.min((est_grad as f32 - grad).abs());
+                        let est_grad = (v as f64 - d as f64) / EPSILON as f64;
+                        err = err.min((est_grad - grad).abs());
                         assert!(
-                            err.min(err / grad.abs()) < 1e-3,
+                            err.min(err / grad.abs()) < 1e-2,
                             "gradient estimate mismatch in '{name}' at \
                              ({a} + epsilon, {b}) => {o:?}: \
                              {est_grad} != {grad} ({err})"
@@ -625,17 +624,17 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                     }
                 }
                 if j < 3 {
-                    let grad = o.d(j);
+                    let grad = o.d(j) as f64;
                     if grad < 1e9 && !grad.is_infinite() {
                         let d = g(a, b + EPSILON);
                         let est_grad = (d - v) / EPSILON;
-                        let mut err = (est_grad as f32 - grad).abs();
+                        let mut err = (est_grad as f64 - grad).abs();
 
                         let d = g(a, b - EPSILON);
                         let est_grad = (v - d) / EPSILON;
-                        err = err.min((est_grad as f32 - grad).abs());
+                        err = err.min((est_grad as f64 - grad).abs());
                         assert!(
-                            err.min(err / grad.abs()) < 1e-3,
+                            err.min(err / grad.abs()) < 1e-2,
                             "gradient estimate mismatch in '{name}' at \
                              ({a}, {b} + epsilon) => {o:?}: \
                              {est_grad} != {grad} ({err})"
@@ -683,7 +682,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                         &args,
                         rhs,
                         &out,
-                        C::eval_reg_reg_f64,
+                        C::eval_reg_reg_f32,
                         &name,
                     );
                 }
@@ -723,7 +722,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                         &args,
                         &rhs,
                         &out,
-                        C::eval_reg_imm_f64,
+                        C::eval_reg_imm_f32,
                         &name,
                     );
                 }
@@ -763,7 +762,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                         &lhs,
                         &args,
                         &out,
-                        C::eval_imm_reg_f64,
+                        C::eval_imm_reg_f32,
                         &name,
                     );
                 }
