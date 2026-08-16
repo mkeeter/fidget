@@ -557,6 +557,25 @@ impl Assembler for IntervalAssembler {
         );
     }
 
+    fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        // TODO port this to assembly
+        extern "sysv64" fn interval_mix(
+            lhs: Interval,
+            rhs: Interval,
+        ) -> Interval {
+            lhs.mix(rhs)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_mix);
+    }
+
+    fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
+        // TODO port this to assembly
+        extern "sysv64" fn interval_rand(arg: Interval) -> Interval {
+            arg.rand()
+        }
+        self.call_fn_unary(out_reg, arg_reg, interval_rand);
+    }
+
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         assert_ne!(reg(lhs_reg), IMM_REG);
         dynasm!(self.0.ops

@@ -102,7 +102,8 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
             OP_ATAN,
             OP_EXP,
             OP_LN,
-            OP_NOT: {
+            OP_NOT,
+            OP_RAND: {
                 if op[2] != 255 {
                     live[op[2]] = true;
                 }
@@ -115,7 +116,8 @@ fn simplify_tape(end: u32, tape_len: u32, stack: ptr<function, Stack>) -> u32 {
             OP_SUB,
             OP_COMPARE,
             OP_ATAN2,
-            OP_MOD: {
+            OP_MOD,
+            OP_MIX: {
                 if op[2] != 255 {
                     live[op[2]] = true;
                 }

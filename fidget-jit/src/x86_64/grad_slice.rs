@@ -430,6 +430,21 @@ impl Assembler for GradSliceAssembler {
             ; vorpd Rx(reg(out_reg)), xmm1, xmm2
         );
     }
+
+    fn build_rand(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn grad_rand(v: Grad) -> Grad {
+            v.rand()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_rand);
+    }
+
+    fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "sysv64" fn grad_mix(a: Grad, b: Grad) -> Grad {
+            a.mix(b)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_mix);
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))

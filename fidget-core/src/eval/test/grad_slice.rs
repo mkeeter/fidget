@@ -6,6 +6,7 @@ use super::{CanonicalBinaryOp, CanonicalUnaryOp, build_stress_fn, test_args};
 use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
+    types::FloatExt,
     types::Grad,
     var::Var,
     vm::VmFunction,
@@ -323,6 +324,71 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         assert_eq!(
             Self::eval_xyz(&tape, &[0.0], &[0.0], &[0.0])[0],
             Grad::new(1.0, 0.0, 0.0, 0.0)
+        );
+    }
+
+    pub fn test_g_rand() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.rand(a).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_grad_slice_eval();
+        let tape = shape.grad_slice_tape(Default::default());
+
+        let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0].map(Grad::from);
+        assert_eq!(
+            &eval.eval(&tape, &[args.as_slice()]).unwrap()[0],
+            args.map(|a| a.rand()),
+        );
+    }
+
+    pub fn test_g_mix() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.y();
+        let mix = ctx.mix(a, b).unwrap();
+
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_grad_slice_eval();
+        let tape = shape.grad_slice_tape(Default::default());
+
+        assert_eq!(
+            &eval
+                .eval(
+                    &tape,
+                    &[
+                        [0.0, 1.0].map(Grad::from).as_slice(),
+                        [2.0, 3.0].map(Grad::from).as_slice()
+                    ]
+                )
+                .unwrap()[0],
+            [2.0.mix(0.0).into(), 3.0.mix(1.0).into()]
+        );
+
+        // Test mix(reg, imm)
+        let v = ctx.constant(5.0);
+        let mix = ctx.mix(a, v).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_grad_slice_eval();
+        let tape = shape.grad_slice_tape(Default::default());
+        assert_eq!(
+            &eval
+                .eval(&tape, &[[0.0, 1.0].map(Grad::from).as_slice(),])
+                .unwrap()[0],
+            [0.0.mix(5.0).into(), 1.0.mix(5.0).into()]
+        );
+
+        // Test mix(imm, reg)
+        let mix = ctx.mix(v, a).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_grad_slice_eval();
+        let tape = shape.grad_slice_tape(Default::default());
+        assert_eq!(
+            &eval
+                .eval(&tape, &[[0.0, 1.0].map(Grad::from).as_slice(),])
+                .unwrap()[0],
+            [5.0.mix(0.0).into(), 5.0.mix(1.0).into()]
         );
     }
 
@@ -728,6 +794,8 @@ macro_rules! grad_test {
 macro_rules! grad_slice_tests {
     ($t:ty) => {
         $crate::grad_test!(test_g_circle, $t);
+        $crate::grad_test!(test_g_mix, $t);
+        $crate::grad_test!(test_g_rand, $t);
         $crate::grad_test!(test_g_modulo, $t);
         $crate::grad_test!(test_g_x, $t);
         $crate::grad_test!(test_g_y, $t);

@@ -68,6 +68,8 @@ macro_rules! opcodes {
             LnReg($t, $t),
             #[doc = "Computes the logical negation of the given register\n\nEquivalent to `if arg == 0 { 1 } else { 0 }`"]
             NotReg($t, $t),
+            #[doc = "Returns a pseudo-random value in the 0.0-1.0 range from a given seed"]
+            RandReg($t, $t),
 
             // RegImm opcodes (without a choice)
             #[doc = "Add a register and an immediate"]
@@ -90,6 +92,8 @@ macro_rules! opcodes {
             AtanRegImm($t, $t, f32),
             #[doc = "Compares a register with an immediate"]
             CompareRegImm($t, $t, f32),
+            #[doc = "Pseudo-random mixing of a register with an immediate"]
+            MixRegImm($t, $t, f32),
 
             // RegImm opcodes (with a choice)
             #[doc = "Compute the minimum of a register and an immediate"]
@@ -108,6 +112,8 @@ macro_rules! opcodes {
             AtanImmReg($t, $t, f32),
             #[doc = "Compares an immediate with a register"]
             CompareImmReg($t, $t, f32),
+            #[doc = "Pseudo-random mixing of an immediate and a register"]
+            MixImmReg($t, $t, f32),
 
             // RegReg opcodes (without a choice)
             #[doc = "Add two registers"]
@@ -122,6 +128,8 @@ macro_rules! opcodes {
             CompareRegReg($t, $t, $t),
             #[doc = "atan2 of a position `(y, x)` specified as register, register"]
             AtanRegReg($t, $t, $t),
+            #[doc = "Pseudo-random mixing of two registers"]
+            MixRegReg($t, $t, $t),
 
             // RegReg opcodes (with a choice)
             #[doc = "Take the minimum of two registers"]
@@ -180,6 +188,7 @@ impl SsaOp {
             | SsaOp::ExpReg(out, ..)
             | SsaOp::LnReg(out, ..)
             | SsaOp::NotReg(out, ..)
+            | SsaOp::RandReg(out, ..)
             | SsaOp::AddRegImm(out, ..)
             | SsaOp::MulRegImm(out, ..)
             | SsaOp::DivRegImm(out, ..)
@@ -200,6 +209,9 @@ impl SsaOp {
             | SsaOp::CompareRegReg(out, ..)
             | SsaOp::CompareRegImm(out, ..)
             | SsaOp::CompareImmReg(out, ..)
+            | SsaOp::MixRegReg(out, ..)
+            | SsaOp::MixRegImm(out, ..)
+            | SsaOp::MixImmReg(out, ..)
             | SsaOp::ModRegReg(out, ..)
             | SsaOp::ModRegImm(out, ..)
             | SsaOp::ModImmReg(out, ..)
@@ -234,6 +246,7 @@ impl SsaOp {
             | SsaOp::ExpReg(..)
             | SsaOp::LnReg(..)
             | SsaOp::NotReg(..)
+            | SsaOp::RandReg(..)
             | SsaOp::AddRegImm(..)
             | SsaOp::MulRegImm(..)
             | SsaOp::SubRegImm(..)
@@ -250,6 +263,9 @@ impl SsaOp {
             | SsaOp::CompareRegReg(..)
             | SsaOp::CompareRegImm(..)
             | SsaOp::CompareImmReg(..)
+            | SsaOp::MixRegReg(..)
+            | SsaOp::MixRegImm(..)
+            | SsaOp::MixImmReg(..)
             | SsaOp::ModRegReg(..)
             | SsaOp::ModRegImm(..)
             | SsaOp::ModImmReg(..) => false,
@@ -316,7 +332,8 @@ impl RegOp {
             | RegOp::AtanReg(out, arg)
             | RegOp::ExpReg(out, arg)
             | RegOp::LnReg(out, arg)
-            | RegOp::NotReg(out, arg) => {
+            | RegOp::NotReg(out, arg)
+            | RegOp::RandReg(out, arg) => {
                 f(out);
                 f(arg);
             }
@@ -332,6 +349,8 @@ impl RegOp {
             | RegOp::MaxRegImm(out, arg, imm)
             | RegOp::CompareRegImm(out, arg, imm)
             | RegOp::CompareImmReg(out, arg, imm)
+            | RegOp::MixRegImm(out, arg, imm)
+            | RegOp::MixImmReg(out, arg, imm)
             | RegOp::ModRegImm(out, arg, imm)
             | RegOp::ModImmReg(out, arg, imm)
             | RegOp::AndRegImm(out, arg, imm)
@@ -349,6 +368,7 @@ impl RegOp {
             | RegOp::MinRegReg(out, lhs, rhs)
             | RegOp::MaxRegReg(out, lhs, rhs)
             | RegOp::CompareRegReg(out, lhs, rhs)
+            | RegOp::MixRegReg(out, lhs, rhs)
             | RegOp::ModRegReg(out, lhs, rhs)
             | RegOp::AndRegReg(out, lhs, rhs)
             | RegOp::OrRegReg(out, lhs, rhs) => {
@@ -393,7 +413,8 @@ impl RegOp {
             | RegOp::AtanReg(out, arg)
             | RegOp::ExpReg(out, arg)
             | RegOp::LnReg(out, arg)
-            | RegOp::NotReg(out, arg) => {
+            | RegOp::NotReg(out, arg)
+            | RegOp::RandReg(out, arg) => {
                 f(*out);
                 f(*arg);
             }
@@ -409,6 +430,8 @@ impl RegOp {
             | RegOp::MaxRegImm(out, arg, imm)
             | RegOp::CompareRegImm(out, arg, imm)
             | RegOp::CompareImmReg(out, arg, imm)
+            | RegOp::MixRegImm(out, arg, imm)
+            | RegOp::MixImmReg(out, arg, imm)
             | RegOp::ModRegImm(out, arg, imm)
             | RegOp::ModImmReg(out, arg, imm)
             | RegOp::AndRegImm(out, arg, imm)
@@ -426,6 +449,7 @@ impl RegOp {
             | RegOp::MinRegReg(out, lhs, rhs)
             | RegOp::MaxRegReg(out, lhs, rhs)
             | RegOp::CompareRegReg(out, lhs, rhs)
+            | RegOp::MixRegReg(out, lhs, rhs)
             | RegOp::ModRegReg(out, lhs, rhs)
             | RegOp::AndRegReg(out, lhs, rhs)
             | RegOp::OrRegReg(out, lhs, rhs) => {

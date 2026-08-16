@@ -85,6 +85,10 @@ fn op_not(lhs: Value) -> Value {
     return Value(vec4f(0.0, 0.0, 0.0, f32(lhs.v.w == 0.0)));
 }
 
+fn op_rand(lhs: Value) -> Value {
+    return Value(vec4f(0.0, 0.0, 0.0, rand(bitcast<u32>(lhs.v.w))));
+}
+
 fn op_compare(lhs: Value, rhs: Value) -> Value {
     if lhs.v.w != lhs.v.w || rhs.v.w != rhs.v.w {
         return Value(vec4f(0.0, 0.0, 0.0, nan_f32()));
@@ -95,6 +99,11 @@ fn op_compare(lhs: Value, rhs: Value) -> Value {
     } else {
         return Value(vec4f(0.0, 0.0, 0.0, 0.0));
     }
+}
+
+fn op_mix(lhs: Value, rhs: Value) -> Value {
+    let v = bitcast<f32>(mix(bitcast<u32>(lhs.v.w), bitcast<u32>(rhs.v.w)));
+    return Value(vec4f(0.0, 0.0, 0.0, v));
 }
 
 fn op_and(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {

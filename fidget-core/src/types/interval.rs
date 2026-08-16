@@ -595,6 +595,36 @@ impl Interval {
             }
         }
     }
+
+    /// Pseudo-random seed generation
+    pub fn mix(self: Interval, rhs: Interval) -> Interval {
+        // We'll treat NANs as invalid values instead of valid bitwise seeds,
+        // just to be on the safe side.
+        if self.has_nan()
+            || rhs.has_nan()
+            || self.lower().to_bits() != self.upper().to_bits()
+            || rhs.lower().to_bits() != rhs.upper().to_bits()
+        {
+            f32::NAN.into()
+        } else {
+            f32::from_bits(crate::rng::mix(
+                self.lower().to_bits(),
+                rhs.lower().to_bits(),
+            ))
+            .into()
+        }
+    }
+
+    /// Pseudo-random number generation
+    pub fn rand(&self) -> Interval {
+        // We'll treat NANs as mystery values here, instead of as valid bitwise
+        // seeds.  This is conservative but should be fine.
+        if self.has_nan() || self.lower().to_bits() != self.upper().to_bits() {
+            Interval::new(0.0, 1.0)
+        } else {
+            crate::rng::rand(self.lower().to_bits()).into()
+        }
+    }
 }
 
 impl std::fmt::Display for Interval {

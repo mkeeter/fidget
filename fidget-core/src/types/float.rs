@@ -52,6 +52,12 @@ pub trait FloatExt: Sized {
 
     /// Signed comparison of two values
     fn compare(self, other: Self) -> Self;
+
+    /// Pseudo-random number generation
+    fn rand(self) -> f32;
+
+    /// Pseudo-random number mixing
+    fn mix(self, other: f32) -> f32;
 }
 
 impl FloatExt for f32 {
@@ -114,5 +120,15 @@ impl FloatExt for f32 {
         } else {
             (other, Choice::Right)
         }
+    }
+
+    #[inline]
+    fn rand(self) -> Self {
+        crate::rng::rand(self.to_bits())
+    }
+
+    #[inline]
+    fn mix(self, other: Self) -> Self {
+        f32::from_bits(crate::rng::mix(self.to_bits(), other.to_bits()))
     }
 }

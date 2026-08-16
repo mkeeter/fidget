@@ -372,6 +372,13 @@ impl Assembler for GradSliceAssembler {
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_atan2);
     }
 
+    fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "C" fn grad_mix(a: Grad, b: Grad) -> Grad {
+            a.mix(b)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_mix);
+    }
+
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
@@ -539,6 +546,13 @@ impl Assembler for GradSliceAssembler {
             ; ldr x23, [sp, 0x218]
         );
         self.0.finalize()
+    }
+
+    fn build_rand(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn grad_rand(v: Grad) -> Grad {
+            v.rand()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_rand);
     }
 }
 

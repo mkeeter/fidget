@@ -54,3 +54,19 @@ fn div_euclid(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
+
+fn hash(v: u32) -> u32 {
+    let state = v * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28) + 4)) ^ state) * 277803737;
+    return (word >> 22) ^ word;
+}
+
+fn rand(seed: u32) -> f32 {
+    let h = hash(seed);
+    let bits = (h >> 9) | 0x3f800000;
+    return bitcast<f32>(bits) - 1.0;
+}
+
+fn mix(a: u32, b: u32) -> u32 {
+    return hash(a + hash(b));
+}

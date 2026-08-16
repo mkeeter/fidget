@@ -10,6 +10,7 @@ use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
     shape::{EzShape, MissingVar, Shape, ShapeBulkEvalError, ShapeVars},
+    types::FloatExt,
     var::Var,
 };
 
@@ -104,6 +105,81 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         assert_eq!(
             &eval.eval(&tape, &[args.as_slice()]).unwrap()[0],
             args.map(f32::sin),
+        );
+    }
+
+    pub fn test_f_rand() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.rand(a).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
+
+        let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0];
+        assert_eq!(
+            &eval.eval(&tape, &[args.as_slice()]).unwrap()[0],
+            args.map(|a| a.rand()),
+        );
+    }
+
+    pub fn test_f_mix() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.y();
+        let mix = ctx.mix(a, b).unwrap();
+
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
+
+        assert_eq!(
+            &eval
+                .eval(&tape, &[[0.0, 1.0].as_slice(), [2.0, 3.0].as_slice()])
+                .unwrap()[0],
+            [2.0.mix(0.0), 3.0.mix(1.0)]
+        );
+
+        // Test mix(reg, imm) and mix(imm, reg)
+        let n = ctx.constant(5.0);
+        let mix = ctx.mix(a, n).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
+        assert_eq!(
+            &eval.eval(&tape, &[[0.0, 1.0].as_slice()]).unwrap()[0],
+            [0.0.mix(5.0), 1.0.mix(5.0)]
+        );
+
+        let n = ctx.constant(5.0);
+        let mix = ctx.mix(n, a).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
+        assert_eq!(
+            &eval.eval(&tape, &[[0.0, 1.0].as_slice()]).unwrap()[0],
+            [5.0.mix(0.0), 5.0.mix(1.0)]
+        );
+
+        // Test mix(reg, imm) and mix(imm, reg) with NAN
+        let n = ctx.constant(f64::NAN);
+        let mix = ctx.mix(a, n).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
+        assert_eq!(
+            &eval.eval(&tape, &[[0.0, 1.0].as_slice()]).unwrap()[0],
+            [0.0.mix(f32::NAN), 1.0.mix(f32::NAN)]
+        );
+
+        let mix = ctx.mix(n, a).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
+        assert_eq!(
+            &eval.eval(&tape, &[[0.0, 1.0].as_slice()]).unwrap()[0],
+            [f32::NAN.mix(0.0), f32::NAN.mix(1.0)]
         );
     }
 
@@ -482,6 +558,8 @@ macro_rules! float_slice_tests {
         $crate::float_slice_test!(test_vectorized, $t);
         $crate::float_slice_test!(test_f_sin, $t);
         $crate::float_slice_test!(test_f_shape_var, $t);
+        $crate::float_slice_test!(test_f_rand, $t);
+        $crate::float_slice_test!(test_f_mix, $t);
         $crate::float_slice_test!(test_f_stress, $t);
         $crate::float_slice_test!(test_f_multiple_outputs, $t);
         $crate::float_slice_test!(test_f_multiple_const_outputs, $t);

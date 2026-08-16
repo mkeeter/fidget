@@ -258,6 +258,7 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::LnReg(out, arg) => (out, arg, RegOp::LnReg),
             SsaOp::NotReg(out, arg) => (out, arg, RegOp::NotReg),
             SsaOp::CopyReg(out, arg) => (out, arg, RegOp::CopyReg),
+            SsaOp::RandReg(out, arg) => (out, arg, RegOp::RandReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, op);
@@ -288,7 +289,8 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::AtanReg(..)
             | SsaOp::ExpReg(..)
             | SsaOp::LnReg(..)
-            | SsaOp::NotReg(..) => self.op_reg(op),
+            | SsaOp::NotReg(..)
+            | SsaOp::RandReg(..) => self.op_reg(op),
 
             SsaOp::AddRegImm(..)
             | SsaOp::SubRegImm(..)
@@ -302,6 +304,8 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::MaxRegImm(..)
             | SsaOp::CompareRegImm(..)
             | SsaOp::CompareImmReg(..)
+            | SsaOp::MixRegImm(..)
+            | SsaOp::MixImmReg(..)
             | SsaOp::ModRegImm(..)
             | SsaOp::ModImmReg(..)
             | SsaOp::AndRegImm(..)
@@ -315,6 +319,7 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::MinRegReg(..)
             | SsaOp::MaxRegReg(..)
             | SsaOp::CompareRegReg(..)
+            | SsaOp::MixRegReg(..)
             | SsaOp::ModRegReg(..)
             | SsaOp::AndRegReg(..)
             | SsaOp::OrRegReg(..) => self.op_reg_reg(op),
@@ -513,6 +518,9 @@ impl<const N: usize> RegisterAllocator<N> {
                 (out, lhs, rhs, RegOp::AndRegReg)
             }
             SsaOp::OrRegReg(out, lhs, rhs) => (out, lhs, rhs, RegOp::OrRegReg),
+            SsaOp::MixRegReg(out, lhs, rhs) => {
+                (out, lhs, rhs, RegOp::MixRegReg)
+            }
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
@@ -642,6 +650,12 @@ impl<const N: usize> RegisterAllocator<N> {
             }
             SsaOp::ModImmReg(out, arg, imm) => {
                 (out, arg, imm, RegOp::ModImmReg)
+            }
+            SsaOp::MixRegImm(out, arg, imm) => {
+                (out, arg, imm, RegOp::MixRegImm)
+            }
+            SsaOp::MixImmReg(out, arg, imm) => {
+                (out, arg, imm, RegOp::MixImmReg)
             }
             SsaOp::AndRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::AndRegImm)

@@ -667,6 +667,23 @@ impl Context {
         self.op_binary(a, b, BinaryOpcode::Compare)
     }
 
+    /// Builds a node which performs pseudo-random mixing of two values
+    pub fn mix<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, BadNode> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+        self.op_binary(a, b, BinaryOpcode::Mix)
+    }
+
+    /// Builds a node that returns a pseudo-random value
+    pub fn rand<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Rand)
+    }
+
     /// Builds a node that is 1 if `lhs < rhs` and 0 otherwise
     ///
     /// ```
@@ -898,6 +915,7 @@ impl Context {
                 "atan" => ctx.atan(pop()?)?,
                 "ln" => ctx.ln(pop()?)?,
                 "not" => ctx.not(pop()?)?,
+                "rand" => ctx.rand(pop()?)?,
                 "exp" => ctx.exp(pop()?)?,
                 "add" => ctx.add(pop()?, pop()?)?,
                 "mul" => ctx.mul(pop()?, pop()?)?,
@@ -910,6 +928,7 @@ impl Context {
                 "mod" => ctx.modulo(pop()?, pop()?)?,
                 "and" => ctx.and(pop()?, pop()?)?,
                 "or" => ctx.or(pop()?, pop()?)?,
+                "mix" => ctx.mix(pop()?, pop()?)?,
                 op => return Err(ParseError::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
@@ -957,6 +976,7 @@ impl Context {
                 BinaryOpcode::Mod => out += "mod",
                 BinaryOpcode::And => out += "and",
                 BinaryOpcode::Or => out += "or",
+                BinaryOpcode::Mix => out += "mix",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",
@@ -976,6 +996,7 @@ impl Context {
                 UnaryOpcode::Exp => out += "exp",
                 UnaryOpcode::Ln => out += "ln",
                 UnaryOpcode::Not => out += "not",
+                UnaryOpcode::Rand => out += "rand",
             },
         };
         write!(
@@ -1120,6 +1141,7 @@ impl Context {
                                 BinaryOpcode::Min => self.min(lhs, rhs),
                                 BinaryOpcode::Max => self.max(lhs, rhs),
                                 BinaryOpcode::Compare => self.compare(lhs, rhs),
+                                BinaryOpcode::Mix => self.mix(lhs, rhs),
                                 BinaryOpcode::Mod => self.modulo(lhs, rhs),
                                 BinaryOpcode::And => self.and(lhs, rhs),
                                 BinaryOpcode::Or => self.or(lhs, rhs),
@@ -1325,9 +1347,11 @@ impl Context {
                                 let v = self.mul(d_arg, v_arg).unwrap();
                                 self.mul(2.0, v)
                             }
-                            // Discontinuous constants don't have Dirac deltas
+
+                            // Discontinuous operations don't have Dirac deltas
                             UnaryOpcode::Floor
                             | UnaryOpcode::Ceil
+                            | UnaryOpcode::Rand
                             | UnaryOpcode::Round => Ok(zero),
 
                             UnaryOpcode::Sin => {
@@ -1451,6 +1475,7 @@ impl Context {
                                 let cond = self.compare(v_lhs, zero).unwrap();
                                 self.if_nonzero_else(cond, d_lhs, d_rhs)
                             }
+                            BinaryOpcode::Mix => Ok(zero),
                         }
                         .unwrap();
                         seen.insert(n, out);

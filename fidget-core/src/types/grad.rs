@@ -284,6 +284,19 @@ impl Grad {
         f32::from(self.v == 0.0).into()
     }
 
+    /// Pseudo-random number generation
+    #[inline]
+    pub fn rand(self) -> Self {
+        crate::rng::rand(self.v.to_bits()).into()
+    }
+
+    /// Pseudo-random seed generation
+    #[inline]
+    pub fn mix(self, other: Self) -> Self {
+        f32::from_bits(crate::rng::mix(self.v.to_bits(), other.v.to_bits()))
+            .into()
+    }
+
     /// Checks that the two values are roughly equal, panicking otherwise
     #[cfg(any(test, feature = "eval-tests"))]
     pub(crate) fn compare_eq(&self, other: Self) {

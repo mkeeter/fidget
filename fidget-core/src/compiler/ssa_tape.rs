@@ -189,6 +189,11 @@ impl SsaTape {
                             SsaOp::ModRegImm,
                             SsaOp::ModImmReg,
                         ),
+                        BinaryOpcode::Mix => (
+                            SsaOp::MixRegReg,
+                            SsaOp::MixRegImm,
+                            SsaOp::MixImmReg,
+                        ),
                     };
 
                     if matches!(
@@ -239,6 +244,7 @@ impl SsaTape {
                         UnaryOpcode::Exp => SsaOp::ExpReg,
                         UnaryOpcode::Ln => SsaOp::LnReg,
                         UnaryOpcode::Not => SsaOp::NotReg,
+                        UnaryOpcode::Rand => SsaOp::RandReg,
                     };
                     op(i, lhs)
                 }
@@ -305,7 +311,8 @@ impl SsaTape {
                 | SsaOp::AtanReg(out, arg)
                 | SsaOp::ExpReg(out, arg)
                 | SsaOp::LnReg(out, arg)
-                | SsaOp::NotReg(out, arg) => {
+                | SsaOp::NotReg(out, arg)
+                | SsaOp::RandReg(out, arg) => {
                     let op = match op {
                         SsaOp::NegReg(..) => "NEG",
                         SsaOp::AbsReg(..) => "ABS",
@@ -325,6 +332,7 @@ impl SsaTape {
                         SsaOp::LnReg(..) => "LN",
                         SsaOp::NotReg(..) => "NOT",
                         SsaOp::CopyReg(..) => "COPY",
+                        SsaOp::RandReg(..) => "RAND",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${arg}");
@@ -340,7 +348,8 @@ impl SsaTape {
                 | SsaOp::AndRegReg(out, lhs, rhs)
                 | SsaOp::AtanRegReg(out, lhs, rhs)
                 | SsaOp::OrRegReg(out, lhs, rhs)
-                | SsaOp::CompareRegReg(out, lhs, rhs) => {
+                | SsaOp::CompareRegReg(out, lhs, rhs)
+                | SsaOp::MixRegReg(out, lhs, rhs) => {
                     let op = match op {
                         SsaOp::AddRegReg(..) => "ADD",
                         SsaOp::MulRegReg(..) => "MUL",
@@ -353,6 +362,7 @@ impl SsaTape {
                         SsaOp::AndRegReg(..) => "AND",
                         SsaOp::OrRegReg(..) => "OR",
                         SsaOp::CompareRegReg(..) => "COMPARE",
+                        SsaOp::MixRegReg(..) => "MIX",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
@@ -373,7 +383,9 @@ impl SsaTape {
                 | SsaOp::AndRegImm(out, arg, imm)
                 | SsaOp::OrRegImm(out, arg, imm)
                 | SsaOp::CompareRegImm(out, arg, imm)
-                | SsaOp::CompareImmReg(out, arg, imm) => {
+                | SsaOp::CompareImmReg(out, arg, imm)
+                | SsaOp::MixRegImm(out, arg, imm)
+                | SsaOp::MixImmReg(out, arg, imm) => {
                     let (op, swap) = match op {
                         SsaOp::AddRegImm(..) => ("ADD", false),
                         SsaOp::MulRegImm(..) => ("MUL", false),
@@ -391,6 +403,8 @@ impl SsaTape {
                         SsaOp::OrRegImm(..) => ("OR", false),
                         SsaOp::CompareRegImm(..) => ("COMPARE", false),
                         SsaOp::CompareImmReg(..) => ("COMPARE", true),
+                        SsaOp::MixRegImm(..) => ("MIX", false),
+                        SsaOp::MixImmReg(..) => ("MIX", true),
                         _ => unreachable!(),
                     };
                     if swap {

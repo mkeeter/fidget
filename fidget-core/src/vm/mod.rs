@@ -400,6 +400,9 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::NotReg(out, arg) => {
                     v[out] = v[arg].not();
                 }
+                RegOp::RandReg(out, arg) => {
+                    v[out] = v[arg].rand();
+                }
                 RegOp::CopyReg(out, arg) => v[out] = v[arg],
                 RegOp::AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm.into();
@@ -488,6 +491,18 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::CompareImmReg(out, arg, imm) => {
                     v[out] = Interval::compare(imm, v[arg]);
                 }
+                // Mix operations may produce literally anything, unless the
+                // interval is a single value
+                RegOp::MixRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs].mix(v[rhs]);
+                }
+                RegOp::MixRegImm(out, arg, imm) => {
+                    v[out] = v[arg].mix(imm.into());
+                }
+                RegOp::MixImmReg(out, arg, imm) => {
+                    v[out] = Interval::from(imm).mix(v[arg]);
+                }
+
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
@@ -602,6 +617,9 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     v[out] = v[arg].ln();
                 }
                 RegOp::NotReg(out, arg) => v[out] = (v[arg] == 0.0).into(),
+                RegOp::RandReg(out, arg) => {
+                    v[out] = v[arg].rand();
+                }
                 RegOp::CopyReg(out, arg) => {
                     v[out] = v[arg];
                 }
@@ -682,6 +700,15 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 }
                 RegOp::CompareImmReg(out, arg, imm) => {
                     v[out] = imm.compare(v[arg]);
+                }
+                RegOp::MixRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs].mix(v[rhs]);
+                }
+                RegOp::MixRegImm(out, arg, imm) => {
+                    v[out] = v[arg].mix(imm);
+                }
+                RegOp::MixImmReg(out, arg, imm) => {
+                    v[out] = imm.mix(v[arg]);
                 }
                 RegOp::SubRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] - v[rhs];
@@ -877,6 +904,11 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = (v[arg][i] == 0.0).into();
                     }
                 }
+                RegOp::RandReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].rand();
+                    }
+                }
                 RegOp::CopyReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
@@ -935,6 +967,21 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 RegOp::CompareRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].compare(imm);
+                    }
+                }
+                RegOp::MixRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i].mix(v[rhs][i]);
+                    }
+                }
+                RegOp::MixRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].mix(imm);
+                    }
+                }
+                RegOp::MixImmReg(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = imm.mix(v[arg][i]);
                     }
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
@@ -1154,6 +1201,11 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                         v[out][i] = v[arg][i].not();
                     }
                 }
+                RegOp::RandReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].rand();
+                    }
+                }
                 RegOp::CopyReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
@@ -1213,6 +1265,23 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm.compare(v[arg][i]);
+                    }
+                }
+                RegOp::MixRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i].mix(v[rhs][i]);
+                    }
+                }
+                RegOp::MixRegImm(out, arg, imm) => {
+                    let imm = imm.into();
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].mix(imm);
+                    }
+                }
+                RegOp::MixImmReg(out, arg, imm) => {
+                    let imm = Grad::from(imm);
+                    for i in 0..size {
+                        v[out][i] = imm.mix(v[arg][i]);
                     }
                 }
                 RegOp::CompareRegImm(out, arg, imm) => {

@@ -242,7 +242,11 @@ macro_rules! declare_canonical_binary_full {
     };
 }
 
-#[allow(non_camel_case_types, clippy::useless_conversion)]
+#[allow(
+    non_camel_case_types,
+    clippy::useless_conversion,
+    clippy::unnecessary_cast
+)]
 pub mod canonical {
     use super::*;
 
@@ -263,6 +267,11 @@ pub mod canonical {
     declare_canonical_unary!(Context::ceil, |a| a.ceil());
     declare_canonical_unary!(Context::round, |a| a.round());
     declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
+    declare_canonical_unary!(
+        Context::rand,
+        |a| crate::rng::rand((a as f32).to_bits()).into(),
+        |_a| true // always discontinuous, so ignore all gradients
+    );
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
     declare_canonical_binary!(Context::sub, |a, b| a - b);
@@ -321,6 +330,15 @@ pub mod canonical {
         |a, _b| a == 0.0 // discontinuity, because either side snaps to a
     );
     declare_canonical_binary!(Context::atan2, |y, x| y.atan2(x));
+    declare_canonical_binary!(
+        Context::mix,
+        |a, b| f32::from_bits(crate::rng::mix(
+            (a as f32).to_bits(),
+            (b as f32).to_bits(),
+        ))
+        .into(),
+        |_a, _b| true // always discontinuous
+    );
 }
 
 #[macro_export]
@@ -363,6 +381,7 @@ macro_rules! all_unary_tests {
         $crate::one_unary_test!($tester, ceil);
         $crate::one_unary_test!($tester, round);
         $crate::one_unary_test!($tester, sqrt);
+        $crate::one_unary_test!($tester, rand);
     };
 }
 
@@ -380,5 +399,6 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, modulo);
         $crate::one_binary_test!($tester, and);
         $crate::one_binary_test!($tester, or);
+        $crate::one_binary_test!($tester, mix);
     };
 }
