@@ -78,6 +78,8 @@ fn op_square(lhs: Value) -> Value {
 fn op_sin(lhs: Value) -> Value {
     if has_nan(lhs) {
         return nan_i();
+    } else if lhs.v[0] == lhs.v[1] {
+        return Value(vec2f(sin(lhs.v[0])));
     } else {
         return Value(vec2f(-1.0, 1.0));
     }
@@ -86,6 +88,8 @@ fn op_sin(lhs: Value) -> Value {
 fn op_cos(lhs: Value) -> Value {
     if has_nan(lhs) {
         return nan_i();
+    } else if lhs.v[0] == lhs.v[1] {
+        return Value(vec2f(cos(lhs.v[0])));
     } else {
         return Value(vec2f(-1.0, 1.0));
     }
@@ -95,6 +99,8 @@ fn op_tan(lhs: Value) -> Value {
     let size = lhs.v[1] - lhs.v[0];
     if size >= 3.14159265f {
         return nan_i();
+    } else if lhs.v[0] == lhs.v[1] {
+        return Value(vec2f(tan(lhs.v[0])));
     } else {
         let lower = tan(lhs.v[0]);
         let upper = tan(lhs.v[1]);
@@ -109,6 +115,8 @@ fn op_tan(lhs: Value) -> Value {
 fn op_asin(lhs: Value) -> Value {
     if lhs.v[0] < -1.0 || lhs.v[1] > 1.0 {
         return nan_i();
+    } else if lhs.v[0] == lhs.v[1] {
+        return Value(vec2f(asin(lhs.v[0])));
     } else {
         return Value(asin(lhs.v));
     }
@@ -117,6 +125,8 @@ fn op_asin(lhs: Value) -> Value {
 fn op_acos(lhs: Value) -> Value {
     if lhs.v[0] < -1.0 || lhs.v[1] > 1.0 {
         return nan_i();
+    } else if lhs.v[0] == lhs.v[1] {
+        return Value(vec2f(acos(lhs.v[0])));
     } else {
         return Value(acos(lhs.v).yx);
     }
