@@ -347,9 +347,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let a = ctx.x();
         let b = ctx.y();
-        let b = ctx.mix(a, b).unwrap();
+        let mix = ctx.mix(a, b).unwrap();
 
-        let shape = F::new(&ctx, &[b]).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
         let mut eval = F::new_grad_slice_eval();
         let tape = shape.grad_slice_tape(Default::default());
 
@@ -364,6 +364,31 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 )
                 .unwrap()[0],
             [2.0.mix(0.0).into(), 3.0.mix(1.0).into()]
+        );
+
+        // Test mix(reg, imm)
+        let v = ctx.constant(5.0);
+        let mix = ctx.mix(a, v).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_grad_slice_eval();
+        let tape = shape.grad_slice_tape(Default::default());
+        assert_eq!(
+            &eval
+                .eval(&tape, &[[0.0, 1.0].map(Grad::from).as_slice(),])
+                .unwrap()[0],
+            [0.0.mix(5.0).into(), 1.0.mix(5.0).into()]
+        );
+
+        // Test mix(imm, reg)
+        let mix = ctx.mix(v, a).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_grad_slice_eval();
+        let tape = shape.grad_slice_tape(Default::default());
+        assert_eq!(
+            &eval
+                .eval(&tape, &[[0.0, 1.0].map(Grad::from).as_slice(),])
+                .unwrap()[0],
+            [5.0.mix(0.0).into(), 5.0.mix(1.0).into()]
         );
     }
 

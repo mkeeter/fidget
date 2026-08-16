@@ -976,7 +976,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::MixRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i].min(imm);
+                        v[out][i] = v[arg][i].mix(imm);
                     }
                 }
                 RegOp::MixImmReg(out, arg, imm) => {

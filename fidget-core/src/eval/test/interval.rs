@@ -180,9 +180,9 @@ where
         let mut ctx = Context::new();
         let a = ctx.x();
         let b = ctx.y();
-        let b = ctx.mix(a, b).unwrap();
+        let mix = ctx.mix(a, b).unwrap();
 
-        let shape = F::new(&ctx, &[b]).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
         let mut eval = F::new_interval_eval();
         let tape = shape.interval_tape(Default::default());
 
@@ -212,6 +212,54 @@ where
             .unwrap()
             .0[0],
             Interval::from(2.0.mix(1.0)),
+        );
+
+        let v = ctx.constant(5.0);
+        let mix = ctx.mix(a, v).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_interval_eval();
+        let tape = shape.interval_tape(Default::default());
+        assert!(
+            eval.eval(&tape, [Interval::new(0.0, 1.0)].as_slice(),)
+                .unwrap()
+                .0[0]
+                .has_nan()
+        );
+        assert!(
+            eval.eval(&tape, [Interval::from(f32::NAN)].as_slice(),)
+                .unwrap()
+                .0[0]
+                .has_nan()
+        );
+        assert_eq!(
+            eval.eval(&tape, [Interval::new(1.0, 1.0)].as_slice())
+                .unwrap()
+                .0[0],
+            Interval::from(1.0.mix(5.0)),
+        );
+
+        let v = ctx.constant(f64::NAN);
+        let mix = ctx.mix(a, v).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_interval_eval();
+        let tape = shape.interval_tape(Default::default());
+        assert!(
+            eval.eval(&tape, [Interval::new(0.0, 1.0)].as_slice(),)
+                .unwrap()
+                .0[0]
+                .has_nan()
+        );
+        assert!(
+            eval.eval(&tape, [Interval::from(f32::NAN)].as_slice(),)
+                .unwrap()
+                .0[0]
+                .has_nan()
+        );
+        assert!(
+            eval.eval(&tape, [Interval::new(1.0, 1.0)].as_slice())
+                .unwrap()
+                .0[0]
+                .has_nan()
         );
     }
 

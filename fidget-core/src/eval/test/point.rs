@@ -461,9 +461,9 @@ where
         let mut ctx = Context::new();
         let a = ctx.x();
         let b = ctx.y();
-        let b = ctx.mix(a, b).unwrap();
+        let mix = ctx.mix(a, b).unwrap();
 
-        let shape = F::new(&ctx, &[b]).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
         let mut eval = F::new_point_eval();
         let tape = shape.point_tape(Default::default());
 
@@ -474,6 +474,78 @@ where
         assert_eq!(
             eval.eval(&tape, [2.0, 3.0].as_slice()).unwrap().0[0],
             3.0.mix(2.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, [f32::NAN, 3.0].as_slice()).unwrap().0[0],
+            3.0.mix(f32::NAN)
+        );
+        assert_eq!(
+            eval.eval(&tape, [3.0, f32::NAN].as_slice()).unwrap().0[0],
+            f32::NAN.mix(3.0)
+        );
+
+        // Test mix(reg, imm) and mix(imm, reg)
+        let v = ctx.constant(5.0);
+        let mix = ctx.mix(a, v).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+        assert_eq!(
+            eval.eval(&tape, [0.0].as_slice()).unwrap().0[0],
+            0.0.mix(5.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, [2.0].as_slice()).unwrap().0[0],
+            2.0.mix(5.0)
+        );
+
+        let mix = ctx.mix(v, a).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+        assert_eq!(
+            eval.eval(&tape, [0.0].as_slice()).unwrap().0[0],
+            5.0.mix(0.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, [2.0].as_slice()).unwrap().0[0],
+            5.0.mix(2.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, [f32::NAN].as_slice()).unwrap().0[0],
+            5.0.mix(f32::NAN)
+        );
+
+        // Test mix(reg, imm) and mix(imm, reg) with NAN
+        let v = ctx.constant(f64::NAN);
+        let mix = ctx.mix(a, v).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+        assert_eq!(
+            eval.eval(&tape, [0.0].as_slice()).unwrap().0[0],
+            0.0.mix(f32::NAN)
+        );
+        assert_eq!(
+            eval.eval(&tape, [2.0].as_slice()).unwrap().0[0],
+            2.0.mix(f32::NAN)
+        );
+
+        let mix = ctx.mix(v, a).unwrap();
+        let shape = F::new(&ctx, &[mix]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+        assert_eq!(
+            eval.eval(&tape, [0.0].as_slice()).unwrap().0[0],
+            f32::NAN.mix(0.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, [2.0].as_slice()).unwrap().0[0],
+            f32::NAN.mix(2.0)
+        );
+        assert_eq!(
+            eval.eval(&tape, [f32::NAN].as_slice()).unwrap().0[0],
+            f32::NAN.mix(f32::NAN)
         );
     }
 
