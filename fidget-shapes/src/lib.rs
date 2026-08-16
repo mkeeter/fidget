@@ -739,21 +739,35 @@ mod test {
                 panic!("shape `{}` must be a struct", T::SHAPE.type_name());
             };
             for f in s.fields {
-                if types::Type::try_from(f.shape().id).is_err() {
+                let Ok(tag) = types::Type::try_from(f.shape().id) else {
                     panic!(
                         "field `{}` in `{}` has unhandled type: {}",
                         f.name,
                         T::SHAPE.type_name(),
                         f.shape()
                     );
-                }
+                };
                 if let Some(d) = f.default {
+                    // default functions which return mismatched types fail at
+                    // runtime, so we'll catch them here instead (facet#2645)
                     assert!(
                         matches!(d, facet::DefaultSource::Custom(..)),
                         "default on field `{}` in `{}` must include value",
                         f.name,
                         T::SHAPE.type_name()
                     );
+                    let result = std::panic::catch_unwind(|| unsafe {
+                        // This panics if the type is incorrect
+                        tag.build_from_default_fn(d);
+                    });
+                    if let Err(payload) = result {
+                        println!(
+                            "default function on field `{}` in `{}` is invalid",
+                            f.name,
+                            T::SHAPE.type_name()
+                        );
+                        std::panic::resume_unwind(payload);
+                    }
                 }
             }
         }
