@@ -138,6 +138,8 @@ impl Interval {
             f32::NAN.into()
         } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
+        } else if self.lower() == self.upper() {
+            self.lower.sin().into()
         } else {
             use Quadrant::*;
             let lower_quadrant = Self::quadrant(self.lower);
@@ -188,6 +190,8 @@ impl Interval {
             f32::NAN.into()
         } else if self.width() >= TAU {
             Interval::new(-1.0, 1.0)
+        } else if self.lower() == self.upper() {
+            self.lower.cos().into()
         } else {
             let lower_quadrant = Self::quadrant(self.lower);
             let upper_quadrant = Self::quadrant(self.upper);
@@ -237,6 +241,8 @@ impl Interval {
         let size = self.upper - self.lower;
         if size >= std::f32::consts::PI {
             f32::NAN.into()
+        } else if self.lower() == self.upper() {
+            self.lower.tan().into()
         } else {
             let lower = self.lower.tan();
             let upper = self.upper.tan();
@@ -254,6 +260,8 @@ impl Interval {
     pub fn asin(self) -> Self {
         if self.lower < -1.0 || self.upper > 1.0 {
             f32::NAN.into()
+        } else if self.lower() == self.upper() {
+            self.lower.asin().into()
         } else {
             Interval::new(self.lower.asin(), self.upper.asin())
         }
@@ -265,6 +273,8 @@ impl Interval {
     pub fn acos(self) -> Self {
         if self.lower < -1.0 || self.upper > 1.0 {
             f32::NAN.into()
+        } else if self.lower() == self.upper() {
+            self.lower.acos().into()
         } else {
             Interval::new(self.upper.acos(), self.lower.acos())
         }
