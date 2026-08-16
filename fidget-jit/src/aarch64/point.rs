@@ -3,7 +3,6 @@ use crate::{
     OFFSET, REGISTER_LIMIT, mmap::Mmap, point::PointAssembler, reg,
 };
 use dynasmrt::{DynasmApi, DynasmError, dynasm};
-use fidget_core::types::FloatExt;
 
 /// Implementation for the single-point assembler on `aarch64`
 ///
@@ -22,11 +21,11 @@ use fidget_core::types::FloatExt;
 /// | Register | Description                                          |
 /// |----------|------------------------------------------------------|
 /// | `s3`     | Immediate value (`IMM_REG`)                          |
-/// | `s7`     | Immediate value for `recip` (1.0)                    |
+/// | `s7`     | Other immediate values                               |
 /// | `s8-15`  | Tape values (callee-saved)                           |
 /// | `s16-31` | Tape values (caller-saved)                           |
 /// | `x0`     | Function pointer for calls                           |
-/// | `w9`     | Staging for loading immediate                        |
+/// | `w8-12`  | General purpose registers (caller-saved)             |
 /// | `w14`    | Choice byte (limited scope)                          |
 /// | `x20`    | Backup for `x0` during function calls (callee-saved) |
 /// | `x21`    | Backup for `x1` during function calls (callee-saved) |
@@ -344,10 +343,27 @@ impl Assembler for PointAssembler {
         );
     }
     fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
-        extern "C" fn float_rand(a: f32) -> f32 {
-            a.rand()
-        }
-        self.call_fn_unary(out_reg, arg_reg, float_rand);
+        dynasm!(self.0.ops
+            ; fmov    w8, S(reg(arg_reg))
+            ; mov     w9, 0x77b5
+            ; movk    w9, 0x2c92, lsl 16
+            ; mov     w10, 0x4b05
+            ; movk    w10, 0xac56, lsl 16
+            ; madd    w8, w8, w9, w10
+            ; lsr     w9, w8, 28
+            ; add     w9, w9, 4
+            ; lsr     w9, w8, w9
+            ; eor     w8, w9, w8
+            ; mov     w9, 0xf2d9
+            ; movk    w9, 0x108e, lsl 16
+            ; mul     w8, w8, w9
+            ; lsr     w9, w8, 31
+            ; eor     w8, w9, w8, lsr 9
+            ; orr     w8, w8, 0x3f800000
+            ; fmov    S(reg(out_reg)), w8
+            ; fmov    s7, -1.00000000
+            ; fadd    S(reg(out_reg)), S(reg(out_reg)), s7
+        );
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -437,10 +453,32 @@ impl Assembler for PointAssembler {
     }
 
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        extern "C" fn float_mix(a: f32, b: f32) -> f32 {
-            a.mix(b)
-        }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mix);
+        dynasm!(self.0.ops
+            ; fmov    w8, S(reg(lhs_reg))
+            ; fmov    w9, S(reg(rhs_reg))
+            ; mov     w10, 0x77b5
+            ; movk    w10, 0x2c92, lsl 16
+            ; mov     w11, 0x4b05
+            ; movk    w11, 0xac56, lsl 16
+            ; madd    w9, w9, w10, w11
+            ; lsr     w12, w9, 28
+            ; add     w12, w12, 4
+            ; lsr     w12, w9, w12
+            ; eor     w9, w12, w9
+            ; mov     w12, 0xf2d9
+            ; movk    w12, 0x108e, lsl 16
+            ; mul     w9, w9, w12
+            ; eor     w9, w9, w9, lsr 22
+            ; add     w8, w9, w8
+            ; madd    w8, w8, w10, w11
+            ; lsr     w9, w8, 28
+            ; add     w9, w9, 4
+            ; lsr     w9, w8, w9
+            ; eor     w8, w9, w8
+            ; mul     w8, w8, w12
+            ; eor     w8, w8, w8, lsr 22
+            ; fmov    S(reg(out_reg)), w8 // zero-extends
+        );
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary

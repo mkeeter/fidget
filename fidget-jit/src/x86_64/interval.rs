@@ -558,22 +558,113 @@ impl Assembler for IntervalAssembler {
     }
 
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        // TODO port this to assembly
-        extern "sysv64" fn interval_mix(
-            lhs: Interval,
-            rhs: Interval,
-        ) -> Interval {
-            lhs.mix(rhs)
-        }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_mix);
+        dynasm!(self.0.ops
+            // check lhs.lower.to_bits() == lhs.upper.to_bits()
+            ; movq    rax, Rx(reg(lhs_reg))
+            ; mov     r8, rax
+            ; shr     r8, 32
+            ; cmp     eax, r8d
+            ; jne >N
+
+            // check rhs.lower.to_bits() == rhs.upper.to_bits()
+            ; movq    r8, Rx(reg(rhs_reg))
+            ; mov     r9, r8
+            ; shr     r9, 32
+            ; cmp     r8d, r9d
+            ; jne >N
+
+            // check for NaNs in lhs and rhs (less likely)
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
+            ; jp >N
+            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
+            ; jp >N
+
+            // fallthrough, normal case (LHS is in eax, RHS in r8d)
+            ; imul    r9d, r8d, 747796405
+            ; add     r9d, -1403630843
+            ; mov     r8d, r9d
+            ; shr     r8d, 28
+            ; add     r8b, 4
+            ; mov     r10d, r9d
+            ; shrx    r10d, r9d, r8d
+            ; xor     r10d, r9d
+            ; imul    r8d, r10d, 277803737
+            ; mov     r9d, r8d
+            ; shr     r9d, 22
+            ; xor     r9d, r8d
+            ; add     r9d, eax
+            ; imul    eax, r9d, 747796405
+            ; add     eax, -1403630843
+            ; mov     r8d, eax
+            ; shr     r8d, 28
+            ; add     r8b, 4
+            ; mov     r9d, eax
+            ; shrx    r9d, r9d, r8d
+            ; xor     r9d, eax
+            ; imul    eax, r9d, 277803737
+            ; mov     r8d, eax
+            ; shr     r8d, 22
+            ; xor     r8d, eax
+            ; vmovq   Rx(reg(out_reg)), r8
+            // duplicate lower 32 bits
+            ; vpunpckldq Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; jmp >E
+
+            ; N:
+            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
+            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
+
+            ; E:
+        );
+
+        self.0.ops.commit_local().unwrap();
     }
 
     fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
-        // TODO port this to assembly
-        extern "sysv64" fn interval_rand(arg: Interval) -> Interval {
-            arg.rand()
-        }
-        self.call_fn_unary(out_reg, arg_reg, interval_rand);
+        dynasm!(self.0.ops
+            // check that arg.lower.to_bits() == arg.upper.to_bits()
+            ; movq    rax, Rx(reg(arg_reg))
+            ; mov     r8, rax
+            ; shr     r8, 32
+            ; cmp     eax, r8d
+            ; jne >N
+            ; vcomiss Rx(reg(arg_reg)), Rx(reg(arg_reg))
+            ; jp >N  // NaN sets the parity flag
+
+            // fallthrough (happy case, value is already in eax)
+            ; imul    eax, eax, 747796405
+            ; add     eax, -1403630843
+            ; mov     r8d, eax
+            ; shr     r8d, 28
+            ; add     r8b, 4
+            ; mov     r9d, eax
+            ; shrx    r9d, r9d, r8d
+            ; xor     r9d, eax
+            ; imul    eax, r9d, 277803737
+            ; mov     r8d, eax
+            ; shr     r8d, 31
+            ; shr     eax, 9
+            ; xor     eax, r8d
+            ; or      eax, 0x3f800000
+            ; vmovd   Rx(reg(out_reg)), eax
+            ; mov     rax, 0xbf800000
+            ; vmovd   xmm0, eax
+            ; addss   Rx(reg(out_reg)), xmm0
+            // duplicate lower 32 bits
+            ; vpunpckldq Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; jmp >E
+
+            ; N:
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd xmm0, eax
+            ; vpxor Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg)) // out = 0.0
+            ; vpunpckldq Rx(reg(out_reg)), Rx(reg(out_reg)), xmm0
+
+            ; E:
+        );
+
+        self.0.ops.commit_local().unwrap();
     }
 
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

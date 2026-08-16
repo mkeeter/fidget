@@ -106,8 +106,8 @@ yourself.
 
 ### CPU requirements
 `aarch64` platforms require NEON instructions and `x86_64` platforms require
-AVX2 support; both of these extensions are nearly a decade old and should be
-widespread.
+AVX2 and BMI2 support; all of these extensions are nearly a decade old and
+should be widespread.
 
 Disabling the `jit` feature allows for cross-platform rendering, using an
 interpreter rather than JIT compilation.  This is mandatory for the

@@ -249,18 +249,104 @@ impl Assembler for IntervalAssembler {
         )
     }
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        // TODO port this to assembly
-        extern "C" fn interval_mix(lhs: Interval, rhs: Interval) -> Interval {
-            lhs.mix(rhs)
-        }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_mix);
+        dynasm!(self.0.ops
+            // Check for bitwise equality
+            ; umov    w9, V(reg(lhs_reg)).s[1]
+            ; fmov    w8, S(reg(lhs_reg))
+            ; cmp     w8, w9
+            ; b.ne    144
+
+            // Check for bitwise equality
+            ; umov    w9, V(reg(rhs_reg)).s[1]
+            ; fmov    w10, S(reg(rhs_reg))
+            ; cmp     w10, w9
+            ; b.ne    128
+
+            // Check for NaNs
+            ; mov     s4, V(reg(lhs_reg)).s[1]
+            ; fcmp    S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; fccmp   s4, s4, #1, vc
+            ; b.vs    112
+
+            // Check for NaNs
+            ; mov     s4, V(reg(rhs_reg)).s[1]
+            ; fcmp    S(reg(rhs_reg)), S(reg(rhs_reg))
+            ; fccmp   s4, s4, #1, vc
+            ; b.vs    96
+
+            ; mov     w10, 0x77b5
+            ; movk    w10, 0x2c92, lsl 16
+            ; mov     w11, 0x4b05
+            ; movk    w11, 0xac56, lsl 16
+            ; madd    w9, w9, w10, w11
+            ; lsr     w12, w9, 28
+            ; add     w12, w12, 4
+            ; lsr     w12, w9, w12
+            ; eor     w9, w12, w9
+            ; mov     w12, 0xf2d9
+            ; movk    w12, 0x108e, lsl 16
+            ; mul     w9, w9, w12
+            ; eor     w9, w9, w9, lsr 22
+            ; add     w8, w9, w8
+            ; madd    w8, w8, w10, w11
+            ; lsr     w9, w8, 28
+            ; add     w9, w9, 4
+            ; lsr     w9, w8, w9
+            ; eor     w8, w9, w8
+            ; mul     w8, w8, w12
+            ; eor     w8, w8, w8, lsr 22
+            ; dup     V(reg(out_reg)).s2, w8
+            ; b 12 // --> skip over NAN fill
+
+            // mismatched inputs -> NAN
+            ; mov w9, f32::NAN.to_bits()
+            ; dup V(reg(out_reg)).s2, w9
+        );
     }
+
     fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
-        // TODO port this to assembly
-        extern "C" fn interval_rand(arg: Interval) -> Interval {
-            arg.rand()
-        }
-        self.call_fn_unary(out_reg, arg_reg, interval_rand);
+        dynasm!(self.0.ops
+            // Check for bitwise equality
+            ; umov    w9, V(reg(arg_reg)).s[1]
+            ; fmov    w8, S(reg(arg_reg))
+            ; cmp     w8, w9
+            ; b.ne    100
+
+            // Check for NaNs
+            ; mov     s4, V(reg(arg_reg)).s[1]
+            ; fcmp    S(reg(arg_reg)), S(reg(arg_reg))
+            ; fccmp   s4, s4, #1, vc
+            ; b.vs    84
+
+            // Do the hashing using w9
+            ; mov     w9, 0x77b5
+            ; movk    w9, 0x2c92, lsl 16
+            ; mov     w10, 0x4b05
+            ; movk    w10, 0xac56, lsl 16
+            ; madd    w8, w8, w9, w10
+            ; lsr     w9, w8, 28
+            ; add     w9, w9, 4
+            ; lsr     w9, w8, w9
+            ; eor     w8, w9, w8
+            ; mov     w9, 0xf2d9
+            ; movk    w9, 0x108e, lsl 16
+            ; mul     w8, w8, w9
+            ; lsr     w9, w8, 31
+            ; eor     w8, w9, w8, lsr 9
+            ; orr     w8, w8, 0x3f800000
+            ; fmov    S(reg(out_reg)), w8
+            ; fmov    s7, -1.00000000
+            ; fadd    S(reg(out_reg)), S(reg(out_reg)), s7
+            ; mov     V(reg(out_reg)).s[1], V(reg(out_reg)).s[0]
+            ; b       16 // --> exit
+
+            // Load [0, 1] and return
+            ; movi    V(reg(out_reg)).b16, #0
+            ; fmov    s7, 1.00000000
+            ; mov     V(reg(out_reg)).s[1], v7.s[0]
+
+            // --> exit
+        );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops

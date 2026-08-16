@@ -3,7 +3,6 @@ use crate::{
     float_slice::FloatSliceAssembler, mmap::Mmap, reg,
 };
 use dynasmrt::{DynasmApi, DynasmError, DynasmLabelApi, dynasm};
-use fidget_core::types::FloatExt;
 
 pub const SIMD_WIDTH: usize = 4;
 
@@ -320,10 +319,53 @@ impl Assembler for FloatSliceAssembler {
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_atan2);
     }
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        extern "C" fn float_mix(a: f32, b: f32) -> f32 {
-            a.mix(b)
-        }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mix);
+        dynasm!(self.0.ops
+            // Load constants into spare registers
+            ; mov     w8, 0x77b5
+            ; movk    w8, 0x2c92, lsl 16
+            ; dup     v0.s4, w8 // v0 = 0x2c9277b5
+
+            ; mov     w8, 0x4b05
+            ; movk    w8, 0xac56, lsl 16
+            ; dup     v1.s4, w8 // v1 = C2 = 0xac564b05
+
+            ; mov     w8, 0xf2d9
+            ; movk    w8, 0x108e, lsl 16
+            ; dup     v2.s4, w8 // v2 = C3 = 0x108ef2d9
+
+            // round 1: h(rhs)
+            ; mul     v6.s4, V(reg(rhs_reg)).s4, v0.s4
+            ; add     v6.s4, v6.s4, v1.s4
+
+            ; ushr    v4.s4, v6.s4, #28
+            ; movi    v5.s4, #4
+            ; add     v4.s4, v4.s4, v5.s4
+            ; neg     v4.s4, v4.s4
+            ; ushl    v5.s4, v6.s4, v4.s4
+            ; eor     v6.b16, v5.b16, v6.b16
+
+            ; mul     v6.s4, v6.s4, v2.s4
+            ; ushr    v4.s4, v6.s4, #22
+            ; eor     v6.b16, v6.b16, v4.b16
+
+            // h(rhs) + lhs
+            ; add     v6.s4, v6.s4, V(reg(lhs_reg)).s4
+
+            // round 2: h(b)
+            ; mul     v7.s4, v6.s4, v0.s4
+            ; add     v7.s4, v7.s4, v1.s4
+
+            ; ushr    v4.s4, v7.s4, #28
+            ; movi    v5.s4, #4
+            ; add     v4.s4, v4.s4, v5.s4
+            ; neg     v4.s4, v4.s4
+            ; ushl    v5.s4, v7.s4, v4.s4
+            ; eor     v7.b16, v5.b16, v7.b16
+
+            ; mul     v7.s4, v7.s4, v2.s4
+            ; ushr    v4.s4, v7.s4, #22
+            ; eor     V(reg(out_reg)).b16, v7.b16, v4.b16
+        )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -353,10 +395,41 @@ impl Assembler for FloatSliceAssembler {
         );
     }
     fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
-        extern "C" fn float_rand(a: f32) -> f32 {
-            a.rand()
-        }
-        self.call_fn_unary(out_reg, arg_reg, float_rand);
+        dynasm!(self.0.ops
+            ; mov     w8, 0x77b5
+            ; movk    w8, 0x2c92, lsl 16
+            ; dup     v0.s4, w8
+
+            ; mov     w8, 0x4b05
+            ; movk    w8, 0xac56, lsl 16
+            ; dup     v1.s4, w8
+
+            ; mul     v6.s4, V(reg(arg_reg)).s4, v0.s4
+            ; add     v6.s4, v6.s4, v1.s4
+
+            ; ushr    v4.s4, v6.s4, #28
+            ; movi    v5.s4, #4
+            ; add     v4.s4, v4.s4, v5.s4
+            ; neg     v4.s4, v4.s4
+            ; ushl    v5.s4, v6.s4, v4.s4
+            ; eor     v6.b16, v5.b16, v6.b16
+
+            ; mov     w8, 0xf2d9
+            ; movk    w8, 0x108e, lsl 16
+            ; dup     v2.s4, w8
+            ; mul     v6.s4, v6.s4, v2.s4
+
+            ; ushr    v4.s4, v6.s4, #31
+            ; ushr    v5.s4, v6.s4, #9
+            ; eor     v6.b16, v4.b16, v5.b16
+
+            ; mov     w8, 0x0000
+            ; movk    w8, 0x3f80, lsl 16
+            ; dup     v0.s4, w8
+
+            ; orr     v6.b16, v6.b16, v0.b16
+            ; fsub    V(reg(out_reg)).s4, v6.s4, v0.s4
+        )
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops

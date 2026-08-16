@@ -3,7 +3,6 @@ use crate::{
     float_slice::FloatSliceAssembler, mmap::Mmap, reg,
 };
 use dynasmrt::{DynasmApi, DynasmError, DynasmLabelApi, dynasm};
-use fidget_core::types::FloatExt;
 
 pub const SIMD_WIDTH: usize = 8;
 
@@ -155,10 +154,68 @@ impl Assembler for FloatSliceAssembler {
         self.call_fn_unary(out_reg, lhs_reg, float_atan);
     }
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        extern "sysv64" fn float_mix(a: f32, b: f32) -> f32 {
-            a.mix(b)
-        }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mix);
+        dynasm!(self.0.ops
+            //================================================
+            // Round 1: H(rhs) + lhs, result left in out_reg
+            //================================================
+            ; mov     eax, 747796405
+            ; vmovd   xmm1, eax
+            ; vpbroadcastd ymm1, xmm1
+            ; vpmulld ymm3, Ry(reg(rhs_reg)), ymm1
+
+            ; mov     r8d, -1403630843
+            ; vmovd   xmm1, r8d
+            ; vpbroadcastd ymm1, xmm1
+            ; vpaddd  ymm3, ymm3, ymm1
+
+            ; vpsrld  ymm2, ymm3, 28
+            ; mov     r10d, 4
+            ; vmovd   xmm1, r10d
+            ; vpbroadcastd ymm1, xmm1
+            ; vpaddd  ymm2, ymm2, ymm1
+
+            ; vpsrlvd ymm2, ymm3, ymm2
+            ; vpxor   ymm2, ymm2, ymm3
+
+            ; mov     r9d, 277803737
+            ; vmovd   xmm1, r9d
+            ; vpbroadcastd ymm1, xmm1
+            ; vpmulld ymm2, ymm2, ymm1
+
+            // hash1 = (word >> 22) ^ word
+            ; vpsrld  ymm1, ymm2, 22
+            ; vpxor   ymm1, ymm1, ymm2
+
+            // x2 = hash1 + lhs
+            ; vpaddd  Ry(reg(out_reg)), ymm1, Ry(reg(lhs_reg))
+
+            //================================================
+            // Round 2: H(x2), result left in out_reg
+            //================================================
+            ; vmovd   xmm1, eax
+            ; vpbroadcastd ymm1, xmm1
+            ; vpmulld Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
+
+            ; vmovd   xmm1, r8d
+            ; vpbroadcastd ymm1, xmm1
+            ; vpaddd  Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
+
+            ; vpsrld  ymm2, Ry(reg(out_reg)), 28
+            ; vmovd   xmm1, r10d
+            ; vpbroadcastd ymm1, xmm1
+            ; vpaddd  ymm2, ymm2, ymm1
+
+            ; vpsrlvd ymm3, Ry(reg(out_reg)), ymm2
+            ; vpxor   ymm3, ymm3, Ry(reg(out_reg))
+
+            ; vmovd   xmm1, r9d
+            ; vpbroadcastd ymm1, xmm1
+            ; vpmulld ymm3, ymm3, ymm1
+
+            // result = (word >> 22) ^ word --
+            ; vpsrld  ymm1, ymm3, 22
+            ; vpxor   Ry(reg(out_reg)), ymm1, ymm3
+        );
     }
     fn build_exp(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "sysv64" fn float_exp(f: f32) -> f32 {
@@ -167,10 +224,53 @@ impl Assembler for FloatSliceAssembler {
         self.call_fn_unary(out_reg, lhs_reg, float_exp);
     }
     fn build_rand(&mut self, out_reg: u8, arg_reg: u8) {
-        extern "sysv64" fn float_rand(a: f32) -> f32 {
-            a.rand()
-        }
-        self.call_fn_unary(out_reg, arg_reg, float_rand);
+        dynasm!(self.0.ops
+            // state = v * 747796405
+            ; mov     eax, 747796405
+            ; vmovd   xmm1, eax
+            ; vpbroadcastd ymm1, xmm1
+            ; vpmulld Ry(reg(out_reg)), Ry(reg(arg_reg)), ymm1
+
+            // state += 2891336453 (-1403630843 as i32)
+            ; mov     eax, -1403630843
+            ; vmovd   xmm1, eax
+            ; vpbroadcastd ymm1, xmm1
+            ; vpaddd  Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
+
+            // shift = (state >> 28) + 4
+            ; vpsrld  ymm1, Ry(reg(out_reg)), 28
+            ; mov     eax, 4
+            ; vmovd   xmm2, eax
+            ; vpbroadcastd ymm2, xmm2
+            ; vpaddd  ymm1, ymm1, ymm2
+
+            // word = (state >> shift) ^ state
+            ; vpsrlvd ymm2, Ry(reg(out_reg)), ymm1
+            ; vpxor   ymm2, ymm2, Ry(reg(out_reg))
+
+            // word *= 277803737
+            ; mov     eax, 277803737
+            ; vmovd   xmm1, eax
+            ; vpbroadcastd ymm1, xmm1
+            ; vpmulld ymm2, ymm2, ymm1
+
+            // word = (word >> 9) ^ (word >> 31)
+            ; vpsrld  ymm3, ymm2, 31
+            ; vpsrld  ymm2, ymm2, 9
+            ; vpxor   ymm2, ymm2, ymm3
+
+            // pack into float bits in [1,2)
+            ; mov     eax, 0x3f800000
+            ; vmovd   xmm1, eax
+            ; vpbroadcastd ymm1, xmm1
+            ; vpor    Ry(reg(out_reg)), ymm2, ymm1
+
+            // subtract 1.0
+            ; mov     rax, 0xbf800000
+            ; vmovd   xmm1, eax
+            ; vpbroadcastd ymm1, xmm1
+            ; vaddps  Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
+        );
     }
     fn build_ln(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "sysv64" fn float_ln(f: f32) -> f32 {
