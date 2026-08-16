@@ -381,8 +381,8 @@ mod test {
         let engine = engine();
 
         // Test that PI constant is available
-        let pi: f32 = engine.eval("PI").unwrap();
-        assert!((pi - std::f32::consts::PI).abs() < f32::EPSILON);
+        let pi: f64 = engine.eval("PI").unwrap();
+        assert!((pi - std::f64::consts::PI).abs() < f64::EPSILON);
 
         // Test using constants in angular calculations
         let t = engine

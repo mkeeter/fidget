@@ -237,6 +237,7 @@ fn build_transform<T: Facet<'static> + Into<Tree>>(
             .into());
         };
         let d = f.default.map(|df| unsafe { tag.build_from_default_fn(df) });
+        // TODO this could be made lazy
         let v = build_tagged_value(tag, &ctx, v, d)?;
         builder = v.put(builder, i);
     }

@@ -403,12 +403,12 @@ fn register_plane(engine: &mut rhai::Engine) {
             "plane",
             |ctx: rhai::NativeCallContext,
              v: rhai::Dynamic,
-             offset: f32|
+             offset: f64|
              -> Result<Plane, Box<EvalAltResult>> {
                 let plane = Plane::from_dynamic(&ctx, v, None)?;
                 Ok(Plane {
                     axis: plane.axis,
-                    offset,
+                    offset: offset as f32,
                 })
             },
         );

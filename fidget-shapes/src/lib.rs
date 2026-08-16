@@ -31,7 +31,7 @@ pub struct Circle {
     #[facet(default = Vec2::new(0.0, 0.0))]
     pub center: Vec2,
     /// Circle radius
-    #[facet(default = 1.0)]
+    #[facet(default = 1.0f32)]
     pub radius: f32,
 }
 
@@ -71,7 +71,7 @@ pub struct Sphere {
     #[facet(default = Vec3::new(0.0, 0.0, 0.0))]
     pub center: Vec3,
     /// Sphere radius
-    #[facet(default = 1.0)]
+    #[facet(default = 1.0f32)]
     pub radius: f32,
 }
 
@@ -267,7 +267,7 @@ pub struct ScaleUniform {
     /// Shape to scale
     pub shape: Tree,
     /// Scale to apply
-    #[facet(default = 1.0)]
+    #[facet(default = 1.0f32)]
     pub scale: f32,
 }
 
@@ -317,7 +317,7 @@ pub struct ReflectX {
     pub shape: Tree,
 
     /// X offset
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub offset: f32,
 }
 
@@ -341,7 +341,7 @@ pub struct ReflectXY {
     pub shape: Tree,
 
     /// Plane about which to reflect the shape
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub offset: f32,
 }
 
@@ -365,7 +365,7 @@ pub struct ReflectY {
     pub shape: Tree,
 
     /// Y offset
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub offset: f32,
 }
 
@@ -389,7 +389,7 @@ pub struct ReflectZ {
     pub shape: Tree,
 
     /// Z offset
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub offset: f32,
 }
 
@@ -417,7 +417,7 @@ pub struct Rotate {
     pub axis: Axis,
 
     /// Angle to rotate (in degrees)
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub angle: f32,
 
     /// Center of rotation
@@ -451,7 +451,7 @@ pub struct RotateX {
     pub shape: Tree,
 
     /// Angle to rotate (in degrees)
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub angle: f32,
 
     /// Center of rotation
@@ -478,7 +478,7 @@ pub struct RotateY {
     pub shape: Tree,
 
     /// Angle to rotate (in degrees)
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub angle: f32,
 
     /// Center of rotation
@@ -505,7 +505,7 @@ pub struct RotateZ {
     pub shape: Tree,
 
     /// Angle to rotate (in degrees)
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub angle: f32,
 
     /// Center of rotation
@@ -533,7 +533,7 @@ pub struct RevolveY {
     /// Shape to revolve
     pub shape: Tree,
     /// X offset about which to revolve
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub offset: f32,
 }
 
@@ -557,10 +557,10 @@ pub struct ExtrudeZ {
     /// Shape to extrude
     pub shape: Tree,
     /// Lower bounds of the extrusion
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub lower: f32,
     /// Upper bounds of the extrusion
-    #[facet(default = 1.0)]
+    #[facet(default = 1.0f32)]
     pub upper: f32,
 }
 
@@ -580,10 +580,10 @@ pub struct LoftZ {
     /// Upper shape
     pub b: Tree,
     /// Lower bounds of the loft
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub lower: f32,
     /// Upper bounds of the loft
-    #[facet(default = 1.0)]
+    #[facet(default = 1.0f32)]
     pub upper: f32,
 }
 
@@ -607,10 +607,10 @@ pub struct RepeatX {
     /// Shape to repeat
     pub shape: Tree,
     /// Radius of the region to repeat
-    #[facet(default = 1.0)]
+    #[facet(default = 1.0f32)]
     pub radius: f32,
     /// X position about which to repeat
-    #[facet(default = 0.0)]
+    #[facet(default = 0.0f32)]
     pub offset: f32,
 }
 
