@@ -27,8 +27,8 @@ use fidget_core::types::Grad;
 /// | `x3`     | byte offset within input arrays                      |
 /// | `x4`     | Staging for loading SIMD values                      |
 /// | `v3.s4`  | Immediate value (`IMM_REG`)                          |
-/// | `v7.s4`  | Immediate value for recip (1.0)                      |
-/// | `w9`     | Staging for loading immediates                       |
+/// | `v7.s4`  | Other immediate values                               |
+/// | `w8-12`  | General purpose registers (caller-saved)             |
 /// | `w15`    | Staging to load variables                            |
 /// | `x20-23` | Backups for `x0-3` during function calls             |
 ///
@@ -373,10 +373,32 @@ impl Assembler for GradSliceAssembler {
     }
 
     fn build_mix(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        extern "C" fn grad_mix(a: Grad, b: Grad) -> Grad {
-            a.mix(b)
-        }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_mix);
+        dynasm!(self.0.ops
+            ; fmov    w8, S(reg(lhs_reg))
+            ; fmov    w9, S(reg(rhs_reg))
+            ; mov     w10, 0x77b5
+            ; movk    w10, 0x2c92, lsl 16
+            ; mov     w11, 0x4b05
+            ; movk    w11, 0xac56, lsl 16
+            ; madd    w9, w9, w10, w11
+            ; lsr     w12, w9, 28
+            ; add     w12, w12, 4
+            ; lsr     w12, w9, w12
+            ; eor     w9, w12, w9
+            ; mov     w12, 0xf2d9
+            ; movk    w12, 0x108e, lsl 16
+            ; mul     w9, w9, w12
+            ; eor     w9, w9, w9, lsr 22
+            ; add     w8, w9, w8
+            ; madd    w8, w8, w10, w11
+            ; lsr     w9, w8, 28
+            ; add     w9, w9, 4
+            ; lsr     w9, w8, w9
+            ; eor     w8, w9, w8
+            ; mul     w8, w8, w12
+            ; eor     w8, w8, w8, lsr 22
+            ; fmov    S(reg(out_reg)), w8 // zero-extends
+        );
     }
 
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -549,10 +571,27 @@ impl Assembler for GradSliceAssembler {
     }
 
     fn build_rand(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "C" fn grad_rand(v: Grad) -> Grad {
-            v.rand()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, grad_rand);
+        dynasm!(self.0.ops
+            ; fmov    w8, S(reg(lhs_reg))
+            ; mov     w9, 0x77b5
+            ; movk    w9, 0x2c92, lsl 16
+            ; mov     w10, 0x4b05
+            ; movk    w10, 0xac56, lsl 16
+            ; madd    w8, w8, w9, w10
+            ; lsr     w9, w8, 28
+            ; add     w9, w9, 4
+            ; lsr     w9, w8, w9
+            ; eor     w8, w9, w8
+            ; mov     w9, 0xf2d9
+            ; movk    w9, 0x108e, lsl 16
+            ; mul     w8, w8, w9
+            ; lsr     w9, w8, 31
+            ; eor     w8, w9, w8, lsr 9
+            ; orr     w8, w8, 0x3f800000
+            ; fmov    S(reg(out_reg)), w8
+            ; fmov    s7, -1.00000000
+            ; fadd    S(reg(out_reg)), S(reg(out_reg)), s7
+        );
     }
 }
 
