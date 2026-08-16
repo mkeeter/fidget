@@ -85,7 +85,6 @@ impl Assembler for GradSliceAssembler {
             + STACK_SIZE_LOWER as u32)
             .try_into()
             .unwrap();
-        // XXX could we use vmovaps here instead?
         dynasm!(self.0.ops
             ; vmovups [rsp + sp_offset], Rx(reg(src_reg))
         );
@@ -94,7 +93,7 @@ impl Assembler for GradSliceAssembler {
         let pos = 8 * i32::try_from(src_arg).unwrap();
         dynasm!(self.0.ops
             ; mov r8, [rdi + pos]   // read the *const float from the array
-            ; vmovaps Rx(reg(out_reg)), [r8 + rcx] // offset by array
+            ; vmovups Rx(reg(out_reg)), [r8 + rcx] // offset by array
         );
     }
 

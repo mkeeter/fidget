@@ -23,6 +23,9 @@
   parallelism to really kick in – but it's useful for consistency.
 - Move more VM functions onto `Grad` and `Interval` (out of the VM
   implementation); add a `FloatExt` trait which adds them to `f32` as well.
+- Fix a JIT bug in the gradient evaluator on Windows, where we assumed that
+  input `&[Grad]` slices were aligned to 16 bytes.  This caused a Access
+  Violation error code when running the JITted function (0xC0000005).
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
