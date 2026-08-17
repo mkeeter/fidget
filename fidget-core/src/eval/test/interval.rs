@@ -1129,11 +1129,11 @@ where
     }
 
     /// Check `out` against a grid of points in the LHS, RHS intervals
-    pub fn compare_interval_results(
+    pub fn compare_interval_results<C: CanonicalBinaryOp>(
         lhs: Interval,
         rhs: Interval,
         out: Interval,
-        g: impl Fn(f32, f32) -> f32,
+        constant_folded: bool,
         name: &str,
     ) {
         let i_max = if lhs.lower() == lhs.upper() { 1 } else { 8 };
@@ -1148,19 +1148,19 @@ where
                 let v_rhs = (rhs.lower() * j + rhs.upper() * (1.0 - j))
                     .min(rhs.upper())
                     .max(rhs.lower());
-                let inside_value = g(v_lhs, v_rhs);
+                let inside_value = C::eval_reg_reg_f32(v_lhs, v_rhs);
 
                 if inside_value.is_nan() || inside_value.is_infinite() {
                     assert!(
-                        out.has_nan(),
+                        out.has_nan() || constant_folded,
                         "interval failure in '{name}': ({v_lhs}, {v_rhs}) in \
                         ({lhs}, {rhs}) => {inside_value} not in {out} \
                         (should be [NaN, NaN])"
                     );
                 } else if !out.has_nan() {
                     assert!(
-                        inside_value >= out.lower()
-                            && inside_value <= out.upper(),
+                        (inside_value >= out.lower()
+                            && inside_value <= out.upper()),
                         "interval failure in '{name}': ({v_lhs}, {v_rhs}) in \
                         ({lhs}, {rhs}) => {inside_value} not in {out}"
                     );
@@ -1191,6 +1191,7 @@ where
                 if matches!(op, crate::context::Op::Unary(..)) {
                     continue;
                 }
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
@@ -1208,11 +1209,11 @@ where
                 let (out, _trace) = eval.eval(&tape, &args).unwrap();
                 tape_data = Some(tape.recycle().unwrap());
 
-                Self::compare_interval_results(
+                Self::compare_interval_results::<C>(
                     lhs,
                     rhs,
                     out[0],
-                    C::eval_reg_reg_f32,
+                    constant_folded,
                     &name,
                 );
             }
@@ -1227,6 +1228,7 @@ where
             if matches!(op, crate::context::Op::Unary(..)) {
                 continue;
             }
+            let constant_folded = ctx.get_const(node).is_ok();
 
             let shape = F::new(&ctx, &[node]).unwrap();
             let tape = shape.interval_tape(tape_data.unwrap_or_default());
@@ -1240,11 +1242,11 @@ where
             let (out, _trace) = eval.eval(&tape, &args).unwrap();
             tape_data = Some(tape.recycle().unwrap());
 
-            Self::compare_interval_results(
+            Self::compare_interval_results::<C>(
                 lhs,
                 lhs,
                 out[0],
-                C::eval_reg_reg_f32,
+                constant_folded,
                 &name,
             );
         }
@@ -1264,6 +1266,7 @@ where
         for &lhs in args.iter() {
             for &rhs in values.iter() {
                 let node = C::build(&mut ctx, a, rhs);
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
@@ -1271,11 +1274,11 @@ where
                 let (out, _trace) = eval.eval(&tape, &[lhs]).unwrap();
                 tape_data = Some(tape.recycle().unwrap());
 
-                Self::compare_interval_results(
+                Self::compare_interval_results::<C>(
                     lhs,
                     rhs.into(),
                     out[0],
-                    C::eval_reg_imm_f32,
+                    constant_folded,
                     &name,
                 );
             }
@@ -1295,6 +1298,7 @@ where
         for &lhs in values.iter() {
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, lhs, va);
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
@@ -1302,11 +1306,11 @@ where
                 let (out, _trace) = eval.eval(&tape, &[rhs]).unwrap();
                 tape_data = Some(tape.recycle().unwrap());
 
-                Self::compare_interval_results(
+                Self::compare_interval_results::<C>(
                     lhs.into(),
                     rhs,
                     out[0],
-                    C::eval_imm_reg_f32,
+                    constant_folded,
                     &name,
                 );
             }
