@@ -585,12 +585,10 @@ where
         let err = (value - out).abs();
         assert!(
             (out == value)
-                || C::discontinuous_at(lhs, rhs)
                 || err < 1e-6
                 || value.is_nan() && out.is_nan()
                 || value.is_nan() && constant_folded,
-            "mismatch in '{name}' at ({lhs}, {rhs}): \
-                            {value} != {out} ({err})"
+            "mismatch in '{name}' at ({lhs}, {rhs}): {value} != {out} ({err})"
         )
     }
 

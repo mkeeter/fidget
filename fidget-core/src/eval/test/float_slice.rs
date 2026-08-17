@@ -424,7 +424,6 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             let err = (v - o).abs();
             assert!(
                 (o == v)
-                    || C::discontinuous_at(*a, *b)
                     || err < 1e-6
                     || (v.is_nan() && o.is_nan())
                     || (v.is_nan() && constant_folded),

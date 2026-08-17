@@ -204,7 +204,7 @@ pub mod canonical {
     declare_canonical_unary!(Context::floor, |a| a.floor());
     declare_canonical_unary!(Context::ceil, |a| a.ceil());
     declare_canonical_unary!(Context::round, |a| a.round());
-    declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
+    declare_canonical_unary!(Context::not, |a| a.not(), |a| a == 0.0);
     declare_canonical_unary!(
         Context::rand,
         |a| a.rand(),
