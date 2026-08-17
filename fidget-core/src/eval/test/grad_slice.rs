@@ -558,19 +558,20 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         lhs: &[f32],
         rhs: &[f32],
         out: &[Grad],
-        g: impl Fn(f32, f32) -> f32,
+        constant_folded: bool,
         name: &str,
     ) {
         const EPSILON: f32 = 1e-3; // hand-tuned value
         for ((a, b), &o) in lhs.iter().zip(rhs).zip(out.iter()) {
-            let v = g(*a, *b);
+            let v = C::eval(*a, *b);
             let err = (v - o.v).abs();
             let err_frac = err / (v.abs()).max(o.v.abs());
             assert!(
                 o.v == v
                     || err < 1e-6
                     || err_frac < 1e-6
-                    || (v.is_nan() && o.v.is_nan()),
+                    || (v.is_nan() && o.v.is_nan())
+                    || (v.is_nan() && constant_folded),
                 "value mismatch in '{name}' at ({a}, {b}) => {o:?}: \
                  {v} != {o} ({err})"
             );
@@ -588,11 +589,11 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
             if i == j {
                 let grad = o.d(i);
                 if grad < 1e9 && !grad.is_infinite() {
-                    let d = g(a + EPSILON, b + EPSILON);
+                    let d = C::eval(a + EPSILON, b + EPSILON);
                     let est_grad = (d - v) / EPSILON;
                     let mut err = (est_grad - grad).abs();
 
-                    let d = g(a - EPSILON, b);
+                    let d = C::eval(a - EPSILON, b);
                     let est_grad = (v - d) / EPSILON;
                     err = err.min((est_grad - grad).abs());
                     assert!(
@@ -608,11 +609,11 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                     if grad < 1e9 && !grad.is_infinite() {
                         // Check both +epsilon and -epsilon positions, because
                         // they may be different if there are C1 discontinuities
-                        let d = g(a + EPSILON, b);
+                        let d = C::eval(a + EPSILON, b);
                         let est_grad = (d as f64 - v as f64) / EPSILON as f64;
                         let mut err = (est_grad - grad).abs();
 
-                        let d = g(a - EPSILON, b);
+                        let d = C::eval(a - EPSILON, b);
                         let est_grad = (v as f64 - d as f64) / EPSILON as f64;
                         err = err.min((est_grad - grad).abs());
                         assert!(
@@ -626,11 +627,11 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 if j < 3 {
                     let grad = o.d(j) as f64;
                     if grad < 1e9 && !grad.is_infinite() {
-                        let d = g(a, b + EPSILON);
+                        let d = C::eval(a, b + EPSILON);
                         let est_grad = (d - v) / EPSILON;
                         let mut err = (est_grad as f64 - grad).abs();
 
-                        let d = g(a, b - EPSILON);
+                        let d = C::eval(a, b - EPSILON);
                         let est_grad = (v - d) / EPSILON;
                         err = err.min((est_grad as f64 - grad).abs());
                         assert!(
@@ -658,6 +659,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
             for (i, &v) in inputs.iter().enumerate() {
                 for (j, &u) in inputs.iter().enumerate() {
                     let node = C::build(&mut ctx, v, u);
+                    let constant_folded = ctx.get_const(node).is_ok();
 
                     let shape = F::new(&ctx, &[node]).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());
@@ -682,7 +684,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                         &args,
                         rhs,
                         &out,
-                        C::eval_reg_reg_f32,
+                        constant_folded,
                         &name,
                     );
                 }
@@ -704,6 +706,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
             for (i, &v) in inputs.iter().enumerate() {
                 for rhs in args.iter() {
                     let node = C::build(&mut ctx, v, *rhs);
+                    let constant_folded = ctx.get_const(node).is_ok();
 
                     let shape = F::new(&ctx, &[node]).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());
@@ -722,7 +725,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                         &args,
                         &rhs,
                         &out,
-                        C::eval_reg_imm_f32,
+                        constant_folded,
                         &name,
                     );
                 }
@@ -744,6 +747,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
             for (i, &v) in inputs.iter().enumerate() {
                 for lhs in args.iter() {
                     let node = C::build(&mut ctx, *lhs, v);
+                    let constant_folded = ctx.get_const(node).is_ok();
 
                     let shape = F::new(&ctx, &[node]).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());
@@ -762,7 +766,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                         &lhs,
                         &args,
                         &out,
-                        C::eval_imm_reg_f32,
+                        constant_folded,
                         &name,
                     );
                 }

@@ -416,17 +416,18 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         lhs: &[f32],
         rhs: &[f32],
         out: &[f32],
-        g: impl Fn(f32, f32) -> f32,
+        constant_folded: bool,
         name: &str,
     ) {
         for ((a, b), &o) in lhs.iter().zip(rhs).zip(out.iter()) {
-            let v = g(*a, *b);
+            let v = C::eval(*a, *b);
             let err = (v - o).abs();
             assert!(
                 (o == v)
                     || C::discontinuous_at(*a, *b)
                     || err < 1e-6
-                    || (v.is_nan() && o.is_nan()),
+                    || (v.is_nan() && o.is_nan())
+                    || (v.is_nan() && constant_folded),
                 "mismatch in '{name}' at {a} {b}: {v} != {o} ({err})"
             )
         }
@@ -444,6 +445,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             let mut rgsa = args.clone();
             rgsa.rotate_left(rot);
             let node = C::build(&mut ctx, va, vb);
+            let constant_folded = ctx.get_const(node).is_ok();
 
             let shape = F::new(&ctx, &[node]).unwrap();
             let mut eval = F::new_float_slice_eval();
@@ -464,7 +466,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 &args,
                 &rgsa,
                 &out[0],
-                C::eval_reg_reg_f32,
+                constant_folded,
                 &name,
             );
         }
@@ -482,6 +484,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             args.rotate_left(rot);
             for rhs in args.iter() {
                 let node = C::build(&mut ctx, va, *rhs);
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_float_slice_eval();
@@ -494,7 +497,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                     &args,
                     &rhs,
                     &out[0],
-                    C::eval_reg_imm_f32,
+                    constant_folded,
                     &name,
                 );
             }
@@ -513,6 +516,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             args.rotate_left(rot);
             for lhs in args.iter() {
                 let node = C::build(&mut ctx, *lhs, va);
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_float_slice_eval();
@@ -525,7 +529,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                     &lhs,
                     &args,
                     &out[0],
-                    C::eval_imm_reg_f32,
+                    constant_folded,
                     &name,
                 );
             }

@@ -1148,7 +1148,7 @@ where
                 let v_rhs = (rhs.lower() * j + rhs.upper() * (1.0 - j))
                     .min(rhs.upper())
                     .max(rhs.lower());
-                let inside_value = C::eval_reg_reg_f32(v_lhs, v_rhs);
+                let inside_value = C::eval(v_lhs, v_rhs);
 
                 if inside_value.is_nan() || inside_value.is_infinite() {
                     assert!(
