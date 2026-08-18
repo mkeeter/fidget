@@ -30,6 +30,15 @@
 - Add new `rand` and `mix` opcodes, which can be used for deterministic
   pseudo-random number generation.  There are also examples of single-octave and
   multi-octave Perlin noise in the repository showing how these can be used.
+- **Switch to using `f32` everywhere**.  Fidget's evaluators always used `f32`
+  internally, but other components (e.g. constants in a `Context`) were `f64`.
+  Using `f32` everywhere makes this more consistent, and lets us remove a bunch
+  of annoying workarounds (e.g epsilons scattered throughout the evaluator test
+  suite).
+    - As a side effect, the evaluator test suite now confirms that evaluators
+      **agree exactly** with the canonical operator definition.  This required
+      removing the JIT implementation for `modulo`, which was not exactly in
+      agreement with the non-JIT implementation.
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
