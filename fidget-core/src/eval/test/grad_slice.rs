@@ -564,16 +564,13 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         const EPSILON: f32 = 1e-3; // hand-tuned value
         for ((a, b), &o) in lhs.iter().zip(rhs).zip(out.iter()) {
             let v = C::eval(*a, *b);
-            let err = (v - o.v).abs();
-            let err_frac = err / (v.abs()).max(o.v.abs());
             assert!(
                 o.v == v
-                    || err < 1e-6
-                    || err_frac < 1e-6
                     || (v.is_nan() && o.v.is_nan())
                     || (v.is_nan() && constant_folded),
                 "value mismatch in '{name}' at ({a}, {b}) => {o:?}: \
-                 {v} != {o} ({err})"
+                 {v} != {o} ({})",
+                o.v - v
             );
 
             if v.is_nan() {

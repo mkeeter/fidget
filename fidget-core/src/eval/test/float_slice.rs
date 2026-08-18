@@ -303,13 +303,13 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         let cmp = eval.eval(&tape, &x, &y, &z).unwrap();
         for (i, (a, b)) in out[0].iter().zip(cmp.iter()).enumerate() {
-            let err = (a - b).abs();
             assert!(
-                err < 1e-6,
-                "mismatch at index {i} ({}, {}, {}): {a} != {b} [{err}], {}",
+                a == b,
+                "mismatch at index {i} ({}, {}, {}): {a} != {b} [{}], {}",
                 x[i],
                 y[i],
                 z[i],
+                a - b,
                 depth,
             );
         }
@@ -403,11 +403,11 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
         for (a, &o) in args.iter().zip(out[0].iter()) {
             let v = C::eval_f32(*a);
-            let err = (v - o).abs();
             assert!(
-                (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
-                "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                (o == v) || (v.is_nan() && o.is_nan()),
+                "mismatch in '{}' at {a}: {v} != {o} ({})",
                 C::NAME,
+                o - v,
             )
         }
     }
@@ -421,13 +421,12 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
     ) {
         for ((a, b), &o) in lhs.iter().zip(rhs).zip(out.iter()) {
             let v = C::eval(*a, *b);
-            let err = (v - o).abs();
             assert!(
                 (o == v)
-                    || err < 1e-6
                     || (v.is_nan() && o.is_nan())
                     || (v.is_nan() && constant_folded),
-                "mismatch in '{name}' at {a} {b}: {v} != {o} ({err})"
+                "mismatch in '{name}' at {a} {b}: {v} != {o} ({})",
+                o - v
             )
         }
     }

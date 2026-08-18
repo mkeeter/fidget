@@ -326,13 +326,10 @@ impl Assembler for PointAssembler {
     }
 
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
-            ; fabs s6, S(reg(rhs_reg))
-            ; fdiv s7, S(reg(lhs_reg)), s6
-            ; frintm s7, s7 // round down
-            ; fmul s7, s7, s6
-            ; fsub S(reg(out_reg)), S(reg(lhs_reg)), s7
-        )
+        extern "C" fn float_mod(x: f32, y: f32) -> f32 {
+            x.rem_euclid(y)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mod);
     }
 
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {

@@ -564,11 +564,11 @@ where
                 assert!(trace.is_none());
                 let v = C::eval_f32(a);
                 let o = o[0];
-                let err = (v - o).abs();
                 assert!(
-                    (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
-                    "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                    (o == v) || (v.is_nan() && o.is_nan()),
+                    "mismatch in '{}' at {a}: {v} != {o} ({})",
                     C::NAME,
+                    o - v
                 )
             }
         }
@@ -582,13 +582,12 @@ where
         name: &str,
     ) {
         let value = C::eval(lhs, rhs);
-        let err = (value - out).abs();
         assert!(
             (out == value)
-                || err < 1e-6
                 || value.is_nan() && out.is_nan()
                 || value.is_nan() && constant_folded,
-            "mismatch in '{name}' at ({lhs}, {rhs}): {value} != {out} ({err})"
+            "mismatch in '{name}' at ({lhs}, {rhs}): {value} != {out} ({})",
+            out - value
         )
     }
 
