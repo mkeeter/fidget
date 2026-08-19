@@ -304,17 +304,10 @@ impl Assembler for PointAssembler {
         self.0.ops.commit_local().unwrap()
     }
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
-            // Take abs(rhs_reg)
-            ; mov eax, 0x7fffffffu32 as i32
-            ; vmovd xmm2, eax
-            ; vandps xmm1, xmm2, Rx(reg(rhs_reg))
-
-            ; vdivss xmm2, Rx(reg(lhs_reg)), xmm1
-            ; vroundss xmm2, xmm2, xmm2, 0b1 // floor
-            ; vmulss xmm2, xmm2, xmm1
-            ; vsubss Rx(reg(out_reg)), Rx(reg(lhs_reg)), xmm2
-        );
+        extern "sysv64" fn float_mod(x: f32, y: f32) -> f32 {
+            x.rem_euclid(y)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mod);
     }
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
         dynasm!(self.0.ops

@@ -14,7 +14,7 @@ impl FromDynamic for Tree {
     ) -> Result<Self, Box<EvalAltResult>> {
         if let Some(t) = d.clone().try_cast::<Tree>() {
             Ok(t)
-        } else if let Ok(v) = f64::from_dynamic(ctx, d.clone(), None) {
+        } else if let Ok(v) = f32::from_dynamic(ctx, d.clone(), None) {
             Ok(Tree::constant(v))
         } else if let Ok(v) = <Vec<Tree>>::from_dynamic(ctx, d.clone(), None) {
             Ok(fidget_shapes::Union { input: v }.into())

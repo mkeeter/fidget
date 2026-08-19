@@ -61,9 +61,7 @@ impl SsaTape {
             }
             let op = ctx.get_op(node).ok_or(BadNode)?;
             let prev = match op {
-                Op::Const(c) => {
-                    mapping.insert(node, Slot::Immediate(c.0 as f32))
-                }
+                Op::Const(c) => mapping.insert(node, Slot::Immediate(c.0)),
                 _ => {
                     if let Op::Input(v) = op {
                         vars.insert(*v);

@@ -135,7 +135,7 @@ mod wgpu {
                     )
                     .unwrap();
 
-                check_sphere(image, size, scale, r as f32);
+                check_sphere(image, size, scale, r);
             }
         }
     }

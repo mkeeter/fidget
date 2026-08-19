@@ -1115,8 +1115,8 @@ mod test {
         let length = dir.norm();
         let dir = dir.normalize();
 
-        let corner = corner.map(|v| Tree::constant(v as f64));
-        let dir = dir.map(|v| Tree::constant(v as f64));
+        let corner = corner.map(Tree::constant);
+        let dir = dir.map(Tree::constant);
 
         let (x, y, z) = Tree::axes();
         let point = nalgebra::Vector3::new(x, y, z);

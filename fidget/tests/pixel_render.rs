@@ -373,7 +373,7 @@ fn check_circle_var<F: Function + MathFunction + RenderHints>() {
 
 fn check_neg_infinity<F: Function + MathFunction + RenderHints>() {
     let mut ctx = Context::new();
-    let root = ctx.constant(-f64::INFINITY);
+    let root = ctx.constant(-f32::INFINITY);
     let shape = Shape::<F>::new(&ctx, root).unwrap().try_into().unwrap();
 
     let cfg = RenderConfig {

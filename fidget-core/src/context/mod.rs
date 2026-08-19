@@ -101,7 +101,7 @@ impl Context {
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not a constant, returns `Ok(None)`.
-    pub fn get_const(&self, n: Node) -> Result<f64, ConstError> {
+    pub fn get_const(&self, n: Node) -> Result<f32, ConstError> {
         match self.get_op(n) {
             Some(Op::Const(c)) => Ok(c.0),
             Some(_) => Err(ConstError::NotAConst),
@@ -177,7 +177,7 @@ impl Context {
     /// let v = ctx.constant(3.0);
     /// assert_eq!(ctx.eval_xyz(v, 0.0, 0.0, 0.0).unwrap(), 3.0);
     /// ```
-    pub fn constant(&mut self, f: f64) -> Node {
+    pub fn constant(&mut self, f: f32) -> Node {
         self.ops.insert(Op::Const(OrderedFloat(f)))
     }
 
@@ -466,7 +466,7 @@ impl Context {
     /// # let mut ctx = fidget_core::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.sin(x).unwrap();
-    /// let v = ctx.eval_xyz(op, std::f64::consts::PI / 2.0, 0.0, 0.0).unwrap();
+    /// let v = ctx.eval_xyz(op, std::f32::consts::PI / 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 1.0);
     /// ```
     pub fn sin<A: IntoNode>(&mut self, a: A) -> Result<Node, BadNode> {
@@ -629,7 +629,7 @@ impl Context {
     /// let y = ctx.y();
     /// let op = ctx.atan2(y, x).unwrap();
     /// let v = ctx.eval_xyz(op, 0.0, 1.0, 0.0).unwrap();
-    /// assert_eq!(v, std::f64::consts::FRAC_PI_2);
+    /// assert_eq!(v, std::f32::consts::FRAC_PI_2);
     /// ```
     pub fn atan2<A: IntoNode, B: IntoNode>(
         &mut self,
@@ -760,8 +760,8 @@ impl Context {
     ///
     /// assert_eq!(ctx.eval_xyz(if_else, 0.0, 2.0, 3.0).unwrap(), 3.0);
     /// assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, 3.0).unwrap(), 2.0);
-    /// assert_eq!(ctx.eval_xyz(if_else, 0.0, f64::NAN, 3.0).unwrap(), 3.0);
-    /// assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, f64::NAN).unwrap(), 2.0);
+    /// assert_eq!(ctx.eval_xyz(if_else, 0.0, f32::NAN, 3.0).unwrap(), 3.0);
+    /// assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, f32::NAN).unwrap(), 2.0);
     /// ```
     pub fn if_nonzero_else<Condition: IntoNode, A: IntoNode, B: IntoNode>(
         &mut self,
@@ -798,10 +798,10 @@ impl Context {
     pub fn eval_xyz(
         &self,
         root: Node,
-        x: f64,
-        y: f64,
-        z: f64,
-    ) -> Result<f64, EvalError> {
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> Result<f32, EvalError> {
         let vars = [(Var::X, x), (Var::Y, y), (Var::Z, z)]
             .into_iter()
             .collect();
@@ -815,8 +815,8 @@ impl Context {
     pub fn eval(
         &self,
         root: Node,
-        vars: &HashMap<Var, f64>,
-    ) -> Result<f64, EvalError> {
+        vars: &HashMap<Var, f32>,
+    ) -> Result<f32, EvalError> {
         let mut cache = vec![None; self.ops.len()].into();
         self.eval_inner(root, vars, &mut cache)
     }
@@ -824,9 +824,9 @@ impl Context {
     fn eval_inner(
         &self,
         node: Node,
-        vars: &HashMap<Var, f64>,
-        cache: &mut IndexVec<Option<f64>, Node>,
-    ) -> Result<f64, EvalError> {
+        vars: &HashMap<Var, f32>,
+        cache: &mut IndexVec<Option<f32>, Node>,
+    ) -> Result<f32, EvalError> {
         if node.0 >= cache.len() {
             return Err(EvalError::BadNode(BadNode));
         }
@@ -1035,7 +1035,7 @@ impl Context {
         let mut axes = vec![(self.x(), self.y(), self.z())];
         let mut todo = vec![Action::Down(tree.arc())];
         let mut stack = vec![];
-        let mut affine: Vec<Matrix4<f64>> = vec![];
+        let mut affine: Vec<Matrix4<f32>> = vec![];
 
         // Cache of TreeOp -> Node mapping under a particular frame (axes)
         //
@@ -1585,12 +1585,6 @@ impl IntoNode for Node {
 }
 
 impl IntoNode for f32 {
-    fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode> {
-        Ok(ctx.constant(self as f64))
-    }
-}
-
-impl IntoNode for f64 {
     fn into_node(self, ctx: &mut Context) -> Result<Node, BadNode> {
         Ok(ctx.constant(self))
     }

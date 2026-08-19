@@ -4,6 +4,8 @@ pub mod grad_slice;
 pub mod interval;
 pub mod point;
 
+use crate::types::FloatExt;
+
 // Internal-only tests
 #[cfg(test)] // not enabled for eval-tests
 mod symbolic_deriv;
@@ -101,7 +103,6 @@ pub trait CanonicalUnaryOp {
     const NAME: &'static str;
     fn build(ctx: &mut Context, arg: Node) -> Node;
     fn eval_f32(arg: f32) -> f32;
-    fn eval_f64(arg: f64) -> f64;
 
     /// Returns true if there is a bidirectional discontinuity at a position
     ///
@@ -120,12 +121,7 @@ pub trait CanonicalBinaryOp {
         lhs: A,
         rhs: B,
     ) -> Node;
-    fn eval_reg_reg_f32(lhs: f32, rhs: f32) -> f32;
-    fn eval_reg_imm_f32(lhs: f32, rhs: f32) -> f32;
-    fn eval_imm_reg_f32(lhs: f32, rhs: f32) -> f32;
-    fn eval_reg_reg_f64(lhs: f64, rhs: f64) -> f64;
-    fn eval_reg_imm_f64(lhs: f64, rhs: f64) -> f64;
-    fn eval_imm_reg_f64(lhs: f64, rhs: f64) -> f64;
+    fn eval(lhs: f32, rhs: f32) -> f32;
 
     /// Returns true if there is a bidirectional discontinuity at a position
     ///
@@ -145,9 +141,6 @@ macro_rules! declare_canonical_unary {
                 Context::$i(ctx, arg).unwrap()
             }
             fn eval_f32($a: f32) -> f32 {
-                $t
-            }
-            fn eval_f64($a: f64) -> f64 {
                 $t
             }
             fn discontinuous_at($b: f32) -> bool {
@@ -174,22 +167,7 @@ macro_rules! declare_canonical_binary {
                 let rhs = rhs.into_node(ctx).unwrap();
                 Context::$i(ctx, lhs, rhs).unwrap()
             }
-            fn eval_reg_reg_f32($lhs: f32, $rhs: f32) -> f32 {
-                $t
-            }
-            fn eval_reg_imm_f32($lhs: f32, $rhs: f32) -> f32 {
-                $t
-            }
-            fn eval_imm_reg_f32($lhs: f32, $rhs: f32) -> f32 {
-                $t
-            }
-            fn eval_reg_reg_f64($lhs: f64, $rhs: f64) -> f64 {
-                $t
-            }
-            fn eval_reg_imm_f64($lhs: f64, $rhs: f64) -> f64 {
-                $t
-            }
-            fn eval_imm_reg_f64($lhs: f64, $rhs: f64) -> f64 {
+            fn eval($lhs: f32, $rhs: f32) -> f32 {
                 $t
             }
             fn discontinuous_at($lhs2: f32, $rhs2: f32) -> bool {
@@ -199,46 +177,6 @@ macro_rules! declare_canonical_binary {
     };
     (Context::$i:ident, |$lhs:ident, $rhs:ident| $t:expr) => {
         declare_canonical_binary!(Context::$i, |$lhs, $rhs| $t, |_a, _b| false);
-    };
-}
-
-macro_rules! declare_canonical_binary_full {
-    (Context::$i:ident,
-     |$lhs_reg_reg:ident, $rhs_reg_reg:ident| $f_reg_reg:expr,
-     |$lhs_reg_imm:ident, $rhs_reg_imm:ident| $f_reg_imm:expr,
-     |$lhs_imm_reg:ident, $rhs_imm_reg:ident| $f_imm_reg:expr,
-     ) => {
-        pub struct $i;
-        impl CanonicalBinaryOp for $i {
-            const NAME: &'static str = stringify!($i);
-            fn build<A: IntoNode, B: IntoNode>(
-                ctx: &mut Context,
-                lhs: A,
-                rhs: B,
-            ) -> Node {
-                let lhs = lhs.into_node(ctx).unwrap();
-                let rhs = rhs.into_node(ctx).unwrap();
-                Context::$i(ctx, lhs, rhs).unwrap()
-            }
-            fn eval_reg_reg_f32($lhs_reg_reg: f32, $rhs_reg_reg: f32) -> f32 {
-                $f_reg_reg
-            }
-            fn eval_reg_imm_f32($lhs_reg_imm: f32, $rhs_reg_imm: f32) -> f32 {
-                $f_reg_imm
-            }
-            fn eval_imm_reg_f32($lhs_imm_reg: f32, $rhs_imm_reg: f32) -> f32 {
-                $f_imm_reg
-            }
-            fn eval_reg_reg_f64($lhs_reg_reg: f64, $rhs_reg_reg: f64) -> f64 {
-                $f_reg_reg
-            }
-            fn eval_reg_imm_f64($lhs_reg_imm: f64, $rhs_reg_imm: f64) -> f64 {
-                $f_reg_imm
-            }
-            fn eval_imm_reg_f64($lhs_imm_reg: f64, $rhs_imm_reg: f64) -> f64 {
-                $f_imm_reg
-            }
-        }
     };
 }
 
@@ -266,51 +204,21 @@ pub mod canonical {
     declare_canonical_unary!(Context::floor, |a| a.floor());
     declare_canonical_unary!(Context::ceil, |a| a.ceil());
     declare_canonical_unary!(Context::round, |a| a.round());
-    declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
+    declare_canonical_unary!(Context::not, |a| a.not(), |a| a == 0.0);
     declare_canonical_unary!(
         Context::rand,
-        |a| crate::rng::rand((a as f32).to_bits()).into(),
+        |a| a.rand(),
         |_a| true // always discontinuous, so ignore all gradients
     );
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
     declare_canonical_binary!(Context::sub, |a, b| a - b);
-    declare_canonical_binary_full!(
-        Context::mul,
-        |a, b| a * b,
-        |a, imm| if imm == 0.0 { imm } else { a * imm },
-        |imm, b| if imm == 0.0 { imm } else { imm * b },
-    );
-    declare_canonical_binary_full!(
-        Context::div,
-        |a, b| a / b,
-        |a, imm| a / imm,
-        |imm, b| if imm == 0.0 { imm } else { imm / b },
-    );
-    declare_canonical_binary!(
-        Context::min,
-        |a, b| if a.is_nan() || b.is_nan() {
-            f32::NAN.into()
-        } else {
-            a.min(b)
-        }
-    );
-    declare_canonical_binary!(
-        Context::max,
-        |a, b| if a.is_nan() || b.is_nan() {
-            f32::NAN.into()
-        } else {
-            a.max(b)
-        }
-    );
-    declare_canonical_binary!(
-        Context::compare,
-        |a, b| match a.partial_cmp(&b) {
-            None => f32::NAN.into(),
-            Some(v) => (v as i8).into(),
-        },
-        |a, b| a == b
-    );
+    declare_canonical_binary!(Context::mul, |a, b| a * b);
+    declare_canonical_binary!(Context::div, |a, b| a / b);
+    declare_canonical_binary!(Context::min, |a, b| a.min_choice(b).0);
+    declare_canonical_binary!(Context::max, |a, b| a.max_choice(b).0);
+    declare_canonical_binary!(Context::compare, |a, b| a.compare(b), |a, b| a
+        == b);
     declare_canonical_binary!(
         Context::modulo,
         |a, b| a.rem_euclid(b),
@@ -321,22 +229,18 @@ pub mod canonical {
     );
     declare_canonical_binary!(
         Context::and,
-        |a, b| if a == 0.0 { a } else { b },
+        |a, b| a.and_choice(b).0,
         |a, _b| a == 0.0 // discontinuity, because either side snaps to b
     );
     declare_canonical_binary!(
         Context::or,
-        |a, b| if a != 0.0 { a } else { b },
+        |a, b| a.or_choice(b).0,
         |a, _b| a == 0.0 // discontinuity, because either side snaps to a
     );
     declare_canonical_binary!(Context::atan2, |y, x| y.atan2(x));
     declare_canonical_binary!(
         Context::mix,
-        |a, b| f32::from_bits(crate::rng::mix(
-            (a as f32).to_bits(),
-            (b as f32).to_bits(),
-        ))
-        .into(),
+        |a, b| a.mix(b),
         |_a, _b| true // always discontinuous
     );
 }

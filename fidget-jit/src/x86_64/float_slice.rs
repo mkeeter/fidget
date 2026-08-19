@@ -400,17 +400,10 @@ impl Assembler for FloatSliceAssembler {
         );
     }
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
-            // Take abs(rhs_reg)
-            ; vpcmpeqw ymm2, ymm2, ymm2
-            ; vpsrld ymm2, ymm2, 1 // everything but the sign bit
-            ; vpand ymm1, ymm2, Ry(reg(rhs_reg))
-
-            ; vdivps ymm2, Ry(reg(lhs_reg)), ymm1
-            ; vroundps ymm2, ymm2, 0b1 // floor
-            ; vmulps ymm2, ymm2, ymm1
-            ; vsubps Ry(reg(out_reg)), Ry(reg(lhs_reg)), ymm2
-        );
+        extern "sysv64" fn float_mod(x: f32, y: f32) -> f32 {
+            x.rem_euclid(y)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_mod);
     }
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
         dynasm!(self.0.ops

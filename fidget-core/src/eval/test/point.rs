@@ -406,10 +406,8 @@ where
         }
 
         for (i, v) in out.iter().cloned().enumerate() {
-            let q = ctx
-                .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
-                .unwrap();
-            let err = (v as f64 - q).abs();
+            let q = ctx.eval_xyz(node, x[i], y[i], z[i]).unwrap();
+            let err = (v - q).abs();
             assert!(
                 err < 1e-2, // generous error bounds, for the 512-op case
                 "mismatch at index {i} ({}, {}, {}): {v} != {q} [{err}], {}",
@@ -517,7 +515,7 @@ where
         );
 
         // Test mix(reg, imm) and mix(imm, reg) with NAN
-        let v = ctx.constant(f64::NAN);
+        let v = ctx.constant(f32::NAN);
         let mix = ctx.mix(a, v).unwrap();
         let shape = F::new(&ctx, &[mix]).unwrap();
         let mut eval = F::new_point_eval();
@@ -566,11 +564,11 @@ where
                 assert!(trace.is_none());
                 let v = C::eval_f32(a);
                 let o = o[0];
-                let err = (v - o).abs();
                 assert!(
-                    (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
-                    "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                    (o == v) || (v.is_nan() && o.is_nan()),
+                    "mismatch in '{}' at {a}: {v} != {o} ({})",
                     C::NAME,
+                    o - v
                 )
             }
         }
@@ -580,18 +578,16 @@ where
         lhs: f32,
         rhs: f32,
         out: f32,
-        g: impl Fn(f32, f32) -> f32,
+        constant_folded: bool,
         name: &str,
     ) {
-        let value = g(lhs, rhs);
-        let err = (value - out).abs();
+        let value = C::eval(lhs, rhs);
         assert!(
             (out == value)
-                || C::discontinuous_at(lhs, rhs)
-                || err < 1e-6
-                || value.is_nan() && out.is_nan(),
-            "mismatch in '{name}' at ({lhs}, {rhs}): \
-                            {value} != {out} ({err})"
+                || value.is_nan() && out.is_nan()
+                || value.is_nan() && constant_folded,
+            "mismatch in '{name}' at ({lhs}, {rhs}): {value} != {out} ({})",
+            out - value
         )
     }
 
@@ -606,6 +602,7 @@ where
         for &lhs in args.iter() {
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, va, vb);
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_point_eval();
@@ -626,7 +623,7 @@ where
                     lhs,
                     rhs,
                     out[0],
-                    C::eval_reg_reg_f32,
+                    constant_folded,
                     &name,
                 );
             }
@@ -634,6 +631,7 @@ where
 
         for &lhs in args.iter() {
             let node = C::build(&mut ctx, va, va);
+            let constant_folded = ctx.get_const(node).is_ok();
 
             let shape = F::new(&ctx, &[node]).unwrap();
             let mut eval = F::new_point_eval();
@@ -650,7 +648,7 @@ where
                 lhs,
                 lhs,
                 out[0],
-                C::eval_reg_reg_f32,
+                constant_folded,
                 &name,
             );
         }
@@ -666,6 +664,7 @@ where
         for &lhs in args.iter() {
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, va, rhs);
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_point_eval();
@@ -677,7 +676,7 @@ where
                     lhs,
                     rhs,
                     out[0],
-                    C::eval_reg_imm_f32,
+                    constant_folded,
                     &name,
                 );
             }
@@ -694,6 +693,7 @@ where
         for &lhs in args.iter() {
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, lhs, va);
+                let constant_folded = ctx.get_const(node).is_ok();
 
                 let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_point_eval();
@@ -705,7 +705,7 @@ where
                     lhs,
                     rhs,
                     out[0],
-                    C::eval_imm_reg_f32,
+                    constant_folded,
                     &name,
                 );
             }
