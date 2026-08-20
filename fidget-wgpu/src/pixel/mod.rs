@@ -8,7 +8,7 @@ use crate::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_rw,
     },
-    opcode_constants, shaders, tag,
+    shaders, tag,
 };
 use fidget_core::{
     eval::Function,
@@ -32,7 +32,7 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
     shader_code += INTERVAL_ROOT_SHADER;
@@ -48,7 +48,7 @@ fn interval_root_shader(reg_count: u8) -> String {
 
 /// Returns a shader for interval tile -> subtile reduction
 fn interval_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
     shader_code += INTERVAL_TILES_SHADER;
@@ -64,7 +64,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for pixel tile evaluation
 fn pixel_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += PIXEL_TILES_SHADER;
     shader_code += TRANSFORM_INPUT;

@@ -109,7 +109,7 @@ use crate::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_ro_dyn, buffer_rw,
     },
-    opcode_constants, shaders, tag,
+    shaders, tag,
 };
 use fidget_core::{
     eval::Function,
@@ -346,7 +346,7 @@ impl TileRenderSize {
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
     shader_code += INTERVAL_ROOT_SHADER;
@@ -380,7 +380,7 @@ fn sort_shader() -> String {
 
 /// Returns a shader for interval tile evaluation
 fn interval_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += INTERVAL_INPUT;
@@ -396,7 +396,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for voxel tile evaluation
 fn voxel_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
     shader_code += TRANSFORM_INPUT;
@@ -410,7 +410,7 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for normals evaluation
 fn normals_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
     shader_code += TRANSFORM_INPUT;

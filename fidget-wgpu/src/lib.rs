@@ -16,6 +16,8 @@ pub mod voxel;
 pub use wgpu;
 
 pub(crate) mod shaders {
+    use super::*;
+
     pub const COMMON: &str = include_str!("shaders/common.wgsl");
     pub const DUMMY_STACK: &str = include_str!("shaders/dummy_stack.wgsl");
     pub const FLOAT_OPS: &str = include_str!("shaders/float_ops.wgsl");
@@ -25,6 +27,18 @@ pub(crate) mod shaders {
     pub const TAPE_INTERPRETER: &str =
         include_str!("shaders/tape_interpreter.wgsl");
     pub const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
+
+    /// Returns a set of constant definitions for each opcode
+    pub fn opcode_constants() -> String {
+        let mut out = String::new();
+        for (op, i) in fidget_bytecode::iter_ops() {
+            out += &format!(
+                "const OP_{}: u32 = {i};\n",
+                op.to_shouty_snake_case()
+            );
+        }
+        out
+    }
 }
 
 /// Number of [`TapeWord`] words in the tape data flexible array
@@ -34,17 +48,6 @@ pub(crate) const TAPE_DATA_CAPACITY: usize = 8 * 1024 * 1024; // 8M words, 64 Mi
 pub(crate) struct TapeWord {
     op: u32,
     imm: u32,
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Returns a set of constant definitions for each opcode
-fn opcode_constants() -> String {
-    let mut out = String::new();
-    for (op, i) in fidget_bytecode::iter_ops() {
-        out += &format!("const OP_{}: u32 = {i};\n", op.to_shouty_snake_case());
-    }
-    out
 }
 
 ////////////////////////////////////////////////////////////////////////////////

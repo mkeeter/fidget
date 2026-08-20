@@ -5,14 +5,21 @@ struct Config {
     /// Image size, in pixels
     image_size: vec2u,
 
-    /// Flexible array member containing start positions (in tape_data)
-    shape_start: array<u32>,
+    /// Mapping from X, Y, Z to input indices
+    axes: vec3u,
+
+    /// Tape data, tightly packed per-tile (flexible array member)
+    tape_data: array<TapeWord>,
 }
 
-@group(0) @binding(0) var<uniform> config: Config;
-@group(0) @binding(1) var<storage, read> image: array<PackedVoxel>;
-@group(0) @binding(2) var<storage, read> tape_data: array<TapeWord>;
-@group(0) @binding(3) var<storage, read_write> out: array<u32>; // RGBA
+@group(0) @binding(0) var<storage, read> config: Config;
+@group(0) @binding(1) var<storage, read> shape_start: array<u32>;
+
+/// Array of values for (non-xyz) variables
+@group(1) @binding(0) var<storage, read> var_values: array<f32>;
+
+@group(2) @binding(0) var<storage, read> image: array<PackedVoxel>;
+@group(2) @binding(1) var<storage, read_write> out: array<u32>; // RGBA
 
 @compute @workgroup_size(8, 8)
 fn diffuse_main(
@@ -27,30 +34,30 @@ fn diffuse_main(
 
     let i = global_id.x + config.image_size.x * global_id.y;
     let p = unpack(image[i]);
-    if p.depth == 0 {
+    if p.pixel.depth == 0 {
         out[i] = 0x00FFFFFF; // empty, fill with transparent white
     }
 
-    if p.index >= arrayLength(&config.shape_start) {
+    if p.index >= arrayLength(&shape_start) {
         out[i] = 0xFF0000FF; // corrupt, fill with red
         return;
     }
 
     // Compute input values
-    let corner_pos = vec3(global_id.x, global_id.y, p.depth);
+    let corner_pos = vec3(global_id.x, global_id.y, p.pixel.depth);
     let m = transformed_inputs(
         Value(f32(corner_pos.x)),
         Value(f32(corner_pos.y)),
         Value(f32(corner_pos.z)),
     );
 
-    let index = config.shape_start[p.index];
+    let index = shape_start[p.index];
     var stack = Stack(); // dummy value
 
     // RGB tapes are packed together
-    let out_r = run_tape(index, m, &stack)
-    let out_g = run_tape(out_r.pos + 1, m, &stack)
-    let out_b = run_tape(out_g.pos + 1, m, &stack)
+    let out_r = run_tape(index, m, &stack);
+    let out_g = run_tape(out_r.pos + 1, m, &stack);
+    let out_b = run_tape(out_g.pos + 1, m, &stack);
 
     // Convert to a u32
     let r = u32(clamp(out_r.value.v, 0.0, 1.0) * 255.0);

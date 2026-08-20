@@ -39,6 +39,7 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const SHADE_SHADER: &str = include_str!("shaders/shade.wgsl");
 const SSAO_SHADER: &str = include_str!("shaders/ssao.wgsl");
 const BLUR_SHADER: &str = include_str!("shaders/blur.wgsl");
+const DIFFUSE_SHADER: &str = include_str!("shaders/diffuse.wgsl");
 
 fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
@@ -54,6 +55,19 @@ fn ssao_shader() -> String {
 
 fn blur_shader() -> String {
     BLUR_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
+}
+
+fn diffuse_shader(reg_count: u8) -> String {
+    let mut shader_code = shaders::opcode_constants();
+    shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code
+        + DIFFUSE_SHADER
+        + COMMON_SHADER
+        + super::TRANSFORM_INPUT
+        + shaders::COMMON
+        + shaders::TAPE_INTERPRETER
+        + shaders::DUMMY_STACK
+        + shaders::FLOAT_OPS
 }
 
 /// Packed voxel structure used on the GPU
@@ -907,6 +921,7 @@ mod test {
             (shade_shader(), "shade"),
             (ssao_shader(), "ssao"),
             (blur_shader(), "blur"),
+            (diffuse_shader(16), "diffuse"),
         ] {
             crate::compile_shader(&src, desc);
         }
