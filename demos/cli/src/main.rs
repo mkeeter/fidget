@@ -402,7 +402,7 @@ fn run3d_wgpu(
         compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
 
-    let effects = fidget::wgpu::effects::Context::new(&gpu);
+    let effects = fidget::wgpu::voxel::effects::Context::new(&gpu);
     let mut merge_buf = effects.merge_buffers(image_size)?;
     let mut ssao_buf = effects.ssao_buffers(image_size)?;
     let mut shade_buf = effects.shade_buffers(image_size.into())?;

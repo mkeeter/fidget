@@ -9,7 +9,6 @@ use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable};
 
 pub mod buf;
-pub mod effects;
 pub mod pixel;
 pub mod voxel;
 
@@ -346,7 +345,7 @@ mod test {
 
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let voxel_ctx = voxel::Context::new(&gpu);
-        let effects_ctx = effects::Context::new(&gpu);
+        let effects_ctx = voxel::effects::Context::new(&gpu);
 
         let size = 128;
         let image_size = voxel::RenderSize::from(size);

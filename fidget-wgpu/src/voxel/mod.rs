@@ -121,6 +121,8 @@ use fidget_raster::voxel::{GeometryPixel, Image};
 use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+pub mod effects;
+
 pub use fidget_raster::voxel::{RenderConfig, RenderSize};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");

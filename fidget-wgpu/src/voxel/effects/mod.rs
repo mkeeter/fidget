@@ -928,7 +928,7 @@ mod test {
 
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let voxel_ctx = crate::voxel::Context::new(&gpu);
-        let effects_ctx = crate::effects::Context::new(&gpu);
+        let effects_ctx = crate::voxel::effects::Context::new(&gpu);
 
         let size = 128;
         let image_size = RenderSize::from(size);
