@@ -44,6 +44,7 @@
 #![warn(missing_docs)]
 
 use fidget_core::{compiler::RegOp, vm::VmData};
+use std::collections::HashMap;
 use zerocopy::IntoBytes;
 
 /// Error type indicating that the reserved register (255) was used
@@ -203,6 +204,27 @@ impl Bytecode {
     pub fn new<const N: usize>(
         t: &VmData<N>,
     ) -> Result<Self, ReservedRegister> {
+        Self::new_with_input_map(t, &HashMap::new())
+    }
+
+    /// Builds a new bytecode object from VM data, with input remapping
+    ///
+    /// If a [`RegOp::Input`] is present in `input_map`, then the index from
+    /// `input_map` is used instead of the original index.  Expected patterns
+    /// are to remap either all or none of the inputs (the latter is done by the
+    /// plain [`new`](Self::new) function); it's hard to imagine a map which
+    /// remaps only _some_ inputs being useful, but don't let me stop you from
+    /// living out your dreams.
+    ///
+    /// Registers are reordered by frequency of use, e.g. the most frequently
+    /// used register becomes register 0.
+    ///
+    /// Returns an error if the reserved register (255) is in use, which should
+    /// only happen if the incoming tape has 256 active registers.
+    pub fn new_with_input_map<const N: usize>(
+        t: &VmData<N>,
+        input_map: &HashMap<u32, u32>,
+    ) -> Result<Self, ReservedRegister> {
         // Build a map for repacking registers by frequency
         let map = t.asm().repack_map();
         // The initial opcode is `OP_JUMP 0x0000_0000`
@@ -224,7 +246,11 @@ impl Bytecode {
                 }
             };
             match op {
-                RegOp::Input(reg, slot) | RegOp::Output(reg, slot) => {
+                RegOp::Input(reg, slot) => {
+                    store_reg(1, reg)?;
+                    imm = Some(input_map.get(&slot).cloned().unwrap_or(slot));
+                }
+                RegOp::Output(reg, slot) => {
                     store_reg(1, reg)?;
                     imm = Some(slot);
                 }

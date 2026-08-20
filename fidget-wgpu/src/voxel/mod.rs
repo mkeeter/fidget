@@ -2279,7 +2279,7 @@ impl Context {
         let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
-            axes: shape.axes,
+            axes: shape.axes(),
             render_size: [
                 render_size.width(),
                 render_size.height(),

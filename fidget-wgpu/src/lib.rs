@@ -2,11 +2,15 @@
 #![warn(missing_docs)]
 
 use fidget_bytecode::{Bytecode, ReservedRegister};
-use fidget_core::{eval::Function, var::Var, vm::VmShape};
+use fidget_core::{
+    eval::Function,
+    var::{Var, VarMap},
+    vm::VmShape,
+};
 
 use heck::ToShoutySnakeCase;
-use std::collections::BTreeMap;
-use zerocopy::{FromBytes, Immutable};
+use std::collections::{BTreeMap, HashMap};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub mod buf;
 pub mod pixel;
@@ -214,8 +218,6 @@ impl RegPipeline {
 pub struct RenderShape {
     /// Copy of our shape (kept around for access to the variable map)
     shape: VmShape,
-    /// Map from X, Y, Z (by index) to the variable slot
-    axes: [u32; 3],
     /// Serialized bytecode for the shape
     bytecode: Bytecode,
     /// GPU buffer to contain variables
@@ -244,6 +246,14 @@ pub enum RenderShapeError {
     RegisterError(#[from] ReservedRegister),
 }
 
+/// Error type when constructing a [`ShapeColorBuffers`]
+#[derive(Debug, thiserror::Error)]
+pub enum ShapeColorError {
+    /// The shape uses a reserved register
+    #[error(transparent)]
+    RegisterError(#[from] ReservedRegister),
+}
+
 impl RenderShape {
     fn new(
         shape: &VmShape,
@@ -255,10 +265,7 @@ impl RenderShape {
             return Err(RenderShapeError::TooLong(bytecode.len() / 2));
         }
 
-        // Create the 4x4 transform matrix
         let vars = shape.inner().vars();
-        let axes = [Var::X, Var::Y, Var::Z]
-            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
 
         // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
         // as well, but we special-case them in evaluation.
@@ -272,11 +279,17 @@ impl RenderShape {
 
         Ok(Self {
             shape: shape.clone(),
-            axes,
             bytecode,
             vars,
             vars_bind_group: Default::default(),
         })
+    }
+
+    /// Helper function to return XYZ variable indices
+    fn axes(&self) -> [u32; 3] {
+        let vars = self.shape.inner().vars();
+        [Var::X, Var::Y, Var::Z]
+            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
     }
 
     fn vars_bind_group(
@@ -292,6 +305,193 @@ impl RenderShape {
                     binding: 0,
                     resource: self.vars.as_entire_binding(),
                 }],
+            })
+        })
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Color buffers for rendering a shape's diffuse color
+pub struct ShapeColorBuffers {
+    /// Unified [`VarMap`] object
+    var_map: VarMap,
+
+    /// Maximum number of registers used by any tape
+    reg_count: u8,
+
+    /// Config and serialized tapes, all squished together
+    ///
+    /// The tape data is baked once (at construction); config data is edited
+    /// before each evaluation
+    config: wgpu::Buffer,
+
+    /// Start of the RGB tapes for each shape
+    ///
+    /// This is baked once (at construction)
+    shape_start: wgpu::Buffer,
+
+    /// Lazily-constructed bind group for the config buffers
+    config_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
+
+    /// GPU buffer to contain variables (passed in during evaluation)
+    ///
+    /// This doesn't live in a `Buffers` object because it's dynamically sized
+    /// based on the shape; everything in `Buffers` is based on image size.
+    vars: wgpu::Buffer,
+
+    /// Lazily-constructed bind group for the vars array
+    vars_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
+}
+
+/// Generic shape color generator
+pub enum ShapeColor<T> {
+    /// Red / green / blue channels
+    Rgb {
+        /// Red component
+        r: T,
+        /// Green component
+        g: T,
+        /// Blue component
+        b: T,
+    },
+}
+
+impl ShapeColorBuffers {
+    fn new(
+        colors: &[ShapeColor<VmShape>],
+        device: &wgpu::Device,
+        config_size: usize,
+    ) -> Result<Self, ShapeColorError> {
+        // Build a single unified variable map, used across all tapes
+        let mut var_map = VarMap::new();
+        for c in colors {
+            let ShapeColor::Rgb { r, g, b } = c;
+            for channel in [r, g, b] {
+                let vars = channel.inner().vars();
+                for (v, _index) in vars.iter() {
+                    var_map.insert(v);
+                }
+            }
+        }
+        let mut reg_count = 0;
+        let mut shape_start = Vec::with_capacity(colors.len());
+        let mut bytecode_data: Vec<u32> = Vec::new();
+        let mut local_var_map = HashMap::new();
+        for c in colors {
+            let ShapeColor::Rgb { r, g, b } = c;
+            shape_start.push(bytecode_data.len());
+            for channel in [r, g, b] {
+                // Build a local variable remapping array, reusing allocations
+                local_var_map.clear();
+                local_var_map.extend(channel.inner().vars().iter().map(
+                    |(v, i)| {
+                        (
+                            u32::try_from(i).unwrap(),
+                            u32::try_from(var_map.get(&v).unwrap()).unwrap(),
+                        )
+                    },
+                ));
+
+                // Generate bytecode for the root tape
+                let bytecode = Bytecode::new_with_input_map(
+                    channel.inner().data(),
+                    &local_var_map,
+                )?;
+                bytecode_data.extend(bytecode.data());
+                reg_count = reg_count.max(bytecode.reg_count());
+            }
+        }
+
+        // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
+        // as well, but we special-case them in evaluation.
+        let vars = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vars"),
+            size: u64::try_from(std::mem::size_of::<f32>() * var_map.len())
+                .unwrap(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let shape_start_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shape_start"),
+            size: u64::try_from(std::mem::size_of::<u32>() * shape_start.len())
+                .unwrap(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: true,
+        });
+        shape_start_buf
+            .get_mapped_range_mut(0..)
+            .copy_from_slice(shape_start.as_bytes());
+        shape_start_buf.unmap();
+
+        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shape_start"),
+            size: u64::try_from(
+                std::mem::size_of::<u32>() * bytecode_data.len() + config_size,
+            )
+            .unwrap(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: true,
+        });
+        config_buf
+            .get_mapped_range_mut(config_size as u64..)
+            .copy_from_slice(bytecode_data.as_bytes());
+        config_buf.unmap();
+
+        Ok(Self {
+            config: config_buf,
+            shape_start: shape_start_buf,
+            var_map,
+            vars,
+            vars_bind_group: Default::default(),
+            config_bind_group: Default::default(),
+            reg_count,
+        })
+    }
+
+    /// Helper function to return XYZ variable indices
+    fn axes(&self) -> [u32; 3] {
+        [Var::X, Var::Y, Var::Z]
+            .map(|a| self.var_map.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
+    }
+
+    fn vars_bind_group(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+    ) -> &wgpu::BindGroup {
+        self.vars_bind_group.get_or_init(|| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("vars bind group"),
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.vars.as_entire_binding(),
+                }],
+            })
+        })
+    }
+
+    fn config_bind_group(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+    ) -> &wgpu::BindGroup {
+        self.config_bind_group.get_or_init(|| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("config bind group"),
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.config.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.shape_start.as_entire_binding(),
+                    },
+                ],
             })
         })
     }

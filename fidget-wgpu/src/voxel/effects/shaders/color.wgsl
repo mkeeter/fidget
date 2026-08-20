@@ -1,3 +1,5 @@
+//! Pass to compute per-pixel color based on pixel indices
+
 struct Config {
     /// Screen-to-model transform matrix, converting pixels to model space
     mat: mat4x4f,
@@ -22,7 +24,7 @@ struct Config {
 @group(2) @binding(1) var<storage, read_write> out: array<u32>; // RGBA
 
 @compute @workgroup_size(8, 8)
-fn diffuse_main(
+fn color_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
     // Clamp to image size

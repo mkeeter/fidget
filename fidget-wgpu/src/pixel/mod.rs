@@ -1312,7 +1312,7 @@ impl Context {
         let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
         let config = Config {
             mat: mat4.data.as_slice().try_into().unwrap(),
-            axes: shape.axes,
+            axes: shape.axes(),
             render_size: [render_size.width(), render_size.height()],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
