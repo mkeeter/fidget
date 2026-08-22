@@ -2754,6 +2754,7 @@ mod test {
     use super::*;
     use crate::ShapeColor;
     use fidget_core::{context::Tree, vm::VmShape};
+    use std::collections::HashSet;
 
     #[test]
     fn compile_shaders() {
@@ -2837,13 +2838,22 @@ mod test {
                 &mut shade_buf,
             )
             .unwrap();
+        // At this point, we should have either transparent or green pixels in
+        // the color output buffer
+        let colors = gpu.read_vec::<u32>(shade_buf.output().data());
+        let color_set = colors.iter().cloned().collect::<HashSet<_>>();
+        assert!(
+            color_set.contains(&0) && color_set.contains(&0xFF00FF00),
+            "invalid color set {color_set:X?}"
+        );
 
-        // Compute shaded image
+        // Compute shaded image (with color)
         effects_ctx
             .submit_shade(
                 &merge_buf,
                 Some(&ssao_buf),
                 &mut shade_buf,
+                true,
                 Some(&mut shade_out),
             )
             .unwrap();

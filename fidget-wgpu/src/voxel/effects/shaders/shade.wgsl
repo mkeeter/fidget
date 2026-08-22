@@ -2,9 +2,12 @@ struct ShadeConfig {
     /// Image size, in voxels
     image_size: vec3u,
 
-    /// Whether to use the `occlusion` data
-    has_ssao: u32,
+    /// Flags for the validity of `occlusion` and output color
+    flags: u32,
 }
+
+const SHADE_CONFIG_HAS_SSAO: u32 = 1;
+const SHADE_CONFIG_HAS_COLOR: u32 = 2;
 
 struct Light {
     position: vec3<f32>,
@@ -55,9 +58,16 @@ fn shade_main(
         let light_dir = normalize(light.position - pos);
         accum = accum + max(dot(light_dir, gp.normal), 0.0) * light.intensity;
     }
-    if config.has_ssao != 0 {
+    if (config.flags & SHADE_CONFIG_HAS_SSAO) != 0 {
         accum *= occlusion[i] * 0.6 + 0.4;
     }
-    let intensity = u32(clamp(accum, 0.0, 1.0) * 255);
-    out[i] = intensity | (intensity << 8) | (intensity << 16) | (0xFF << 24);
+    let brightness = clamp(accum, 0.0, 1.0);
+    let alpha = 0xFF << 24;
+    if (config.flags & SHADE_CONFIG_HAS_COLOR) != 0 {
+        let color = vec4f(unpack4xU8(out[i])) * brightness;
+        out[i] = pack4xU8(vec4u(color)) | alpha;
+    } else {
+        let intensity = u32(brightness * 255);
+        out[i] = intensity | (intensity << 8) | (intensity << 16);
+    }
 }

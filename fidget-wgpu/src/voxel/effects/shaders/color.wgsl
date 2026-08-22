@@ -38,6 +38,7 @@ fn color_main(
     let p = unpack(image[i]);
     if p.pixel.depth == 0 {
         out[i] = 0x00FFFFFF; // empty, fill with transparent white
+        return;
     }
 
     if p.index >= arrayLength(&shape_start) {

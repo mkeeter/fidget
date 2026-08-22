@@ -145,9 +145,13 @@ struct ShadeConfig {
     /// Image size, in pixels
     image_size: [u32; 3],
 
-    /// Flag to determine whether the SSAO buffer is valid (0 / 1)
-    has_ssao: u32,
+    /// Flags to set the presence of color and SSAO
+    flags: u32,
 }
+
+/// Must match constants in `shade.wgsl`
+const SHADE_CONFIG_HAS_SSAO: u32 = 1u32;
+const SHADE_CONFIG_HAS_COLOR: u32 = 2u32;
 
 tag!(MergeVoxelBufferTag, PackedVoxel, STORAGE | COPY_SRC);
 
@@ -195,6 +199,16 @@ pub enum ShadeError {
     /// An error occurred while resizing the output buffer
     #[error(transparent)]
     OutputSize(BufferSizeError),
+
+    /// Input and output buffers are different sizes when `has_color` is true
+    ///
+    /// This is not allowed because `has_color = true` means that the output
+    /// buffer's pixel values should be used as diffuse color
+    #[error(
+        "input and output buffers must be the same size when
+        `has_color` is true, but they do not match"
+    )]
+    InvalidColorSize,
 }
 
 /// Error returned when submitting an SSAO operation
@@ -531,9 +545,13 @@ impl Context {
         image: &MergeBuffers,
         ssao: Option<&SsaoBuffers>,
         buf: &mut ShadeBuffers,
+        has_color: bool,
         out: Option<&mut ImageReadBuffer<ShadedImageTag>>,
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
+        if has_color && size != buf.out.size() {
+            return Err(ShadeError::InvalidColorSize);
+        }
         buf.out
             .grow_to_fit(&self.gpu.device, size)
             .map_err(ShadeError::OutputSize)?;
@@ -553,7 +571,11 @@ impl Context {
             compute_pass.set_pipeline(&self.shade_pipeline);
             let cfg = ShadeConfig {
                 image_size: [size.width(), size.height(), image.depth],
-                has_ssao: ssao.is_some() as u32,
+                flags: if ssao.is_some() {
+                    SHADE_CONFIG_HAS_SSAO
+                } else {
+                    0
+                } | if has_color { SHADE_CONFIG_HAS_COLOR } else { 0 },
             };
             {
                 let mut writer = self
