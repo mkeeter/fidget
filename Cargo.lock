@@ -1699,6 +1699,7 @@ dependencies = [
 name = "fidget-wgpu"
 version = "0.5.1"
 dependencies = [
+ "facet",
  "fidget-bytecode",
  "fidget-core",
  "fidget-raster",

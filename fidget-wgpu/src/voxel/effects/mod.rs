@@ -100,6 +100,7 @@ pub struct PackedVoxel {
 
 /// Configuration for the color evaluation pass
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct ColorConfig {
     /// Screen-to-model transform matrix
@@ -1295,5 +1296,13 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn color_config_layout() {
+        crate::test::compare_struct_layout::<ColorConfig>(
+            &color_shader(16),
+            "Config",
+        );
     }
 }

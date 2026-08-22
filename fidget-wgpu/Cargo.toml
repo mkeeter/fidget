@@ -28,3 +28,4 @@ zerocopy.workspace = true
 
 [dev-dependencies]
 pollster.workspace = true
+facet.workspace = true

@@ -563,4 +563,82 @@ mod test {
             );
         }
     }
+
+    pub(crate) fn compare_struct_layout<T: facet::Facet<'static>>(
+        shader: &str,
+        struct_name: &str,
+    ) {
+        let module = naga::front::wgsl::parse_str(shader).expect("valid WGSL");
+        let mut out = None;
+        for (_, ty) in module.types.iter() {
+            if ty.name.as_deref() == Some(struct_name)
+                && let naga::TypeInner::Struct { members, span } = &ty.inner
+            {
+                out = Some((members, *span)); // span = total size in bytes
+            }
+        }
+        let (members, span) = out.expect("could not find struct");
+
+        // If the last member of the struct is a dynamically sized array, it's
+        // reported as being 1-stride long.
+        let dynamic_array_offset = members.last().and_then(|m| {
+            let ty = &module.types[m.ty];
+            let naga::TypeInner::Array {
+                base: _,
+                size: naga::ir::ArraySize::Dynamic,
+                stride: _,
+            } = &ty.inner
+            else {
+                return None;
+            };
+            Some(m.offset)
+        });
+        if let Some(dynamic_array_offset) = dynamic_array_offset {
+            assert_eq!(dynamic_array_offset as usize, std::mem::size_of::<T>());
+        } else {
+            assert_eq!(span as usize, std::mem::size_of::<T>());
+        }
+
+        let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty
+        else {
+            panic!("must build a struct");
+        };
+
+        // Check field sizes and offset between Rust and WGSL
+        for field in shape.fields {
+            let field_name = field.name;
+            let wgsl_member = members
+                .iter()
+                .find(|m| m.name.as_deref() == Some(field_name))
+                .unwrap_or_else(|| {
+                    panic!("field `{field_name}` missing in WGSL struct")
+                });
+            assert_eq!(
+                wgsl_member.offset as usize, field.offset,
+                "offset mismatch for field `{field_name}`"
+            );
+            assert_eq!(
+                module.types[wgsl_member.ty].inner.size(module.to_ctx())
+                    as usize,
+                field.shape().layout.sized_layout().unwrap().size(),
+                "size mismatch for field `{field_name}`"
+            );
+        }
+        let slice_len = if dynamic_array_offset.is_some() {
+            members.len() - 1
+        } else {
+            members.len()
+        };
+        for m in &members[..slice_len] {
+            let field_name =
+                m.name.as_ref().expect("cannot check unnamed WGSL fields");
+            shape
+                .fields
+                .iter()
+                .find(|f| f.name == field_name)
+                .unwrap_or_else(|| {
+                    panic!("field `{field_name}` missing in Rust struct")
+                });
+        }
+    }
 }
