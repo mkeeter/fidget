@@ -268,11 +268,14 @@ impl RenderShape {
         let vars = shape.inner().vars();
 
         // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
-        // as well, but we special-case them in evaluation.
+        // as well, but we special-case them in evaluation.  If the tape has no
+        // variables, we'll allocate 4 bytes (because empty buffers are not
+        // allowed).
         let vars = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vars"),
             size: u64::try_from(std::mem::size_of::<f32>() * vars.len())
-                .unwrap(),
+                .unwrap()
+                .max(4),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -380,7 +383,7 @@ impl ShapeColorBuffers {
         let mut local_var_map = HashMap::new();
         for c in colors {
             let ShapeColor::Rgb { r, g, b } = c;
-            shape_start.push(bytecode_data.len());
+            shape_start.push(u32::try_from(bytecode_data.len()).unwrap());
             for channel in [r, g, b] {
                 // Build a local variable remapping array, reusing allocations
                 local_var_map.clear();
@@ -404,11 +407,14 @@ impl ShapeColorBuffers {
         }
 
         // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
-        // as well, but we special-case them in evaluation.
+        // as well, but we special-case them in evaluation.  If the tape has no
+        // variables, then we'll allocate 4 bytes (because empty buffers aren't
+        // allowed).
         let vars = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vars"),
             size: u64::try_from(std::mem::size_of::<f32>() * var_map.len())
-                .unwrap(),
+                .unwrap()
+                .max(4),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -535,135 +541,6 @@ fn compile_shader(src: &str, desc: &str) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use fidget_core::{context::Tree, vm::VmShape};
-
-    #[test]
-    fn voxel_render_and_merge() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
-        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
-        let voxel_ctx = voxel::Context::new(&gpu);
-        let effects_ctx = voxel::effects::Context::new(&gpu);
-
-        let size = 128;
-        let image_size = voxel::RenderSize::from(size);
-        let mut buf = voxel_ctx.buffers();
-        let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
-        let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
-        let mut shade_out = gpu.read_buffer_for(shade_buf.output());
-
-        let (x, y, z) = Tree::axes();
-        let x_ = x.clone() - 0.2;
-        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
-            - Tree::constant(0.5);
-        let x_ = x + 0.2;
-        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
-            - Tree::constant(0.5);
-        let spheres = sphere1.min(sphere2);
-        let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
-
-        voxel_ctx
-            .submit(
-                &shape,
-                &mut buf,
-                None,
-                &voxel::RenderConfig {
-                    image_size,
-                    world_to_model: nalgebra::Matrix4::identity(),
-                },
-            )
-            .unwrap();
-        effects_ctx
-            .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
-            .unwrap();
-        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
-        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
-        effects_ctx
-            .submit_shade(
-                &merge_buf,
-                Some(&ssao_buf),
-                &mut shade_buf,
-                Some(&mut shade_out),
-            )
-            .unwrap();
-        let img = gpu.map(&mut shade_out);
-        let (_out, img_size) = img.image().take();
-        assert_eq!(img_size.width(), size);
-        assert_eq!(img_size.height(), size);
-    }
-
-    #[test]
-    fn pixel_render() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
-        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
-        let pixel_ctx = pixel::Context::new(&gpu);
-        let mut buf = pixel_ctx.buffers();
-
-        let (x, y, _z) = Tree::axes();
-        let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
-        let shape = gpu.shape(&VmShape::from(circle)).unwrap();
-
-        // Test a variety of image sizes for correctness
-        for image_size in [
-            pixel::RenderSize::new(64, 64),
-            pixel::RenderSize::new(128, 64),
-            pixel::RenderSize::new(64, 128),
-            pixel::RenderSize::new(27, 51),
-        ] {
-            let mut pixel_out = pixel_ctx.image_buffer();
-            pixel_ctx
-                .submit(
-                    &shape,
-                    &mut buf,
-                    Some(&mut pixel_out),
-                    &pixel::RenderConfig {
-                        image_size,
-                        world_to_model: nalgebra::Matrix3::identity(),
-                        pixel_perfect: false,
-                        z: 0.0,
-                    },
-                )
-                .unwrap();
-            let img_out = pixel_ctx.map_image(&mut pixel_out).image();
-            assert_eq!(img_out.size(), image_size);
-
-            // Basic circle inside/outside check
-            let mat = image_size.screen_to_world();
-            for j in 0..image_size.height() {
-                for i in 0..image_size.width() {
-                    let pos = mat.transform_point(&nalgebra::Point2::new(
-                        i as f32, j as f32,
-                    ));
-                    let p = img_out[(j as usize, i as usize)];
-                    let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
-                    if r < 0.5 {
-                        assert!(
-                            p.inside(),
-                            "pixel should be inside at pixel ({i}, {j}) \
-                            (pos {pos}) with radius {r}"
-                        );
-                    } else {
-                        assert!(
-                            !p.inside(),
-                            "pixel should be outside at pixel ({i}, {j}) \
-                            (pos {pos}) with radius {r}"
-                        );
-                    }
-                }
-            }
-        }
-    }
 
     #[test]
     fn shader_has_all_ops() {

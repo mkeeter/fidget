@@ -1620,6 +1620,7 @@ impl ResetContext {
 #[cfg(test)]
 mod test {
     use super::*;
+    use fidget_core::{context::Tree, vm::VmShape};
 
     #[test]
     fn compile_shaders() {
@@ -1630,6 +1631,74 @@ mod test {
             (merge_shader(), "merge"),
         ] {
             crate::compile_shader(&src, desc);
+        }
+    }
+
+    #[test]
+    fn pixel_pipeline() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let pixel_ctx = Context::new(&gpu);
+        let mut buf = pixel_ctx.buffers();
+
+        let (x, y, _z) = Tree::axes();
+        let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
+        let shape = gpu.shape(&VmShape::from(circle)).unwrap();
+
+        // Test a variety of image sizes for correctness
+        for image_size in [
+            RenderSize::new(64, 64),
+            RenderSize::new(128, 64),
+            RenderSize::new(64, 128),
+            RenderSize::new(27, 51),
+        ] {
+            let mut pixel_out = pixel_ctx.image_buffer();
+            pixel_ctx
+                .submit(
+                    &shape,
+                    &mut buf,
+                    Some(&mut pixel_out),
+                    &RenderConfig {
+                        image_size,
+                        world_to_model: nalgebra::Matrix3::identity(),
+                        pixel_perfect: false,
+                        z: 0.0,
+                    },
+                )
+                .unwrap();
+            let img_out = pixel_ctx.map_image(&mut pixel_out).image();
+            assert_eq!(img_out.size(), image_size);
+
+            // Basic circle inside/outside check
+            let mat = image_size.screen_to_world();
+            for j in 0..image_size.height() {
+                for i in 0..image_size.width() {
+                    let pos = mat.transform_point(&nalgebra::Point2::new(
+                        i as f32, j as f32,
+                    ));
+                    let p = img_out[(j as usize, i as usize)];
+                    let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
+                    if r < 0.5 {
+                        assert!(
+                            p.inside(),
+                            "pixel should be inside at pixel ({i}, {j}) \
+                            (pos {pos}) with radius {r}"
+                        );
+                    } else {
+                        assert!(
+                            !p.inside(),
+                            "pixel should be outside at pixel ({i}, {j}) \
+                            (pos {pos}) with radius {r}"
+                        );
+                    }
+                }
+            }
         }
     }
 }

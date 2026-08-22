@@ -168,8 +168,6 @@ tag!(
 pub struct ShadeBuffers {
     config: wgpu::Buffer,
     out: ImageBuffer<ShadedImageTag>,
-    /// Set to `true` when `out` is filled with color (RGBA) data
-    has_color: bool,
 }
 
 impl ShadeBuffers {
@@ -377,11 +375,7 @@ impl Context {
             "shade output".to_owned(),
             ImageSize::new(image_size.width(), image_size.height()),
         )?;
-        Ok(ShadeBuffers {
-            config,
-            out,
-            has_color: false,
-        })
+        Ok(ShadeBuffers { config, out })
     }
 
     /// Builds a new set of [`SsaoBuffers`] for the given image size
@@ -1167,7 +1161,6 @@ impl ColorContext {
             size.height().div_ceil(8),
             1,
         );
-        out.has_color = true;
         Ok(())
     }
 }

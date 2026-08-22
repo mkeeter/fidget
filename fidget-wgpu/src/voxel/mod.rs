@@ -2752,6 +2752,8 @@ impl ResetContext {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ShapeColor;
+    use fidget_core::{context::Tree, vm::VmShape};
 
     #[test]
     fn compile_shaders() {
@@ -2767,5 +2769,89 @@ mod test {
         ] {
             crate::compile_shader(&src, desc);
         }
+    }
+
+    #[test]
+    fn voxel_pipeline() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let voxel_ctx = Context::new(&gpu);
+        let effects_ctx = effects::Context::new(&gpu);
+
+        let size = 128;
+        let image_size = RenderSize::from(size);
+        let mut buf = voxel_ctx.buffers();
+        let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
+        let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
+        let mut shade_out = gpu.read_buffer_for(shade_buf.output());
+
+        let (x, y, z) = Tree::axes();
+        let x_ = x.clone() - 0.2;
+        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let x_ = x + 0.2;
+        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let spheres = sphere1.min(sphere2);
+        let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
+        let world_to_model = nalgebra::Matrix4::identity();
+
+        voxel_ctx
+            .submit(
+                &shape,
+                &mut buf,
+                None,
+                &RenderConfig {
+                    image_size,
+                    world_to_model,
+                },
+            )
+            .unwrap();
+        effects_ctx
+            .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
+            .unwrap();
+
+        // Compute SSAO buffer
+        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
+        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+
+        // Compute per-pixel colors
+        let color_shape = effects_ctx
+            .color_buffers(&[ShapeColor::Rgb {
+                r: VmShape::from(Tree::constant(0.0)),
+                g: VmShape::from(Tree::constant(1.0)),
+                b: VmShape::from(Tree::constant(0.0)),
+            }])
+            .unwrap();
+        effects_ctx
+            .submit_color(
+                &merge_buf,
+                &world_to_model,
+                &color_shape,
+                &mut shade_buf,
+            )
+            .unwrap();
+
+        // Compute shaded image
+        effects_ctx
+            .submit_shade(
+                &merge_buf,
+                Some(&ssao_buf),
+                &mut shade_buf,
+                Some(&mut shade_out),
+            )
+            .unwrap();
+
+        let img = gpu.map(&mut shade_out);
+        let (_out, img_size) = img.image().take();
+        assert_eq!(img_size.width(), size);
+        assert_eq!(img_size.height(), size);
+        // This is mostly just a smoke check for rendering
     }
 }
