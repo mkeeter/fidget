@@ -120,6 +120,7 @@ struct ColorConfig {
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct MergeConfig {
     /// Image size, in pixels
@@ -141,6 +142,7 @@ struct MergeConfig {
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct ShadeConfig {
     /// Image size, in pixels
@@ -717,6 +719,7 @@ impl SsaoBuffers {
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct SsaoConfig {
     /// Image size, in voxels
@@ -727,6 +730,7 @@ struct SsaoConfig {
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct BlurConfig {
     /// Image size, in pixels
@@ -1303,6 +1307,38 @@ mod test {
         crate::test::compare_struct_layout::<ColorConfig>(
             &color_shader(16),
             "Config",
+        );
+    }
+
+    #[test]
+    fn merge_config_layout() {
+        crate::test::compare_struct_layout::<MergeConfig>(
+            &merge_shader(),
+            "MergeConfig",
+        );
+    }
+
+    #[test]
+    fn shade_config_layout() {
+        crate::test::compare_struct_layout::<ShadeConfig>(
+            &shade_shader(),
+            "ShadeConfig",
+        );
+    }
+
+    #[test]
+    fn ssao_config_layout() {
+        crate::test::compare_struct_layout::<SsaoConfig>(
+            &ssao_shader(),
+            "SsaoConfig",
+        );
+    }
+
+    #[test]
+    fn blur_config_layout() {
+        crate::test::compare_struct_layout::<BlurConfig>(
+            &blur_shader(),
+            "BlurConfig",
         );
     }
 }

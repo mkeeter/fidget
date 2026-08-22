@@ -360,6 +360,7 @@ impl PixelTilesContext {
 /// Fields are carefully ordered to require no internal padding (enforced by
 /// `zerocopy` derives)
 #[derive(Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct Config {
     /// Screen-to-model transform matrix
@@ -1700,5 +1701,11 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn pixel_config_layout() {
+        // Pick any shader, since `struct Config` is in the common text
+        crate::test::compare_struct_layout::<Config>(&merge_shader(), "Config");
     }
 }
