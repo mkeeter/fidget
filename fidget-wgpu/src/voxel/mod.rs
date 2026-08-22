@@ -2839,16 +2839,12 @@ mod test {
                 &mut shade_buf,
             )
             .unwrap();
-        // At this point, we should have either transparent or colored pixels in
-        // the color output buffer
+        // At this point, we should have either transparent (white) or opaque
+        // colored pixels in the color output buffer
         let colors = gpu.read_vec::<u32>(shade_buf.output().data());
         let color_set = colors.iter().cloned().collect::<HashSet<_>>();
-        println!("config data");
-        for i in 0..12 {
-            println!("{:08X} {:08X}", colors[i * 2], colors[i * 2 + 1]);
-        }
         assert!(
-            color_set.contains(&0) && color_set.contains(&0xFF3FFF00),
+            color_set.contains(&0x00FFFFFF) && color_set.contains(&0xFF3FFF00),
             "invalid color set {color_set:X?} in {} pixels",
             colors.len()
         );

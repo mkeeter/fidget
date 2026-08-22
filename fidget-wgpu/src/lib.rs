@@ -406,10 +406,6 @@ impl ShapeColorBuffers {
                 reg_count = reg_count.max(bytecode.reg_count());
             }
         }
-        println!("BYTECODE DATA");
-        for b in bytecode_data.chunks(2) {
-            println!("{:08X} {:08X} ({})", b[0], b[1], f32::from_bits(b[1]));
-        }
 
         // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
         // as well, but we special-case them in evaluation.  If the tape has no
@@ -445,11 +441,9 @@ impl ShapeColorBuffers {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: true,
         });
-        println!("got config buffer length {}", config_buf.size());
         config_buf
             .get_mapped_range_mut(config_size as u64..)
             .copy_from_slice(bytecode_data.as_bytes());
-        println!("copying bytecode data at {config_size}");
         config_buf.unmap();
 
         Ok(Self {
@@ -548,6 +542,7 @@ fn compile_shader(src: &str, desc: &str) {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn shader_has_all_ops() {
@@ -569,18 +564,22 @@ mod test {
         struct_name: &str,
     ) {
         let module = naga::front::wgsl::parse_str(shader).expect("valid WGSL");
-        let mut out = None;
-        for (_, ty) in module.types.iter() {
-            if ty.name.as_deref() == Some(struct_name)
-                && let naga::TypeInner::Struct { members, span } = &ty.inner
-            {
-                out = Some((members, *span)); // span = total size in bytes
-            }
-        }
-        let (members, span) = out.expect("could not find struct");
+        let (members, span) = module
+            .types
+            .iter()
+            .find_map(|(_, ty)| {
+                if ty.name.as_deref() == Some(struct_name)
+                    && let naga::TypeInner::Struct { members, span } = &ty.inner
+                {
+                    Some((members, *span))
+                } else {
+                    None
+                }
+            })
+            .expect("could not find struct");
 
-        // If the last member of the struct is a dynamically sized array, it's
-        // reported as being 1-stride long.
+        // If the last member of the struct is a dynamically sized array, we'll
+        // treat the beginning offset of the array as our struct size.
         let dynamic_array_offset = members.last().and_then(|m| {
             let ty = &module.types[m.ty];
             let naga::TypeInner::Array {
@@ -605,8 +604,10 @@ mod test {
         };
 
         // Check field sizes and offset between Rust and WGSL
+        let mut shape_field_names = HashSet::new();
         for field in shape.fields {
             let field_name = field.name;
+            shape_field_names.insert(field_name);
             let wgsl_member = members
                 .iter()
                 .find(|m| m.name.as_deref() == Some(field_name))
@@ -632,13 +633,10 @@ mod test {
         for m in &members[..slice_len] {
             let field_name =
                 m.name.as_ref().expect("cannot check unnamed WGSL fields");
-            shape
-                .fields
-                .iter()
-                .find(|f| f.name == field_name)
-                .unwrap_or_else(|| {
-                    panic!("field `{field_name}` missing in Rust struct")
-                });
+            assert!(
+                shape_field_names.contains(field_name.as_str()),
+                "field `{field_name}` missing in Rust struct"
+            );
         }
     }
 }
