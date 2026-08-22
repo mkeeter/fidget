@@ -4,11 +4,14 @@ struct Config {
     /// Screen-to-model transform matrix, converting pixels to model space
     mat: mat4x4f,
 
-    /// Image size, in pixels
-    image_size: vec2u,
-
     /// Mapping from X, Y, Z to input indices
     axes: vec3u,
+
+    // Explicit padding
+    _pad: u32,
+
+    /// Image size, in pixels
+    image_size: vec2u,
 
     /// Tape data, tightly packed per-tile (flexible array member)
     tape_data: array<TapeWord>,
@@ -35,6 +38,7 @@ fn color_main(
     }
 
     let i = global_id.x + config.image_size.x * global_id.y;
+
     let p = unpack(image[i]);
     if p.pixel.depth == 0 {
         out[i] = 0x00FFFFFF; // empty, fill with transparent white
@@ -59,8 +63,8 @@ fn color_main(
 
     // RGB tapes are packed together
     let out_r = run_tape(index, m, &stack);
-    let out_g = run_tape(out_r.pos + 1, m, &stack);
-    let out_b = run_tape(out_g.pos + 1, m, &stack);
+    let out_g = run_tape(out_r.pos, m, &stack);
+    let out_b = run_tape(out_g.pos, m, &stack);
 
     // Convert to a u32
     let r = u32(clamp(out_r.value.v, 0.0, 1.0) * 255.0);

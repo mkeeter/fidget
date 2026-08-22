@@ -383,7 +383,8 @@ impl ShapeColorBuffers {
         let mut local_var_map = HashMap::new();
         for c in colors {
             let ShapeColor::Rgb { r, g, b } = c;
-            shape_start.push(u32::try_from(bytecode_data.len()).unwrap());
+            // Divide by 2 to convert from `u32` to `TapeWord`
+            shape_start.push(u32::try_from(bytecode_data.len() / 2).unwrap());
             for channel in [r, g, b] {
                 // Build a local variable remapping array, reusing allocations
                 local_var_map.clear();
@@ -404,6 +405,10 @@ impl ShapeColorBuffers {
                 bytecode_data.extend(bytecode.data());
                 reg_count = reg_count.max(bytecode.reg_count());
             }
+        }
+        println!("BYTECODE DATA");
+        for b in bytecode_data.chunks(2) {
+            println!("{:08X} {:08X} ({})", b[0], b[1], f32::from_bits(b[1]));
         }
 
         // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
@@ -440,9 +445,11 @@ impl ShapeColorBuffers {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: true,
         });
+        println!("got config buffer length {}", config_buf.size());
         config_buf
             .get_mapped_range_mut(config_size as u64..)
             .copy_from_slice(bytecode_data.as_bytes());
+        println!("copying bytecode data at {config_size}");
         config_buf.unmap();
 
         Ok(Self {

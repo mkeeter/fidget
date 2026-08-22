@@ -105,9 +105,6 @@ struct ColorConfig {
     /// Screen-to-model transform matrix
     mat: [f32; 16],
 
-    /// Image size (pixels)
-    image_size: [u32; 2],
-
     /// Input index of X, Y, Z axes
     ///
     /// `u32::MAX` is used as a marker if an axis is unused
@@ -115,6 +112,9 @@ struct ColorConfig {
 
     // padding for alignment
     _pad: u32,
+
+    /// Image size (pixels)
+    image_size: [u32; 2],
     // this is followed by a tape_data flexible array member
 }
 
@@ -589,6 +589,7 @@ impl Context {
                     .unwrap();
                 writer.copy_from_slice(cfg.as_bytes());
             }
+            // TODO This is created on every pass
             let bg =
                 self.gpu
                     .device
@@ -1081,7 +1082,7 @@ impl ColorContext {
         }
     }
 
-    /// The output buffer is resized to fit
+    /// The output buffer is resized to fit `image`
     fn submit(
         &self,
         image: &MergeBuffers,
@@ -1111,6 +1112,7 @@ impl ColorContext {
         {
             // We load the `ColorConfig`; tape data is already in the buffer
             let config_len = std::mem::size_of_val(&config);
+            println!("writing to first {} bytes", config_len);
             let mut writer = gpu
                 .queue
                 .write_buffer_with(
@@ -1119,9 +1121,7 @@ impl ColorContext {
                     (config_len as u64).try_into().unwrap(),
                 )
                 .unwrap();
-            writer
-                .slice(..config_len)
-                .copy_from_slice(config.as_bytes());
+            writer.copy_from_slice(config.as_bytes());
         }
 
         // Copy vars (if present)
@@ -1150,39 +1150,43 @@ impl ColorContext {
         let mut encoder = gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None, // TODO add timestamps?
-            });
-        compute_pass.set_bind_group(0, config_bg, &[]);
-        compute_pass.set_bind_group(1, vars_bg, &[]);
+        {
+            let mut compute_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None, // TODO add timestamps?
+                });
+            compute_pass.set_bind_group(0, config_bg, &[]);
+            compute_pass.set_bind_group(1, vars_bg, &[]);
 
-        // TODO this creates a bind group for every evaluation, instead of
-        // caching it somewhere.  However, *where* to cache it is not obvious,
-        // because it combines fields from two different buffer objects.
-        let image_bg =
-            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("color image bind group"),
-                layout: &self.image_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: image.out.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: out.out.bind_active(),
-                    },
-                ],
-            });
-        compute_pass.set_bind_group(2, &image_bg, &[]);
-        compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
-        compute_pass.dispatch_workgroups(
-            size.width().div_ceil(8),
-            size.height().div_ceil(8),
-            1,
-        );
+            // TODO this creates a bind group for every evaluation, instead of
+            // caching it somewhere.  However, *where* to cache it is not
+            // obvious, because it combines fields from two different buffer
+            // objects.
+            let image_bg =
+                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("color image bind group"),
+                    layout: &self.image_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: image.out.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: out.out.bind_active(),
+                        },
+                    ],
+                });
+            compute_pass.set_bind_group(2, &image_bg, &[]);
+            compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
+            compute_pass.dispatch_workgroups(
+                size.width().div_ceil(8),
+                size.height().div_ceil(8),
+                1,
+            );
+        }
+        gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 }
