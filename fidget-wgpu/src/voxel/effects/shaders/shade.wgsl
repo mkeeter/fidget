@@ -68,6 +68,6 @@ fn shade_main(
         out[i] = pack4xU8(vec4u(color)) | alpha;
     } else {
         let intensity = u32(brightness * 255);
-        out[i] = intensity | (intensity << 8) | (intensity << 16);
+        out[i] = intensity | (intensity << 8) | (intensity << 16) | alpha;
     }
 }

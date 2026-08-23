@@ -2752,7 +2752,7 @@ impl ResetContext {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{effects::PackedVoxel, *};
     use crate::ShapeColor;
     use fidget_core::{context::Tree, vm::VmShape};
     use std::collections::HashSet;
@@ -2773,83 +2773,96 @@ mod test {
         }
     }
 
-    #[test]
-    fn voxel_pipeline() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
+    #[derive(
+        Copy,
+        Clone,
+        Debug,
+        IntoBytes,
+        Immutable,
+        FromBytes,
+        KnownLayout,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[repr(C)]
+    struct Rgba {
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    }
 
+    struct RenderOutput {
+        merged: Vec<PackedVoxel>,
+        colors: Vec<Rgba>,
+        shaded: fidget_raster::Image<u32, ImageSize>,
+    }
+
+    fn render(
+        shapes: &[(Tree, ShapeColor<Tree>)],
+        render_config: RenderConfig,
+    ) -> RenderOutput {
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let voxel_ctx = Context::new(&gpu);
         let effects_ctx = effects::Context::new(&gpu);
 
-        let size = 128;
-        let image_size = RenderSize::from(size);
         let mut buf = voxel_ctx.buffers();
-        let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
-        let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
-        let mut shade_out = gpu.read_buffer_for(shade_buf.output());
-
-        let (x, y, z) = Tree::axes();
-        let x_ = x.clone() - 0.2;
-        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
-            - Tree::constant(0.5);
-        let x_ = x + 0.2;
-        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
-            - Tree::constant(0.5);
-        let spheres = sphere1.min(sphere2);
-        let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
-        let world_to_model = nalgebra::Matrix4::identity();
-
-        voxel_ctx
-            .submit(
-                &shape,
-                &mut buf,
-                None,
-                &RenderConfig {
-                    image_size,
-                    world_to_model,
-                },
-            )
+        let mut merge_buf =
+            effects_ctx.merge_buffers(render_config.image_size).unwrap();
+        let mut shade_buf = effects_ctx
+            .shade_buffers(render_config.image_size.into())
             .unwrap();
-        effects_ctx
-            .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
-            .unwrap();
+
+        // Render and accumulate each shape
+        for (shape, _) in shapes {
+            let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
+            voxel_ctx
+                .submit(&shape, &mut buf, None, &render_config)
+                .unwrap();
+            effects_ctx
+                .submit_merge(
+                    &[buf.image_storage_buffer()],
+                    true,
+                    &mut merge_buf,
+                )
+                .unwrap();
+        }
+        let merged = gpu.read_vec::<PackedVoxel>(merge_buf.output().data());
+        let shape_colors = shapes
+            .iter()
+            .map(|(_, c)| {
+                let ShapeColor::Rgb { r, g, b } = c;
+                ShapeColor::Rgb {
+                    r: VmShape::from(r.clone()),
+                    g: VmShape::from(g.clone()),
+                    b: VmShape::from(b.clone()),
+                }
+            })
+            .collect::<Vec<_>>();
+        let shape_colors = effects_ctx.color_buffers(&shape_colors).unwrap();
 
         // Compute SSAO buffer
-        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
+        let mut ssao_buf =
+            effects_ctx.ssao_buffers(render_config.image_size).unwrap();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
 
         // Compute per-pixel colors
-        let color_shape = effects_ctx
-            .color_buffers(&[ShapeColor::Rgb {
-                r: VmShape::from(Tree::constant(0.0)),
-                g: VmShape::from(Tree::constant(1.0)),
-                b: VmShape::from(Tree::constant(0.25)),
-            }])
-            .unwrap();
         effects_ctx
             .submit_color(
                 &merge_buf,
-                &world_to_model,
-                &color_shape,
+                &render_config.world_to_model,
+                &shape_colors,
                 &mut shade_buf,
             )
             .unwrap();
+
         // At this point, we should have either transparent (white) or opaque
         // colored pixels in the color output buffer
-        let colors = gpu.read_vec::<u32>(shade_buf.output().data());
-        let color_set = colors.iter().cloned().collect::<HashSet<_>>();
-        assert!(
-            color_set.contains(&0x00FFFFFF) && color_set.contains(&0xFF3FFF00),
-            "invalid color set {color_set:X?} in {} pixels",
-            colors.len()
-        );
+        let colors = gpu.read_vec(shade_buf.output().data());
 
-        // Compute shaded image (with color)
+        // Compute shaded image (with color, overwriting shade_buf)
+        let mut shade_out = gpu.read_buffer_for(shade_buf.output());
         effects_ctx
             .submit_shade(
                 &merge_buf,
@@ -2861,10 +2874,75 @@ mod test {
             .unwrap();
 
         let img = gpu.map(&mut shade_out);
-        let (_out, img_size) = img.image().take();
+        let shaded = img.image();
+
+        RenderOutput {
+            merged,
+            colors,
+            shaded,
+        }
+    }
+
+    #[test]
+    fn voxel_pipeline() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let size = 128;
+
+        let (x, y, z) = Tree::axes();
+        let x_ = x.clone() - 0.2;
+        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let x_ = x + 0.2;
+        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let spheres = sphere1.min(sphere2);
+        let out = render(
+            &[(
+                spheres,
+                ShapeColor::Rgb {
+                    r: Tree::constant(0.0),
+                    g: Tree::constant(1.0),
+                    b: Tree::constant(0.25),
+                },
+            )],
+            RenderConfig::from_size(size.into()),
+        );
+
+        let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
+        assert!(
+            color_set.contains(&Rgba {
+                a: 0,
+                r: 0xFF,
+                g: 0xFF,
+                b: 0xFF
+            }) && color_set.contains(&Rgba {
+                a: 0xFF,
+                r: 0x00,
+                g: 0xFF,
+                b: 0x3F
+            }),
+            "invalid color set {color_set:X?} in {} pixels",
+            out.colors.len()
+        );
+
+        let (_out, img_size) = out.shaded.take();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
-        // This is mostly just a smoke check for rendering
+
+        for (m, c) in out.merged.iter().zip(out.colors.iter()) {
+            let p = m.z;
+            if p == 0 {
+                assert_eq!(c.a, 0);
+            } else {
+                assert_eq!(c.a, 0xFF);
+            }
+        }
     }
 
     #[test]

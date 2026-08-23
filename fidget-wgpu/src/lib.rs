@@ -320,6 +320,9 @@ pub struct ShapeColorBuffers {
     /// Unified [`VarMap`] object
     var_map: VarMap,
 
+    /// Number of shapes available
+    shape_count: usize,
+
     /// Maximum number of registers used by any tape
     reg_count: u8,
 
@@ -448,6 +451,7 @@ impl ShapeColorBuffers {
 
         Ok(Self {
             config: config_buf,
+            shape_count: colors.len(),
             shape_start: shape_start_buf,
             var_map,
             vars,

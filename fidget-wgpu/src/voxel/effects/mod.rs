@@ -156,7 +156,9 @@ struct ShadeConfig {
 const SHADE_CONFIG_HAS_SSAO: u32 = 1u32;
 const SHADE_CONFIG_HAS_COLOR: u32 = 2u32;
 
-tag!(MergeVoxelBufferTag, PackedVoxel, STORAGE | COPY_SRC);
+tag!(pub MergeVoxelBufferTag, PackedVoxel, STORAGE | COPY_SRC,
+    "Buffer tag for on-GPU merged ([`PackedVoxel`]) images"
+);
 
 /// Handle to a set of buffers used when merging images
 pub struct MergeBuffers {
@@ -164,6 +166,13 @@ pub struct MergeBuffers {
     out: ImageBuffer<MergeVoxelBufferTag>,
     depth: u32,
     image_count: usize,
+}
+
+impl MergeBuffers {
+    /// Returns a handle to the output buffer
+    pub fn output(&self) -> &ImageBuffer<MergeVoxelBufferTag> {
+        &self.out
+    }
 }
 
 tag!(
@@ -1097,6 +1106,12 @@ impl ColorContext {
         out: &mut ShadeBuffers,
         gpu: &Gpu,
     ) -> Result<(), ColorError> {
+        if image.image_count != shape.shape_count {
+            return Err(ColorError::BadShapeCount {
+                merge_count: image.image_count,
+                shape_count: shape.shape_count,
+            });
+        }
         let size = image.out.size();
         out.out
             .grow_to_fit(&gpu.device, size)
@@ -1117,7 +1132,6 @@ impl ColorContext {
         {
             // We load the `ColorConfig`; tape data is already in the buffer
             let config_len = std::mem::size_of_val(&config);
-            println!("writing to first {} bytes", config_len);
             let mut writer = gpu
                 .queue
                 .write_buffer_with(
