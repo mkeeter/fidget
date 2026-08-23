@@ -447,6 +447,7 @@ fn run3d_wgpu(
                 &merge_buf,
                 if ssao { Some(&ssao_buf) } else { None },
                 &mut shade_buf,
+                false,
                 Some(&mut out_buf),
             )?;
             let out = gpu.map(&mut out_buf);
