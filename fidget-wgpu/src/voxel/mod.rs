@@ -2968,8 +2968,8 @@ mod test {
             &[(
                 sphere,
                 ShapeColor::Rgb {
-                    r: Tree::x(),
-                    g: Tree::y(),
+                    r: Tree::x() + 0.5, // offset to avoid saturation at 0
+                    g: Tree::y() + 0.5, // offset to avoid saturation at 0
                     b: Tree::z(),
                 },
             )],
@@ -3072,19 +3072,11 @@ mod test {
             }
         }
 
+        // Every pixel should have a unique color, plus the background color
         let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
-        assert!(
-            color_set.contains(&Rgba {
-                a: 0,
-                r: 0xFF,
-                g: 0xFF,
-                b: 0xFF
-            }) && color_set.contains(&Rgba {
-                a: 0xFF,
-                r: 0x00,
-                g: 0xFF,
-                b: 0x3F
-            }),
+        assert_eq!(
+            color_set.len(),
+            pixels.chars().filter(|c| *c == '#').count() + 1,
             "invalid color set {color_set:X?} in {} pixels",
             out.colors.len()
         );

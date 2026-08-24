@@ -375,7 +375,7 @@ impl Context {
         let out = ImageBuffer::new(
             &self.gpu.device,
             "merge output".to_owned(),
-            ImageSize::new(image_size.width(), image_size.height()),
+            image_size.into(),
         )?;
         Ok(MergeBuffers {
             config,
@@ -684,13 +684,13 @@ impl Context {
     pub fn submit_color(
         &self,
         merge: &MergeBuffers,
-        mat: &nalgebra::Matrix4<f32>,
+        world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
         self.color_ctx.submit(
             merge,
-            mat,
+            world_to_model,
             shape,
             &Default::default(),
             out,
@@ -1100,7 +1100,7 @@ impl ColorContext {
     fn submit(
         &self,
         image: &MergeBuffers,
-        mat: &nalgebra::Matrix4<f32>,
+        world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
@@ -1116,6 +1116,10 @@ impl ColorContext {
         out.out
             .grow_to_fit(&gpu.device, size)
             .map_err(ColorError::OutputSize)?;
+
+        let mat = world_to_model
+            * VoxelSize::new(size.width(), size.height(), image.depth)
+                .screen_to_world();
 
         let config_bg = shape
             .config_bind_group(&gpu.device, &self.config_bind_group_layout);
