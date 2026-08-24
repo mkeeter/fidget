@@ -688,11 +688,33 @@ impl Context {
         shape: &ShapeColorBuffers,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
-        self.color_ctx.submit(
+        self.submit_color_with_vars(
             merge,
             world_to_model,
             shape,
             &Default::default(),
+            out,
+        )
+    }
+
+    /// Submits a color evaluation pass with auxiliary variables
+    ///
+    /// Image size is set from the `MergeBuffers`; the transform matrix is
+    /// provided separately (but should be the same one used for image
+    /// evaluation).
+    pub fn submit_color_with_vars(
+        &self,
+        merge: &MergeBuffers,
+        world_to_model: &nalgebra::Matrix4<f32>,
+        shape: &ShapeColorBuffers,
+        vars: &ShapeVars<f32>,
+        out: &mut ShadeBuffers,
+    ) -> Result<(), ColorError> {
+        self.color_ctx.submit(
+            merge,
+            world_to_model,
+            shape,
+            vars,
             out,
             &self.gpu,
         )
