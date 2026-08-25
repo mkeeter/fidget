@@ -15,7 +15,6 @@ struct Config {
 
     /// Tape data, tightly packed per-tile (flexible array member)
     tape_data: array<TapeWord>,
-
 }
 
 @group(0) @binding(0) var<storage, read> config: Config;
