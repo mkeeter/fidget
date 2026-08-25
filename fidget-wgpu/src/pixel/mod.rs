@@ -23,6 +23,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 pub use fidget_raster::pixel::{RenderConfig, RenderSize};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+const DISTANCE_PIXEL_SHADER: &str = include_str!("shaders/distance_pixel.wgsl");
 const INTERVAL_INPUT: &str = include_str!("shaders/interval_input.wgsl");
 const TRANSFORM_INPUT: &str = include_str!("shaders/transform_input.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
@@ -35,6 +36,7 @@ fn interval_root_shader(reg_count: u8) -> String {
     let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
+    shader_code += DISTANCE_PIXEL_SHADER;
     shader_code += INTERVAL_ROOT_SHADER;
     shader_code += INTERVAL_INPUT;
     shader_code += TRANSFORM_INPUT;
@@ -51,6 +53,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
+    shader_code += DISTANCE_PIXEL_SHADER;
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += INTERVAL_INPUT;
     shader_code += TRANSFORM_INPUT;
@@ -69,6 +72,7 @@ fn pixel_tiles_shader(reg_count: u8) -> String {
     shader_code += PIXEL_TILES_SHADER;
     shader_code += TRANSFORM_INPUT;
     shader_code += COMMON_SHADER;
+    shader_code += DISTANCE_PIXEL_SHADER;
     shader_code += shaders::FLOAT_OPS;
     shader_code += shaders::COMMON;
     shader_code += shaders::TAPE_INTERPRETER;
@@ -78,7 +82,10 @@ fn pixel_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
+    MERGE_SHADER.to_owned()
+        + COMMON_SHADER
+        + DISTANCE_PIXEL_SHADER
+        + shaders::COMMON
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -70,25 +70,3 @@ fn get_tape_offset_for_level(corner_pos: vec2u, level: u32) -> u32 {
     return 0;
 }
 
-/// Equivalent to RawDistancePixel in Rust, but storing a u32 instead of f32
-/// (because shaders are bad about handling NaN values)
-struct RawDistancePixel {
-    data: u32,
-}
-
-const DISTANCE_PIXEL_KEY: u32 = 0xF6 << 9;
-
-fn distance_pixel_fill(depth: u32, inside: bool) -> RawDistancePixel {
-    let data = 0x7FC00000u | (depth << 1) | u32(inside) | DISTANCE_PIXEL_KEY;
-    return RawDistancePixel(data);
-}
-
-fn distance_pixel_value(v: f32) -> RawDistancePixel {
-    if v != v {
-        // attempt to canonicalize NaN values, in case someone is trying to do
-        // something weird (???)
-        return RawDistancePixel(bitcast<u32>(nan_f32()));
-    } else {
-        return RawDistancePixel(bitcast<u32>(v));
-    }
-}
