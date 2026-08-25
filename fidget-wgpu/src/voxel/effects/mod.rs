@@ -1237,16 +1237,28 @@ mod test {
     }
 
     #[test]
-    fn compile_shaders() {
-        for (src, desc) in [
-            (merge_shader(), "merge"),
-            (shade_shader(), "shade"),
-            (ssao_shader(), "ssao"),
-            (blur_shader(), "blur"),
-            (color_shader(16), "color"),
-        ] {
-            crate::compile_shader(&src, desc);
-        }
+    fn compile_merge_shader() {
+        crate::compile_shader(&merge_shader(), "merge");
+    }
+
+    #[test]
+    fn compile_shade_shader() {
+        crate::compile_shader(&shade_shader(), "shade");
+    }
+
+    #[test]
+    fn compile_ssao_shader() {
+        crate::compile_shader(&ssao_shader(), "ssao");
+    }
+
+    #[test]
+    fn compile_blur_shader() {
+        crate::compile_shader(&blur_shader(), "blur");
+    }
+
+    #[test]
+    fn compile_color_shader() {
+        crate::compile_shader(&color_shader(16), "color");
     }
 
     /// Render a sphere-plane union and check for occlusion bias
