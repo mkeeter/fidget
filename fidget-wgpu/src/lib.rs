@@ -2,14 +2,17 @@
 #![warn(missing_docs)]
 
 use fidget_bytecode::{Bytecode, ReservedRegister};
-use fidget_core::{eval::Function, var::Var, vm::VmShape};
+use fidget_core::{
+    eval::Function,
+    var::{Var, VarMap},
+    vm::VmShape,
+};
 
 use heck::ToShoutySnakeCase;
-use std::collections::BTreeMap;
-use zerocopy::{FromBytes, Immutable};
+use std::collections::{BTreeMap, HashMap};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub mod buf;
-pub mod effects;
 pub mod pixel;
 pub mod voxel;
 
@@ -17,6 +20,8 @@ pub mod voxel;
 pub use wgpu;
 
 pub(crate) mod shaders {
+    use super::*;
+
     pub const COMMON: &str = include_str!("shaders/common.wgsl");
     pub const DUMMY_STACK: &str = include_str!("shaders/dummy_stack.wgsl");
     pub const FLOAT_OPS: &str = include_str!("shaders/float_ops.wgsl");
@@ -26,6 +31,18 @@ pub(crate) mod shaders {
     pub const TAPE_INTERPRETER: &str =
         include_str!("shaders/tape_interpreter.wgsl");
     pub const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
+
+    /// Returns a set of constant definitions for each opcode
+    pub fn opcode_constants() -> String {
+        let mut out = String::new();
+        for (op, i) in fidget_bytecode::iter_ops() {
+            out += &format!(
+                "const OP_{}: u32 = {i};\n",
+                op.to_shouty_snake_case()
+            );
+        }
+        out
+    }
 }
 
 /// Number of [`TapeWord`] words in the tape data flexible array
@@ -35,17 +52,6 @@ pub(crate) const TAPE_DATA_CAPACITY: usize = 8 * 1024 * 1024; // 8M words, 64 Mi
 pub(crate) struct TapeWord {
     op: u32,
     imm: u32,
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Returns a set of constant definitions for each opcode
-fn opcode_constants() -> String {
-    let mut out = String::new();
-    for (op, i) in fidget_bytecode::iter_ops() {
-        out += &format!("const OP_{}: u32 = {i};\n", op.to_shouty_snake_case());
-    }
-    out
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -212,8 +218,6 @@ impl RegPipeline {
 pub struct RenderShape {
     /// Copy of our shape (kept around for access to the variable map)
     shape: VmShape,
-    /// Map from X, Y, Z (by index) to the variable slot
-    axes: [u32; 3],
     /// Serialized bytecode for the shape
     bytecode: Bytecode,
     /// GPU buffer to contain variables
@@ -242,6 +246,14 @@ pub enum RenderShapeError {
     RegisterError(#[from] ReservedRegister),
 }
 
+/// Error type when constructing a [`ShapeColorBuffers`]
+#[derive(Debug, thiserror::Error)]
+pub enum ShapeColorError {
+    /// The shape uses a reserved register
+    #[error(transparent)]
+    RegisterError(#[from] ReservedRegister),
+}
+
 impl RenderShape {
     fn new(
         shape: &VmShape,
@@ -253,28 +265,34 @@ impl RenderShape {
             return Err(RenderShapeError::TooLong(bytecode.len() / 2));
         }
 
-        // Create the 4x4 transform matrix
         let vars = shape.inner().vars();
-        let axes = [Var::X, Var::Y, Var::Z]
-            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX));
 
         // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
-        // as well, but we special-case them in evaluation.
+        // as well, but we special-case them in evaluation.  If the tape has no
+        // variables, we'll allocate 4 bytes (because empty buffers are not
+        // allowed).
         let vars = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vars"),
             size: u64::try_from(std::mem::size_of::<f32>() * vars.len())
-                .unwrap(),
+                .unwrap()
+                .max(4),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         Ok(Self {
             shape: shape.clone(),
-            axes,
             bytecode,
             vars,
             vars_bind_group: Default::default(),
         })
+    }
+
+    /// Helper function to return XYZ variable indices
+    fn axes(&self) -> [u32; 3] {
+        let vars = self.shape.inner().vars();
+        [Var::X, Var::Y, Var::Z]
+            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
     }
 
     fn vars_bind_group(
@@ -290,6 +308,184 @@ impl RenderShape {
                     binding: 0,
                     resource: self.vars.as_entire_binding(),
                 }],
+            })
+        })
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Color buffers for rendering a shape's diffuse color
+pub struct ShapeColorBuffers {
+    /// Unified [`VarMap`] object
+    var_map: VarMap,
+
+    /// Number of shapes available
+    shape_count: usize,
+
+    /// Maximum number of registers used by any tape
+    reg_count: u8,
+
+    /// Config and serialized tapes, all squished together
+    ///
+    /// The tape data is baked once (at construction); config data is edited
+    /// before each evaluation
+    config: wgpu::Buffer,
+
+    /// Start of the RGB tapes for each shape
+    ///
+    /// This is baked once (at construction)
+    shape_start: wgpu::Buffer,
+
+    /// Lazily-constructed bind group for the config buffers
+    config_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
+
+    /// GPU buffer to contain variables (passed in during evaluation)
+    ///
+    /// This doesn't live in a `Buffers` object because it's dynamically sized
+    /// based on the shape; everything in `Buffers` is based on image size.
+    vars: wgpu::Buffer,
+}
+
+/// Generic shape color generator
+pub enum ShapeColor<T> {
+    /// Red / green / blue channels
+    Rgb {
+        /// Red component
+        r: T,
+        /// Green component
+        g: T,
+        /// Blue component
+        b: T,
+    },
+}
+
+impl ShapeColorBuffers {
+    fn new(
+        colors: &[ShapeColor<VmShape>],
+        device: &wgpu::Device,
+        config_size: usize,
+    ) -> Result<Self, ShapeColorError> {
+        // Build a single unified variable map, used across all tapes
+        let mut var_map = VarMap::new();
+        for c in colors {
+            let ShapeColor::Rgb { r, g, b } = c;
+            for channel in [r, g, b] {
+                let vars = channel.inner().vars();
+                for (v, _index) in vars.iter() {
+                    var_map.insert(v);
+                }
+            }
+        }
+        let mut reg_count = 0;
+        let mut shape_start = Vec::with_capacity(colors.len());
+        let mut bytecode_data: Vec<u32> = Vec::new();
+        let mut local_var_map = HashMap::new();
+        for c in colors {
+            let ShapeColor::Rgb { r, g, b } = c;
+            // Divide by 2 to convert from `u32` to `TapeWord`
+            shape_start.push(u32::try_from(bytecode_data.len() / 2).unwrap());
+            for channel in [r, g, b] {
+                // Build a local variable remapping array, reusing allocations
+                local_var_map.clear();
+                local_var_map.extend(channel.inner().vars().iter().map(
+                    |(v, i)| {
+                        (
+                            u32::try_from(i).unwrap(),
+                            u32::try_from(var_map.get(&v).unwrap()).unwrap(),
+                        )
+                    },
+                ));
+
+                // Generate bytecode for the root tape
+                let bytecode = Bytecode::new_with_input_map(
+                    channel.inner().data(),
+                    &local_var_map,
+                )?;
+                bytecode_data.extend(bytecode.data());
+                reg_count = reg_count.max(bytecode.reg_count());
+            }
+        }
+
+        // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
+        // as well, but we special-case them in evaluation.  If the tape has no
+        // variables, then we'll allocate 4 bytes (because empty buffers aren't
+        // allowed).
+        let vars = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vars"),
+            size: u64::try_from(std::mem::size_of::<f32>() * var_map.len())
+                .unwrap()
+                .max(4),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let shape_start_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shape_start"),
+            size: u64::try_from(std::mem::size_of::<u32>() * shape_start.len())
+                .unwrap(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: true,
+        });
+        shape_start_buf
+            .get_mapped_range_mut(0..)
+            .copy_from_slice(shape_start.as_bytes());
+        shape_start_buf.unmap();
+
+        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shape_start"),
+            size: u64::try_from(
+                std::mem::size_of::<u32>() * bytecode_data.len() + config_size,
+            )
+            .unwrap(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: true,
+        });
+        config_buf
+            .get_mapped_range_mut(config_size as u64..)
+            .copy_from_slice(bytecode_data.as_bytes());
+        config_buf.unmap();
+
+        Ok(Self {
+            config: config_buf,
+            shape_count: colors.len(),
+            shape_start: shape_start_buf,
+            var_map,
+            vars,
+            config_bind_group: Default::default(),
+            reg_count,
+        })
+    }
+
+    /// Helper function to return XYZ variable indices
+    fn axes(&self) -> [u32; 3] {
+        [Var::X, Var::Y, Var::Z]
+            .map(|a| self.var_map.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
+    }
+
+    fn config_bind_group(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+    ) -> &wgpu::BindGroup {
+        self.config_bind_group.get_or_init(|| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("config bind group"),
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.config.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.shape_start.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.vars.as_entire_binding(),
+                    },
+                ],
             })
         })
     }
@@ -333,135 +529,7 @@ fn compile_shader(src: &str, desc: &str) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use fidget_core::{context::Tree, vm::VmShape};
-
-    #[test]
-    fn voxel_render_and_merge() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
-        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
-        let voxel_ctx = voxel::Context::new(&gpu);
-        let effects_ctx = effects::Context::new(&gpu);
-
-        let size = 128;
-        let image_size = voxel::RenderSize::from(size);
-        let mut buf = voxel_ctx.buffers();
-        let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
-        let mut shade_buf = effects_ctx.shade_buffers(size.into()).unwrap();
-        let mut shade_out = gpu.read_buffer_for(shade_buf.output());
-
-        let (x, y, z) = Tree::axes();
-        let x_ = x.clone() - 0.2;
-        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
-            - Tree::constant(0.5);
-        let x_ = x + 0.2;
-        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
-            - Tree::constant(0.5);
-        let spheres = sphere1.min(sphere2);
-        let shape = gpu.shape(&VmShape::from(spheres)).unwrap();
-
-        voxel_ctx
-            .submit(
-                &shape,
-                &mut buf,
-                None,
-                &voxel::RenderConfig {
-                    image_size,
-                    world_to_model: nalgebra::Matrix4::identity(),
-                },
-            )
-            .unwrap();
-        effects_ctx
-            .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
-            .unwrap();
-        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
-        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
-        effects_ctx
-            .submit_shade(
-                &merge_buf,
-                Some(&ssao_buf),
-                &mut shade_buf,
-                Some(&mut shade_out),
-            )
-            .unwrap();
-        let img = gpu.map(&mut shade_out);
-        let (_out, img_size) = img.image().take();
-        assert_eq!(img_size.width(), size);
-        assert_eq!(img_size.height(), size);
-    }
-
-    #[test]
-    fn pixel_render() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
-        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
-        let pixel_ctx = pixel::Context::new(&gpu);
-        let mut buf = pixel_ctx.buffers();
-
-        let (x, y, _z) = Tree::axes();
-        let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
-        let shape = gpu.shape(&VmShape::from(circle)).unwrap();
-
-        // Test a variety of image sizes for correctness
-        for image_size in [
-            pixel::RenderSize::new(64, 64),
-            pixel::RenderSize::new(128, 64),
-            pixel::RenderSize::new(64, 128),
-            pixel::RenderSize::new(27, 51),
-        ] {
-            let mut pixel_out = pixel_ctx.image_buffer();
-            pixel_ctx
-                .submit(
-                    &shape,
-                    &mut buf,
-                    Some(&mut pixel_out),
-                    &pixel::RenderConfig {
-                        image_size,
-                        world_to_model: nalgebra::Matrix3::identity(),
-                        pixel_perfect: false,
-                        z: 0.0,
-                    },
-                )
-                .unwrap();
-            let img_out = pixel_ctx.map_image(&mut pixel_out).image();
-            assert_eq!(img_out.size(), image_size);
-
-            // Basic circle inside/outside check
-            let mat = image_size.screen_to_world();
-            for j in 0..image_size.height() {
-                for i in 0..image_size.width() {
-                    let pos = mat.transform_point(&nalgebra::Point2::new(
-                        i as f32, j as f32,
-                    ));
-                    let p = img_out[(j as usize, i as usize)];
-                    let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
-                    if r < 0.5 {
-                        assert!(
-                            p.inside(),
-                            "pixel should be inside at pixel ({i}, {j}) \
-                            (pos {pos}) with radius {r}"
-                        );
-                    } else {
-                        assert!(
-                            !p.inside(),
-                            "pixel should be outside at pixel ({i}, {j}) \
-                            (pos {pos}) with radius {r}"
-                        );
-                    }
-                }
-            }
-        }
-    }
+    use std::collections::HashSet;
 
     #[test]
     fn shader_has_all_ops() {
@@ -474,6 +542,87 @@ mod test {
             assert!(
                 shaders::TAPE_SIMPLIFY.contains(&op),
                 "tape simplification is missing {op}"
+            );
+        }
+    }
+
+    pub(crate) fn compare_struct_layout<T: facet::Facet<'static>>(
+        shader: &str,
+        struct_name: &str,
+    ) {
+        let module = naga::front::wgsl::parse_str(shader).expect("valid WGSL");
+        let (members, span) = module
+            .types
+            .iter()
+            .find_map(|(_, ty)| {
+                if ty.name.as_deref() == Some(struct_name)
+                    && let naga::TypeInner::Struct { members, span } = &ty.inner
+                {
+                    Some((members, *span))
+                } else {
+                    None
+                }
+            })
+            .expect("could not find struct");
+
+        // If the last member of the struct is a dynamically sized array, we'll
+        // treat the beginning offset of the array as our struct size.
+        let dynamic_array_offset = members.last().and_then(|m| {
+            let ty = &module.types[m.ty];
+            let naga::TypeInner::Array {
+                base: _,
+                size: naga::ir::ArraySize::Dynamic,
+                stride: _,
+            } = &ty.inner
+            else {
+                return None;
+            };
+            Some(m.offset)
+        });
+        if let Some(dynamic_array_offset) = dynamic_array_offset {
+            assert_eq!(dynamic_array_offset as usize, std::mem::size_of::<T>());
+        } else {
+            assert_eq!(span as usize, std::mem::size_of::<T>());
+        }
+
+        let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty
+        else {
+            panic!("must build a struct");
+        };
+
+        // Check field sizes and offset between Rust and WGSL
+        let mut shape_field_names = HashSet::new();
+        for field in shape.fields {
+            let field_name = field.name;
+            shape_field_names.insert(field_name);
+            let wgsl_member = members
+                .iter()
+                .find(|m| m.name.as_deref() == Some(field_name))
+                .unwrap_or_else(|| {
+                    panic!("field `{field_name}` missing in WGSL struct")
+                });
+            assert_eq!(
+                wgsl_member.offset as usize, field.offset,
+                "offset mismatch for field `{field_name}`"
+            );
+            assert_eq!(
+                module.types[wgsl_member.ty].inner.size(module.to_ctx())
+                    as usize,
+                field.shape().layout.sized_layout().unwrap().size(),
+                "size mismatch for field `{field_name}`"
+            );
+        }
+        let slice_len = if dynamic_array_offset.is_some() {
+            members.len() - 1
+        } else {
+            members.len()
+        };
+        for m in &members[..slice_len] {
+            let field_name =
+                m.name.as_ref().expect("cannot check unnamed WGSL fields");
+            assert!(
+                shape_field_names.contains(field_name.as_str()),
+                "field `{field_name}` missing in Rust struct"
             );
         }
     }

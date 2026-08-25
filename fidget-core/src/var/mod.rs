@@ -101,7 +101,7 @@ impl IntoNode for Var {
 /// values from `0..vars.len()`.
 ///
 /// For efficiency, this type does not allocate heap memory for `Var::X/Y/Z`.
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VarMap {
     x: Option<usize>,
     y: Option<usize>,

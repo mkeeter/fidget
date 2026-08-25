@@ -109,7 +109,7 @@ use crate::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_ro_dyn, buffer_rw,
     },
-    opcode_constants, shaders, tag,
+    shaders, tag,
 };
 use fidget_core::{
     eval::Function,
@@ -120,6 +120,8 @@ use fidget_core::{
 use fidget_raster::voxel::{GeometryPixel, Image};
 use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
+pub mod effects;
 
 pub use fidget_raster::voxel::{RenderConfig, RenderSize};
 
@@ -262,6 +264,7 @@ pub enum SubmitError {
 /// Fields are carefully ordered to require no internal padding (enforced by
 /// `zerocopy` derives)
 #[derive(Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct Config {
     /// Screen-to-model transform matrix
@@ -344,7 +347,7 @@ impl TileRenderSize {
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
     shader_code += INTERVAL_ROOT_SHADER;
@@ -378,7 +381,7 @@ fn sort_shader() -> String {
 
 /// Returns a shader for interval tile evaluation
 fn interval_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += INTERVAL_INPUT;
@@ -394,7 +397,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for voxel tile evaluation
 fn voxel_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += VOXEL_TILES_SHADER;
     shader_code += TRANSFORM_INPUT;
@@ -408,7 +411,7 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for normals evaluation
 fn normals_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += NORMALS_SHADER;
     shader_code += TRANSFORM_INPUT;
@@ -2277,7 +2280,7 @@ impl Context {
         let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
-            axes: shape.axes,
+            axes: shape.axes(),
             render_size: [
                 render_size.width(),
                 render_size.height(),
@@ -2749,7 +2752,10 @@ impl ResetContext {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{effects::PackedVoxel, *};
+    use crate::ShapeColor;
+    use fidget_core::{context::Tree, vm::VmShape};
+    use std::collections::HashSet;
 
     #[test]
     fn compile_shaders() {
@@ -2765,5 +2771,445 @@ mod test {
         ] {
             crate::compile_shader(&src, desc);
         }
+    }
+
+    #[derive(
+        Copy,
+        Clone,
+        Debug,
+        IntoBytes,
+        Immutable,
+        FromBytes,
+        KnownLayout,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[repr(C)]
+    struct Rgba {
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    }
+
+    struct RenderOutput {
+        merged: Vec<PackedVoxel>,
+        colors: Vec<Rgba>,
+        shaded: fidget_raster::Image<u32, ImageSize>,
+    }
+
+    fn render(
+        shapes: &[(Tree, ShapeColor<Tree>)],
+        render_config: RenderConfig,
+    ) -> RenderOutput {
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let voxel_ctx = Context::new(&gpu);
+        let effects_ctx = effects::Context::new(&gpu);
+
+        let mut buf = voxel_ctx.buffers();
+        let mut merge_buf =
+            effects_ctx.merge_buffers(render_config.image_size).unwrap();
+        let mut shade_buf = effects_ctx
+            .shade_buffers(render_config.image_size.into())
+            .unwrap();
+
+        // Render and accumulate each shape
+        for (shape, _) in shapes {
+            let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
+            voxel_ctx
+                .submit(&shape, &mut buf, None, &render_config)
+                .unwrap();
+            effects_ctx
+                .submit_merge(
+                    &[buf.image_storage_buffer()],
+                    true,
+                    &mut merge_buf,
+                )
+                .unwrap();
+        }
+        let merged = gpu.read_vec::<PackedVoxel>(merge_buf.output().data());
+        let shape_colors = shapes
+            .iter()
+            .map(|(_, c)| {
+                let ShapeColor::Rgb { r, g, b } = c;
+                ShapeColor::Rgb {
+                    r: VmShape::from(r.clone()),
+                    g: VmShape::from(g.clone()),
+                    b: VmShape::from(b.clone()),
+                }
+            })
+            .collect::<Vec<_>>();
+        let shape_colors = effects_ctx.color_buffers(&shape_colors).unwrap();
+
+        // Compute SSAO buffer
+        let mut ssao_buf =
+            effects_ctx.ssao_buffers(render_config.image_size).unwrap();
+        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+
+        // Compute per-pixel colors
+        effects_ctx
+            .submit_color(
+                &merge_buf,
+                &render_config.world_to_model,
+                &shape_colors,
+                &mut shade_buf,
+            )
+            .unwrap();
+
+        // At this point, we should have either transparent (white) or opaque
+        // colored pixels in the color output buffer
+        let colors = gpu.read_vec(shade_buf.output().data());
+
+        // Compute shaded image (with color, overwriting shade_buf)
+        let mut shade_out = gpu.read_buffer_for(shade_buf.output());
+        effects_ctx
+            .submit_shade(
+                &merge_buf,
+                Some(&ssao_buf),
+                &mut shade_buf,
+                true,
+                Some(&mut shade_out),
+            )
+            .unwrap();
+
+        let img = gpu.map(&mut shade_out);
+        let shaded = img.image();
+
+        RenderOutput {
+            merged,
+            colors,
+            shaded,
+        }
+    }
+
+    #[test]
+    fn voxel_pipeline() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let size = 128;
+
+        let (x, y, z) = Tree::axes();
+        let x_ = x.clone() - 0.2;
+        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let x_ = x + 0.2;
+        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let spheres = sphere1.min(sphere2);
+        let out = render(
+            &[(
+                spheres,
+                ShapeColor::Rgb {
+                    r: Tree::constant(0.0),
+                    g: Tree::constant(1.0),
+                    b: Tree::constant(0.25),
+                },
+            )],
+            RenderConfig::from_size(size.into()),
+        );
+
+        let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
+        assert!(
+            color_set.contains(&Rgba {
+                a: 0,
+                r: 0xFF,
+                g: 0xFF,
+                b: 0xFF
+            }) && color_set.contains(&Rgba {
+                a: 0xFF,
+                r: 0x00,
+                g: 0xFF,
+                b: 0x3F
+            }),
+            "invalid color set {color_set:X?} in {} pixels",
+            out.colors.len()
+        );
+
+        let (_out, img_size) = out.shaded.take();
+        assert_eq!(img_size.width(), size);
+        assert_eq!(img_size.height(), size);
+
+        for (m, c) in out.merged.iter().zip(out.colors.iter()) {
+            let p = m.z;
+            if p == 0 {
+                assert_eq!(c.a, 0);
+            } else {
+                assert_eq!(c.a, 0xFF);
+            }
+        }
+    }
+
+    #[test]
+    fn voxel_transform() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let (x, y, z) = Tree::axes();
+        let sphere =
+            (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
+
+        let size = 64;
+        let cfg = RenderConfig {
+            image_size: size.into(),
+            world_to_model: nalgebra::Translation3::new(-0.5, 0.0, 0.0)
+                .to_homogeneous(),
+        };
+        let out = render(
+            &[(
+                sphere.clone(),
+                ShapeColor::Rgb {
+                    r: Tree::x() + 0.5, // offset to avoid saturation at 0
+                    g: Tree::y() + 0.5, // offset to avoid saturation at 0
+                    b: Tree::z(),
+                },
+            )],
+            cfg,
+        );
+
+        let mut iter = out.colors.iter();
+        let mut pixels = String::with_capacity(out.colors.len());
+        for _y in 0..size {
+            for _x in 0..size {
+                pixels += if iter.next().unwrap().a == 0 {
+                    "."
+                } else {
+                    "#"
+                };
+            }
+            pixels += "\n";
+        }
+        assert_eq!(
+            pixels,
+            "\
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ...........................................###########..........
+                .........................................###############........
+                .......................................###################......
+                ......................................#####################.....
+                .....................................#######################....
+                ....................................#########################...
+                ...................................###########################..
+                ...................................###########################..
+                ..................................#############################.
+                ..................................#############################.
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                .................................###############################
+                ..................................#############################.
+                ..................................#############################.
+                ...................................###########################..
+                ...................................###########################..
+                ....................................#########################...
+                .....................................#######################....
+                ......................................#####################.....
+                .......................................###################......
+                .........................................###############........
+                ...........................................###########..........
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+            "
+            .replace(" ", "")
+        );
+
+        let (_out, img_size) = out.shaded.take();
+        assert_eq!(img_size.width(), size);
+        assert_eq!(img_size.height(), size);
+
+        for (m, c) in out.merged.iter().zip(out.colors.iter()) {
+            let p = m.z;
+            if p == 0 {
+                assert_eq!(c.a, 0);
+            } else {
+                assert_eq!(c.a, 0xFF);
+            }
+        }
+
+        // Every pixel should have a unique color, plus the background color
+        let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
+        assert_eq!(
+            color_set.len(),
+            pixels.chars().filter(|c| *c == '#').count() + 1,
+            "invalid color set {color_set:X?} in {} pixels",
+            out.colors.len()
+        );
+
+        ////////////////////////////////////////////////////////////////////////
+        // Now, run the same test with a different transform.  This lets us
+        // confirm that colors are pinned to the correct space corodinates
+        let cfg = RenderConfig {
+            image_size: size.into(),
+            world_to_model: nalgebra::Translation3::new(0.5, 0.0, 0.0)
+                .to_homogeneous(),
+        };
+        let out = render(
+            &[(
+                sphere,
+                ShapeColor::Rgb {
+                    r: Tree::x() + 0.5, // offset to avoid saturation at 0
+                    g: Tree::y() + 0.5, // offset to avoid saturation at 0
+                    b: Tree::z(),
+                },
+            )],
+            cfg,
+        );
+
+        let mut iter = out.colors.iter();
+        let mut pixels = String::with_capacity(out.colors.len());
+        for _y in 0..size {
+            for _x in 0..size {
+                pixels += if iter.next().unwrap().a == 0 {
+                    "."
+                } else {
+                    "#"
+                };
+            }
+            pixels += "\n";
+        }
+        assert_eq!(
+            pixels,
+            "\
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ...........###########..........................................
+                .........###############........................................
+                .......###################......................................
+                ......#####################.....................................
+                .....#######################....................................
+                ....#########################...................................
+                ...###########################..................................
+                ...###########################..................................
+                ..#############################.................................
+                ..#############################.................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                .###############################................................
+                ..#############################.................................
+                ..#############################.................................
+                ...###########################..................................
+                ...###########################..................................
+                ....#########################...................................
+                .....#######################....................................
+                ......#####################.....................................
+                .......###################......................................
+                .........###############........................................
+                ...........###########..........................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+                ................................................................
+            "
+            .replace(" ", "")
+        );
+
+        let (_out, img_size) = out.shaded.take();
+        assert_eq!(img_size.width(), size);
+        assert_eq!(img_size.height(), size);
+
+        for (m, c) in out.merged.iter().zip(out.colors.iter()) {
+            let p = m.z;
+            if p == 0 {
+                assert_eq!(c.a, 0);
+            } else {
+                assert_eq!(c.a, 0xFF);
+            }
+        }
+
+        // Every pixel should have a unique color, plus the background color
+        let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
+        assert_eq!(
+            color_set.len(),
+            pixels.chars().filter(|c| *c == '#').count() + 1,
+            "invalid color set {color_set:X?} in {} pixels",
+            out.colors.len()
+        );
+    }
+
+    #[test]
+    fn voxel_config_layout() {
+        // Pick any shader, since `struct Config` is in the common text
+        crate::test::compare_struct_layout::<Config>(&merge_shader(), "Config");
     }
 }

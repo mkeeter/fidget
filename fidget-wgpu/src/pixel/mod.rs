@@ -8,7 +8,7 @@ use crate::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_rw,
     },
-    opcode_constants, shaders, tag,
+    shaders, tag,
 };
 use fidget_core::{
     eval::Function,
@@ -32,7 +32,7 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
     shader_code += INTERVAL_ROOT_SHADER;
@@ -48,7 +48,7 @@ fn interval_root_shader(reg_count: u8) -> String {
 
 /// Returns a shader for interval tile -> subtile reduction
 fn interval_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
     shader_code += INTERVAL_TILES_SHADER;
@@ -64,7 +64,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for pixel tile evaluation
 fn pixel_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = opcode_constants();
+    let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += PIXEL_TILES_SHADER;
     shader_code += TRANSFORM_INPUT;
@@ -360,6 +360,7 @@ impl PixelTilesContext {
 /// Fields are carefully ordered to require no internal padding (enforced by
 /// `zerocopy` derives)
 #[derive(Debug, IntoBytes, Immutable, FromBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
 struct Config {
     /// Screen-to-model transform matrix
@@ -1312,7 +1313,7 @@ impl Context {
         let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
         let config = Config {
             mat: mat4.data.as_slice().try_into().unwrap(),
-            axes: shape.axes,
+            axes: shape.axes(),
             render_size: [render_size.width(), render_size.height()],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
@@ -1620,6 +1621,7 @@ impl ResetContext {
 #[cfg(test)]
 mod test {
     use super::*;
+    use fidget_core::{context::Tree, vm::VmShape};
 
     #[test]
     fn compile_shaders() {
@@ -1631,5 +1633,79 @@ mod test {
         ] {
             crate::compile_shader(&src, desc);
         }
+    }
+
+    #[test]
+    fn pixel_pipeline() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let pixel_ctx = Context::new(&gpu);
+        let mut buf = pixel_ctx.buffers();
+
+        let (x, y, _z) = Tree::axes();
+        let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
+        let shape = gpu.shape(&VmShape::from(circle)).unwrap();
+
+        // Test a variety of image sizes for correctness
+        for image_size in [
+            RenderSize::new(64, 64),
+            RenderSize::new(128, 64),
+            RenderSize::new(64, 128),
+            RenderSize::new(27, 51),
+        ] {
+            let mut pixel_out = pixel_ctx.image_buffer();
+            pixel_ctx
+                .submit(
+                    &shape,
+                    &mut buf,
+                    Some(&mut pixel_out),
+                    &RenderConfig {
+                        image_size,
+                        world_to_model: nalgebra::Matrix3::identity(),
+                        pixel_perfect: false,
+                        z: 0.0,
+                    },
+                )
+                .unwrap();
+            let img_out = pixel_ctx.map_image(&mut pixel_out).image();
+            assert_eq!(img_out.size(), image_size);
+
+            // Basic circle inside/outside check
+            let mat = image_size.screen_to_world();
+            for j in 0..image_size.height() {
+                for i in 0..image_size.width() {
+                    let pos = mat.transform_point(&nalgebra::Point2::new(
+                        i as f32, j as f32,
+                    ));
+                    let p = img_out[(j as usize, i as usize)];
+                    let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
+                    if r < 0.5 {
+                        assert!(
+                            p.inside(),
+                            "pixel should be inside at pixel ({i}, {j}) \
+                            (pos {pos}) with radius {r}"
+                        );
+                    } else {
+                        assert!(
+                            !p.inside(),
+                            "pixel should be outside at pixel ({i}, {j}) \
+                            (pos {pos}) with radius {r}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pixel_config_layout() {
+        // Pick any shader, since `struct Config` is in the common text
+        crate::test::compare_struct_layout::<Config>(&merge_shader(), "Config");
     }
 }
