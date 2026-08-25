@@ -122,17 +122,17 @@ struct ColorConfig {
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-struct MergeConfig {
+pub(crate) struct MergeConfig {
     /// Image size, in pixels
-    image_size: [u32; 2],
+    pub image_size: [u32; 2],
 
     /// Whether or not to denoise when merging (non-zero is true)
-    denoise: u32,
+    pub denoise: u32,
 
     /// Offset applied to indices when merging
     ///
     /// When this is 0, we initialize the output image
-    index_base: u32,
+    pub index_base: u32,
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
