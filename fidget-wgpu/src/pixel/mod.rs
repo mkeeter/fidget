@@ -1662,6 +1662,7 @@ mod test {
 
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let pixel_ctx = Context::new(&gpu);
+        let effects_ctx = effects::Context::new(&gpu);
         let mut buf = pixel_ctx.buffers();
 
         let (x, y, _z) = Tree::axes();
@@ -1716,6 +1717,15 @@ mod test {
                     }
                 }
             }
+
+            let mut out_buf = effects_ctx.merge_buffers(image_size).unwrap();
+            effects_ctx
+                .submit_merge(
+                    &[buf.image_storage_buffer()],
+                    false,
+                    &mut out_buf,
+                )
+                .unwrap();
         }
     }
 
