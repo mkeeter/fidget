@@ -345,9 +345,6 @@ pub struct ShapeColorBuffers {
     /// This doesn't live in a `Buffers` object because it's dynamically sized
     /// based on the shape; everything in `Buffers` is based on image size.
     vars: wgpu::Buffer,
-
-    /// Lazily-constructed bind group for the vars array
-    vars_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
 }
 
 /// Generic shape color generator
@@ -455,7 +452,6 @@ impl ShapeColorBuffers {
             shape_start: shape_start_buf,
             var_map,
             vars,
-            vars_bind_group: Default::default(),
             config_bind_group: Default::default(),
             reg_count,
         })
@@ -465,23 +461,6 @@ impl ShapeColorBuffers {
     fn axes(&self) -> [u32; 3] {
         [Var::X, Var::Y, Var::Z]
             .map(|a| self.var_map.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
-    }
-
-    fn vars_bind_group(
-        &self,
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-    ) -> &wgpu::BindGroup {
-        self.vars_bind_group.get_or_init(|| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("vars bind group"),
-                layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.vars.as_entire_binding(),
-                }],
-            })
-        })
     }
 
     fn config_bind_group(
@@ -501,6 +480,10 @@ impl ShapeColorBuffers {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: self.shape_start.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.vars.as_entire_binding(),
                     },
                 ],
             })

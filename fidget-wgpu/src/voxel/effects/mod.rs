@@ -1055,9 +1055,6 @@ struct ColorContext {
     /// Configuration bind group layout (shape-specific, includes tape data)
     config_bind_group_layout: wgpu::BindGroupLayout,
 
-    /// Bind group for variables (specific to one evaluation)
-    vars_bind_group_layout: wgpu::BindGroupLayout,
-
     /// Image bind groups (input and output)
     image_bind_group_layout: wgpu::BindGroupLayout,
 
@@ -1070,12 +1067,7 @@ impl ColorContext {
         let config_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("color config and shape"),
-                entries: &[buffer_ro(0), buffer_ro(1)],
-            });
-        let vars_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("color vars"),
-                entries: &[buffer_ro(0)],
+                entries: &[buffer_ro(0), buffer_ro(1), buffer_ro(2)],
             });
         let image_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1088,7 +1080,6 @@ impl ColorContext {
                 label: Some("color pipeline"),
                 bind_group_layouts: &[
                     Some(&config_bind_group_layout),
-                    Some(&vars_bind_group_layout),
                     Some(&image_bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -1112,7 +1103,6 @@ impl ColorContext {
 
         Self {
             config_bind_group_layout,
-            vars_bind_group_layout,
             image_bind_group_layout,
             color_pipeline,
         }
@@ -1145,8 +1135,6 @@ impl ColorContext {
 
         let config_bg = shape
             .config_bind_group(&gpu.device, &self.config_bind_group_layout);
-        let vars_bg =
-            shape.vars_bind_group(&gpu.device, &self.vars_bind_group_layout);
 
         let config = ColorConfig {
             mat: mat.data.as_slice().try_into().unwrap(),
@@ -1202,7 +1190,6 @@ impl ColorContext {
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_bind_group(0, config_bg, &[]);
-            compute_pass.set_bind_group(1, vars_bg, &[]);
 
             // TODO this creates a bind group for every evaluation, instead of
             // caching it somewhere.  However, *where* to cache it is not
@@ -1223,7 +1210,7 @@ impl ColorContext {
                         },
                     ],
                 });
-            compute_pass.set_bind_group(2, &image_bg, &[]);
+            compute_pass.set_bind_group(1, &image_bg, &[]);
             compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
             compute_pass.dispatch_workgroups(
                 size.width().div_ceil(8),

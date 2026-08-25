@@ -21,10 +21,10 @@ struct Config {
 @group(0) @binding(1) var<storage, read> shape_start: array<u32>;
 
 /// Array of values for (non-xyz) variables
-@group(1) @binding(0) var<storage, read> var_values: array<f32>;
+@group(0) @binding(2) var<storage, read> var_values: array<f32>;
 
-@group(2) @binding(0) var<storage, read> image: array<PackedVoxel>;
-@group(2) @binding(1) var<storage, read_write> out: array<u32>; // RGBA
+@group(1) @binding(0) var<storage, read> image: array<PackedVoxel>;
+@group(1) @binding(1) var<storage, read_write> out: array<u32>; // RGBA
 
 @compute @workgroup_size(8, 8)
 fn color_main(
