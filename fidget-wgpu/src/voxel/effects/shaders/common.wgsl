@@ -2,7 +2,7 @@ struct PackedVoxel {
     /// Bit-packed values for normal and index
     ///
     /// Normal is stored as an `[i8; 2]`, normalized to a length of 127 with the
-    /// Z component implied and positive.
+    /// Z component implied and positive.  Index is a 16-bit value.
     norm_index: u32,
 
     /// Depth of the voxel

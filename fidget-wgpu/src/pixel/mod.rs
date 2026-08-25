@@ -21,6 +21,7 @@ use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use fidget_raster::pixel::{RenderConfig, RenderSize};
+pub mod effects;
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const DISTANCE_PIXEL_SHADER: &str = include_str!("shaders/distance_pixel.wgsl");
