@@ -39,6 +39,14 @@
       **agree exactly** with the canonical operator definition.  This required
       removing the JIT implementation for `modulo`, which was not exactly in
       agreement with the non-JIT implementation.
+- Move `fidget_wgpu::effects` to `fidget_wgpu::voxel::effects`
+- Add evaluation of per-pixel colors to `fidget_wgpu::voxel::effects`; see
+  `fidget_wgpu::voxel::effects::Context::submit_color` as the main entry point.
+- Add `fidget_bytecode::Bytecode::build_with_input_map` for building a
+  `Bytecode` object with a particular remapping function for inputs.  This is
+  helpful if you're going to combine multiple bytecode tapes and want them to
+  share a common input indexing order.
+- `VarMap` now implements `Debug`
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one

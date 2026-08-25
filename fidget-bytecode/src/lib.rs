@@ -209,6 +209,9 @@ impl Bytecode {
 
     /// Builds a new bytecode object from VM data, with input remapping
     ///
+    /// This is helpful if you want multiple bytecode tapes to share the same
+    /// input indexing order.
+    ///
     /// If a [`RegOp::Input`] is present in `input_map`, then the index from
     /// `input_map` is used instead of the original index.  Expected patterns
     /// are to remap either all or none of the inputs (the latter is done by the
