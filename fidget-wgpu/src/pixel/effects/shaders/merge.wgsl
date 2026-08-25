@@ -80,105 +80,74 @@ fn tag_at(image_index: u32, pos: vec2u) -> TaggedRawDistancePixel {
 
 fn maybe_denoise(image_index: u32, pos: vec2u) -> RawDistancePixel {
     let pixel = read_pixel(image_index, pos.x + pos.y * config.image_size.x);
-    if config.denoise != 0 {
-        /*
-        if pixel.depth > 0 {
-            if pixel.normal.z > 0.0 {
-                return pixel;
-            } else {
-                let normal = denoise_at(image_index, pos, pixel);
-                return RawDistancePixel(normal, pixel.depth);
-            }
-        } else {
-            return RawDistancePixel(
-                vec3f(0.0, 0.0, 0.0),
-                0,
-            );
-        }
-        */
-        return pixel; /// XXX TODO
+    if config.denoise != 0 && distance_pixel_is_fill(pixel) {
+        return denoise_at(image_index, pos, pixel);
     } else {
         return pixel;
     }
 }
 
-/*
-fn denoise_at(image_index: u32, pos: vec2u, pixel: RawDistancePixel) -> vec3f {
-    let empty = RawDistancePixel(vec3f(0.0), 0);
-    var data = array<array<GeometryPixel, 3>, 3>(
-        array<GeometryPixel, 3>(empty, empty, empty),
-        array<GeometryPixel, 3>(empty, pixel, empty),
-        array<GeometryPixel, 3>(empty, empty, empty),
-    );
-    // Populate a 3x3 grid of normals.
-    for (var i = -1; i <= 1; i += 1) {
-        for (var j = -1; j <= 1; j += 1) {
-            let new_pos = vec2i(pos) + vec2i(i, j);
-            if (i == 0 && j == 0) ||
-                new_pos.x < 0 ||
-                new_pos.y < 0 ||
-                u32(new_pos.x) >= config.image_size.x ||
-                u32(new_pos.y) >= config.image_size.y
-            {
+
+// Replace fill pixels with the average of their actual-distance neighbors,
+// falling back to infinity if that fails.  This prevents glitchiness on the
+// edges of models.  If a fill pixel is exactly at the edge of a model, linear
+// interpolation in the texture means that every pixel interpolated with the
+// infinite pixel is also infinite.
+fn denoise_at(
+    image_index: u32,
+    pos: vec2u,
+    pixel: RawDistancePixel) -> RawDistancePixel
+{
+    var inside_count = 0.0;
+    var inside_avg = 0.0;
+    var outside_count = 0.0;
+    var outside_avg = 0.0;
+
+    for (var dy = -1i; dy <= 1; dy += 1) {
+        let y = i32(pos.y) + dy;
+        if y < 0 || u32(y) > config.image_size.y {
+            continue;
+        }
+        for (var dx = -1i; dx <= 1; dx += 1) {
+            let x = i32(pos.x) + dx;
+            if x < 0 || u32(x) > config.image_size.x {
                 continue;
             }
-            data[i + 1][j + 1] = read_pixel(
+
+            let p = read_pixel(
                 image_index,
-                u32(new_pos.x) + u32(new_pos.y) * config.image_size.x
+                u32(x) + u32(y) * config.image_size.x
             );
+
+            if !distance_pixel_is_fill(p) {
+                let d = bitcast<f32>(p.data);
+                if d < 0.0 {
+                    inside_avg += d;
+                    inside_count += 1;
+                } else {
+                    outside_avg += d;
+                    outside_count += 1;
+                }
+            }
         }
     }
 
-    // Iterate over four 2x2 pixel regions, picking the one that's most
-    // consistent (most normals agree with mean)
-    var scores = array<vec4f, 4>(
-        vec4f(0.0),
-        vec4f(0.0),
-        vec4f(0.0),
-        vec4f(0.0),
-    );
-    for (var i = -1; i <= 0; i += 1) {
-        for (var j = -1; j <= 0; j += 1) {
-            var sum = vec3f(0.0);
-            var count = 0;
-            for (var dx = 0; dx <= 1; dx += 1) {
-                for (var dy = 0; dy <= 1; dy += 1) {
-                    let p = data[i + 1 + dx][j + 1 + dy];
-                    if p.depth != 0 && p.normal.z > 0.0 {
-                        sum += data[i + 1 + dx][j + 1 + dy].normal;
-                        count += 1;
-                    }
-                }
-            }
-            if count == 0 {
-                continue; // leave score as 0
-            }
-            var score = 0.0;
-            let mean = sum / f32(count);
-            for (var dx = 0; dx <= 1; dx += 1) {
-                for (var dy = 0; dy <= 1; dy += 1) {
-                    if data[i + 1 + dx][j + 1 + dy].depth != 0 {
-                        score += dot(mean, data[i + 1 + dx][j + 1 + dy].normal);
-                    }
-                }
-            }
-            scores[(i + 1) + (j + 1) * 2] = vec4f(mean, score);
-        }
+    let pixel_is_inside = distance_pixel_is_inside(pixel);
+    if pixel_is_inside && inside_count > 0 {
+        return distance_pixel_value(inside_avg / inside_count);
+    } else if !pixel_is_inside && outside_count > 0 {
+        return distance_pixel_value(outside_avg / outside_count);
+    } else if inside_count + outside_count > 0 {
+        return distance_pixel_value(
+            (inside_avg + outside_avg)
+            / (inside_count + outside_count)
+        );
+    } else if pixel_is_inside {
+        return RawDistancePixel(0xFF800000); // -infinity
+    } else {
+        return RawDistancePixel(0x7F800000); // +infinity
     }
-
-    var best = scores[0];
-    for (var i = 0; i < 3; i += 1) {
-        if scores[i].w > best.w {
-            best = scores[i];
-        }
-    }
-    // Preserve the back-facing normal if we didn't get any valid quadrants
-    if best.w == 0.0 {
-        return pixel.normal;
-    }
-    return best.xyz;
 }
-*/
 
 fn read_pixel(image_index: u32, pixel_index: u32) -> RawDistancePixel {
     switch image_index {
