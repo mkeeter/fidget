@@ -1,10 +1,16 @@
 use crate::{
-    Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
+    Gpu,
+    RegPipeline,
+    RenderShape,
+    TAPE_DATA_CAPACITY,
+    TapeWord,
     buf::{
         ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
         buffer_ro, buffer_ro_dyn, buffer_rw,
     },
-    shaders, tag,
+    shaders,
+    tag,
+    voxel::effects::MergeConfig, // same layout, unit tested to confirm
 };
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
@@ -25,5 +31,13 @@ mod test {
     #[test]
     fn compile_merge_shader() {
         crate::compile_shader(&merge_shader(), "merge");
+    }
+
+    #[test]
+    fn merge_config_layout() {
+        crate::test::compare_struct_layout::<MergeConfig>(
+            &merge_shader(),
+            "MergeConfig",
+        );
     }
 }
