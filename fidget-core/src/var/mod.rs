@@ -134,6 +134,12 @@ impl VarMap {
             Var::V(v) => self.v.get(v).cloned(),
         }
     }
+
+    /// Checks whether there are free (non-XYZ) variables present in the map
+    pub fn has_free_vars(&self) -> bool {
+        !self.v.is_empty()
+    }
+
     /// Inserts a variable if not already present in the map
     ///
     /// The index is automatically assigned.

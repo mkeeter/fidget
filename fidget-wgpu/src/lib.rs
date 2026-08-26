@@ -4,6 +4,7 @@
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
     eval::Function,
+    shape::{MissingVar, ShapeVars},
     var::{Var, VarMap},
     vm::VmShape,
 };
@@ -366,7 +367,7 @@ pub enum ShapeColor<T> {
     },
 }
 
-impl<C> ShapeColorBuffers<C> {
+impl<C: IntoBytes + Immutable> ShapeColorBuffers<C> {
     fn new(
         colors: &[ShapeColor<VmShape>],
         device: &wgpu::Device,
@@ -468,6 +469,46 @@ impl<C> ShapeColorBuffers<C> {
     fn axes(&self) -> [u32; 3] {
         [Var::X, Var::Y, Var::Z]
             .map(|a| self.var_map.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
+    }
+
+    fn write_config(&self, c: &C, queue: &wgpu::Queue) {
+        let config_len = std::mem::size_of::<C>();
+        let mut writer = queue
+            .write_buffer_with(
+                &self.config,
+                0,
+                (config_len as u64).try_into().unwrap(),
+            )
+            .unwrap();
+        writer.copy_from_slice(c.as_bytes());
+    }
+
+    fn write_vars(
+        &self,
+        vars: &ShapeVars<f32>,
+        queue: &wgpu::Queue,
+    ) -> Result<(), MissingVar> {
+        if self.var_map.has_free_vars() {
+            let var_size = self.vars.size();
+            let mut writer = queue
+                .write_buffer_with(&self.vars, 0, var_size.try_into().unwrap())
+                .unwrap();
+            for (v, i) in self.var_map.iter() {
+                match v {
+                    Var::X | Var::Y | Var::Z => (),
+                    Var::V(vi) => {
+                        let Some(value) = vars.get(vi) else {
+                            return Err(MissingVar { var: vi });
+                        };
+                        let offset = i * std::mem::size_of::<f32>();
+                        writer
+                            .slice(offset..offset + 4)
+                            .copy_from_slice(value.as_bytes());
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn config_bind_group(

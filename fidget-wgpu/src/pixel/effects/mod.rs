@@ -31,14 +31,8 @@ use crate::{
     tag,
     voxel::effects::MergeConfig, // same layout, unit-tested to confirm
 };
-use fidget_core::{
-    render::ImageSize,
-    shape::{MissingVar, ShapeVars},
-    var::Var,
-    vm::VmShape,
-};
+use fidget_core::{render::ImageSize, shape::ShapeVars, vm::VmShape};
 use fidget_raster::RgbaImage;
-use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use crate::voxel::effects::{ColorError, ImageSizeMismatch, MergeError};
@@ -582,42 +576,8 @@ impl ColorContext {
             image_size: [size.width(), size.height()],
             z,
         };
-
-        {
-            // We load the `ColorConfig`; tape data is already in the buffer
-            let config_len = std::mem::size_of_val(&config);
-            let mut writer = gpu
-                .queue
-                .write_buffer_with(
-                    &shape.config,
-                    0,
-                    (config_len as u64).try_into().unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(config.as_bytes());
-        }
-
-        // Copy vars (if present)
-        if let Some(var_size) = NonZeroU64::new(shape.vars.size()) {
-            let mut writer = gpu
-                .queue
-                .write_buffer_with(&shape.vars, 0, var_size)
-                .unwrap();
-            for (v, i) in shape.var_map.iter() {
-                match v {
-                    Var::X | Var::Y | Var::Z => (),
-                    Var::V(vi) => {
-                        let Some(value) = vars.get(vi) else {
-                            return Err(MissingVar { var: vi }.into());
-                        };
-                        let offset = i * std::mem::size_of::<f32>();
-                        writer
-                            .slice(offset..offset + 4)
-                            .copy_from_slice(value.as_bytes());
-                    }
-                }
-            }
-        }
+        shape.write_config(&config, &gpu.queue);
+        shape.write_vars(vars, &gpu.queue)?;
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = gpu.device.create_command_encoder(
