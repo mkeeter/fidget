@@ -319,7 +319,7 @@ impl RenderShape {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Color buffers for rendering a shape's diffuse color
-pub struct ShapeColorBuffers {
+pub struct ShapeColorBuffers<C> {
     /// Unified [`VarMap`] object
     var_map: VarMap,
 
@@ -348,6 +348,9 @@ pub struct ShapeColorBuffers {
     /// This doesn't live in a `Buffers` object because it's dynamically sized
     /// based on the shape; everything in `Buffers` is based on image size.
     vars: wgpu::Buffer,
+
+    // Marker for the config type
+    _config: std::marker::PhantomData<C>,
 }
 
 /// Generic shape color generator
@@ -363,11 +366,10 @@ pub enum ShapeColor<T> {
     },
 }
 
-impl ShapeColorBuffers {
+impl<C> ShapeColorBuffers<C> {
     fn new(
         colors: &[ShapeColor<VmShape>],
         device: &wgpu::Device,
-        config_size: usize,
     ) -> Result<Self, ShapeColorError> {
         // Build a single unified variable map, used across all tapes
         let mut var_map = VarMap::new();
@@ -435,6 +437,7 @@ impl ShapeColorBuffers {
             .copy_from_slice(shape_start.as_bytes());
         shape_start_buf.unmap();
 
+        let config_size = std::mem::size_of::<C>();
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shape_start"),
             size: u64::try_from(
@@ -457,6 +460,7 @@ impl ShapeColorBuffers {
             vars,
             config_bind_group: Default::default(),
             reg_count,
+            _config: std::marker::PhantomData,
         })
     }
 

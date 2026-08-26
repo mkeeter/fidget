@@ -19,7 +19,9 @@
 use crate::{
     Gpu,
     RegPipeline,
+    ShapeColor,
     ShapeColorBuffers,
+    ShapeColorError,
     buf::{
         ArrayBuffer, BufferSizeError, ImageBuffer, buffer_ro, buffer_rw,
         buffer_uniform,
@@ -33,6 +35,7 @@ use fidget_core::{
     render::ImageSize,
     shape::{MissingVar, ShapeVars},
     var::Var,
+    vm::VmShape,
 };
 use fidget_raster::RgbaImage;
 use std::num::NonZeroU64;
@@ -293,7 +296,7 @@ impl Context {
         merge: &mut MergeBuffers,
         world_to_model: &nalgebra::Matrix3<f32>,
         z: f32,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
             merge,
@@ -314,7 +317,7 @@ impl Context {
         merge: &mut MergeBuffers,
         world_to_model: &nalgebra::Matrix3<f32>,
         z: f32,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
     ) -> Result<(), ColorError> {
         self.color_ctx
@@ -360,6 +363,14 @@ impl Context {
             has_color,
             slice,
         }
+    }
+
+    /// Build a set of buffers for doing shape color evaluation
+    pub fn color_buffers(
+        &self,
+        colors: &[ShapeColor<VmShape>],
+    ) -> Result<ShapeColorBuffers<ColorConfig>, ShapeColorError> {
+        ShapeColorBuffers::new(colors, &self.gpu.device)
     }
 }
 
@@ -461,10 +472,13 @@ impl MappedImage<'_> {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Configuration for the color evaluation pass
+///
+/// This is public because it's used in a public function signature, but it's
+/// not expected to be used.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-struct ColorConfig {
+pub struct ColorConfig {
     /// Screen-to-model transform matrix (mat3x3)
     mat: [f32; 12],
 
@@ -543,7 +557,7 @@ impl ColorContext {
         image: &mut MergeBuffers,
         world_to_model: &nalgebra::Matrix3<f32>,
         z: f32,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
         gpu: &Gpu,
     ) -> Result<(), ColorError> {

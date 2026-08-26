@@ -99,10 +99,13 @@ pub struct PackedVoxel {
 }
 
 /// Configuration for the color evaluation pass
+///
+/// This is public because it's used in a public function signature, but it's
+/// not expected to be used.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-struct ColorConfig {
+pub struct ColorConfig {
     /// Screen-to-model transform matrix
     mat: [f32; 16],
 
@@ -665,12 +668,8 @@ impl Context {
     pub fn color_buffers(
         &self,
         colors: &[ShapeColor<VmShape>],
-    ) -> Result<ShapeColorBuffers, ShapeColorError> {
-        ShapeColorBuffers::new(
-            colors,
-            &self.gpu.device,
-            std::mem::size_of::<ColorConfig>(),
-        )
+    ) -> Result<ShapeColorBuffers<ColorConfig>, ShapeColorError> {
+        ShapeColorBuffers::new(colors, &self.gpu.device)
     }
 
     /// Submits a color evaluation pass
@@ -682,7 +681,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
@@ -703,7 +702,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
@@ -1110,7 +1109,7 @@ impl ColorContext {
         &self,
         image: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
         gpu: &Gpu,
