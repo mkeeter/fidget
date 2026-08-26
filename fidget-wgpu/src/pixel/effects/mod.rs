@@ -1,4 +1,21 @@
 //! Pixel post-processing pipelines
+//!
+//! There is a notable difference between voxel and pixel post-processing:
+//! instead of producing a fully-populated RGBA image to be drawn to the screen,
+//! we produce two images: one containing [`RawDistancePixel`] values, and one
+//! containing RGBA values (as 4-byte words).
+//!
+//! This is because – when the final shader draws to the screen – we can improve
+//! visual fidelity by interpolating between distance values (typically by the
+//! texture unit).  If we baked the final RGBA image, then drawing it at a
+//! different scale (e.g. the user has zoomed and we're waiting for the next
+//! image to be completed) would simply be blurry; with distance interpolation,
+//! it remains sharper (though not pixel-perfect).
+//!
+//! Output is stored in the [`MergeBuffers`] object, which wraps a single GPU
+//! buffer with back-to-back distance and color images.  Note that if color has
+//! not been computed, then the second image instead stores merged shape index,
+//! (which is not particularly meaningful to users).
 use crate::{
     Gpu,
     RegPipeline,
