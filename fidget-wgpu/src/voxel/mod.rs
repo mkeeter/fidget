@@ -2758,19 +2758,43 @@ mod test {
     use std::collections::HashSet;
 
     #[test]
-    fn compile_shaders() {
-        for (src, desc) in [
-            (interval_root_shader(16), "interval root"),
-            (interval_tiles_shader(16), "interval tiles"),
-            (voxel_tiles_shader(16), "voxel tiles"),
-            (normals_shader(16), "normals tiles"),
-            (repack_shader(), "repack"),
-            (sort_shader(), "sort"),
-            (merge_shader(), "merge"),
-            (clear_shader(), "clear"),
-        ] {
-            crate::compile_shader(&src, desc);
-        }
+    fn compile_interval_root_shader() {
+        crate::compile_shader(&interval_root_shader(16), "interval root");
+    }
+
+    #[test]
+    fn compile_interval_tiles_shader() {
+        crate::compile_shader(&interval_tiles_shader(16), "interval tiles");
+    }
+
+    #[test]
+    fn compile_voxel_tiles_shader() {
+        crate::compile_shader(&voxel_tiles_shader(16), "voxel tiles");
+    }
+
+    #[test]
+    fn compile_normals_shader() {
+        crate::compile_shader(&normals_shader(16), "normals tiles");
+    }
+
+    #[test]
+    fn compile_repack_shader() {
+        crate::compile_shader(&repack_shader(), "repack");
+    }
+
+    #[test]
+    fn compile_sort_shader() {
+        crate::compile_shader(&sort_shader(), "sort");
+    }
+
+    #[test]
+    fn compile_merge_shader() {
+        crate::compile_shader(&merge_shader(), "merge");
+    }
+
+    #[test]
+    fn compile_clear_shader() {
+        crate::compile_shader(&clear_shader(), "clear");
     }
 
     #[derive(

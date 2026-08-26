@@ -1624,15 +1624,23 @@ mod test {
     use fidget_core::{context::Tree, vm::VmShape};
 
     #[test]
-    fn compile_shaders() {
-        for (src, desc) in [
-            (interval_root_shader(16), "interval root"),
-            (interval_tiles_shader(16), "interval tiles"),
-            (pixel_tiles_shader(16), "pixel tiles"),
-            (merge_shader(), "merge"),
-        ] {
-            crate::compile_shader(&src, desc);
-        }
+    fn compile_interval_root_shader() {
+        crate::compile_shader(&interval_root_shader(16), "interval root");
+    }
+
+    #[test]
+    fn compile_interval_tiles_shader() {
+        crate::compile_shader(&interval_tiles_shader(16), "interval tiles");
+    }
+
+    #[test]
+    fn compile_pixel_tiles_shader() {
+        crate::compile_shader(&pixel_tiles_shader(16), "pixel tiles");
+    }
+
+    #[test]
+    fn compile_merge_shader() {
+        crate::compile_shader(&merge_shader(), "merge");
     }
 
     #[test]
