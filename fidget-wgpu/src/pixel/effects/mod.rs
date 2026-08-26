@@ -20,6 +20,7 @@ pub use crate::voxel::effects::{ImageSizeMismatch, MergeError};
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
+const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
@@ -27,6 +28,20 @@ fn merge_shader() -> String {
         + COMMON_SHADER
         + shaders::COMMON
         + super::DISTANCE_PIXEL_SHADER
+}
+
+fn color_shader(reg_count: u8) -> String {
+    let mut shader_code = shaders::opcode_constants();
+    shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code
+        + COLOR_SHADER
+        + COMMON_SHADER
+        + super::TRANSFORM_INPUT
+        + super::DISTANCE_PIXEL_SHADER
+        + shaders::COMMON
+        + shaders::TAPE_INTERPRETER
+        + shaders::DUMMY_STACK
+        + shaders::FLOAT_OPS
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -250,6 +265,11 @@ mod test {
     #[test]
     fn compile_merge_shader() {
         crate::compile_shader(&merge_shader(), "merge");
+    }
+
+    #[test]
+    fn compile_color_shader() {
+        crate::compile_shader(&color_shader(16), "color");
     }
 
     #[test]
