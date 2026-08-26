@@ -1,3 +1,4 @@
+//! Pixel post-processing pipelines
 use crate::{
     Gpu,
     RegPipeline,

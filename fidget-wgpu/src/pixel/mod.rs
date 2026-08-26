@@ -1224,8 +1224,8 @@ impl Context {
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, Some(out), &settings)?;
-        let image = self.map_image(out);
+        self.submit_with_vars(shape, vars, buffers, &settings)?;
+        let image = self.map_image(buffers, out);
         Ok(image.image())
     }
 
@@ -1272,25 +1272,13 @@ impl Context {
     /// The resulting image (as a buffer of [`RawDistancePixel`] data) is
     /// available on the GPU in
     /// [`buffers.image_storage_buffer()`](Buffers::image_storage_buffer).
-    ///
-    /// If `out` is present, then the rendered image is also copied to that
-    /// [`ImageReadBuffer`] (which may then be mapped for CPU reading by
-    /// [`map_image`](Self::map_image) or
-    /// [`map_image_async`](Self::map_image_async)).
     pub fn submit(
         &self,
         shape: &RenderShape,
         buffers: &mut Buffers,
-        out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        self.submit_with_vars(
-            shape,
-            &Default::default(),
-            buffers,
-            out,
-            settings,
-        )
+        self.submit_with_vars(shape, &Default::default(), buffers, settings)
     }
 
     /// Submits a single image to be rendered on the GPU, with extra variables
@@ -1301,7 +1289,6 @@ impl Context {
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         buffers: &mut Buffers,
-        out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
         buffers.set_image_size(&self.gpu.device, settings.image_size)?;
@@ -1433,45 +1420,49 @@ impl Context {
         );
         drop(compute_pass);
 
-        // Resolve the raw GPU ticks into the resolve buffer, then copy them
-        // into the last 16 bytes of the image buffer
-        if let Some(image) = out {
-            image
-                .grow_to_fit(&self.gpu.device, buffers.image_size)
-                .expect(
-                    "buffers.image_size should always be \
-                 a valid size for ImageReadBuffer::grow_to_fit",
-                );
-            if let Some(timestamps) = &buffers.timestamps {
-                encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
-                encoder.copy_buffer_to_buffer(
-                    &buffers.ts_buf,
-                    0,
-                    image.buffer.data(),
-                    buffers.pixels.size_bytes(), // offset past the image data
-                    buffers.ts_buf.size(),
-                );
-            }
-
-            // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
-            encoder.copy_buffer_to_buffer(
-                buffers.pixels.data(),
-                0,
-                image.buffer.data(),
-                0,
-                buffers.pixels.size_bytes(),
-            );
-        }
-
         // Submit the commands and wait for the GPU to complete
         self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 
-    /// Synchronously maps an image read buffer
-    ///
-    /// The image read buffer should be populated by passing it as an argument
-    /// when calling [`submit`](Self::submit).
+    fn copy_image(&self, buffers: &Buffers, image_out: &mut ImageReadBuffer) {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("map_image"),
+            },
+        );
+        image_out
+            .grow_to_fit(&self.gpu.device, buffers.image_size)
+            .expect(
+                "buffers.image_size should always be \
+                 a valid size for ImageReadBuffer::grow_to_fit",
+            );
+        // Resolve the raw GPU ticks into the resolve buffer, then copy them
+        // into the last 16 bytes of the image buffer
+        if let Some(timestamps) = &buffers.timestamps {
+            encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
+            encoder.copy_buffer_to_buffer(
+                &buffers.ts_buf,
+                0,
+                image_out.buffer.data(),
+                buffers.pixels.size_bytes(), // offset past the image data
+                buffers.ts_buf.size(),
+            );
+        }
+
+        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+        encoder.copy_buffer_to_buffer(
+            buffers.pixels.data(),
+            0,
+            image_out.buffer.data(),
+            0,
+            buffers.pixels.size_bytes(),
+        );
+
+        self.gpu.queue.submit(Some(encoder.finish()));
+    }
+
+    /// Synchronously populates and maps an CPU-readable image buffer
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -1479,15 +1470,17 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn map_image<'a>(
         &self,
-        image: &'a mut ImageReadBuffer,
+        buffers: &Buffers,
+        image_out: &'a mut ImageReadBuffer,
     ) -> MappedImage<'a> {
-        let slice = image.buffer.map_async(|_| {});
+        self.copy_image(buffers, image_out);
+        let slice = image_out.buffer.map_async(|_| {});
         self.gpu
             .device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         MappedImage {
-            image,
+            image: image_out,
             slice,
             ns_per_tick: if self.has_timestamps {
                 Some(self.gpu.queue.get_timestamp_period())
@@ -1497,10 +1490,7 @@ impl Context {
         }
     }
 
-    /// Asynchronously maps an image read buffer
-    ///
-    /// The image read buffer should be populated by passing it as an argument
-    /// when calling [`submit`](Self::submit).
+    /// Asynchronously populates and maps an CPU-readable image buffer
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -1508,8 +1498,10 @@ impl Context {
     #[cfg(any(target_arch = "wasm32", doc))]
     pub async fn map_image_async<'a>(
         &self,
-        image: &'a mut ImageReadBuffer,
+        buffers: &Buffers,
+        image_out: &'a mut ImageReadBuffer,
     ) -> MappedImage<'a> {
+        self.copy_image(buffers, image_out);
         let (tx, rx) = flume::bounded(0);
         let slice = image.buffer.map_async(move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
@@ -1678,7 +1670,6 @@ mod test {
                 .submit(
                     &shape,
                     &mut buf,
-                    Some(&mut pixel_out),
                     &RenderConfig {
                         image_size,
                         world_to_model: nalgebra::Matrix3::identity(),
@@ -1687,7 +1678,7 @@ mod test {
                     },
                 )
                 .unwrap();
-            let img_out = pixel_ctx.map_image(&mut pixel_out).image();
+            let img_out = pixel_ctx.map_image(&buf, &mut pixel_out).image();
             assert_eq!(img_out.size(), image_size);
 
             // Basic circle inside/outside check

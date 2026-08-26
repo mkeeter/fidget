@@ -1290,7 +1290,6 @@ mod test {
             .submit(
                 &shape,
                 &mut buf,
-                None,
                 &crate::voxel::RenderConfig {
                     image_size,
                     world_to_model: nalgebra::Matrix4::identity(),

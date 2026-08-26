@@ -389,8 +389,8 @@ fn run3d_wgpu(
     let shape = gpu.shape(&shape)?;
     let mut compute_pass_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        ctx.submit(&shape, &mut buffers, Some(&mut out), &cfg)?;
-        let img = ctx.map_image(&mut out);
+        ctx.submit(&shape, &mut buffers, &cfg)?;
+        let img = ctx.map_image(&buffers, &mut out);
         compute_pass_time += img.time().unwrap();
         image = img.image();
     }
@@ -671,8 +671,8 @@ fn run2d_wgpu(
     let mut compute_pass_time = std::time::Duration::ZERO;
     let mut postprocess_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        ctx.submit(&shape, &mut buffers, Some(&mut out), &cfg)?;
-        let img = ctx.map_image(&mut out);
+        ctx.submit(&shape, &mut buffers, &cfg)?;
+        let img = ctx.map_image(&buffers, &mut out);
         compute_pass_time += img.time().unwrap();
         let pp_start = std::time::Instant::now();
         image = postprocess2d(img.image(), &mode, threads);
