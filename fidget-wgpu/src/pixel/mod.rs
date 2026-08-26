@@ -879,19 +879,17 @@ pub struct ImageReadBuffer {
 }
 
 impl ImageReadBuffer {
-    fn new(
-        device: &wgpu::Device,
-        name: String,
-        image_size: ImageSize,
-    ) -> Result<Self, BufferSizeError> {
-        Ok(Self {
+    fn new(device: &wgpu::Device, name: String) -> Self {
+        let image_size = 64.into();
+        Self {
             image_size,
             buffer: ImageReadArrayBuffer::new(
                 device,
                 name,
                 Buffers::image_buf_size(image_size),
-            )?,
-        })
+            )
+            .expect("64 should always be a valid size"),
+        }
     }
 
     fn grow_to_fit(
@@ -1197,8 +1195,7 @@ impl Context {
 
     /// Returns an [`ImageReadBuffer`] to read from a [`Buffers`] object
     pub fn image_buffer(&self) -> ImageReadBuffer {
-        ImageReadBuffer::new(&self.gpu.device, "image".to_owned(), 64.into())
-            .expect("64 should always be a valid size for ImageReadBuffer::new")
+        ImageReadBuffer::new(&self.gpu.device, "image".to_owned())
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU

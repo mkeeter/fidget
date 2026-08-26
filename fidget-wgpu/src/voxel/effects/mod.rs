@@ -1,4 +1,4 @@
-//! On-GPU effects
+//! Voxel post-processing effects
 //!
 //! These effects let us set up a simple rendering pipeline:
 //!
