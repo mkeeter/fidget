@@ -1706,6 +1706,7 @@ mod test {
                 }
             }
 
+            // smoke testing for merge pass
             let mut out_buf = effects_ctx.merge_buffers(image_size).unwrap();
             effects_ctx
                 .submit_merge(
@@ -1714,6 +1715,8 @@ mod test {
                     &mut out_buf,
                 )
                 .unwrap();
+
+            todo!("read back image and test color");
         }
     }
 

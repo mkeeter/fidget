@@ -99,7 +99,7 @@ pub struct PackedVoxel {
 /// Configuration for the color evaluation pass
 ///
 /// This is public because it's used in a public function signature, but it's
-/// not expected to be used.
+/// unlikely to be used by library end-users.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
