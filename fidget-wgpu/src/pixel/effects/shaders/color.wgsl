@@ -13,6 +13,12 @@ struct Config {
     /// Image size, in pixels
     image_size: vec2u,
 
+    /// Only compute color for filled pixels when this is non-zero
+    only_filled: u32,
+
+    // manual alignment
+    _pad: u32,
+
     /// Tape data, tightly packed per-tile (flexible array member)
     tape_data: array<TapeWord>,
 }
@@ -38,8 +44,20 @@ fn color_main(
     }
 
     // Shape indices are in the second half of the buffer, offset by image size
-    let i = config.image_size.x * config.image_size.y +
-            global_id.x + config.image_size.x * global_id.y;
+    var i = global_id.x + config.image_size.x * global_id.y;
+    let distance = RawDistancePixel(image[i]);
+
+    // Shift to address shape index / color
+    i += config.image_size.x * config.image_size.y;
+
+    // Store alpha; early exit if we only care about color for filled pixels
+    var alpha = 0u;
+    if distance_pixel_is_inside(distance) {
+        alpha = 0xFF;
+    } else if config.only_filled != 0 {
+        image[i] = 0x00000000;
+        return;
+    }
 
     let tag = image[i];
     if tag >= arrayLength(&shape_start) {
@@ -67,6 +85,5 @@ fn color_main(
     let g = u32(clamp(out_g.value.v, 0.0, 1.0) * 255.0);
     let b = u32(clamp(out_b.value.v, 0.0, 1.0) * 255.0);
 
-    // TODO: consider a flag which only evaluates color if the pixel is filled?
-    image[i] = 0xFF000000 | (b << 16) | (g << 8) | r;
+    image[i] = (alpha << 24) | (b << 16) | (g << 8) | r;
 }

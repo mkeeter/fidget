@@ -103,6 +103,7 @@ pub struct PackedVoxel {
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
+#[doc(hidden)]
 pub struct ColorConfig {
     /// Screen-to-model transform matrix
     mat: [f32; 16],

@@ -1617,6 +1617,7 @@ impl ResetContext {
 
 #[cfg(test)]
 mod test {
+    use super::effects::ColorSettings;
     use super::*;
     use crate::ShapeColor;
     use fidget_raster::RgbaImage;
@@ -1689,8 +1690,11 @@ mod test {
         effects_ctx
             .submit_color(
                 &mut merge_buf,
-                &render_config.world_to_model,
-                0.0,
+                ColorSettings {
+                    z: 0.0,
+                    only_filled: false,
+                    world_to_model: render_config.world_to_model,
+                },
                 &shape_colors,
             )
             .unwrap();
@@ -1773,11 +1777,13 @@ mod test {
                         i as f32, j as f32,
                     ));
                     let p = out.color[(j as usize, i as usize)];
+                    let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
+                    let alpha = if r < 0.5 { 255 } else { 0 };
                     let expected_color = [
                         (pos.x.clamp(0.0, 1.0) * 255.0) as u8,
                         (pos.y.clamp(0.0, 1.0) * 255.0) as u8,
                         127,
-                        255, // alpha is always 1 right now
+                        alpha,
                     ];
                     assert_eq!(
                         p, expected_color,

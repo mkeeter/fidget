@@ -305,17 +305,10 @@ impl Context {
     pub fn submit_color(
         &self,
         merge: &mut MergeBuffers,
-        world_to_model: &nalgebra::Matrix3<f32>,
-        z: f32,
+        settings: ColorSettings,
         shape: &ShapeColorBuffers<ColorConfig>,
     ) -> Result<(), ColorError> {
-        self.submit_color_with_vars(
-            merge,
-            world_to_model,
-            z,
-            shape,
-            &Default::default(),
-        )
+        self.submit_color_with_vars(merge, settings, shape, &Default::default())
     }
 
     /// Submits a color evaluation pass with auxiliary variables
@@ -326,13 +319,12 @@ impl Context {
     pub fn submit_color_with_vars(
         &self,
         merge: &mut MergeBuffers,
-        world_to_model: &nalgebra::Matrix3<f32>,
-        z: f32,
+        settings: ColorSettings,
         shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
     ) -> Result<(), ColorError> {
         self.color_ctx
-            .submit(merge, world_to_model, z, shape, vars, &self.gpu)
+            .submit(merge, settings, shape, vars, &self.gpu)
     }
 
     /// Returns an [`ImageReadBuffer`] to read from a [`MergeBuffers`] object
@@ -488,6 +480,7 @@ impl MappedImage<'_> {
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
+#[doc(hidden)]
 pub struct ColorConfig {
     /// Screen-to-model transform matrix (mat3x3)
     mat: [f32; 12],
@@ -502,7 +495,29 @@ pub struct ColorConfig {
 
     /// Image size (pixels)
     image_size: [u32; 2],
+
+    ///When non-zero, only compute color for filled pixels
+    only_filled: u32,
+
+    // alignment
+    _pad: u32,
     // this is followed by a tape_data flexible array member
+}
+
+/// Settings for per-pixel color evaluation
+#[derive(Copy, Clone, Debug)]
+pub struct ColorSettings {
+    /// Z height at which to evaluate the colors
+    pub z: f32,
+
+    /// When non-zero, only compute color for filled pixels
+    pub only_filled: bool,
+
+    /// Transform matrix
+    ///
+    /// This should be the same transform matrix used to evaluate the original
+    /// pixel image (unless you're doing something weird)
+    pub world_to_model: nalgebra::Matrix3<f32>,
 }
 
 struct ColorContext {
@@ -565,8 +580,7 @@ impl ColorContext {
     fn submit(
         &self,
         image: &mut MergeBuffers,
-        world_to_model: &nalgebra::Matrix3<f32>,
-        z: f32,
+        settings: ColorSettings,
         shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
         gpu: &Gpu,
@@ -578,7 +592,7 @@ impl ColorContext {
             });
         }
         let size = image.out.size();
-        let mat = world_to_model
+        let mat = settings.world_to_model
             * ImageSize::new(size.width(), size.height()).screen_to_world();
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
@@ -590,7 +604,9 @@ impl ColorContext {
             mat: mat4.data.as_slice().try_into().unwrap(),
             axes: shape.axes(),
             image_size: [size.width(), size.height()],
-            z,
+            only_filled: settings.only_filled.into(),
+            _pad: 0,
+            z: settings.z,
         };
         shape.write_config(&config, &gpu.queue);
         shape.write_vars(vars, &gpu.queue)?;
