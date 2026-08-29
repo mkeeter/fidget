@@ -1618,6 +1618,9 @@ impl ResetContext {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ShapeColor;
+    use fidget_raster::RgbaImage;
+
     use fidget_core::{context::Tree, vm::VmShape};
 
     #[test]
@@ -1640,6 +1643,67 @@ mod test {
         crate::compile_shader(&merge_shader(), "merge");
     }
 
+    struct RenderOutput {
+        distance: Image,
+        colors: RgbaImage,
+    }
+
+    fn render(
+        shapes: &[(Tree, ShapeColor<Tree>)],
+        render_config: RenderConfig,
+    ) -> RenderOutput {
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let pixel_ctx = Context::new(&gpu);
+        let effects_ctx = effects::Context::new(&gpu);
+
+        let mut buf = pixel_ctx.buffers();
+        let mut merge_buf =
+            effects_ctx.merge_buffers(render_config.image_size).unwrap();
+
+        // Render and accumulate each shape
+        for (shape, _) in shapes {
+            let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
+            pixel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
+            effects_ctx
+                .submit_merge(
+                    &[buf.image_storage_buffer()],
+                    true,
+                    &mut merge_buf,
+                )
+                .unwrap();
+        }
+        let shape_colors = shapes
+            .iter()
+            .map(|(_, c)| {
+                let ShapeColor::Rgb { r, g, b } = c;
+                ShapeColor::Rgb {
+                    r: VmShape::from(r.clone()),
+                    g: VmShape::from(g.clone()),
+                    b: VmShape::from(b.clone()),
+                }
+            })
+            .collect::<Vec<_>>();
+        let shape_colors = effects_ctx.color_buffers(&shape_colors).unwrap();
+
+        // Compute per-pixel colors
+        effects_ctx
+            .submit_color(
+                &mut merge_buf,
+                &render_config.world_to_model,
+                0.0,
+                &shape_colors,
+            )
+            .unwrap();
+
+        let mut out = effects_ctx.image_buffer();
+        let img = effects_ctx.map_image(&merge_buf, &mut out);
+
+        RenderOutput {
+            colors: img.color().unwrap(),
+            distance: img.distance(),
+        }
+    }
+
     #[test]
     fn pixel_pipeline() {
         // We only run in CI if we're on MacOS (because other runners don't have
@@ -1649,14 +1713,8 @@ mod test {
             return;
         }
 
-        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
-        let pixel_ctx = Context::new(&gpu);
-        let effects_ctx = effects::Context::new(&gpu);
-        let mut buf = pixel_ctx.buffers();
-
         let (x, y, _z) = Tree::axes();
         let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
-        let shape = gpu.shape(&VmShape::from(circle)).unwrap();
 
         // Test a variety of image sizes for correctness
         for image_size in [
@@ -1665,21 +1723,40 @@ mod test {
             RenderSize::new(64, 128),
             RenderSize::new(27, 51),
         ] {
-            let mut pixel_out = pixel_ctx.image_buffer();
-            pixel_ctx
-                .submit(
-                    &shape,
-                    &mut buf,
-                    &RenderConfig {
-                        image_size,
-                        world_to_model: nalgebra::Matrix3::identity(),
-                        pixel_perfect: false,
-                        z: 0.0,
+            let out = render(
+                &[(
+                    circle,
+                    ShapeColor::Rgb {
+                        r: Tree::constant(1.0),
+                        g: Tree::constant(1.0),
+                        b: Tree::constant(1.0),
                     },
-                )
-                .unwrap();
-            let img_out = pixel_ctx.map_image(&buf, &mut pixel_out).image();
-            assert_eq!(img_out.size(), image_size);
+                )],
+                RenderConfig {
+                    image_size,
+                    world_to_model: nalgebra::Matrix3::identity(),
+                    pixel_perfect: false,
+                    z: 0.0,
+                },
+            );
+            assert_eq!(out.colors.size(), image_size);
+            assert_eq!(out.distance.size(), image_size);
+
+            for j in 0..image_size.height() {
+                for i in 0..image_size.width() {
+                    let p = out.distance[(j as usize, i as usize)];
+                    print!(
+                        "{}",
+                        match (p.inside(), p.is_distance()) {
+                            (true, true) => '#',
+                            (true, false) => 'X',
+                            (false, true) => '.',
+                            (false, false) => '-',
+                        }
+                    );
+                }
+                println!();
+            }
 
             // Basic circle inside/outside check
             let mat = image_size.screen_to_world();
@@ -1688,7 +1765,7 @@ mod test {
                     let pos = mat.transform_point(&nalgebra::Point2::new(
                         i as f32, j as f32,
                     ));
-                    let p = img_out[(j as usize, i as usize)];
+                    let p = out.distance[(j as usize, i as usize)];
                     let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
                     if r < 0.5 {
                         assert!(
@@ -1705,16 +1782,6 @@ mod test {
                     }
                 }
             }
-
-            // smoke testing for merge pass
-            let mut out_buf = effects_ctx.merge_buffers(image_size).unwrap();
-            effects_ctx
-                .submit_merge(
-                    &[buf.image_storage_buffer()],
-                    false,
-                    &mut out_buf,
-                )
-                .unwrap();
 
             todo!("read back image and test color");
         }

@@ -37,16 +37,12 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use crate::voxel::effects::{ColorError, ImageSizeMismatch, MergeError};
 
-const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned()
-        + COMMON_SHADER
-        + shaders::COMMON
-        + super::DISTANCE_PIXEL_SHADER
+    MERGE_SHADER.to_owned() + shaders::COMMON + super::DISTANCE_PIXEL_SHADER
 }
 
 fn color_shader(reg_count: u8) -> String {
@@ -54,7 +50,6 @@ fn color_shader(reg_count: u8) -> String {
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code
         + COLOR_SHADER
-        + COMMON_SHADER
         + super::TRANSFORM_INPUT
         + super::DISTANCE_PIXEL_SHADER
         + shaders::COMMON
@@ -82,6 +77,10 @@ pub struct MergeBuffers {
     /// the shape index then is rewritten to be color.
     out: ImageBuffer<MergedPixelBufferTag>,
 
+    /// Set to `true` if the second half of the output buffer represents color
+    has_color: bool,
+
+    /// Number of images merged together
     image_count: usize,
 }
 
@@ -179,6 +178,7 @@ impl Context {
             .grow_to_fit(&self.gpu.device, size)
             .map_err(MergeError::OutputSize)?;
         buf.image_count = images.len();
+        buf.has_color = false;
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
                 label: Some("merge compute encoder"),
@@ -277,6 +277,7 @@ impl Context {
             config,
             out,
             image_count: 0,
+            has_color: false,
         })
     }
 
@@ -327,7 +328,6 @@ impl Context {
     pub fn map_image<'a>(
         &self,
         image_in: &'a MergeBuffers,
-        has_color: bool,
         image_out: &'a mut ImageReadBuffer,
     ) -> MappedImage<'a> {
         let mut encoder = self.gpu.device.create_command_encoder(
@@ -354,7 +354,7 @@ impl Context {
             .unwrap();
         MappedImage {
             image: image_out,
-            has_color,
+            has_color: image_in.has_color,
             slice,
         }
     }
@@ -595,13 +595,17 @@ impl ColorContext {
             // caching it somewhere.  However, *where* to cache it is not
             // obvious, because it combines fields from two different buffer
             // objects.
+            let b = image.out.size_bytes();
             let image_bg =
                 gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("color image bind group"),
                     layout: &self.image_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: image.out.bind_active(),
+                        // We're being tricky here, because the output data
+                        // buffer is actually two images packed back-to-back,
+                        // but we only care about the second one
+                        resource: image.out.data().slice((b / 2)..b).into(),
                     }],
                 });
             compute_pass.set_bind_group(1, &image_bg, &[]);
@@ -613,6 +617,7 @@ impl ColorContext {
             );
         }
         gpu.queue.submit(Some(encoder.finish()));
+        image.has_color = true;
         Ok(())
     }
 }

@@ -74,7 +74,7 @@ fn merge_main(
     }
 
     out[i] = p.distance.data;
-    out[i + offset] = p.index;
+    out[i + offset] = p.tag;
 }
 
 fn tag_at(image_index: u32, pos: vec2u) -> TaggedRawDistancePixel {
@@ -200,4 +200,13 @@ fn merge_pixel(
     } else {
         return b;
     }
+}
+
+/// Distance pixel with an associated shape tag
+struct TaggedRawDistancePixel {
+    /// Distance associated with this pixel
+    distance: RawDistancePixel,
+
+    /// Tag; this is either a shape index or an RGBA color
+    tag: u32,
 }

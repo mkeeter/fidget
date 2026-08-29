@@ -23,8 +23,8 @@ struct Config {
 /// Array of values for (non-xyz) variables
 @group(0) @binding(2) var<storage, read> var_values: array<f32>;
 
-/// Image; index is a shape index going in and an RGBA value going out
-@group(1) @binding(0) var<storage, read_write> image: array<TaggedRawDistancePixel>;
+/// Image buffer, which is shape index going in and color going out
+@group(1) @binding(0) var<storage, read_write> image: array<u32>;
 
 @compute @workgroup_size(8, 8)
 fn color_main(
@@ -39,9 +39,9 @@ fn color_main(
 
     let i = global_id.x + config.image_size.x * global_id.y;
 
-    let p = image[i];
-    if p.index >= arrayLength(&shape_start) {
-        image[i].index = 0xFF0000FF; // corrupt, fill with red
+    let tag = image[i];
+    if tag >= arrayLength(&shape_start) {
+        image[i] = 0xFF0000FF; // corrupt, fill with red
         return;
     }
 
@@ -52,7 +52,7 @@ fn color_main(
     );
     let m = array(m_xy[0], m_xy[1], build_imm(config.z));
 
-    let index = shape_start[p.index];
+    let index = shape_start[tag];
     var stack = Stack(); // dummy value
 
     // RGB tapes are packed together
@@ -64,5 +64,5 @@ fn color_main(
     let r = u32(clamp(out_r.value.v, 0.0, 1.0) * 255.0);
     let g = u32(clamp(out_g.value.v, 0.0, 1.0) * 255.0);
     let b = u32(clamp(out_b.value.v, 0.0, 1.0) * 255.0);
-    image[i].index = 0xFF000000 | (b << 16) | (g << 8) | r;
+    image[i] = 0xFF000000 | (b << 16) | (g << 8) | r;
 }
