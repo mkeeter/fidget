@@ -908,6 +908,38 @@ impl JitFunction {
     }
 }
 
+/// Low-level [`Function`] implementation for [`JitFunction`]
+///
+/// If you are evaluating a 2D or 3D shape (with X/Y/Z coordinates), then
+/// consider using [`Shape`](fidget_core::shape::Shape) instead, which provides
+/// pleasant high-level abstractions.
+///
+/// Here's an example of using the low-level APIs:
+/// ```
+/// # use fidget_core::context::{Context, Tree};
+/// # use fidget_core::eval::{Function, TracingEvaluator, MathFunction};
+/// # use fidget_jit::{JitIntervalEval, JitTracingFn, JitFunction};
+/// # use fidget_core::types::Interval;
+/// let tree = (Tree::x().square() - 1.0).square() + 0.6 * Tree::x() + 2.0;
+/// let mut ctx = Context::new();
+/// let root = ctx.import(&tree);
+///
+/// // Build the function (type-agnostic) and tape (type-specific)
+/// let func = JitFunction::new(&ctx, &[root]).unwrap();
+/// let i_tape = func.interval_tape(Default::default());
+///
+/// // Build the evaluator (typically one per thread)
+/// let mut interval_evaluator = JitIntervalEval::default();
+///
+/// // Evaluate the function.  We know that it has a one input variable (x) and
+/// // one output, so we pass in a single-element input slice and expect a
+/// // single-element `[result]` slice as its output.
+/// let Ok((&[result], trace)) = interval_evaluator
+///     .eval(&i_tape, &[Interval::new(1.0, 2.0)])
+///     else { panic!() };
+/// assert_eq!(result, Interval::new(2.6, 12.2));
+/// assert!(trace.is_none()); // no choice nodes in this expression
+/// ```
 impl Function for JitFunction {
     type Trace = VmTrace;
     type Storage = VmData<REGISTER_LIMIT>;
