@@ -1645,7 +1645,7 @@ mod test {
 
     struct RenderOutput {
         distance: Image,
-        colors: RgbaImage,
+        color: RgbaImage,
     }
 
     fn render(
@@ -1699,7 +1699,7 @@ mod test {
         let img = effects_ctx.map_image(&merge_buf, &mut out);
 
         RenderOutput {
-            colors: img.color().unwrap(),
+            color: img.color().unwrap(),
             distance: img.distance(),
         }
     }
@@ -1725,11 +1725,11 @@ mod test {
         ] {
             let out = render(
                 &[(
-                    circle,
+                    circle.clone(),
                     ShapeColor::Rgb {
-                        r: Tree::constant(1.0),
-                        g: Tree::constant(1.0),
-                        b: Tree::constant(1.0),
+                        r: Tree::x(),
+                        g: Tree::y(),
+                        b: Tree::constant(0.5),
                     },
                 )],
                 RenderConfig {
@@ -1739,24 +1739,8 @@ mod test {
                     z: 0.0,
                 },
             );
-            assert_eq!(out.colors.size(), image_size);
+            assert_eq!(out.color.size(), image_size);
             assert_eq!(out.distance.size(), image_size);
-
-            for j in 0..image_size.height() {
-                for i in 0..image_size.width() {
-                    let p = out.distance[(j as usize, i as usize)];
-                    print!(
-                        "{}",
-                        match (p.inside(), p.is_distance()) {
-                            (true, true) => '#',
-                            (true, false) => 'X',
-                            (false, true) => '.',
-                            (false, false) => '-',
-                        }
-                    );
-                }
-                println!();
-            }
 
             // Basic circle inside/outside check
             let mat = image_size.screen_to_world();
@@ -1783,7 +1767,24 @@ mod test {
                 }
             }
 
-            todo!("read back image and test color");
+            for j in 0..image_size.height() {
+                for i in 0..image_size.width() {
+                    let pos = mat.transform_point(&nalgebra::Point2::new(
+                        i as f32, j as f32,
+                    ));
+                    let p = out.color[(j as usize, i as usize)];
+                    let expected_color = [
+                        (pos.x.clamp(0.0, 1.0) * 255.0) as u8,
+                        (pos.y.clamp(0.0, 1.0) * 255.0) as u8,
+                        127,
+                        255, // alpha is always 1 right now
+                    ];
+                    assert_eq!(
+                        p, expected_color,
+                        "color mismatch at {i}, {j} ({pos})"
+                    );
+                }
+            }
         }
     }
 

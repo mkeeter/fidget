@@ -37,7 +37,9 @@ fn color_main(
         return;
     }
 
-    let i = global_id.x + config.image_size.x * global_id.y;
+    // Shape indices are in the second half of the buffer, offset by image size
+    let i = config.image_size.x * config.image_size.y +
+            global_id.x + config.image_size.x * global_id.y;
 
     let tag = image[i];
     if tag >= arrayLength(&shape_start) {
@@ -64,5 +66,7 @@ fn color_main(
     let r = u32(clamp(out_r.value.v, 0.0, 1.0) * 255.0);
     let g = u32(clamp(out_g.value.v, 0.0, 1.0) * 255.0);
     let b = u32(clamp(out_b.value.v, 0.0, 1.0) * 255.0);
+
+    // TODO: consider a flag which only evaluates color if the pixel is filled?
     image[i] = 0xFF000000 | (b << 16) | (g << 8) | r;
 }

@@ -17,19 +17,13 @@
 //! not been computed, then the second image instead stores merged shape index,
 //! (which is not particularly meaningful to users).
 use crate::{
-    Gpu,
-    RegPipeline,
-    ShapeColor,
-    ShapeColorBuffers,
-    ShapeColorError,
+    Gpu, RegPipeline, ShapeColor, ShapeColorBuffers, ShapeColorError,
     buf::{
         ArrayBuffer, BufferSizeError, ImageBuffer, buffer_ro, buffer_rw,
         buffer_uniform,
     },
     pixel::{PixelBufferTag, RawDistancePixel},
-    shaders,
-    tag,
-    voxel::effects::MergeConfig, // same layout, unit-tested to confirm
+    shaders, tag,
 };
 use fidget_core::{render::ImageSize, shape::ShapeVars, vm::VmShape};
 use fidget_raster::RgbaImage;
@@ -82,6 +76,28 @@ pub struct MergeBuffers {
 
     /// Number of images merged together
     image_count: usize,
+}
+
+#[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
+#[repr(C)]
+pub(crate) struct MergeConfig {
+    /// Image size, in pixels
+    pub image_size: [u32; 2],
+
+    /// Whether or not convert NaN values to distance values
+    pub remove_nans: u32,
+
+    /// Offset applied to indices when merging
+    ///
+    /// When this is 0, we initialize the output image
+    pub index_base: u32,
+
+    /// Number of valid image buffers (0-7)
+    pub image_count: u32,
+
+    // padding to the nearest multiple of 8
+    pub _pad: u32,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -158,7 +174,7 @@ impl Context {
     pub fn submit_merge(
         &self,
         images: &[&ImageBuffer<PixelBufferTag>],
-        denoise: bool,
+        remove_nans: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
         let Some(size) = images.first().map(|i| i.size()) else {
@@ -195,7 +211,7 @@ impl Context {
             for (i, chunk) in images.chunks(7).enumerate() {
                 let cfg = MergeConfig {
                     image_size: [size.width(), size.height()],
-                    denoise: denoise as u32,
+                    remove_nans: remove_nans as u32,
                     index_base: i as u32 * 7,
                     image_count: chunk.len() as u32,
                     _pad: 0,
@@ -595,17 +611,13 @@ impl ColorContext {
             // caching it somewhere.  However, *where* to cache it is not
             // obvious, because it combines fields from two different buffer
             // objects.
-            let b = image.out.size_bytes();
             let image_bg =
                 gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("color image bind group"),
                     layout: &self.image_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
-                        // We're being tricky here, because the output data
-                        // buffer is actually two images packed back-to-back,
-                        // but we only care about the second one
-                        resource: image.out.data().slice((b / 2)..b).into(),
+                        resource: image.out.bind_active(),
                     }],
                 });
             compute_pass.set_bind_group(1, &image_bg, &[]);
