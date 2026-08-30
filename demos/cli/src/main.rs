@@ -403,9 +403,9 @@ fn run3d_wgpu(
     );
 
     let effects = fidget::wgpu::voxel::effects::Context::new(&gpu);
-    let mut merge_buf = effects.merge_buffers(image_size)?;
-    let mut ssao_buf = effects.ssao_buffers(image_size)?;
-    let mut shade_buf = effects.shade_buffers(image_size.into())?;
+    let mut merge_buf = effects.merge_buffers();
+    let mut ssao_buf = effects.ssao_buffers();
+    let mut shade_buf = effects.shade_buffers();
 
     let start = std::time::Instant::now();
     let out_bytes = match mode {

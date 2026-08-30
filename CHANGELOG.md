@@ -10,6 +10,10 @@
       without a size, and resized when passed to render functions.  Functions
       which do resizing have a new possible error variant if the render size is
       too large for WGPU buffers.
+    - Removed size from many buffer construction functions in
+      `fidget::wgpu::voxel`, since they're resized when used in evaluation.
+    - Add `fidget::wgpu::buf::DepthImageBuffer`, which is a flexible image
+      buffer taking a `VoxelSize` (so that it preserves depth).
 - Add `z` to `fidget::raster::pixel::RenderConfig` to set the Z evaluation level
 - Move `PartialEq` implementation from `Tree` to `TreeOp`; switch to
   `OrderedFloat` semantics so that pointer comparisons are valid.  Previously,
