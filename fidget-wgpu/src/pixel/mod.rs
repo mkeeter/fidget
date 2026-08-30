@@ -1795,6 +1795,139 @@ mod test {
     }
 
     #[test]
+    fn pixel_multiple_images() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let circle_a = ((Tree::x() - 0.5).square() + Tree::y().square()).sqrt()
+            - Tree::constant(0.25);
+        let circle_b = ((Tree::x() + 0.5).square() + Tree::y().square()).sqrt()
+            - Tree::constant(0.25);
+
+        // Test a variety of image sizes for correctness
+        let image_size = RenderSize::new(64, 64);
+        let out = render(
+            &[
+                (
+                    circle_a,
+                    ShapeColor::Rgb {
+                        r: Tree::constant(0.0),
+                        g: Tree::constant(0.0),
+                        b: Tree::constant(1.0),
+                    },
+                ),
+                (
+                    circle_b,
+                    ShapeColor::Rgb {
+                        r: Tree::constant(0.0),
+                        g: Tree::constant(1.0),
+                        b: Tree::constant(0.0),
+                    },
+                ),
+            ],
+            RenderConfig {
+                image_size,
+                world_to_model: nalgebra::Matrix3::identity(),
+                pixel_perfect: false,
+                z: 0.0,
+            },
+        );
+        assert_eq!(out.color.size(), image_size);
+        assert_eq!(out.distance.size(), image_size);
+
+        let mut pixels = String::new();
+        for j in 0..image_size.height() {
+            for i in 0..image_size.width() {
+                let p = out.color[(j as usize, i as usize)];
+                let c = match p {
+                    [0, 0, 255, 0] => "b",
+                    [0, 0, 255, 255] => "B",
+                    [0, 255, 0, 0] => "g",
+                    [0, 255, 0, 255] => "G",
+                    _ => panic!("invalid color {p:?}"),
+                };
+                pixels += c;
+            }
+            pixels += "\n";
+        }
+
+        assert_eq!(
+            pixels,
+            "\
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            gggggggggggggGGGGGGGgggggggggggggbbbbbbbbbbbbBBBBBBBbbbbbbbbbbbb
+            gggggggggggGGGGGGGGGGGgggggggggggbbbbbbbbbbBBBBBBBBBBBbbbbbbbbbb
+            ggggggggggGGGGGGGGGGGGGggggggggggbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            ggggggggggGGGGGGGGGGGGGggggggggggbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggggggggbbBBBBBBBBBBBBBBBgggggggg
+            gggggggggGGGGGGGGGGGGGGGgggggggggggggggbbBBBBBBBBBBBBBBBbggggggg
+            ggggggggggGGGGGGGGGGGGGggggggggggggggggbbbBBBBBBBBBBBBBbbggggggg
+            ggggggggggGGGGGGGGGGGGGggggggggggggggggbbbBBBBBBBBBBBBBbbggggggg
+            gggggggggggGGGGGGGGGGGgggggggggggggggggbbbbBBBBBBBBBBBbbbggggggg
+            gggggggggggggGGGGGGGgggggggggggggggggggbbbbbbBBBBBBBbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            "
+            .replace(" ", "")
+        );
+    }
+
+    #[test]
     fn pixel_config_layout() {
         // Pick any shader, since `struct Config` is in the common text
         crate::test::compare_struct_layout::<Config>(&merge_shader(), "Config");

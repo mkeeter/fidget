@@ -78,6 +78,18 @@ pub struct MergeBuffers {
     image_count: usize,
 }
 
+impl MergeBuffers {
+    /// Resets the merge buffer
+    ///
+    /// The next call to [`Context::submit_merge`] will clear the buffer and
+    /// begin accumulating from scratch.
+    pub fn reset(&mut self) {
+        self.has_color = false;
+        self.image_count = 0;
+    }
+}
+
+/// Mirror of the WGSL `MergeConfig` object
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
@@ -190,10 +202,17 @@ impl Context {
                 .into());
             }
         }
+        if buf.image_count > 0 && size != buf.out.size() {
+            return Err(ImageSizeMismatch {
+                expected: size,
+                actual: buf.out.size(),
+            }
+            .into());
+        }
+
         buf.out
             .grow_to_fit(&self.gpu.device, size)
             .map_err(MergeError::OutputSize)?;
-        buf.image_count = images.len();
         buf.has_color = false;
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -208,11 +227,11 @@ impl Context {
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_pipeline(&self.merge_pipeline);
-            for (i, chunk) in images.chunks(7).enumerate() {
+            for chunk in images.chunks(7) {
                 let cfg = MergeConfig {
                     image_size: [size.width(), size.height()],
                     remove_nans: remove_nans as u32,
-                    index_base: i as u32 * 7,
+                    index_base: buf.image_count as u32,
                     image_count: chunk.len() as u32,
                     _pad: 0,
                 };
@@ -267,6 +286,7 @@ impl Context {
                     size.height().div_ceil(8),
                     1,
                 );
+                buf.image_count += chunk.len();
             }
         }
         self.gpu.queue.submit(Some(encoder.finish()));

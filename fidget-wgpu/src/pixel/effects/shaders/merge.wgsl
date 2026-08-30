@@ -92,7 +92,6 @@ fn maybe_remove_nans(image_index: u32, pos: vec2u) -> RawDistancePixel {
     }
 }
 
-
 // Replace fill pixels (NaN-boxed) with the average of their actual-distance
 // neighbors, falling back to infinity if that fails.  This prevents glitchiness
 // on the edges of models: If a NaN-boxed fill pixel is exactly at the edge of a
