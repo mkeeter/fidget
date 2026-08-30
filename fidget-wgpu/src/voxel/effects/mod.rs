@@ -12,14 +12,14 @@
 use crate::{
     Gpu, RegPipeline, ShapeColor, ShapeColorBuffers, ShapeColorError,
     buf::{
-        BufferSizeError, ImageBuffer, ImageReadBuffer, buffer_ro, buffer_rw,
-        buffer_uniform,
+        BufferSizeError, DepthImageBuffer, ImageBuffer, ImageReadBuffer,
+        buffer_ro, buffer_rw, buffer_uniform,
     },
     shaders, tag,
     voxel::GeomBufferTag,
 };
 use fidget_core::{
-    render::{ImageSize, VoxelSize},
+    render::VoxelSize,
     shape::{MissingVar, ShapeVars},
     var::Var,
     vm::VmShape,
@@ -163,14 +163,13 @@ tag!(pub MergeVoxelBufferTag, PackedVoxel, STORAGE | COPY_SRC,
 /// Handle to a set of buffers used when merging images
 pub struct MergeBuffers {
     config: wgpu::Buffer,
-    out: ImageBuffer<MergeVoxelBufferTag>,
-    depth: u32,
+    out: DepthImageBuffer<MergeVoxelBufferTag>,
     image_count: usize,
 }
 
 impl MergeBuffers {
     /// Returns a handle to the output buffer
-    pub fn output(&self) -> &ImageBuffer<MergeVoxelBufferTag> {
+    pub fn output(&self) -> &DepthImageBuffer<MergeVoxelBufferTag> {
         &self.out
     }
 }
@@ -183,12 +182,12 @@ tag!(
 /// Handle to a set of buffers used when shading images
 pub struct ShadeBuffers {
     config: wgpu::Buffer,
-    out: ImageBuffer<ShadedImageTag>,
+    out: DepthImageBuffer<ShadedImageTag>,
 }
 
 impl ShadeBuffers {
     /// Returns a reference to the output buffer
-    pub fn output(&self) -> &ImageBuffer<ShadedImageTag> {
+    pub fn output(&self) -> &DepthImageBuffer<ShadedImageTag> {
         &self.out
     }
 }
@@ -263,8 +262,8 @@ pub enum ColorError {
     actual.width(), actual.height()
 )]
 pub struct ImageSizeMismatch {
-    expected: ImageSize,
-    actual: ImageSize,
+    expected: VoxelSize,
+    actual: VoxelSize,
 }
 
 impl Context {
@@ -361,54 +360,55 @@ impl Context {
         }
     }
 
-    /// Builds a new set of [`MergeBuffers`] for the given image size
-    pub fn merge_buffers(
-        &self,
-        image_size: VoxelSize,
-    ) -> Result<MergeBuffers, BufferSizeError> {
+    /// Builds a new set of [`MergeBuffers`]
+    ///
+    /// These will be resized when first used (in
+    /// [`submit_merge`](Self::submit_merge))
+    pub fn merge_buffers(&self) -> MergeBuffers {
         let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
             size: std::mem::size_of::<MergeConfig>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = ImageBuffer::new(
+        let out = DepthImageBuffer::new(
             &self.gpu.device,
             "merge output".to_owned(),
-            image_size.into(),
-        )?;
-        Ok(MergeBuffers {
+            64.into(),
+        )
+        .expect("64 is always a valid size");
+        MergeBuffers {
             config,
             out,
-            depth: image_size.depth(),
             image_count: 0,
-        })
+        }
     }
 
-    /// Builds a new set of [`ShadeBuffers`] for the given image size
-    pub fn shade_buffers(
-        &self,
-        image_size: ImageSize,
-    ) -> Result<ShadeBuffers, BufferSizeError> {
+    /// Builds a new set of [`ShadeBuffers`]
+    ///
+    /// These will be resized when first used (in
+    /// [`submit_shade`](Self::submit_shade))
+    pub fn shade_buffers(&self) -> ShadeBuffers {
         let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shade config"),
             size: std::mem::size_of::<ShadeConfig>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = ImageBuffer::new(
+        let out = DepthImageBuffer::new(
             &self.gpu.device,
             "shade output".to_owned(),
-            ImageSize::new(image_size.width(), image_size.height()),
-        )?;
-        Ok(ShadeBuffers { config, out })
+            64.into(),
+        )
+        .expect("64 is always a valid size");
+        ShadeBuffers { config, out }
     }
 
-    /// Builds a new set of [`SsaoBuffers`] for the given image size
-    pub fn ssao_buffers(
-        &self,
-        image_size: VoxelSize,
-    ) -> Result<SsaoBuffers, BufferSizeError> {
+    /// Builds a new set of [`SsaoBuffers`]
+    ///
+    /// These will be resized when first used (in
+    /// [`submit_ssao`](Self::submit_ssao))
+    pub fn ssao_buffers(&self) -> SsaoBuffers {
         let ssao_config =
             self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("ssao config"),
@@ -417,11 +417,13 @@ impl Context {
                     | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+        let image_size = 64.into();
         let raw_occlusion = ImageBuffer::new(
             &self.gpu.device,
             "ssao raw occlusion".to_owned(),
-            ImageSize::new(image_size.width(), image_size.height()),
-        )?;
+            image_size,
+        )
+        .expect("64 is always a valid size");
         let blur_config =
             self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("blur config"),
@@ -433,14 +435,15 @@ impl Context {
         let blurred_occlusion = ImageBuffer::new(
             &self.gpu.device,
             "ssao blurred occlusion".to_owned(),
-            ImageSize::new(image_size.width(), image_size.height()),
-        )?;
-        Ok(SsaoBuffers {
+            image_size,
+        )
+        .expect("64 is always a valid size");
+        SsaoBuffers {
             ssao_config,
             blur_config,
             raw_occlusion,
             blurred_occlusion,
-        })
+        }
     }
 
     /// Submits a set of merge operations to combine all of the images
@@ -450,7 +453,7 @@ impl Context {
     /// If the incoming slice is empty, then no work is submitted
     pub fn submit_merge(
         &self,
-        images: &[&ImageBuffer<GeomBufferTag>],
+        images: &[&DepthImageBuffer<GeomBufferTag>],
         denoise: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
@@ -582,7 +585,7 @@ impl Context {
                 });
             compute_pass.set_pipeline(&self.shade_pipeline);
             let cfg = ShadeConfig {
-                image_size: [size.width(), size.height(), image.depth],
+                image_size: [size.width(), size.height(), size.depth()],
                 flags: if ssao.is_some() {
                     SHADE_CONFIG_HAS_SSAO
                 } else {
@@ -639,10 +642,12 @@ impl Context {
             );
         }
         if let Some(image) = out {
-            image.grow_to_fit(&self.gpu.device, buf.out.size()).expect(
-                "buf.out.size should always be \
-                 a valid size for grow_to_fit",
-            );
+            image
+                .grow_to_fit(&self.gpu.device, buf.out.size().into())
+                .expect(
+                    "buf.out.size should always be \
+                     a valid size for grow_to_fit",
+                );
             encoder.copy_buffer_to_buffer(
                 buf.out.data(),
                 0,
@@ -924,10 +929,10 @@ impl SsaoContext {
     ) -> Result<(), SsaoError> {
         let image_size = image.out.size();
         buf.raw_occlusion
-            .grow_to_fit(&gpu.device, image_size)
+            .grow_to_fit(&gpu.device, image_size.into())
             .map_err(SsaoError::OutputSize)?;
         buf.blurred_occlusion
-            .grow_to_fit(&gpu.device, image_size)
+            .grow_to_fit(&gpu.device, image_size.into())
             .map_err(SsaoError::OutputSize)?;
 
         // TODO make this passed in?
@@ -949,7 +954,7 @@ impl SsaoContext {
                 image_size: [
                     image_size.width(),
                     image_size.height(),
-                    image.depth,
+                    image_size.depth(),
                 ],
                 radius: 0.1,
             };
@@ -1129,9 +1134,7 @@ impl ColorContext {
             .grow_to_fit(&gpu.device, size)
             .map_err(ColorError::OutputSize)?;
 
-        let mat = world_to_model
-            * VoxelSize::new(size.width(), size.height(), image.depth)
-                .screen_to_world();
+        let mat = world_to_model * size.screen_to_world();
 
         let config_bg = shape
             .config_bind_group(&gpu.device, &self.config_bind_group_layout);
@@ -1282,7 +1285,7 @@ mod test {
         let size = 128;
         let image_size = RenderSize::from(size);
         let mut buf = voxel_ctx.buffers();
-        let mut merge_buf = effects_ctx.merge_buffers(size.into()).unwrap();
+        let mut merge_buf = effects_ctx.merge_buffers();
 
         let (x, y, z) = Tree::axes();
         let sphere =
@@ -1304,7 +1307,7 @@ mod test {
         effects_ctx
             .submit_merge(&[buf.image_storage_buffer()], true, &mut merge_buf)
             .unwrap();
-        let mut ssao_buf = effects_ctx.ssao_buffers(size.into()).unwrap();
+        let mut ssao_buf = effects_ctx.ssao_buffers();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
         let ssao_out = gpu.read_vec::<f32>(ssao_buf.raw_occlusion().data());
 

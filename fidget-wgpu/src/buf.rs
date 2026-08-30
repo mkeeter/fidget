@@ -2,7 +2,7 @@
 //!
 //! This module is mostly internal to the crate, but is public because its types
 //! appear as return values and arguments.
-use fidget_core::render::ImageSize;
+use fidget_core::render::{ImageSize, VoxelSize};
 use zerocopy::FromBytes;
 
 /// Handle around a growable GPU buffer
@@ -25,6 +25,9 @@ pub type ArrayBuffer<T> = GenericFlexBuffer<T, usize>;
 
 /// Resizable image buffer
 pub type ImageBuffer<T> = GenericFlexBuffer<T, ImageSize>;
+
+/// Resizable image buffer
+pub type DepthImageBuffer<T> = GenericFlexBuffer<T, VoxelSize>;
 
 /// Tag associated with a particular [`GenericFlexBuffer`]
 ///
@@ -87,6 +90,12 @@ impl BufferItemCount for ImageSize {
             .unwrap()
             .checked_mul(usize::try_from(self.height()).unwrap())
             .unwrap()
+    }
+}
+
+impl BufferItemCount for VoxelSize {
+    fn item_count(&self) -> usize {
+        ImageSize::from(*self).item_count()
     }
 }
 

@@ -119,14 +119,17 @@ impl Gpu {
     }
 
     /// Returns a readable buffer for the given image buffer
-    pub fn read_buffer_for<T: buf::BufferTag>(
+    pub fn read_buffer_for<
+        T: buf::BufferTag,
+        B: buf::BufferItemCount + Copy + Into<fidget_core::render::ImageSize>,
+    >(
         &self,
-        buf: &buf::ImageBuffer<T>,
+        buf: &buf::GenericFlexBuffer<T, B>,
     ) -> buf::ImageReadBuffer<T> {
         buf::ImageBuffer::new(
             &self.device,
             format!("{} (read)", buf.name()),
-            buf.size(),
+            buf.size().into(),
         )
         .expect("buf.size should always be a valid size for ImageBuffer::new")
     }
