@@ -257,9 +257,9 @@ pub enum ColorError {
 /// Type indicating an image size mismatch
 #[derive(Debug, thiserror::Error)]
 #[error(
-    "image size mismatch: expected {} × {}, got {} × {}",
-    expected.width(), expected.height(),
-    actual.width(), actual.height()
+    "image size mismatch: expected {} × {} × {}, got {} × {} × {}",
+    expected.width(), expected.height(), expected.depth(),
+    actual.width(),   actual.height(),   actual.depth()
 )]
 pub struct ImageSizeMismatch {
     expected: VoxelSize,
@@ -387,6 +387,7 @@ impl Context {
     /// Builds a new set of [`ShadeBuffers`]
     ///
     /// These will be resized when first used (in
+    /// either [`submit_color`](Self::submit_color) or
     /// [`submit_shade`](Self::submit_shade))
     pub fn shade_buffers(&self) -> ShadeBuffers {
         let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -457,6 +458,7 @@ impl Context {
         denoise: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
+        buf.image_count = images.len();
         let Some(size) = images.first().map(|i| i.size()) else {
             return Ok(());
         };
@@ -473,7 +475,6 @@ impl Context {
         buf.out
             .grow_to_fit(&self.gpu.device, size)
             .map_err(MergeError::OutputSize)?;
-        buf.image_count = images.len();
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
                 label: Some("merge compute encoder"),
