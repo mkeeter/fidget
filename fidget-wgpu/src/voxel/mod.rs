@@ -2876,7 +2876,6 @@ mod test {
                 &merge_buf,
                 Some(&ssao_buf),
                 &mut shade_buf,
-                true,
                 Some(&mut shade_out),
             )
             .unwrap();

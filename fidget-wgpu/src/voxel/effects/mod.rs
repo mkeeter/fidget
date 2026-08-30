@@ -184,6 +184,7 @@ tag!(
 /// Handle to a set of buffers used when shading images
 pub struct ShadeBuffers {
     config: wgpu::Buffer,
+    has_color: bool,
     out: DepthImageBuffer<ShadedImageTag>,
 }
 
@@ -398,7 +399,11 @@ impl Context {
             64.into(),
         )
         .expect("64 is always a valid size");
-        ShadeBuffers { config, out }
+        ShadeBuffers {
+            config,
+            has_color: false,
+            out,
+        }
     }
 
     /// Builds a new set of [`SsaoBuffers`]
@@ -540,16 +545,18 @@ impl Context {
         image: &MergeBuffers,
         ssao: Option<&SsaoBuffers>,
         buf: &mut ShadeBuffers,
-        has_color: bool,
         out: Option<&mut ImageReadBuffer<ShadedImageTag>>,
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
-        if has_color && size != buf.out.size() {
-            return Err(ShadeError::InvalidColorSize);
+        if buf.has_color {
+            if size != buf.out.size() {
+                return Err(ShadeError::InvalidColorSize);
+            }
+        } else {
+            buf.out
+                .grow_to_fit(&self.gpu.device, size)
+                .map_err(ShadeError::OutputSize)?;
         }
-        buf.out
-            .grow_to_fit(&self.gpu.device, size)
-            .map_err(ShadeError::OutputSize)?;
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
                 label: Some("shade compute encoder"),
@@ -570,7 +577,11 @@ impl Context {
                     SHADE_CONFIG_HAS_SSAO
                 } else {
                     0
-                } | if has_color { SHADE_CONFIG_HAS_COLOR } else { 0 },
+                } | if buf.has_color {
+                    SHADE_CONFIG_HAS_COLOR
+                } else {
+                    0
+                },
             };
             {
                 let mut writer = self
@@ -621,6 +632,7 @@ impl Context {
                 1,
             );
         }
+        buf.has_color = false;
         if let Some(image) = out {
             image
                 .grow_to_fit(&self.gpu.device, buf.out.size().into())
@@ -1113,6 +1125,7 @@ impl ColorContext {
         out.out
             .grow_to_fit(&gpu.device, size)
             .map_err(ColorError::OutputSize)?;
+        out.has_color = true;
 
         let mat = world_to_model * size.screen_to_world();
 
