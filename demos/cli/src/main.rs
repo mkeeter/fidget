@@ -414,7 +414,7 @@ fn run3d_wgpu(
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             effects.submit_merge(
-                &[buffers.image_storage_buffer()],
+                buffers.image_storage_buffer(),
                 denoise,
                 &mut merge_buf,
             )?;
@@ -424,7 +424,7 @@ fn run3d_wgpu(
         }
         RenderMode3D::RawOcclusion { denoise } => {
             effects.submit_merge(
-                &[buffers.image_storage_buffer()],
+                buffers.image_storage_buffer(),
                 denoise,
                 &mut merge_buf,
             )?;
@@ -434,7 +434,7 @@ fn run3d_wgpu(
         }
         RenderMode3D::Shaded { denoise, ssao } => {
             effects.submit_merge(
-                &[buffers.image_storage_buffer()],
+                buffers.image_storage_buffer(),
                 denoise,
                 &mut merge_buf,
             )?;

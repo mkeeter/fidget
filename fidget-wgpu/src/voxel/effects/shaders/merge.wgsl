@@ -7,24 +7,11 @@ struct MergeConfig {
 
     /// Offset applied to indices when merging
     index_base: u32,
-
-    /// Number of valid image buffers (0-7)
-    image_count: u32,
-
-    // Explicit padding to the nearest multiple of 8
-    _pad: u32,
 }
 
 @group(0) @binding(0) var<uniform> config: MergeConfig;
-
-@group(0) @binding(1) var<storage, read> image0: array<GeometryPixel>;
-@group(0) @binding(2) var<storage, read> image1: array<GeometryPixel>;
-@group(0) @binding(3) var<storage, read> image2: array<GeometryPixel>;
-@group(0) @binding(4) var<storage, read> image3: array<GeometryPixel>;
-@group(0) @binding(5) var<storage, read> image4: array<GeometryPixel>;
-@group(0) @binding(6) var<storage, read> image5: array<GeometryPixel>;
-@group(0) @binding(7) var<storage, read> image6: array<GeometryPixel>;
-@group(0) @binding(8) var<storage, read_write> out: array<PackedVoxel>;
+@group(0) @binding(1) var<storage, read> image: array<GeometryPixel>;
+@group(0) @binding(2) var<storage, read_write> out: array<PackedVoxel>;
 
 
 @compute @workgroup_size(8, 8)
@@ -33,8 +20,7 @@ fn merge_main(
 ) {
     // Clamp to image size
     if global_id.x >= config.image_size.x ||
-       global_id.y >= config.image_size.y ||
-       config.image_count == 0
+       global_id.y >= config.image_size.y
     {
         return;
     }
@@ -42,50 +28,31 @@ fn merge_main(
     let pos = global_id.xy;
     let i = config.image_size.x * pos.y + pos.x;
 
-    var p = PackedVoxel(0, 0); // dummy value
-    let b = pack_at(0, pos);
+    // Read and pack the pixel from the input image
+    let b = pack_at(pos);
+
+    // Either write the pixel directly or merge it with the previous value
     if config.index_base == 0 {
-        p = b;
+        out[i] = b;
     } else {
-        p = merge_pixel(out[i], b);
+        out[i] = merge_pixel(out[i], b);
     }
-
-    if config.image_count > 1 {
-        p = merge_pixel(p, pack_at(1, pos));
-    }
-    if config.image_count > 2 {
-        p = merge_pixel(p, pack_at(2, pos));
-    }
-    if config.image_count > 3 {
-        p = merge_pixel(p, pack_at(3, pos));
-    }
-    if config.image_count > 4 {
-        p = merge_pixel(p, pack_at(4, pos));
-    }
-    if config.image_count > 5 {
-        p = merge_pixel(p, pack_at(5, pos));
-    }
-    if config.image_count > 6 {
-        p = merge_pixel(p, pack_at(6, pos));
-    }
-
-    out[i] = p;
 }
 
-fn pack_at(image_index: u32, pos: vec2u) -> PackedVoxel {
+fn pack_at(pos: vec2u) -> PackedVoxel {
     let i = config.image_size.x * pos.y + pos.x;
-    let p = maybe_denoise(image_index, pos);
-    return pack(TaggedGeometryPixel(p, image_index + config.index_base));
+    let p = maybe_denoise(pos);
+    return pack(TaggedGeometryPixel(p, config.index_base));
 }
 
-fn maybe_denoise(image_index: u32, pos: vec2u) -> GeometryPixel {
-    let pixel = read_pixel(image_index, pos.x + pos.y * config.image_size.x);
+fn maybe_denoise(pos: vec2u) -> GeometryPixel {
+    let pixel = image[pos.x + pos.y * config.image_size.x];
     if config.denoise != 0 {
         if pixel.depth > 0 {
             if pixel.normal.z > 0.0 {
                 return pixel;
             } else {
-                let normal = denoise_at(image_index, pos, pixel);
+                let normal = denoise_at(pos, pixel);
                 return GeometryPixel(normal, pixel.depth);
             }
         } else {
@@ -99,7 +66,7 @@ fn maybe_denoise(image_index: u32, pos: vec2u) -> GeometryPixel {
     }
 }
 
-fn denoise_at(image_index: u32, pos: vec2u, pixel: GeometryPixel) -> vec3f {
+fn denoise_at(pos: vec2u, pixel: GeometryPixel) -> vec3f {
     let empty = GeometryPixel(vec3f(0.0), 0);
     var data = array<array<GeometryPixel, 3>, 3>(
         array<GeometryPixel, 3>(empty, empty, empty),
@@ -118,10 +85,9 @@ fn denoise_at(image_index: u32, pos: vec2u, pixel: GeometryPixel) -> vec3f {
             {
                 continue;
             }
-            data[i + 1][j + 1] = read_pixel(
-                image_index,
+            data[i + 1][j + 1] = image[
                 u32(new_pos.x) + u32(new_pos.y) * config.image_size.x
-            );
+            ];
         }
     }
 
@@ -173,19 +139,6 @@ fn denoise_at(image_index: u32, pos: vec2u, pixel: GeometryPixel) -> vec3f {
         return pixel.normal;
     }
     return best.xyz;
-}
-
-fn read_pixel(image_index: u32, pixel_index: u32) -> GeometryPixel {
-    switch image_index {
-        case 0: { return image0[pixel_index]; }
-        case 1: { return image1[pixel_index]; }
-        case 2: { return image2[pixel_index]; }
-        case 3: { return image3[pixel_index]; }
-        case 4: { return image4[pixel_index]; }
-        case 5: { return image5[pixel_index]; }
-        case 6: { return image6[pixel_index]; }
-        default: { return GeometryPixel(vec3f(0.0), 0); }
-    }
 }
 
 fn merge_pixel(a: PackedVoxel, b: PackedVoxel) -> PackedVoxel {
