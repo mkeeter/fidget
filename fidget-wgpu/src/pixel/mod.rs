@@ -1666,11 +1666,7 @@ mod test {
             let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
             pixel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
             effects_ctx
-                .submit_merge(
-                    &[buf.image_storage_buffer()],
-                    true,
-                    &mut merge_buf,
-                )
+                .submit_merge(buf.image_storage_buffer(), true, &mut merge_buf)
                 .unwrap();
         }
         let shape_colors = shapes

@@ -130,12 +130,6 @@ pub(crate) struct MergeConfig {
     ///
     /// When this is 0, we initialize the output image
     pub index_base: u32,
-
-    /// Number of valid image buffers (0-7)
-    pub image_count: u32,
-
-    // padding to the nearest multiple of 8
-    pub _pad: u32,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -158,14 +152,8 @@ impl Context {
                 label: None,
                 entries: &[
                     buffer_uniform(0),
-                    buffer_ro(1), // image0
-                    buffer_ro(2), // image1
-                    buffer_ro(3), // image2
-                    buffer_ro(4), // image3
-                    buffer_ro(5), // image4
-                    buffer_ro(6), // image5
-                    buffer_ro(7), // image6
-                    buffer_rw(8), // out
+                    buffer_ro(1), // image
+                    buffer_rw(2), // out
                 ],
             },
         );
@@ -211,34 +199,24 @@ impl Context {
     /// If the incoming slice is empty, then no work is submitted
     pub fn submit_merge(
         &self,
-        images: &[&ImageBuffer<PixelBufferTag>],
+        image: &ImageBuffer<PixelBufferTag>,
         remove_nans: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
-        let Some(size) = images.first().map(|i| i.size()) else {
-            return Ok(());
-        };
-        for i in &images[1..] {
-            let actual = i.size();
-            if actual != size {
+        let size = image.size();
+        if buf.image_count > 0 {
+            if size != buf.out.size() {
                 return Err(ImageSizeMismatch {
                     expected: size,
-                    actual,
+                    actual: buf.out.size(),
                 }
                 .into());
             }
+        } else {
+            buf.out
+                .grow_to_fit(&self.gpu.device, size)
+                .map_err(MergeError::OutputSize)?;
         }
-        if buf.image_count > 0 && size != buf.out.size() {
-            return Err(ImageSizeMismatch {
-                expected: size,
-                actual: buf.out.size(),
-            }
-            .into());
-        }
-
-        buf.out
-            .grow_to_fit(&self.gpu.device, size)
-            .map_err(MergeError::OutputSize)?;
         buf.has_color = false;
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -253,38 +231,30 @@ impl Context {
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_pipeline(&self.merge_pipeline);
-            for chunk in images.chunks(7) {
-                let cfg = MergeConfig {
-                    image_size: [size.width(), size.height()],
-                    remove_nans: remove_nans as u32,
-                    index_base: buf.image_count as u32,
-                    image_count: chunk.len() as u32,
-                    _pad: 0,
-                };
-                {
-                    let mut writer = self
-                        .gpu
-                        .queue
-                        .write_buffer_with(
-                            &buf.config,
-                            0,
-                            (std::mem::size_of::<MergeConfig>() as u64)
-                                .try_into()
-                                .unwrap(),
-                        )
-                        .unwrap();
-                    writer.copy_from_slice(cfg.as_bytes());
-                }
-                let image_bind = |i| wgpu::BindGroupEntry {
-                    binding: i as u32 + 1,
-                    resource: chunk
-                        .get(i)
-                        .unwrap_or_else(|| chunk.first().unwrap())
-                        .bind_active(),
-                };
+            let cfg = MergeConfig {
+                image_size: [size.width(), size.height()],
+                remove_nans: remove_nans as u32,
+                index_base: buf.image_count as u32,
+            };
+            {
+                let mut writer = self
+                    .gpu
+                    .queue
+                    .write_buffer_with(
+                        &buf.config,
+                        0,
+                        (std::mem::size_of::<MergeConfig>() as u64)
+                            .try_into()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                writer.copy_from_slice(cfg.as_bytes());
+            }
 
-                let bg = self.gpu.device.create_bind_group(
-                    &wgpu::BindGroupDescriptor {
+            let bg =
+                self.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("merge bind group"),
                         layout: &self.merge_bind_group_layout,
                         entries: &[
@@ -292,28 +262,23 @@ impl Context {
                                 binding: 0,
                                 resource: buf.config.as_entire_binding(),
                             },
-                            image_bind(0),
-                            image_bind(1),
-                            image_bind(2),
-                            image_bind(3),
-                            image_bind(4),
-                            image_bind(5),
-                            image_bind(6),
                             wgpu::BindGroupEntry {
-                                binding: 8,
+                                binding: 1,
+                                resource: image.bind_active(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
                                 resource: buf.out.bind_active(),
                             },
                         ],
-                    },
-                );
-                compute_pass.set_bind_group(0, Some(&bg), &[]);
-                compute_pass.dispatch_workgroups(
-                    size.width().div_ceil(8),
-                    size.height().div_ceil(8),
-                    1,
-                );
-                buf.image_count += chunk.len();
-            }
+                    });
+            compute_pass.set_bind_group(0, Some(&bg), &[]);
+            compute_pass.dispatch_workgroups(
+                size.width().div_ceil(8),
+                size.height().div_ceil(8),
+                1,
+            );
+            buf.image_count += 1;
         }
         self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())

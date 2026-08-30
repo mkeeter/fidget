@@ -7,26 +7,14 @@ struct MergeConfig {
 
     /// Offset applied to indices when merging
     index_base: u32,
-
-    /// Number of valid image buffers (0-7)
-    image_count: u32,
-
-    // Explicit padding to the nearest multiple of 8
-    _pad: u32,
 }
 
 @group(0) @binding(0) var<uniform> config: MergeConfig;
 
-@group(0) @binding(1) var<storage, read> image0: array<RawDistancePixel>;
-@group(0) @binding(2) var<storage, read> image1: array<RawDistancePixel>;
-@group(0) @binding(3) var<storage, read> image2: array<RawDistancePixel>;
-@group(0) @binding(4) var<storage, read> image3: array<RawDistancePixel>;
-@group(0) @binding(5) var<storage, read> image4: array<RawDistancePixel>;
-@group(0) @binding(6) var<storage, read> image5: array<RawDistancePixel>;
-@group(0) @binding(7) var<storage, read> image6: array<RawDistancePixel>;
+@group(0) @binding(1) var<storage, read> image: array<RawDistancePixel>;
 
 // Distance and index values, packed as separate images
-@group(0) @binding(8) var<storage, read_write> out: array<u32>;
+@group(0) @binding(2) var<storage, read_write> out: array<u32>;
 
 
 @compute @workgroup_size(8, 8)
@@ -35,8 +23,7 @@ fn merge_main(
 ) {
     // Clamp to image size
     if global_id.x >= config.image_size.x ||
-       global_id.y >= config.image_size.y ||
-       config.image_count == 0
+       global_id.y >= config.image_size.y
     {
         return;
     }
@@ -46,7 +33,7 @@ fn merge_main(
     let offset = config.image_size.x * config.image_size.y;
 
     var p = TaggedRawDistancePixel(RawDistancePixel(0), 0); // dummy value
-    let b = tag_at(0, pos);
+    let b = tag_at(pos);
     if config.index_base == 0 {
         p = b;
     } else {
@@ -54,39 +41,20 @@ fn merge_main(
         p = merge_pixel(p, b);
     }
 
-    if config.image_count > 1 {
-        p = merge_pixel(p, tag_at(1, pos));
-    }
-    if config.image_count > 2 {
-        p = merge_pixel(p, tag_at(2, pos));
-    }
-    if config.image_count > 3 {
-        p = merge_pixel(p, tag_at(3, pos));
-    }
-    if config.image_count > 4 {
-        p = merge_pixel(p, tag_at(4, pos));
-    }
-    if config.image_count > 5 {
-        p = merge_pixel(p, tag_at(5, pos));
-    }
-    if config.image_count > 6 {
-        p = merge_pixel(p, tag_at(6, pos));
-    }
-
     out[i] = p.distance.data;
     out[i + offset] = p.tag;
 }
 
-fn tag_at(image_index: u32, pos: vec2u) -> TaggedRawDistancePixel {
+fn tag_at(pos: vec2u) -> TaggedRawDistancePixel {
     let i = config.image_size.x * pos.y + pos.x;
-    let p = maybe_remove_nans(image_index, pos);
-    return TaggedRawDistancePixel(p, image_index + config.index_base);
+    let p = maybe_remove_nans(pos);
+    return TaggedRawDistancePixel(p, config.index_base);
 }
 
-fn maybe_remove_nans(image_index: u32, pos: vec2u) -> RawDistancePixel {
-    let pixel = read_pixel(image_index, pos.x + pos.y * config.image_size.x);
+fn maybe_remove_nans( pos: vec2u) -> RawDistancePixel {
+    let pixel = image[pos.x + pos.y * config.image_size.x];
     if config.remove_nans != 0 && distance_pixel_is_fill(pixel) {
-        return remove_nans_at(image_index, pos, pixel);
+        return remove_nans_at( pos, pixel);
     } else {
         return pixel;
     }
@@ -98,7 +66,6 @@ fn maybe_remove_nans(image_index: u32, pos: vec2u) -> RawDistancePixel {
 // model, linear interpolation in the texture means that every pixel
 // interpolated with the infinite pixel is also NaN.
 fn remove_nans_at(
-    image_index: u32,
     pos: vec2u,
     pixel: RawDistancePixel) -> RawDistancePixel
 {
@@ -118,10 +85,7 @@ fn remove_nans_at(
                 continue;
             }
 
-            let p = read_pixel(
-                image_index,
-                u32(x) + u32(y) * config.image_size.x
-            );
+            let p = image[u32(x) + u32(y) * config.image_size.x];
 
             if !distance_pixel_is_fill(p) {
                 let d = bitcast<f32>(p.data);
@@ -152,19 +116,6 @@ fn remove_nans_at(
         return RawDistancePixel(0xFF800000); // -infinity
     } else {
         return RawDistancePixel(0x7F800000); // +infinity
-    }
-}
-
-fn read_pixel(image_index: u32, pixel_index: u32) -> RawDistancePixel {
-    switch image_index {
-        case 0: { return image0[pixel_index]; }
-        case 1: { return image1[pixel_index]; }
-        case 2: { return image2[pixel_index]; }
-        case 3: { return image3[pixel_index]; }
-        case 4: { return image4[pixel_index]; }
-        case 5: { return image5[pixel_index]; }
-        case 6: { return image6[pixel_index]; }
-        default: { return RawDistancePixel(0); }
     }
 }
 
