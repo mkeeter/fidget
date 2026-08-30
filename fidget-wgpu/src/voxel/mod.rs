@@ -2834,11 +2834,7 @@ mod test {
                 .submit(&shape, &mut buf, None, &render_config)
                 .unwrap();
             effects_ctx
-                .submit_merge(
-                    &[buf.image_storage_buffer()],
-                    true,
-                    &mut merge_buf,
-                )
+                .submit_merge(buf.image_storage_buffer(), true, &mut merge_buf)
                 .unwrap();
         }
         let merged = gpu.read_vec::<PackedVoxel>(merge_buf.output().data());
