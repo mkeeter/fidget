@@ -29,7 +29,7 @@ use fidget_core::{render::ImageSize, shape::ShapeVars, vm::VmShape};
 use fidget_raster::RgbaImage;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-pub use crate::voxel::effects::{ColorError, ImageSizeMismatch, MergeError};
+pub use crate::voxel::effects::ColorError;
 
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
@@ -50,6 +50,32 @@ fn color_shader(reg_count: u8) -> String {
         + shaders::TAPE_INTERPRETER
         + shaders::DUMMY_STACK
         + shaders::FLOAT_OPS
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Type indicating an image size mismatch
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "image size mismatch: expected {} × {}, got {} × {}",
+    expected.width(), expected.height(),
+    actual.width(), actual.height(),
+)]
+pub struct ImageSizeMismatch {
+    expected: ImageSize,
+    actual: ImageSize,
+}
+
+/// Error returned when submitting a merge operation
+#[derive(Debug, thiserror::Error)]
+pub enum MergeError {
+    /// Image sizes in the slice are not consistent
+    #[error(transparent)]
+    ImageSizeMismatch(#[from] ImageSizeMismatch),
+
+    /// An error occurred while resizing the output buffer
+    #[error(transparent)]
+    OutputSize(BufferSizeError),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
