@@ -174,9 +174,11 @@ fn merge_pixel(
 ) -> TaggedRawDistancePixel {
     // haha booleans go brrrrrrr
     let a_inside = distance_pixel_is_inside(a.distance);
+    let a_inf = (a.distance.data == 0xFF800000) || (a.distance.data == 0x7F800000);
     let a_fill = distance_pixel_is_fill(a.distance);
     let b_inside = distance_pixel_is_inside(b.distance);
     let b_fill = distance_pixel_is_fill(b.distance);
+    let b_inf = (b.distance.data == 0xFF800000) || (b.distance.data == 0x7F800000);
 
     // If either side is inside, then prefer it.
     if a_inside && !b_inside {
@@ -192,6 +194,16 @@ fn merge_pixel(
     } else if a_fill && !b_fill {
         return b;
     } else if b_fill && !a_fill {
+        return a;
+    }
+
+    // If both sides are infinite, then prefer A (arbitrarily); otherwise,
+    // prefer the non-infinite value (same idea as above)
+    if a_inf && b_inf {
+        return a;
+    } else if a_inf && !b_inf {
+        return b;
+    } else if b_inf && !a_inf {
         return a;
     }
 
