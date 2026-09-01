@@ -15,7 +15,8 @@
 //! Output is stored in the [`MergeBuffers`] object, which wraps a single GPU
 //! buffer with back-to-back distance and color images.  Note that if color has
 //! not been computed, then the second image instead stores merged shape index,
-//! (which is not particularly meaningful to users).
+//! (which is not particularly meaningful to users); in that case,
+//! [`MappedImage::color`] will return `None`.
 use crate::{
     Gpu, RegPipeline, ShapeColor, ShapeColorBuffers, ShapeColorError,
     buf::{
@@ -81,8 +82,9 @@ pub enum MergeError {
 ////////////////////////////////////////////////////////////////////////////////
 
 tag!(
-    MergedPixelBufferTag,
-    [u32; 2], // This is a hack; we store two images side by side
+    pub MergedPixelBufferTag,
+    // This is a hack; we store two images side by side, not interleaved
+    [u32; 2],
     STORAGE | COPY_SRC,
     "Buffer tag for on-GPU merged images"
 );
@@ -97,11 +99,11 @@ pub struct MergeBuffers {
     /// the shape index then is rewritten to be color.
     out: ImageBuffer<MergedPixelBufferTag>,
 
-    /// Set to `true` if the second half of the output buffer represents color
-    has_color: bool,
-
     /// Number of images merged together
     image_count: usize,
+
+    /// Set to `true` if the second half of the output buffer represents color
+    has_color: bool,
 }
 
 impl MergeBuffers {
@@ -112,6 +114,22 @@ impl MergeBuffers {
     pub fn reset(&mut self) {
         self.has_color = false;
         self.image_count = 0;
+    }
+
+    /// Returns `true` if the second half of the output buffer represents color
+    pub fn has_color(&self) -> bool {
+        self.has_color
+    }
+
+    /// Returns a handle to the output buffer
+    ///
+    /// The output buffer – despite the associated type in
+    /// [`MergedPixelBufferTag`] – stores two images side-by-side, **not**
+    /// interleaved.  The first is distance (as [`RawDistancePixel`] values);
+    /// the second is either shape index or RGBA color depending on
+    /// [`has_color`](Self::has_color).
+    pub fn output(&self) -> &ImageBuffer<MergedPixelBufferTag> {
+        &self.out
     }
 }
 
@@ -601,6 +619,8 @@ impl ColorContext {
                 merge_count: image.image_count,
                 shape_count: shape.shape_count,
             });
+        } else if image.has_color {
+            return Err(ColorError::AlreadyHasColor);
         }
         let size = image.out.size();
         let mat = settings.world_to_model
