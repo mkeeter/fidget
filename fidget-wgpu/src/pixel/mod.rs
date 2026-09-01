@@ -1462,7 +1462,7 @@ impl Context {
         self.gpu.queue.submit(Some(encoder.finish()));
     }
 
-    /// Synchronously populates and maps an CPU-readable image buffer
+    /// Synchronously populates and maps a CPU-readable image buffer
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -1490,7 +1490,7 @@ impl Context {
         }
     }
 
-    /// Asynchronously populates and maps an CPU-readable image buffer
+    /// Asynchronously populates and maps a CPU-readable image buffer
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///

@@ -192,11 +192,11 @@ impl Context {
         }
     }
 
-    /// Submits a set of merge operations to combine all of the images
+    /// Submits a set of merge operations to accumulate a single image
     ///
-    /// The output buffer is resized to fit the images
-    ///
-    /// If the incoming slice is empty, then no work is submitted
+    /// [`MergeBuffers::reset`] should be called before the first call to
+    /// `submit_merge`. For the first merge after a reset, the output buffer is
+    /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
         image: &ImageBuffer<PixelBufferTag>,

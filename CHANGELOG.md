@@ -24,8 +24,8 @@
   for the suggestion!
 - Add `fidget::wgpu::pixel` module for 2D rasterization on the GPU.  This is
   sometimes slower than the CPU evaluator for very complex expressions, but is
-  blazingly fast for simpler expressions.  Plus, it allows for all-GPU
-  evaluation architecture when embedded Fidget into other applications.
+  blazingly fast for simpler expressions.  Plus, it allows for an all-GPU
+  evaluation architecture when embedding Fidget into other applications.
     - The `fidget::wgpu::pixel::effects` module is also new; it includes merging
       and color evaluation for 2D images.
 - Move more VM functions onto `Grad` and `Interval` (out of the VM

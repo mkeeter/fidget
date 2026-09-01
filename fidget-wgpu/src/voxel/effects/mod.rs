@@ -257,6 +257,10 @@ pub enum ColorError {
         /// Number of shapes in the color buffer
         shape_count: usize,
     },
+
+    /// Shape color has already been populated
+    #[error("shape color has already been populated")]
+    AlreadyHasColor,
 }
 
 /// Type indicating an image size mismatch
@@ -452,9 +456,9 @@ impl Context {
 
     /// Accumulates an image into a merged image buffer
     ///
-    /// If the merged buffer has been reset (with [`MergeBuffers::reset`]), then
-    /// it is resized to fit the incoming image; otherwise, an error is returned
-    /// if the image size does not match.
+    /// [`MergeBuffers::reset`] should be called before the first call to
+    /// `submit_merge`. For the first merge after a reset, the output buffer is
+    /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
         image: &DepthImageBuffer<GeomBufferTag>,
