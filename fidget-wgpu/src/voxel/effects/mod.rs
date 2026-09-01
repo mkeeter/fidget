@@ -1,4 +1,4 @@
-//! On-GPU effects
+//! Voxel post-processing effects
 //!
 //! These effects let us set up a simple rendering pipeline:
 //!
@@ -21,10 +21,8 @@ use crate::{
 use fidget_core::{
     render::VoxelSize,
     shape::{MissingVar, ShapeVars},
-    var::Var,
     vm::VmShape,
 };
-use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// WGPU context for applying various effects
@@ -99,10 +97,14 @@ pub struct PackedVoxel {
 }
 
 /// Configuration for the color evaluation pass
+///
+/// This is public because it's used in a public function signature, but it's
+/// unlikely to be used by library end-users.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-struct ColorConfig {
+#[doc(hidden)]
+pub struct ColorConfig {
     /// Screen-to-model transform matrix
     mat: [f32; 16],
 
@@ -122,17 +124,17 @@ struct ColorConfig {
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-struct MergeConfig {
+pub(crate) struct MergeConfig {
     /// Image size, in pixels
-    image_size: [u32; 2],
+    pub image_size: [u32; 2],
 
     /// Whether or not to denoise when merging (non-zero is true)
-    denoise: u32,
+    pub denoise: u32,
 
     /// Offset applied to indices when merging
     ///
     /// When this is 0, we initialize the output image
-    index_base: u32,
+    pub index_base: u32,
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
@@ -255,6 +257,10 @@ pub enum ColorError {
         /// Number of shapes in the color buffer
         shape_count: usize,
     },
+
+    /// Shape color has already been populated
+    #[error("shape color has already been populated")]
+    AlreadyHasColor,
 }
 
 /// Type indicating an image size mismatch
@@ -450,9 +456,9 @@ impl Context {
 
     /// Accumulates an image into a merged image buffer
     ///
-    /// If the merged buffer has been reset (with [`MergeBuffers::reset`]), then
-    /// it is resized to fit the incoming image; otherwise, an error is returned
-    /// if the image size does not match.
+    /// [`MergeBuffers::reset`] should be called before the first call to
+    /// `submit_merge`. For the first merge after a reset, the output buffer is
+    /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
         image: &DepthImageBuffer<GeomBufferTag>,
@@ -665,12 +671,8 @@ impl Context {
     pub fn color_buffers(
         &self,
         colors: &[ShapeColor<VmShape>],
-    ) -> Result<ShapeColorBuffers, ShapeColorError> {
-        ShapeColorBuffers::new(
-            colors,
-            &self.gpu.device,
-            std::mem::size_of::<ColorConfig>(),
-        )
+    ) -> Result<ShapeColorBuffers<ColorConfig>, ShapeColorError> {
+        ShapeColorBuffers::new(colors, &self.gpu.device)
     }
 
     /// Submits a color evaluation pass
@@ -682,7 +684,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
@@ -703,7 +705,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
@@ -1110,7 +1112,7 @@ impl ColorContext {
         &self,
         image: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &ShapeColorBuffers<ColorConfig>,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
         gpu: &Gpu,
@@ -1138,42 +1140,8 @@ impl ColorContext {
             image_size: [size.width(), size.height()],
             _pad: 0,
         };
-
-        {
-            // We load the `ColorConfig`; tape data is already in the buffer
-            let config_len = std::mem::size_of_val(&config);
-            let mut writer = gpu
-                .queue
-                .write_buffer_with(
-                    &shape.config,
-                    0,
-                    (config_len as u64).try_into().unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(config.as_bytes());
-        }
-
-        // Copy vars (if present)
-        if let Some(var_size) = NonZeroU64::new(shape.vars.size()) {
-            let mut writer = gpu
-                .queue
-                .write_buffer_with(&shape.vars, 0, var_size)
-                .unwrap();
-            for (v, i) in shape.var_map.iter() {
-                match v {
-                    Var::X | Var::Y | Var::Z => (),
-                    Var::V(vi) => {
-                        let Some(value) = vars.get(vi) else {
-                            return Err(MissingVar { var: vi }.into());
-                        };
-                        let offset = i * std::mem::size_of::<f32>();
-                        writer
-                            .slice(offset..offset + 4)
-                            .copy_from_slice(value.as_bytes());
-                    }
-                }
-            }
-        }
+        shape.write_config(&config, &gpu.queue);
+        shape.write_vars(vars, &gpu.queue)?;
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = gpu.device.create_command_encoder(
@@ -1290,7 +1258,6 @@ mod test {
             .submit(
                 &shape,
                 &mut buf,
-                None,
                 &crate::voxel::RenderConfig {
                     image_size,
                     world_to_model: nalgebra::Matrix4::identity(),

@@ -23,8 +23,11 @@
   semantics.  This allows trees to be stored in hashmaps; thanks to @virtualritz
   for the suggestion!
 - Add `fidget::wgpu::pixel` module for 2D rasterization on the GPU.  This is
-  often slower than the CPU evaluator – there just aren't enough pixels for
-  parallelism to really kick in – but it's useful for consistency.
+  sometimes slower than the CPU evaluator for very complex expressions, but is
+  blazingly fast for simpler expressions.  Plus, it allows for an all-GPU
+  evaluation architecture when embedding Fidget into other applications.
+    - The `fidget::wgpu::pixel::effects` module is also new; it includes merging
+      and color evaluation for 2D images.
 - Move more VM functions onto `Grad` and `Interval` (out of the VM
   implementation); add a `FloatExt` trait which adds them to `f32` as well.
 - Fix a JIT bug in the gradient evaluator on Windows, where we assumed that
@@ -51,6 +54,10 @@
   helpful if you're going to combine multiple bytecode tapes and want them to
   share a common input indexing order.
 - `VarMap` now implements `Debug`
+- `VarMap::has_free_vars` checks whether there are non-XYZ vars in the map
+- `RawDistancePixel` now implements `zerocopy::IntoBytes`
+- `submit*` functions in WebGPU voxel rendering no longer take an optional `out`
+  parameter; it's instead passed into `map_image[_async]`.
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one

@@ -21,8 +21,10 @@ use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use fidget_raster::pixel::{RenderConfig, RenderSize};
+pub mod effects;
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+const DISTANCE_PIXEL_SHADER: &str = include_str!("shaders/distance_pixel.wgsl");
 const INTERVAL_INPUT: &str = include_str!("shaders/interval_input.wgsl");
 const TRANSFORM_INPUT: &str = include_str!("shaders/transform_input.wgsl");
 const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
@@ -35,6 +37,7 @@ fn interval_root_shader(reg_count: u8) -> String {
     let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
+    shader_code += DISTANCE_PIXEL_SHADER;
     shader_code += INTERVAL_ROOT_SHADER;
     shader_code += INTERVAL_INPUT;
     shader_code += TRANSFORM_INPUT;
@@ -51,6 +54,7 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     let mut shader_code = shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code += COMMON_SHADER;
+    shader_code += DISTANCE_PIXEL_SHADER;
     shader_code += INTERVAL_TILES_SHADER;
     shader_code += INTERVAL_INPUT;
     shader_code += TRANSFORM_INPUT;
@@ -69,6 +73,7 @@ fn pixel_tiles_shader(reg_count: u8) -> String {
     shader_code += PIXEL_TILES_SHADER;
     shader_code += TRANSFORM_INPUT;
     shader_code += COMMON_SHADER;
+    shader_code += DISTANCE_PIXEL_SHADER;
     shader_code += shaders::FLOAT_OPS;
     shader_code += shaders::COMMON;
     shader_code += shaders::TAPE_INTERPRETER;
@@ -78,7 +83,10 @@ fn pixel_tiles_shader(reg_count: u8) -> String {
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
+    MERGE_SHADER.to_owned()
+        + COMMON_SHADER
+        + DISTANCE_PIXEL_SHADER
+        + shaders::COMMON
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -871,19 +879,17 @@ pub struct ImageReadBuffer {
 }
 
 impl ImageReadBuffer {
-    fn new(
-        device: &wgpu::Device,
-        name: String,
-        image_size: ImageSize,
-    ) -> Result<Self, BufferSizeError> {
-        Ok(Self {
+    fn new(device: &wgpu::Device, name: String) -> Self {
+        let image_size = 64.into();
+        Self {
             image_size,
             buffer: ImageReadArrayBuffer::new(
                 device,
                 name,
                 Buffers::image_buf_size(image_size),
-            )?,
-        })
+            )
+            .expect("64 should always be a valid size"),
+        }
     }
 
     fn grow_to_fit(
@@ -1189,8 +1195,7 @@ impl Context {
 
     /// Returns an [`ImageReadBuffer`] to read from a [`Buffers`] object
     pub fn image_buffer(&self) -> ImageReadBuffer {
-        ImageReadBuffer::new(&self.gpu.device, "image".to_owned(), 64.into())
-            .expect("64 should always be a valid size for ImageReadBuffer::new")
+        ImageReadBuffer::new(&self.gpu.device, "image".to_owned())
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1219,8 +1224,8 @@ impl Context {
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, Some(out), &settings)?;
-        let image = self.map_image(out);
+        self.submit_with_vars(shape, vars, buffers, &settings)?;
+        let image = self.map_image(buffers, out);
         Ok(image.image())
     }
 
@@ -1257,8 +1262,8 @@ impl Context {
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, Some(out), &settings)?;
-        let image = self.map_image_async(out).await;
+        self.submit_with_vars(shape, vars, buffers, &settings)?;
+        let image = self.map_image_async(buffers, out).await;
         Ok(image.image())
     }
 
@@ -1267,25 +1272,13 @@ impl Context {
     /// The resulting image (as a buffer of [`RawDistancePixel`] data) is
     /// available on the GPU in
     /// [`buffers.image_storage_buffer()`](Buffers::image_storage_buffer).
-    ///
-    /// If `out` is present, then the rendered image is also copied to that
-    /// [`ImageReadBuffer`] (which may then be mapped for CPU reading by
-    /// [`map_image`](Self::map_image) or
-    /// [`map_image_async`](Self::map_image_async)).
     pub fn submit(
         &self,
         shape: &RenderShape,
         buffers: &mut Buffers,
-        out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        self.submit_with_vars(
-            shape,
-            &Default::default(),
-            buffers,
-            out,
-            settings,
-        )
+        self.submit_with_vars(shape, &Default::default(), buffers, settings)
     }
 
     /// Submits a single image to be rendered on the GPU, with extra variables
@@ -1296,7 +1289,6 @@ impl Context {
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         buffers: &mut Buffers,
-        out: Option<&mut ImageReadBuffer>,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
         buffers.set_image_size(&self.gpu.device, settings.image_size)?;
@@ -1428,45 +1420,49 @@ impl Context {
         );
         drop(compute_pass);
 
-        // Resolve the raw GPU ticks into the resolve buffer, then copy them
-        // into the last 16 bytes of the image buffer
-        if let Some(image) = out {
-            image
-                .grow_to_fit(&self.gpu.device, buffers.image_size)
-                .expect(
-                    "buffers.image_size should always be \
-                 a valid size for ImageReadBuffer::grow_to_fit",
-                );
-            if let Some(timestamps) = &buffers.timestamps {
-                encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
-                encoder.copy_buffer_to_buffer(
-                    &buffers.ts_buf,
-                    0,
-                    image.buffer.data(),
-                    buffers.pixels.size_bytes(), // offset past the image data
-                    buffers.ts_buf.size(),
-                );
-            }
-
-            // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
-            encoder.copy_buffer_to_buffer(
-                buffers.pixels.data(),
-                0,
-                image.buffer.data(),
-                0,
-                buffers.pixels.size_bytes(),
-            );
-        }
-
         // Submit the commands and wait for the GPU to complete
         self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 
-    /// Synchronously maps an image read buffer
-    ///
-    /// The image read buffer should be populated by passing it as an argument
-    /// when calling [`submit`](Self::submit).
+    fn copy_image(&self, buffers: &Buffers, image_out: &mut ImageReadBuffer) {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("map_image"),
+            },
+        );
+        image_out
+            .grow_to_fit(&self.gpu.device, buffers.image_size)
+            .expect(
+                "buffers.image_size should always be \
+                 a valid size for ImageReadBuffer::grow_to_fit",
+            );
+        // Resolve the raw GPU ticks into the resolve buffer, then copy them
+        // into the last 16 bytes of the image buffer
+        if let Some(timestamps) = &buffers.timestamps {
+            encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
+            encoder.copy_buffer_to_buffer(
+                &buffers.ts_buf,
+                0,
+                image_out.buffer.data(),
+                buffers.pixels.size_bytes(), // offset past the image data
+                buffers.ts_buf.size(),
+            );
+        }
+
+        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+        encoder.copy_buffer_to_buffer(
+            buffers.pixels.data(),
+            0,
+            image_out.buffer.data(),
+            0,
+            buffers.pixels.size_bytes(),
+        );
+
+        self.gpu.queue.submit(Some(encoder.finish()));
+    }
+
+    /// Synchronously populates and maps a CPU-readable image buffer
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -1474,15 +1470,17 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn map_image<'a>(
         &self,
-        image: &'a mut ImageReadBuffer,
+        buffers: &Buffers,
+        image_out: &'a mut ImageReadBuffer,
     ) -> MappedImage<'a> {
-        let slice = image.buffer.map_async(|_| {});
+        self.copy_image(buffers, image_out);
+        let slice = image_out.buffer.map_async(|_| {});
         self.gpu
             .device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         MappedImage {
-            image,
+            image: image_out,
             slice,
             ns_per_tick: if self.has_timestamps {
                 Some(self.gpu.queue.get_timestamp_period())
@@ -1492,10 +1490,7 @@ impl Context {
         }
     }
 
-    /// Asynchronously maps an image read buffer
-    ///
-    /// The image read buffer should be populated by passing it as an argument
-    /// when calling [`submit`](Self::submit).
+    /// Asynchronously populates and maps a CPU-readable image buffer
     ///
     /// The image is borrowed exclusively to avoid double-mapping
     ///
@@ -1503,13 +1498,15 @@ impl Context {
     #[cfg(any(target_arch = "wasm32", doc))]
     pub async fn map_image_async<'a>(
         &self,
-        image: &'a mut ImageReadBuffer,
+        buffers: &Buffers,
+        image_out: &'a mut ImageReadBuffer,
     ) -> MappedImage<'a> {
+        self.copy_image(buffers, image_out);
         let (tx, rx) = flume::bounded(0);
-        let slice = image.buffer.map_async(move |_| tx.send(()).unwrap());
+        let slice = image_out.buffer.map_async(move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
         MappedImage {
-            image,
+            image: image_out,
             slice,
             ns_per_tick: if self.has_timestamps {
                 Some(self.gpu.queue.get_timestamp_period())
@@ -1620,7 +1617,11 @@ impl ResetContext {
 
 #[cfg(test)]
 mod test {
+    use super::effects::ColorSettings;
     use super::*;
+    use crate::ShapeColor;
+    use fidget_raster::RgbaImage;
+
     use fidget_core::{context::Tree, vm::VmShape};
 
     #[test]
@@ -1643,6 +1644,66 @@ mod test {
         crate::compile_shader(&merge_shader(), "merge");
     }
 
+    struct RenderOutput {
+        distance: Image,
+        color: RgbaImage,
+    }
+
+    fn render(
+        shapes: &[(Tree, ShapeColor<Tree>)],
+        render_config: RenderConfig,
+    ) -> RenderOutput {
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+        let pixel_ctx = Context::new(&gpu);
+        let effects_ctx = effects::Context::new(&gpu);
+
+        let mut buf = pixel_ctx.buffers();
+        let mut merge_buf =
+            effects_ctx.merge_buffers(render_config.image_size).unwrap();
+
+        // Render and accumulate each shape
+        for (shape, _) in shapes {
+            let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
+            pixel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
+            effects_ctx
+                .submit_merge(buf.image_storage_buffer(), true, &mut merge_buf)
+                .unwrap();
+        }
+        let shape_colors = shapes
+            .iter()
+            .map(|(_, c)| {
+                let ShapeColor::Rgb { r, g, b } = c;
+                ShapeColor::Rgb {
+                    r: VmShape::from(r.clone()),
+                    g: VmShape::from(g.clone()),
+                    b: VmShape::from(b.clone()),
+                }
+            })
+            .collect::<Vec<_>>();
+        let shape_colors = effects_ctx.color_buffers(&shape_colors).unwrap();
+
+        // Compute per-pixel colors
+        effects_ctx
+            .submit_color(
+                &mut merge_buf,
+                ColorSettings {
+                    z: 0.0,
+                    only_filled: false,
+                    world_to_model: render_config.world_to_model,
+                },
+                &shape_colors,
+            )
+            .unwrap();
+
+        let mut out = effects_ctx.image_buffer();
+        let img = effects_ctx.map_image(&merge_buf, &mut out);
+
+        RenderOutput {
+            color: img.color().unwrap(),
+            distance: img.distance(),
+        }
+    }
+
     #[test]
     fn pixel_pipeline() {
         // We only run in CI if we're on MacOS (because other runners don't have
@@ -1652,13 +1713,8 @@ mod test {
             return;
         }
 
-        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
-        let pixel_ctx = Context::new(&gpu);
-        let mut buf = pixel_ctx.buffers();
-
         let (x, y, _z) = Tree::axes();
         let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
-        let shape = gpu.shape(&VmShape::from(circle)).unwrap();
 
         // Test a variety of image sizes for correctness
         for image_size in [
@@ -1667,22 +1723,24 @@ mod test {
             RenderSize::new(64, 128),
             RenderSize::new(27, 51),
         ] {
-            let mut pixel_out = pixel_ctx.image_buffer();
-            pixel_ctx
-                .submit(
-                    &shape,
-                    &mut buf,
-                    Some(&mut pixel_out),
-                    &RenderConfig {
-                        image_size,
-                        world_to_model: nalgebra::Matrix3::identity(),
-                        pixel_perfect: false,
-                        z: 0.0,
+            let out = render(
+                &[(
+                    circle.clone(),
+                    ShapeColor::Rgb {
+                        r: Tree::x(),
+                        g: Tree::y(),
+                        b: Tree::constant(0.5),
                     },
-                )
-                .unwrap();
-            let img_out = pixel_ctx.map_image(&mut pixel_out).image();
-            assert_eq!(img_out.size(), image_size);
+                )],
+                RenderConfig {
+                    image_size,
+                    world_to_model: nalgebra::Matrix3::identity(),
+                    pixel_perfect: false,
+                    z: 0.0,
+                },
+            );
+            assert_eq!(out.color.size(), image_size);
+            assert_eq!(out.distance.size(), image_size);
 
             // Basic circle inside/outside check
             let mat = image_size.screen_to_world();
@@ -1691,7 +1749,7 @@ mod test {
                     let pos = mat.transform_point(&nalgebra::Point2::new(
                         i as f32, j as f32,
                     ));
-                    let p = img_out[(j as usize, i as usize)];
+                    let p = out.distance[(j as usize, i as usize)];
                     let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
                     if r < 0.5 {
                         assert!(
@@ -1708,7 +1766,161 @@ mod test {
                     }
                 }
             }
+
+            for j in 0..image_size.height() {
+                for i in 0..image_size.width() {
+                    let pos = mat.transform_point(&nalgebra::Point2::new(
+                        i as f32, j as f32,
+                    ));
+                    let p = out.color[(j as usize, i as usize)];
+                    let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
+                    let alpha = if r < 0.5 { 255 } else { 0 };
+                    let expected_color = [
+                        (pos.x.clamp(0.0, 1.0) * 255.0) as u8,
+                        (pos.y.clamp(0.0, 1.0) * 255.0) as u8,
+                        127,
+                        alpha,
+                    ];
+                    assert_eq!(
+                        p, expected_color,
+                        "color mismatch at {i}, {j} ({pos})"
+                    );
+                }
+            }
         }
+    }
+
+    #[test]
+    fn pixel_multiple_images() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let circle_a = ((Tree::x() - 0.5).square() + Tree::y().square()).sqrt()
+            - Tree::constant(0.25);
+        let circle_b = ((Tree::x() + 0.5).square() + Tree::y().square()).sqrt()
+            - Tree::constant(0.25);
+
+        // Test a variety of image sizes for correctness
+        let image_size = RenderSize::new(64, 64);
+        let out = render(
+            &[
+                (
+                    circle_a,
+                    ShapeColor::Rgb {
+                        r: Tree::constant(0.0),
+                        g: Tree::constant(0.0),
+                        b: Tree::constant(1.0),
+                    },
+                ),
+                (
+                    circle_b,
+                    ShapeColor::Rgb {
+                        r: Tree::constant(0.0),
+                        g: Tree::constant(1.0),
+                        b: Tree::constant(0.0),
+                    },
+                ),
+            ],
+            RenderConfig {
+                image_size,
+                world_to_model: nalgebra::Matrix3::identity(),
+                pixel_perfect: false,
+                z: 0.0,
+            },
+        );
+        assert_eq!(out.color.size(), image_size);
+        assert_eq!(out.distance.size(), image_size);
+
+        let mut pixels = String::new();
+        for j in 0..image_size.height() {
+            for i in 0..image_size.width() {
+                let p = out.color[(j as usize, i as usize)];
+                let c = match p {
+                    [0, 0, 255, 0] => "b",
+                    [0, 0, 255, 255] => "B",
+                    [0, 255, 0, 0] => "g",
+                    [0, 255, 0, 255] => "G",
+                    _ => panic!("invalid color {p:?}"),
+                };
+                pixels += c;
+            }
+            pixels += "\n";
+        }
+
+        assert_eq!(
+            pixels,
+            "\
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            gggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            gggggggggggggGGGGGGGgggggggggggggbbbbbbbbbbbbBBBBBBBbbbbbbbbbbbb
+            gggggggggggGGGGGGGGGGGgggggggggggbbbbbbbbbbBBBBBBBBBBBbbbbbbbbbb
+            ggggggggggGGGGGGGGGGGGGggggggggggbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            ggggggggggGGGGGGGGGGGGGggggggggggbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            bbbbbbbggGGGGGGGGGGGGGGGbbbbbbbbbbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            bbbbbbbggGGGGGGGGGGGGGGGgbbbbbbbbbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            bbbbbbbgggGGGGGGGGGGGGGggbbbbbbbbbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            bbbbbbbgggGGGGGGGGGGGGGggbbbbbbbbbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            bbbbbbbggggGGGGGGGGGGGgggbbbbbbbbbbbbbbbbbbBBBBBBBBBBBbbbbbbbbbb
+            bbbbbbbggggggGGGGGGGgggggbbbbbbbbbbbbbbbbbbbbBBBBBBBbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            "
+            .replace(" ", "")
+        );
     }
 
     #[test]

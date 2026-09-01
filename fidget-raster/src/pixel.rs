@@ -157,7 +157,13 @@ impl Scratch {
 ///   treated as `NaN` in the `[empty, depth 0]` case (rather than infinity) and
 ///   distinguishes from `NaN` values generated during normal evaluation
 #[derive(
-    Copy, Clone, Debug, Default, zerocopy::FromBytes, zerocopy::Immutable,
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    zerocopy::FromBytes,
+    zerocopy::Immutable,
+    zerocopy::IntoBytes,
 )]
 #[repr(C)]
 pub struct RawDistancePixel(f32);
