@@ -18,7 +18,7 @@
 //! (which is not particularly meaningful to users); in that case,
 //! [`MappedImage::color`] will return `None`.
 use crate::{
-    Gpu, RegPipeline, ShapeColor, ShapeColorBuffers, ShapeColorError,
+    Gpu, RegPipeline, ShapeColorBuffers,
     buf::{
         ArrayBuffer, BufferSizeError, ImageBuffer, buffer_ro, buffer_rw,
         buffer_uniform,
@@ -26,7 +26,7 @@ use crate::{
     pixel::{PixelBufferTag, RawDistancePixel},
     shaders, tag,
 };
-use fidget_core::{render::ImageSize, shape::ShapeVars, vm::VmShape};
+use fidget_core::{render::ImageSize, shape::ShapeVars};
 use fidget_raster::RgbaImage;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -335,7 +335,7 @@ impl Context {
         &self,
         merge: &mut MergeBuffers,
         settings: ColorSettings,
-        shape: &ShapeColorBuffers<ColorConfig>,
+        shape: &ShapeColorBuffers,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(merge, settings, shape, &Default::default())
     }
@@ -349,7 +349,7 @@ impl Context {
         &self,
         merge: &mut MergeBuffers,
         settings: ColorSettings,
-        shape: &ShapeColorBuffers<ColorConfig>,
+        shape: &ShapeColorBuffers,
         vars: &ShapeVars<f32>,
     ) -> Result<(), ColorError> {
         self.color_ctx
@@ -394,14 +394,6 @@ impl Context {
             has_color: image_in.has_color,
             slice,
         }
-    }
-
-    /// Build a set of buffers for doing shape color evaluation
-    pub fn color_buffers(
-        &self,
-        colors: &[ShapeColor<VmShape>],
-    ) -> Result<ShapeColorBuffers<ColorConfig>, ShapeColorError> {
-        ShapeColorBuffers::new(colors, &self.gpu.device)
     }
 }
 
@@ -503,14 +495,10 @@ impl MappedImage<'_> {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Configuration for the color evaluation pass
-///
-/// This is public because it's used in a public function signature, but it's
-/// unlikely to be used by library end-users.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-#[doc(hidden)]
-pub struct ColorConfig {
+pub(crate) struct ColorConfig {
     /// Screen-to-model transform matrix (mat3x3)
     mat: [f32; 12],
 
@@ -529,7 +517,7 @@ pub struct ColorConfig {
     only_filled: u32,
 
     // alignment
-    _pad: u32,
+    _pad: [u32; 3],
     // this is followed by a tape_data flexible array member
 }
 
@@ -610,7 +598,7 @@ impl ColorContext {
         &self,
         image: &mut MergeBuffers,
         settings: ColorSettings,
-        shape: &ShapeColorBuffers<ColorConfig>,
+        shape: &ShapeColorBuffers,
         vars: &ShapeVars<f32>,
         gpu: &Gpu,
     ) -> Result<(), ColorError> {
@@ -636,7 +624,7 @@ impl ColorContext {
             axes: shape.axes(),
             image_size: [size.width(), size.height()],
             only_filled: settings.only_filled.into(),
-            _pad: 0,
+            _pad: [0; 3],
             z: settings.z,
         };
         shape.write_config(&config, &gpu.queue);
@@ -710,6 +698,14 @@ mod test {
         crate::test::compare_struct_layout::<ColorConfig>(
             &color_shader(16),
             "Config",
+        );
+    }
+
+    #[test]
+    fn color_config_size() {
+        assert_eq!(
+            std::mem::size_of::<ColorConfig>(),
+            ShapeColorBuffers::expected_config_size(),
         );
     }
 }

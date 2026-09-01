@@ -17,7 +17,7 @@ struct Config {
     only_filled: u32,
 
     // manual alignment
-    _pad: u32,
+    _pad: array<u32, 3>,
 
     /// Tape data, tightly packed per-tile (flexible array member)
     tape_data: array<TapeWord>,

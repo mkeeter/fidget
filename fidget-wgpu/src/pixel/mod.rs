@@ -1680,7 +1680,7 @@ mod test {
                 }
             })
             .collect::<Vec<_>>();
-        let shape_colors = effects_ctx.color_buffers(&shape_colors).unwrap();
+        let shape_colors = gpu.color_buffers(&shape_colors).unwrap();
 
         // Compute per-pixel colors
         effects_ctx
