@@ -182,6 +182,14 @@ impl Gpu {
     ) -> Result<RenderShape, RenderShapeError> {
         RenderShape::new(shape, &self.device)
     }
+
+    /// Build a set of buffers for doing shape color evaluation
+    pub fn color_buffers(
+        &self,
+        colors: &[ShapeColor<VmShape>],
+    ) -> Result<ShapeColorBuffers, ShapeColorError> {
+        ShapeColorBuffers::new(colors, &self.device)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -320,7 +328,7 @@ impl RenderShape {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Color buffers for rendering a shape's diffuse color
-pub struct ShapeColorBuffers<C> {
+pub struct ShapeColorBuffers {
     /// Unified [`VarMap`] object
     var_map: VarMap,
 
@@ -349,9 +357,6 @@ pub struct ShapeColorBuffers<C> {
     /// This doesn't live in a `Buffers` object because it's dynamically sized
     /// based on the shape; everything in `Buffers` is based on image size.
     vars: wgpu::Buffer,
-
-    // Marker for the config type
-    _config: std::marker::PhantomData<C>,
 }
 
 /// Generic shape color generator
@@ -367,7 +372,11 @@ pub enum ShapeColor<T> {
     },
 }
 
-impl<C: IntoBytes + Immutable> ShapeColorBuffers<C> {
+impl ShapeColorBuffers {
+    const fn expected_config_size() -> usize {
+        std::mem::size_of::<voxel::effects::ColorConfig>()
+    }
+
     fn new(
         colors: &[ShapeColor<VmShape>],
         device: &wgpu::Device,
@@ -438,7 +447,7 @@ impl<C: IntoBytes + Immutable> ShapeColorBuffers<C> {
             .copy_from_slice(shape_start.as_bytes());
         shape_start_buf.unmap();
 
-        let config_size = std::mem::size_of::<C>();
+        let config_size = Self::expected_config_size();
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shape_start"),
             size: u64::try_from(
@@ -461,7 +470,6 @@ impl<C: IntoBytes + Immutable> ShapeColorBuffers<C> {
             vars,
             config_bind_group: Default::default(),
             reg_count,
-            _config: std::marker::PhantomData,
         })
     }
 
@@ -471,8 +479,21 @@ impl<C: IntoBytes + Immutable> ShapeColorBuffers<C> {
             .map(|a| self.var_map.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
     }
 
-    fn write_config(&self, c: &C, queue: &wgpu::Queue) {
+    /// Writes a config value
+    ///
+    /// # Panics
+    /// If the config object is not the expected size
+    fn write_config<C: IntoBytes + Immutable>(
+        &self,
+        c: &C,
+        queue: &wgpu::Queue,
+    ) {
         let config_len = std::mem::size_of::<C>();
+        assert_eq!(
+            config_len,
+            Self::expected_config_size(),
+            "wrong config object size"
+        );
         let mut writer = queue
             .write_buffer_with(
                 &self.config,
@@ -628,9 +649,17 @@ mod test {
             Some(m.offset)
         });
         if let Some(dynamic_array_offset) = dynamic_array_offset {
-            assert_eq!(dynamic_array_offset as usize, std::mem::size_of::<T>());
+            assert_eq!(
+                dynamic_array_offset as usize,
+                std::mem::size_of::<T>(),
+                "dynamic array offset is incorrect; invalid last member size?"
+            );
         } else {
-            assert_eq!(span as usize, std::mem::size_of::<T>());
+            assert_eq!(
+                span as usize,
+                std::mem::size_of::<T>(),
+                "overall size is incorrect"
+            );
         }
 
         let facet::Type::User(facet::UserType::Struct(shape)) = T::SHAPE.ty

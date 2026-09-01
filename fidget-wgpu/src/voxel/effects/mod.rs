@@ -10,7 +10,7 @@
 //! - Apply shading to a [`PackedVoxel`] buffer, producing an RGBA image buffer
 
 use crate::{
-    Gpu, RegPipeline, ShapeColor, ShapeColorBuffers, ShapeColorError,
+    Gpu, RegPipeline, ShapeColorBuffers,
     buf::{
         BufferSizeError, DepthImageBuffer, ImageBuffer, ImageReadBuffer,
         buffer_ro, buffer_rw, buffer_uniform,
@@ -21,7 +21,6 @@ use crate::{
 use fidget_core::{
     render::VoxelSize,
     shape::{MissingVar, ShapeVars},
-    vm::VmShape,
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -97,14 +96,10 @@ pub struct PackedVoxel {
 }
 
 /// Configuration for the color evaluation pass
-///
-/// This is public because it's used in a public function signature, but it's
-/// unlikely to be used by library end-users.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-#[doc(hidden)]
-pub struct ColorConfig {
+pub(crate) struct ColorConfig {
     /// Screen-to-model transform matrix
     mat: [f32; 16],
 
@@ -667,14 +662,6 @@ impl Context {
         self.ssao_ctx.submit(image, buf, &self.gpu)
     }
 
-    /// Build a set of buffers for doing shape color evaluation
-    pub fn color_buffers(
-        &self,
-        colors: &[ShapeColor<VmShape>],
-    ) -> Result<ShapeColorBuffers<ColorConfig>, ShapeColorError> {
-        ShapeColorBuffers::new(colors, &self.gpu.device)
-    }
-
     /// Submits a color evaluation pass
     ///
     /// Image size is set from the `MergeBuffers`; the transform matrix is
@@ -684,7 +671,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers<ColorConfig>,
+        shape: &ShapeColorBuffers,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
@@ -705,7 +692,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers<ColorConfig>,
+        shape: &ShapeColorBuffers,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
@@ -1112,7 +1099,7 @@ impl ColorContext {
         &self,
         image: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers<ColorConfig>,
+        shape: &ShapeColorBuffers,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
         gpu: &Gpu,
@@ -1341,6 +1328,14 @@ mod test {
         crate::test::compare_struct_layout::<BlurConfig>(
             &blur_shader(),
             "BlurConfig",
+        );
+    }
+
+    #[test]
+    fn color_config_size() {
+        assert_eq!(
+            std::mem::size_of::<ColorConfig>(),
+            ShapeColorBuffers::expected_config_size(),
         );
     }
 }
