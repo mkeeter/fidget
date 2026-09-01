@@ -1291,6 +1291,27 @@ impl Context {
         buffers: &mut Buffers,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
+        self.encode(shape, vars, buffers, settings, &mut encoder)?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Lowest-level function, writing data to an encoder
+    ///
+    /// The caller is responsible for actually submitting work to the GPU queue.
+    ///
+    /// See [`submit`](Self::submit) for additional details.
+    pub fn encode(
+        &self,
+        shape: &RenderShape,
+        vars: &ShapeVars<f32>,
+        buffers: &mut Buffers,
+        settings: &RenderConfig,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), SubmitError> {
         buffers.set_image_size(&self.gpu.device, settings.image_size)?;
         let render_size = TileRenderSize::from(buffers.image_size);
 
@@ -1363,13 +1384,8 @@ impl Context {
             }
         }
 
-        // Create a command encoder and dispatch the compute work
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-
         // Initial buffer reset pass
-        self.reset_ctx.run(&mut encoder, buffers);
+        self.reset_ctx.run(encoder, buffers);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1418,10 +1434,6 @@ impl Context {
             settings.image_size,
             &mut compute_pass,
         );
-        drop(compute_pass);
-
-        // Submit the commands and wait for the GPU to complete
-        self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 

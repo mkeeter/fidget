@@ -135,11 +135,33 @@ impl Gpu {
         .expect("buf.size should always be a valid size for ImageBuffer::new")
     }
 
-    /// Maps a readable image buffer, returning a mapped image
-    pub fn map<'a, T: buf::BufferTag>(
+    /// Copies and maps a readable image buffer, returning a mapped image
+    pub fn map<
+        'a,
+        T: buf::BufferTag,
+        S: Into<fidget_core::render::ImageSize> + buf::BufferItemCount + Copy,
+    >(
         &self,
+        img: &buf::GenericFlexBuffer<T, S>,
         buf: &'a mut buf::ImageReadBuffer<T>,
     ) -> buf::MappedImage<'a, T> {
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("read_buffer"),
+            },
+        );
+        buf.grow_to_fit(&self.device, img.size().into()).expect(
+            "img.out.size should always be \
+                     a valid size for grow_to_fit",
+        );
+        encoder.copy_buffer_to_buffer(
+            img.data(),
+            0,
+            buf.data(),
+            0,
+            img.size_bytes(),
+        );
+        self.queue.submit(Some(encoder.finish()));
         buf::MappedImage::map(&self.device, buf)
     }
 

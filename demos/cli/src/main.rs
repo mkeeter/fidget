@@ -447,9 +447,8 @@ fn run3d_wgpu(
                 &merge_buf,
                 if ssao { Some(&ssao_buf) } else { None },
                 &mut shade_buf,
-                Some(&mut out_buf),
             )?;
-            let out = gpu.map(&mut out_buf);
+            let out = gpu.map(shade_buf.output(), &mut out_buf);
             out.image().as_bytes().to_vec()
         }
     };

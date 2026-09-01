@@ -12,8 +12,8 @@
 use crate::{
     Gpu, RegPipeline, ShapeColorBuffers,
     buf::{
-        BufferSizeError, DepthImageBuffer, ImageBuffer, ImageReadBuffer,
-        buffer_ro, buffer_rw, buffer_uniform,
+        BufferSizeError, DepthImageBuffer, ImageBuffer, buffer_ro, buffer_rw,
+        buffer_uniform,
     },
     shaders, tag,
     voxel::GeomBufferTag,
@@ -460,6 +460,28 @@ impl Context {
         denoise: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("merge compute encoder"),
+            },
+        );
+        self.encode_merge(image, denoise, buf, &mut encoder)?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Low-level function to encode a merge operation
+    ///
+    /// The caller is responsible for submitting the encoder
+    ///
+    /// See [`submit_merge`](Self::submit_merge) for details.
+    pub fn encode_merge(
+        &self,
+        image: &DepthImageBuffer<GeomBufferTag>,
+        denoise: bool,
+        buf: &mut MergeBuffers,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), MergeError> {
         let size = image.size();
         if buf.image_count == 0 {
             buf.out
@@ -472,69 +494,60 @@ impl Context {
             }
             .into());
         }
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("merge compute encoder"),
-            },
-        );
-        // Scope to bound the lifetime of compute_pass
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("merge compute pass"),
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_pipeline(&self.merge_pipeline);
+        let cfg = MergeConfig {
+            image_size: [size.width(), size.height()],
+            denoise: denoise as u32,
+            index_base: buf.image_count as u32,
+        };
         {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("merge compute pass"),
-                    timestamp_writes: None, // TODO add timestamps?
-                });
-            compute_pass.set_pipeline(&self.merge_pipeline);
-            let cfg = MergeConfig {
-                image_size: [size.width(), size.height()],
-                denoise: denoise as u32,
-                index_base: buf.image_count as u32,
-            };
-            {
-                let mut writer = self
-                    .gpu
-                    .queue
-                    .write_buffer_with(
-                        &buf.config,
-                        0,
-                        (std::mem::size_of::<MergeConfig>() as u64)
-                            .try_into()
-                            .unwrap(),
-                    )
-                    .unwrap();
-                writer.copy_from_slice(cfg.as_bytes());
-            }
-
-            let bg =
-                self.gpu
-                    .device
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("merge bind group"),
-                        layout: &self.merge_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: buf.config.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: image.bind_active(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: buf.out.bind_active(),
-                            },
-                        ],
-                    });
-            compute_pass.set_bind_group(0, Some(&bg), &[]);
-            compute_pass.dispatch_workgroups(
-                size.width().div_ceil(8),
-                size.height().div_ceil(8),
-                1,
-            );
-            buf.image_count += 1;
+            let mut writer = self
+                .gpu
+                .queue
+                .write_buffer_with(
+                    &buf.config,
+                    0,
+                    (std::mem::size_of::<MergeConfig>() as u64)
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap();
+            writer.copy_from_slice(cfg.as_bytes());
         }
-        self.gpu.queue.submit(Some(encoder.finish()));
+
+        let bg =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("merge bind group"),
+                    layout: &self.merge_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buf.config.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: image.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buf.out.bind_active(),
+                        },
+                    ],
+                });
+        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.dispatch_workgroups(
+            size.width().div_ceil(8),
+            size.height().div_ceil(8),
+            1,
+        );
+        buf.image_count += 1;
         Ok(())
     }
 
@@ -546,7 +559,26 @@ impl Context {
         image: &MergeBuffers,
         ssao: Option<&SsaoBuffers>,
         buf: &mut ShadeBuffers,
-        out: Option<&mut ImageReadBuffer<ShadedImageTag>>,
+    ) -> Result<(), ShadeError> {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("shade compute encoder"),
+            },
+        );
+        self.encode_shade(image, ssao, buf, &mut encoder)?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Low-level function to encode a shading operation
+    ///
+    /// See [`submit_shade`](Self::submit_shade) for details
+    pub fn encode_shade(
+        &self,
+        image: &MergeBuffers,
+        ssao: Option<&SsaoBuffers>,
+        buf: &mut ShadeBuffers,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
         if buf.has_color {
@@ -558,98 +590,72 @@ impl Context {
                 .grow_to_fit(&self.gpu.device, size)
                 .map_err(ShadeError::OutputSize)?;
         }
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("shade compute encoder"),
-            },
-        );
 
-        // Scope to bound the lifetime of compute_pass
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("shade compute pass"),
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_pipeline(&self.shade_pipeline);
+        let cfg = ShadeConfig {
+            image_size: [size.width(), size.height(), size.depth()],
+            flags: if ssao.is_some() {
+                SHADE_CONFIG_HAS_SSAO
+            } else {
+                0
+            } | if buf.has_color {
+                SHADE_CONFIG_HAS_COLOR
+            } else {
+                0
+            },
+        };
         {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("shade compute pass"),
-                    timestamp_writes: None, // TODO add timestamps?
+            let mut writer = self
+                .gpu
+                .queue
+                .write_buffer_with(
+                    &buf.config,
+                    0,
+                    buf.config.size().try_into().unwrap(),
+                )
+                .unwrap();
+            writer.copy_from_slice(cfg.as_bytes());
+        }
+        // TODO This is created on every pass
+        let bg =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("shade bind group"),
+                    layout: &self.shade_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buf.config.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: image.out.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: ssao
+                                .map(|s| s.blurred_occlusion().bind_active())
+                                .unwrap_or_else(|| image.out.bind_active()),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: buf.out.bind_active(),
+                        },
+                    ],
                 });
-            compute_pass.set_pipeline(&self.shade_pipeline);
-            let cfg = ShadeConfig {
-                image_size: [size.width(), size.height(), size.depth()],
-                flags: if ssao.is_some() {
-                    SHADE_CONFIG_HAS_SSAO
-                } else {
-                    0
-                } | if buf.has_color {
-                    SHADE_CONFIG_HAS_COLOR
-                } else {
-                    0
-                },
-            };
-            {
-                let mut writer = self
-                    .gpu
-                    .queue
-                    .write_buffer_with(
-                        &buf.config,
-                        0,
-                        buf.config.size().try_into().unwrap(),
-                    )
-                    .unwrap();
-                writer.copy_from_slice(cfg.as_bytes());
-            }
-            // TODO This is created on every pass
-            let bg =
-                self.gpu
-                    .device
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("shade bind group"),
-                        layout: &self.shade_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: buf.config.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: image.out.bind_active(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: ssao
-                                    .map(|s| {
-                                        s.blurred_occlusion().bind_active()
-                                    })
-                                    .unwrap_or_else(|| image.out.bind_active()),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 3,
-                                resource: buf.out.bind_active(),
-                            },
-                        ],
-                    });
-            compute_pass.set_bind_group(0, Some(&bg), &[]);
-            compute_pass.dispatch_workgroups(
-                size.width().div_ceil(8),
-                size.height().div_ceil(8),
-                1,
-            );
-        }
+        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.dispatch_workgroups(
+            size.width().div_ceil(8),
+            size.height().div_ceil(8),
+            1,
+        );
         buf.has_color = false;
-        if let Some(image) = out {
-            image
-                .grow_to_fit(&self.gpu.device, buf.out.size().into())
-                .expect(
-                    "buf.out.size should always be \
-                     a valid size for grow_to_fit",
-                );
-            encoder.copy_buffer_to_buffer(
-                buf.out.data(),
-                0,
-                image.data(),
-                0,
-                buf.out.size_bytes(),
-            );
-        }
-        self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 
@@ -659,7 +665,24 @@ impl Context {
         image: &MergeBuffers,
         buf: &mut SsaoBuffers,
     ) -> Result<(), SsaoError> {
-        self.ssao_ctx.submit(image, buf, &self.gpu)
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("ssao command encoder"),
+            },
+        );
+        self.encode_ssao(image, buf, &mut encoder)?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Low-level function to encode an SSAO pass
+    pub fn encode_ssao(
+        &self,
+        image: &MergeBuffers,
+        buf: &mut SsaoBuffers,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), SsaoError> {
+        self.ssao_ctx.encode(image, buf, &self.gpu, encoder)
     }
 
     /// Submits a color evaluation pass
@@ -696,13 +719,39 @@ impl Context {
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
-        self.color_ctx.submit(
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
+        self.encode_color(
+            merge,
+            world_to_model,
+            shape,
+            vars,
+            out,
+            &mut encoder,
+        )?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Low-level function to encode a color render pass
+    pub fn encode_color(
+        &self,
+        merge: &MergeBuffers,
+        world_to_model: &nalgebra::Matrix4<f32>,
+        shape: &ShapeColorBuffers,
+        vars: &ShapeVars<f32>,
+        out: &mut ShadeBuffers,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), ColorError> {
+        self.color_ctx.encode(
             merge,
             world_to_model,
             shape,
             vars,
             out,
             &self.gpu,
+            encoder,
         )
     }
 }
@@ -902,11 +951,12 @@ impl SsaoContext {
         }
     }
 
-    fn submit(
+    fn encode(
         &self,
         image: &MergeBuffers,
         buf: &mut SsaoBuffers,
         gpu: &Gpu,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), SsaoError> {
         let image_size = image.out.size();
         buf.raw_occlusion
@@ -916,123 +966,105 @@ impl SsaoContext {
             .grow_to_fit(&gpu.device, image_size.into())
             .map_err(SsaoError::OutputSize)?;
 
-        // TODO make this passed in?
-        let mut encoder = gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("ssao command encoder"),
-            },
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("ssao compute pass"),
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_pipeline(&self.ssao_pipeline);
+        let cfg = SsaoConfig {
+            image_size: [
+                image_size.width(),
+                image_size.height(),
+                image_size.depth(),
+            ],
+            radius: 0.1,
+        };
+        {
+            let mut writer = gpu
+                .queue
+                .write_buffer_with(
+                    &buf.ssao_config,
+                    0,
+                    (std::mem::size_of::<SsaoConfig>() as u64)
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap();
+            writer.copy_from_slice(cfg.as_bytes());
+        }
+
+        let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ssao bind group"),
+            layout: &self.ssao_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buf.ssao_config.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: image.out.bind_active(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: buf.raw_occlusion.bind_active(),
+                },
+            ],
+        });
+        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.set_bind_group(1, Some(&self.ssao_bind_group), &[]);
+        compute_pass.dispatch_workgroups(
+            image_size.width().div_ceil(8),
+            image_size.height().div_ceil(8),
+            1,
         );
 
-        // Scope to bound the lifetime of compute_pass
+        compute_pass.set_pipeline(&self.blur_pipeline);
+        let cfg = BlurConfig {
+            image_size: [image_size.width(), image_size.height()],
+            radius: 2,
+            _pad: 0,
+        };
         {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("ssao compute pass"),
-                    timestamp_writes: None, // TODO add timestamps?
-                });
-            compute_pass.set_pipeline(&self.ssao_pipeline);
-            let cfg = SsaoConfig {
-                image_size: [
-                    image_size.width(),
-                    image_size.height(),
-                    image_size.depth(),
-                ],
-                radius: 0.1,
-            };
-            {
-                let mut writer = gpu
-                    .queue
-                    .write_buffer_with(
-                        &buf.ssao_config,
-                        0,
-                        (std::mem::size_of::<SsaoConfig>() as u64)
-                            .try_into()
-                            .unwrap(),
-                    )
-                    .unwrap();
-                writer.copy_from_slice(cfg.as_bytes());
-            }
-
-            let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ssao bind group"),
-                layout: &self.ssao_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buf.ssao_config.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: image.out.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buf.raw_occlusion.bind_active(),
-                    },
-                ],
-            });
-            compute_pass.set_bind_group(0, Some(&bg), &[]);
-            compute_pass.set_bind_group(1, Some(&self.ssao_bind_group), &[]);
-            compute_pass.dispatch_workgroups(
-                image_size.width().div_ceil(8),
-                image_size.height().div_ceil(8),
-                1,
-            );
+            let mut writer = gpu
+                .queue
+                .write_buffer_with(
+                    &buf.blur_config,
+                    0,
+                    (std::mem::size_of::<BlurConfig>() as u64)
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap();
+            writer.copy_from_slice(cfg.as_bytes());
         }
 
-        {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("ssao blur compute pass"),
-                    timestamp_writes: None, // TODO add timestamps?
-                });
-            compute_pass.set_pipeline(&self.blur_pipeline);
-            let cfg = BlurConfig {
-                image_size: [image_size.width(), image_size.height()],
-                radius: 2,
-                _pad: 0,
-            };
-            {
-                let mut writer = gpu
-                    .queue
-                    .write_buffer_with(
-                        &buf.blur_config,
-                        0,
-                        (std::mem::size_of::<BlurConfig>() as u64)
-                            .try_into()
-                            .unwrap(),
-                    )
-                    .unwrap();
-                writer.copy_from_slice(cfg.as_bytes());
-            }
+        let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("blur bind group"),
+            layout: &self.blur_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buf.blur_config.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: buf.raw_occlusion.bind_active(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: buf.blurred_occlusion.bind_active(),
+                },
+            ],
+        });
+        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.dispatch_workgroups(
+            image_size.width().div_ceil(8),
+            image_size.height().div_ceil(8),
+            1,
+        );
 
-            let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("blur bind group"),
-                layout: &self.blur_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buf.blur_config.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: buf.raw_occlusion.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buf.blurred_occlusion.bind_active(),
-                    },
-                ],
-            });
-            compute_pass.set_bind_group(0, Some(&bg), &[]);
-            compute_pass.dispatch_workgroups(
-                image_size.width().div_ceil(8),
-                image_size.height().div_ceil(8),
-                1,
-            );
-        }
-
-        gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 }
@@ -1095,7 +1127,8 @@ impl ColorContext {
     }
 
     /// The output buffer is resized to fit `image`
-    fn submit(
+    #[allow(clippy::too_many_arguments)] // look, it's got a lot going on
+    fn encode(
         &self,
         image: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
@@ -1103,6 +1136,7 @@ impl ColorContext {
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
         gpu: &Gpu,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), ColorError> {
         if image.image_count != shape.shape_count {
             return Err(ColorError::BadShapeCount {
@@ -1130,46 +1164,39 @@ impl ColorContext {
         shape.write_config(&config, &gpu.queue);
         shape.write_vars(vars, &gpu.queue)?;
 
-        // Create a command encoder and dispatch the compute work
-        let mut encoder = gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-        {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: None, // TODO add timestamps?
-                });
-            compute_pass.set_bind_group(0, config_bg, &[]);
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_bind_group(0, config_bg, &[]);
 
-            // TODO this creates a bind group for every evaluation, instead of
-            // caching it somewhere.  However, *where* to cache it is not
-            // obvious, because it combines fields from two different buffer
-            // objects.
-            let image_bg =
-                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("color image bind group"),
-                    layout: &self.image_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: image.out.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: out.out.bind_active(),
-                        },
-                    ],
-                });
-            compute_pass.set_bind_group(1, &image_bg, &[]);
-            compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
-            compute_pass.dispatch_workgroups(
-                size.width().div_ceil(8),
-                size.height().div_ceil(8),
-                1,
-            );
-        }
-        gpu.queue.submit(Some(encoder.finish()));
+        // TODO this creates a bind group for every evaluation, instead of
+        // caching it somewhere.  However, *where* to cache it is not
+        // obvious, because it combines fields from two different buffer
+        // objects.
+        let image_bg =
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("color image bind group"),
+                layout: &self.image_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: image.out.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: out.out.bind_active(),
+                    },
+                ],
+            });
+        compute_pass.set_bind_group(1, &image_bg, &[]);
+        compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
+        compute_pass.dispatch_workgroups(
+            size.width().div_ceil(8),
+            size.height().div_ceil(8),
+            1,
+        );
         Ok(())
     }
 }

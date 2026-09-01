@@ -221,6 +221,26 @@ impl Context {
         remove_nans: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("merge compute encoder"),
+            },
+        );
+        self.encode_merge(image, remove_nans, buf, &mut encoder)?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Low-level function to encode a merge operation to an encoder
+    ///
+    /// See [`submit_merge`](Self::submit_merge) for details
+    pub fn encode_merge(
+        &self,
+        image: &ImageBuffer<PixelBufferTag>,
+        remove_nans: bool,
+        buf: &mut MergeBuffers,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), MergeError> {
         let size = image.size();
         if buf.image_count > 0 {
             if size != buf.out.size() {
@@ -236,69 +256,60 @@ impl Context {
                 .map_err(MergeError::OutputSize)?;
         }
         buf.has_color = false;
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("merge compute encoder"),
-            },
-        );
-        // Scope to bound the lifetime of compute_pass
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("merge compute pass"),
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_pipeline(&self.merge_pipeline);
+        let cfg = MergeConfig {
+            image_size: [size.width(), size.height()],
+            remove_nans: remove_nans as u32,
+            index_base: buf.image_count as u32,
+        };
         {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("merge compute pass"),
-                    timestamp_writes: None, // TODO add timestamps?
-                });
-            compute_pass.set_pipeline(&self.merge_pipeline);
-            let cfg = MergeConfig {
-                image_size: [size.width(), size.height()],
-                remove_nans: remove_nans as u32,
-                index_base: buf.image_count as u32,
-            };
-            {
-                let mut writer = self
-                    .gpu
-                    .queue
-                    .write_buffer_with(
-                        &buf.config,
-                        0,
-                        (std::mem::size_of::<MergeConfig>() as u64)
-                            .try_into()
-                            .unwrap(),
-                    )
-                    .unwrap();
-                writer.copy_from_slice(cfg.as_bytes());
-            }
-
-            let bg =
-                self.gpu
-                    .device
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("merge bind group"),
-                        layout: &self.merge_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: buf.config.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: image.bind_active(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: buf.out.bind_active(),
-                            },
-                        ],
-                    });
-            compute_pass.set_bind_group(0, Some(&bg), &[]);
-            compute_pass.dispatch_workgroups(
-                size.width().div_ceil(8),
-                size.height().div_ceil(8),
-                1,
-            );
-            buf.image_count += 1;
+            let mut writer = self
+                .gpu
+                .queue
+                .write_buffer_with(
+                    &buf.config,
+                    0,
+                    (std::mem::size_of::<MergeConfig>() as u64)
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap();
+            writer.copy_from_slice(cfg.as_bytes());
         }
-        self.gpu.queue.submit(Some(encoder.finish()));
+
+        let bg =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("merge bind group"),
+                    layout: &self.merge_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buf.config.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: image.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buf.out.bind_active(),
+                        },
+                    ],
+                });
+        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.dispatch_workgroups(
+            size.width().div_ceil(8),
+            size.height().div_ceil(8),
+            1,
+        );
+        buf.image_count += 1;
         Ok(())
     }
 
@@ -352,8 +363,27 @@ impl Context {
         shape: &ShapeColorBuffers,
         vars: &ShapeVars<f32>,
     ) -> Result<(), ColorError> {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
+        self.encode_color(merge, settings, shape, vars, &mut encoder)?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Low-level function to send a color evaluation pass to an encoder
+    ///
+    /// See [`submit_color`](Self::submit_color) for details
+    pub fn encode_color(
+        &self,
+        merge: &mut MergeBuffers,
+        settings: ColorSettings,
+        shape: &ShapeColorBuffers,
+        vars: &ShapeVars<f32>,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), ColorError> {
         self.color_ctx
-            .submit(merge, settings, shape, vars, &self.gpu)
+            .encode(merge, settings, shape, vars, &self.gpu, encoder)
     }
 
     /// Returns an [`ImageReadBuffer`] to read from a [`MergeBuffers`] object
@@ -594,13 +624,14 @@ impl ColorContext {
         }
     }
 
-    fn submit(
+    fn encode(
         &self,
         image: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
         vars: &ShapeVars<f32>,
         gpu: &Gpu,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), ColorError> {
         if image.image_count != shape.shape_count {
             return Err(ColorError::BadShapeCount {
@@ -631,39 +662,33 @@ impl ColorContext {
         shape.write_vars(vars, &gpu.queue)?;
 
         // Create a command encoder and dispatch the compute work
-        let mut encoder = gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-        {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: None, // TODO add timestamps?
-                });
-            compute_pass.set_bind_group(0, config_bg, &[]);
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_bind_group(0, config_bg, &[]);
 
-            // TODO this creates a bind group for every evaluation, instead of
-            // caching it somewhere.  However, *where* to cache it is not
-            // obvious, because it combines fields from two different buffer
-            // objects.
-            let image_bg =
-                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("color image bind group"),
-                    layout: &self.image_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: image.out.bind_active(),
-                    }],
-                });
-            compute_pass.set_bind_group(1, &image_bg, &[]);
-            compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
-            compute_pass.dispatch_workgroups(
-                size.width().div_ceil(8),
-                size.height().div_ceil(8),
-                1,
-            );
-        }
-        gpu.queue.submit(Some(encoder.finish()));
+        // TODO this creates a bind group for every evaluation, instead of
+        // caching it somewhere.  However, *where* to cache it is not
+        // obvious, because it combines fields from two different buffer
+        // objects.
+        let image_bg =
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("color image bind group"),
+                layout: &self.image_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: image.out.bind_active(),
+                }],
+            });
+        compute_pass.set_bind_group(1, &image_bg, &[]);
+        compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
+        compute_pass.dispatch_workgroups(
+            size.width().div_ceil(8),
+            size.height().div_ceil(8),
+            1,
+        );
         image.has_color = true;
         Ok(())
     }
