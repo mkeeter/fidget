@@ -2219,8 +2219,8 @@ impl Context {
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, Some(out), &settings)?;
-        let image = self.map_image_async(out).await;
+        self.submit_with_vars(shape, vars, buffers, &settings)?;
+        let image = self.map_image_async(buffers, out).await;
         Ok(image.image())
     }
 

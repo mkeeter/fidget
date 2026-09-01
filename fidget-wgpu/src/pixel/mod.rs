@@ -1262,8 +1262,8 @@ impl Context {
         out: &mut ImageReadBuffer,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, Some(out), &settings)?;
-        let image = self.map_image_async(out).await;
+        self.submit_with_vars(shape, vars, buffers, &settings)?;
+        let image = self.map_image_async(buffers, out).await;
         Ok(image.image())
     }
 
@@ -1503,10 +1503,10 @@ impl Context {
     ) -> MappedImage<'a> {
         self.copy_image(buffers, image_out);
         let (tx, rx) = flume::bounded(0);
-        let slice = image.buffer.map_async(move |_| tx.send(()).unwrap());
+        let slice = image_out.buffer.map_async(move |_| tx.send(()).unwrap());
         rx.recv_async().await.unwrap();
         MappedImage {
-            image,
+            image: image_out,
             slice,
             ns_per_tick: if self.has_timestamps {
                 Some(self.gpu.queue.get_timestamp_period())
