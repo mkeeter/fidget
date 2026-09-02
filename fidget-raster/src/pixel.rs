@@ -220,6 +220,16 @@ impl RawDistancePixel {
             DistancePixel::Fill { inside, depth }
         }
     }
+
+    /// Returns the distance value if this is a [`DistancePixel::Value`]
+    #[inline]
+    pub fn distance(self) -> Option<f32> {
+        if let DistancePixel::Value(v) = self.unpack() {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 impl From<DistancePixel> for RawDistancePixel {

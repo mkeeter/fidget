@@ -57,6 +57,8 @@
 - `VarMap` now implements `Debug`
 - `VarMap::has_free_vars` checks whether there are non-XYZ vars in the map
 - `RawDistancePixel` now implements `zerocopy::IntoBytes`
+- Restored `RawDistancePixel::distance` to get a distance value; it's now a
+  simple `Option<f32>` (not the previous weird `Result<f32, PixelFill>`).
 - `submit*` functions in WebGPU voxel rendering no longer take an optional `out`
   parameter; it's instead passed into `map_image[_async]`.
 
