@@ -35,7 +35,7 @@ pub fn denoise_normals(
     out
 }
 
-/// Combines two images with shading
+/// Applies shading to an image (including optional SSAO)
 ///
 /// # Panics
 /// If the images have different widths or heights
