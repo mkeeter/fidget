@@ -94,8 +94,16 @@ fn register_vec2(engine: &mut rhai::Engine) {
                 vec2_from_rhai_array(&ctx, array)
             },
         )
-        .register_get_set("x", |v: &mut Vec2| v.x, |v: &mut Vec2, x| v.x = x)
-        .register_get_set("y", |v: &mut Vec2| v.y, |v: &mut Vec2, y| v.y = y);
+        .register_get_set(
+            "x",
+            |v: &mut Vec2| v.x as f64,
+            |v: &mut Vec2, x: f64| v.x = x as f32,
+        )
+        .register_get_set(
+            "y",
+            |v: &mut Vec2| v.y as f64,
+            |v: &mut Vec2, y: f64| v.y = y as f32,
+        );
 }
 
 fn register_vec3(engine: &mut rhai::Engine) {
@@ -126,9 +134,21 @@ fn register_vec3(engine: &mut rhai::Engine) {
                 vec3_from_rhai_array(&ctx, array, None)
             },
         )
-        .register_get_set("x", |v: &mut Vec3| v.x, |v: &mut Vec3, x| v.x = x)
-        .register_get_set("y", |v: &mut Vec3| v.y, |v: &mut Vec3, y| v.y = y)
-        .register_get_set("z", |v: &mut Vec3| v.z, |v: &mut Vec3, z| v.z = z);
+        .register_get_set(
+            "x",
+            |v: &mut Vec3| v.x as f64,
+            |v: &mut Vec3, x: f64| v.x = x as f32,
+        )
+        .register_get_set(
+            "y",
+            |v: &mut Vec3| v.y as f64,
+            |v: &mut Vec3, y: f64| v.y = y as f32,
+        )
+        .register_get_set(
+            "z",
+            |v: &mut Vec3| v.z as f64,
+            |v: &mut Vec3, z: f64| v.z = z as f32,
+        );
 }
 
 impl FromDynamic for Vec2 {

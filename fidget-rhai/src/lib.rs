@@ -396,4 +396,32 @@ mod test {
         let expected = std::f32::consts::SQRT_2;
         assert!((result - expected).abs() < 1e-10);
     }
+
+    #[test]
+    fn vec2_types() {
+        crate::engine()
+            .run(
+                r#"
+                let p = vec2(0.4, 0.5);
+                let c = sphere([p.x, p.y, 0.3], 2.0);
+                p.x = 1.2;
+                "#,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn vec3_types() {
+        crate::engine()
+            .run(
+                r#"
+                let p = vec3(0.4, 0.5, 0.7);
+                let c = sphere(p, 2.0);
+                p.x = 1.2;
+                p.y = 1.2;
+                p.z = 1.2;
+                "#,
+            )
+            .unwrap();
+    }
 }
