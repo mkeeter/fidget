@@ -11,15 +11,12 @@
 
 use crate::{
     Gpu, RegPipeline, ShapeColorBuffers,
-    buf::{
-        BufferSizeError, DepthImageBuffer, ImageBuffer, buffer_ro, buffer_rw,
-        buffer_uniform,
-    },
+    buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw, buffer_uniform},
     shaders, tag,
     voxel::GeomBufferTag,
 };
 use fidget_core::{
-    render::VoxelSize,
+    render::{ImageSize, VoxelSize},
     shape::{MissingVar, ShapeVars},
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -147,20 +144,20 @@ struct ShadeConfig {
 const SHADE_CONFIG_HAS_SSAO: u32 = 1u32;
 const SHADE_CONFIG_HAS_COLOR: u32 = 2u32;
 
-tag!(pub MergeVoxelBufferTag, PackedVoxel, STORAGE | COPY_SRC,
+tag!(pub MergeVoxelBufferTag, PackedVoxel, VoxelSize, STORAGE | COPY_SRC,
     "Buffer tag for on-GPU merged ([`PackedVoxel`]) images"
 );
 
 /// Handle to a set of buffers used when merging images
 pub struct MergeBuffers {
     config: wgpu::Buffer,
-    out: DepthImageBuffer<MergeVoxelBufferTag>,
+    out: FlexBuffer<MergeVoxelBufferTag>,
     image_count: usize,
 }
 
 impl MergeBuffers {
     /// Returns a handle to the output buffer
-    pub fn output(&self) -> &DepthImageBuffer<MergeVoxelBufferTag> {
+    pub fn output(&self) -> &FlexBuffer<MergeVoxelBufferTag> {
         &self.out
     }
 
@@ -174,7 +171,7 @@ impl MergeBuffers {
 }
 
 tag!(
-    pub ShadedImageTag, u32, STORAGE | COPY_SRC,
+    pub ShadedImageTag, u32, VoxelSize, STORAGE | COPY_SRC,
     "Buffer tag for on-GPU shaded (RGBA) images"
 );
 
@@ -182,12 +179,12 @@ tag!(
 pub struct ShadeBuffers {
     config: wgpu::Buffer,
     has_color: bool,
-    out: DepthImageBuffer<ShadedImageTag>,
+    out: FlexBuffer<ShadedImageTag>,
 }
 
 impl ShadeBuffers {
     /// Returns a reference to the output buffer
-    pub fn output(&self) -> &DepthImageBuffer<ShadedImageTag> {
+    pub fn output(&self) -> &FlexBuffer<ShadedImageTag> {
         &self.out
     }
 }
@@ -369,7 +366,7 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = DepthImageBuffer::new(
+        let out = FlexBuffer::new(
             &self.gpu.device,
             "merge output".to_owned(),
             64.into(),
@@ -394,7 +391,7 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = DepthImageBuffer::new(
+        let out = FlexBuffer::new(
             &self.gpu.device,
             "shade output".to_owned(),
             64.into(),
@@ -421,7 +418,7 @@ impl Context {
                 mapped_at_creation: false,
             });
         let image_size = 64.into();
-        let raw_occlusion = ImageBuffer::new(
+        let raw_occlusion = FlexBuffer::new(
             &self.gpu.device,
             "ssao raw occlusion".to_owned(),
             image_size,
@@ -435,7 +432,7 @@ impl Context {
                     | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-        let blurred_occlusion = ImageBuffer::new(
+        let blurred_occlusion = FlexBuffer::new(
             &self.gpu.device,
             "ssao blurred occlusion".to_owned(),
             image_size,
@@ -456,7 +453,7 @@ impl Context {
     /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
-        image: &DepthImageBuffer<GeomBufferTag>,
+        image: &FlexBuffer<GeomBufferTag>,
         denoise: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
@@ -693,28 +690,28 @@ impl Context {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-tag!(pub SsaoRawBufferTag, f32, STORAGE | COPY_SRC,
+tag!(pub SsaoRawBufferTag, f32, ImageSize, STORAGE | COPY_SRC,
     "Tag for a raw SSAO occlusion buffer");
-tag!(pub SsaoBlurredBufferTag, f32, STORAGE | COPY_SRC,
+tag!(pub SsaoBlurredBufferTag, f32, ImageSize, STORAGE | COPY_SRC,
     "Tag for a blurred SSAO occlusion buffer");
 
 /// Handle to a set of buffers used when running an SSAO pass
 pub struct SsaoBuffers {
     ssao_config: wgpu::Buffer, // TODO add a `ConfigBuffer` type?
-    raw_occlusion: ImageBuffer<SsaoRawBufferTag>,
+    raw_occlusion: FlexBuffer<SsaoRawBufferTag>,
 
     blur_config: wgpu::Buffer,
-    blurred_occlusion: ImageBuffer<SsaoBlurredBufferTag>,
+    blurred_occlusion: FlexBuffer<SsaoBlurredBufferTag>,
 }
 
 impl SsaoBuffers {
     /// Returns a shared handle to the raw SSAO occlusion buffer
-    pub fn raw_occlusion(&self) -> &ImageBuffer<SsaoRawBufferTag> {
+    pub fn raw_occlusion(&self) -> &FlexBuffer<SsaoRawBufferTag> {
         &self.raw_occlusion
     }
 
     /// Returns a shared handle to the blurred SSAO occlusion buffer
-    pub fn blurred_occlusion(&self) -> &ImageBuffer<SsaoBlurredBufferTag> {
+    pub fn blurred_occlusion(&self) -> &FlexBuffer<SsaoBlurredBufferTag> {
         &self.blurred_occlusion
     }
 }

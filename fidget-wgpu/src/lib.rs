@@ -120,14 +120,16 @@ impl Gpu {
         Ok(Gpu { device, queue })
     }
 
-    /// Returns a readable buffer for the given image buffer
-    pub fn read_buffer_for<T, B>(
+    /// Returns a readable buffer for the given buffer
+    ///
+    /// See [`copy`](Self::copy) and [`map`](Self::map) for how to use the
+    /// resulting read buffer.
+    pub fn read_buffer_for<T>(
         &self,
-        buf: &buf::GenericFlexBuffer<T, B>,
-    ) -> buf::ReadBuffer<T, B>
+        buf: &buf::FlexBuffer<T>,
+    ) -> buf::ReadBuffer<T>
     where
         T: buf::BufferTag,
-        B: buf::BufferItemCount + Copy,
     {
         buf::ReadBuffer::new(
             &self.device,
@@ -188,13 +190,12 @@ impl Gpu {
     /// Copies from a GPU-resident buffer to a host-mappable buffer
     ///
     /// The host-mappable destination buffer is resized to fit the data.
-    pub fn copy<A, S>(
+    pub fn copy<A>(
         &self,
-        src: &buf::GenericFlexBuffer<A, S>,
-        dst: &mut buf::ReadBuffer<A, S>,
+        src: &buf::FlexBuffer<A>,
+        dst: &mut buf::ReadBuffer<A>,
     ) where
         A: buf::BufferTag,
-        S: buf::BufferItemCount + Copy,
     {
         let mut encoder = self.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -208,14 +209,13 @@ impl Gpu {
     /// Low-level command to submit a buffer copy to a command encoder
     ///
     /// See [`copy`](Self::copy) for details
-    pub fn encode_copy<A, S>(
+    pub fn encode_copy<A>(
         &self,
-        src: &buf::GenericFlexBuffer<A, S>,
-        dst: &mut buf::ReadBuffer<A, S>,
+        src: &buf::FlexBuffer<A>,
+        dst: &mut buf::ReadBuffer<A>,
         encoder: &mut wgpu::CommandEncoder,
     ) where
         A: buf::BufferTag,
-        S: buf::BufferItemCount + Copy,
     {
         dst.grow_to_fit(&self.device, src.size())
             .expect("dst buffer should be resizable to match src buffer");
@@ -229,15 +229,14 @@ impl Gpu {
     }
 
     /// Blocking function to build a new mapped buffer
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn map<'a, T, S>(
+    #[cfg(any(not(target_arch = "wasm32"), doc))]
+    pub fn map<'a, T>(
         &self,
-        image: &'a mut buf::ReadBuffer<T, S>,
-    ) -> buf::MappedBuffer<'a, T, S>
+        image: &'a mut buf::ReadBuffer<T>,
+    ) -> buf::MappedBuffer<'a, T>
     where
         T: buf::BufferTag,
         T::T: Immutable + FromBytes + Copy,
-        S: buf::BufferItemCount + Copy,
     {
         pollster::block_on(self.map_async(image))
     }
@@ -248,14 +247,13 @@ impl Gpu {
     /// platforms, the single `await` is trivial (guaranteed to always be
     /// ready); on the web, the mapping sends us back to the event loop until
     /// it's ready.
-    pub async fn map_async<'a, T, S>(
+    pub async fn map_async<'a, T>(
         &self,
-        data: &'a mut buf::ReadBuffer<T, S>,
-    ) -> buf::MappedBuffer<'a, T, S>
+        data: &'a mut buf::ReadBuffer<T>,
+    ) -> buf::MappedBuffer<'a, T>
     where
         T: buf::BufferTag,
         T::T: Immutable + FromBytes + Copy,
-        S: buf::BufferItemCount + Copy,
     {
         let (tx, rx) = flume::bounded(1);
         let slice = data.map_async(move |_| tx.send(()).unwrap());
@@ -267,15 +265,15 @@ impl Gpu {
     }
 
     /// Blocking function to build a new mapped image
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn map_image<'a, T, S>(
+    #[cfg(any(not(target_arch = "wasm32"), doc))]
+    pub fn map_image<'a, T>(
         &self,
-        data: &'a mut buf::ReadBuffer<T, S>,
-    ) -> buf::MappedImage<'a, T, S>
+        data: &'a mut buf::ReadBuffer<T>,
+    ) -> buf::MappedImage<'a, T>
     where
         T: buf::BufferTag,
         T::T: Immutable + FromBytes + Copy,
-        S: buf::BufferItemCount + RenderSize + Copy,
+        T::S: RenderSize,
     {
         pollster::block_on(self.map_image_async(data))
     }
@@ -286,14 +284,14 @@ impl Gpu {
     /// platforms, the single `await` is trivial (guaranteed to always be
     /// ready); on the web, the mapping sends us back to the event loop until
     /// it's ready.
-    pub async fn map_image_async<'a, T, S>(
+    pub async fn map_image_async<'a, T>(
         &self,
-        data: &'a mut buf::ReadBuffer<T, S>,
-    ) -> buf::MappedImage<'a, T, S>
+        data: &'a mut buf::ReadBuffer<T>,
+    ) -> buf::MappedImage<'a, T>
     where
         T: buf::BufferTag,
         T::T: Immutable + FromBytes + Copy,
-        S: buf::BufferItemCount + RenderSize + Copy,
+        T::S: RenderSize,
     {
         self.map_async(data).await.into()
     }

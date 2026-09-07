@@ -10,9 +10,9 @@ use zerocopy::FromBytes;
 ///
 /// The buffer keeps track of both its current size and capacity (which may be
 /// larger).  It is used to prevent GPU buffer allocation churn.
-pub struct GenericFlexBuffer<T, B> {
+pub struct FlexBuffer<T: BufferTag> {
     /// Current size, which may be smaller than the buffer's capacity
-    size: B,
+    size: T::S,
     /// Actual GPU buffer
     data: wgpu::Buffer,
     /// Buffer label (to be used when reallocating)
@@ -21,25 +21,18 @@ pub struct GenericFlexBuffer<T, B> {
     _t: std::marker::PhantomData<T>,
 }
 
-/// Resizable array buffer
-pub type ArrayBuffer<T> = GenericFlexBuffer<T, usize>;
-
-/// Resizable image buffer
-pub type ImageBuffer<T> = GenericFlexBuffer<T, ImageSize>;
-
-/// Resizable image buffer
-pub type DepthImageBuffer<T> = GenericFlexBuffer<T, VoxelSize>;
-
-/// Tag associated with a particular [`GenericFlexBuffer`]
+/// Tag associated with a particular [`FlexBuffer`]
 ///
 /// The tag type serves two purposes:
 ///
-/// - It declares the storage type and usage bits for the buffer
+/// - It declares the storage type, usage bits, and size type for the buffer
 /// - It makes buffers strongly typed, so that two buffers with equivalent
 ///   storage and usage bits can be distinct types.
 pub trait BufferTag {
     /// Data type stored in the buffer
     type T;
+    /// Size type
+    type S: BufferItemCount + Copy;
     /// Usage bits for the buffer
     ///
     /// This must be a union of [`wgpu::BufferUsages`] values
@@ -52,6 +45,7 @@ pub struct MappedBufferTag<T: BufferTag> {
 }
 impl<T: BufferTag> BufferTag for MappedBufferTag<T> {
     type T = T::T;
+    type S = T::S;
     fn usage() -> u32 {
         wgpu::BufferUsages::COPY_DST.bits()
             | wgpu::BufferUsages::MAP_READ.bits()
@@ -61,11 +55,12 @@ impl<T: BufferTag> BufferTag for MappedBufferTag<T> {
 /// Helper macro to declare a buffer tag
 #[macro_export]
 macro_rules! tag {
-    ($vis:vis $name:ident,  $t:ty, $($flag:ident)|+ $(,$doc:expr)?) => {
+    ($vis:vis $name:ident, $t:ty, $s:ty, $($flag:ident)|+ $(,$doc:expr)?) => {
         $(#[doc = $doc])?
         $vis struct $name;
         impl $crate::buf::BufferTag for $name {
             type T = $t;
+            type S = $s;
             fn usage() -> u32 {
                 $( wgpu::BufferUsages::$flag.bits() )|+
             }
@@ -100,11 +95,11 @@ impl BufferItemCount for VoxelSize {
     }
 }
 
-impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
+impl<T: BufferTag> FlexBuffer<T> {
     pub(crate) fn new(
         device: &wgpu::Device,
         name: String,
-        size: B,
+        size: T::S,
     ) -> Result<Self, BufferSizeError> {
         Self::check_size(size)?;
         let size_bytes = Self::calculate_buffer_size(size);
@@ -126,7 +121,7 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     /// Calculate size from buffer item count
     ///
     /// Size is rounded up to the nearest multiple of 4 for alignment
-    pub fn calculate_buffer_size(item_count: B) -> u64 {
+    pub fn calculate_buffer_size(item_count: T::S) -> u64 {
         let out = u64::try_from(item_count.item_count())
             .unwrap()
             .checked_mul(u64::try_from(std::mem::size_of::<T::T>()).unwrap())
@@ -142,7 +137,7 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
         Self::calculate_buffer_size(self.size)
     }
 
-    pub(crate) fn check_size(size: B) -> Result<(), BufferSizeError> {
+    pub(crate) fn check_size(size: T::S) -> Result<(), BufferSizeError> {
         let size = Self::calculate_buffer_size(size);
         let usage = wgpu::BufferUsages::from_bits(T::usage()).unwrap();
 
@@ -165,7 +160,7 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     pub(crate) fn grow_to_fit(
         &mut self,
         device: &wgpu::Device,
-        size: B,
+        size: T::S,
     ) -> Result<(), BufferSizeError> {
         Self::check_size(size)?;
         let new_size = Self::calculate_buffer_size(size);
@@ -224,40 +219,39 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     }
 
     /// Returns the size of the buffer (which is generic)
-    pub fn size(&self) -> B {
+    pub fn size(&self) -> T::S {
         self.size
     }
 }
 
 /// Buffer for reading data back from the GPU
 ///
-/// Once mapped, this can be wrapped by a [`MappedImage`] (if the `S` parameter
-/// is an image size).
-pub type ReadBuffer<T, S> = GenericFlexBuffer<MappedBufferTag<T>, S>;
+/// Once mapped, this can be wrapped by a [`MappedImage`] (if the tag's size
+/// parameter is an image size).
+pub type ReadBuffer<T> = FlexBuffer<MappedBufferTag<T>>;
 
 /// Handle to a mapped [`ReadBuffer`]
 ///
 /// The buffer is automatically unmapped when this handle is dropped
-pub struct MappedBuffer<'a, T: BufferTag, S: BufferItemCount + Copy> {
-    buf: &'a ReadBuffer<T, S>,
+pub struct MappedBuffer<'a, T: BufferTag> {
+    buf: &'a ReadBuffer<T>,
     slice: wgpu::BufferSlice<'a>,
 }
 
-impl<T: BufferTag, S: BufferItemCount + Copy> Drop for MappedBuffer<'_, T, S> {
+impl<T: BufferTag> Drop for MappedBuffer<'_, T> {
     fn drop(&mut self) {
         self.buf.data().unmap();
     }
 }
 
-impl<'a, T, S> MappedBuffer<'a, T, S>
+impl<'a, T> MappedBuffer<'a, T>
 where
     T: BufferTag,
     T::T: zerocopy::FromBytes + zerocopy::Immutable + Copy,
-    S: BufferItemCount + Copy,
 {
     /// Basic constructor
     pub(crate) fn new(
-        buf: &'a ReadBuffer<T, S>,
+        buf: &'a ReadBuffer<T>,
         slice: wgpu::BufferSlice<'a>,
     ) -> Self {
         Self { buf, slice }
@@ -276,29 +270,28 @@ where
 /// Handle to a mapped [`ReadBuffer`] containing an image
 ///
 /// The buffer is automatically unmapped when this handle is dropped
-pub struct MappedImage<'a, T: BufferTag, S: BufferItemCount + RenderSize + Copy>(
-    MappedBuffer<'a, T, S>,
-);
+pub struct MappedImage<'a, T: BufferTag>(MappedBuffer<'a, T>)
+where
+    T::S: RenderSize;
 
-impl<'a, T, S> From<MappedBuffer<'a, T, S>> for MappedImage<'a, T, S>
+impl<'a, T> From<MappedBuffer<'a, T>> for MappedImage<'a, T>
 where
     T: BufferTag,
-    T::T: Copy,
-    S: BufferItemCount + RenderSize + Copy,
+    T::S: RenderSize,
 {
-    fn from(value: MappedBuffer<'a, T, S>) -> Self {
+    fn from(value: MappedBuffer<'a, T>) -> Self {
         Self(value)
     }
 }
 
-impl<'a, T, S> MappedImage<'a, T, S>
+impl<'a, T> MappedImage<'a, T>
 where
     T: BufferTag,
     T::T: zerocopy::FromBytes + zerocopy::Immutable + Copy,
-    S: BufferItemCount + RenderSize + Copy,
+    T::S: RenderSize,
 {
     /// Returns the image's data
-    pub fn image(&self) -> fidget_raster::Image<T::T, S> {
+    pub fn image(&self) -> fidget_raster::Image<T::T, T::S> {
         fidget_raster::Image::build(self.0.to_vec(), self.0.buf.size()).unwrap()
     }
 }

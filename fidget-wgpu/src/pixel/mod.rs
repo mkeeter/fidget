@@ -5,8 +5,8 @@
 use crate::{
     Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
-        ArrayBuffer, BufferItemCount, BufferSizeError, BufferType, ImageBuffer,
-        buffer_ro, buffer_rw,
+        BufferItemCount, BufferSizeError, BufferType, FlexBuffer, buffer_ro,
+        buffer_rw,
     },
     shaders, tag,
 };
@@ -405,8 +405,8 @@ struct Config {
     // This is followed by a flexible array member containing tape data
 }
 
-tag!(TileTapesBufferTag, u32, STORAGE | COPY_DST);
-tag!(pub PixelBufferTag, RawDistancePixel, STORAGE | COPY_SRC | COPY_DST,
+tag!(TileTapesBufferTag, u32, usize, STORAGE | COPY_DST);
+tag!(pub PixelBufferTag, RawDistancePixel, ImageSize, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`RawDistancePixel`] values");
 
 /// Buffers for rendering
@@ -427,7 +427,7 @@ pub struct Buffers {
     config_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: ArrayBuffer<TileTapesBufferTag>,
+    tile_tapes: FlexBuffer<TileTapesBufferTag>,
 
     /// Root tile buffers (64²)
     tile64: TileBuffers<64>,
@@ -436,7 +436,7 @@ pub struct Buffers {
     tile8: TileBuffers<8>,
 
     /// Pixel data
-    pixels: ImageBuffer<PixelBufferTag>,
+    pixels: FlexBuffer<PixelBufferTag>,
 
     /// Query set for timestamps
     ///
@@ -477,7 +477,7 @@ impl Buffers {
         });
 
         let render_size = TileRenderSize::from(image_size);
-        let tile_tapes = ArrayBuffer::new(
+        let tile_tapes = FlexBuffer::new(
             device,
             "tile tape".to_string(),
             Self::tile_tapes_buf_size(render_size),
@@ -485,7 +485,7 @@ impl Buffers {
         .unwrap();
 
         let pixels =
-            ImageBuffer::new(device, "pixels".to_string(), image_size).unwrap();
+            FlexBuffer::new(device, "pixels".to_string(), image_size).unwrap();
 
         let ts_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ts"),
@@ -669,7 +669,7 @@ impl Buffers {
     /// [`RawDistancePixel`] image data without copying to the CPU.  It requires
     /// a exclusive borrow of the `Buffers` object (and then extends that
     /// lifetime) so that other callers can't simultaneously touch the buffer.
-    pub fn image_storage_buffer(&mut self) -> &ImageBuffer<PixelBufferTag> {
+    pub fn image_storage_buffer(&mut self) -> &FlexBuffer<PixelBufferTag> {
         &self.pixels
     }
 }
@@ -858,8 +858,8 @@ impl BindGroups {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-tag!(ImageReadTag, u8, COPY_DST | MAP_READ);
-type ImageReadArrayBuffer = ArrayBuffer<ImageReadTag>;
+tag!(ImageReadTag, u8, usize, COPY_DST | MAP_READ);
+type ImageReadArrayBuffer = FlexBuffer<ImageReadTag>;
 
 /// Buffer for reading data back from the GPU
 ///
@@ -956,16 +956,16 @@ impl MappedImage<'_> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-tag!(TilesBufferTag, u32, STORAGE | COPY_DST | INDIRECT);
-tag!(ValuesBufferTag, u32, STORAGE | COPY_DST);
+tag!(TilesBufferTag, u32, usize, STORAGE | COPY_DST | INDIRECT);
+tag!(ValuesBufferTag, u32, ImageSize, STORAGE | COPY_DST);
 
 /// Root tile buffers store strata-packed tile lists
 struct TileBuffers<const N: usize> {
     /// Output tiles
-    tiles: ArrayBuffer<TilesBufferTag>,
+    tiles: FlexBuffer<TilesBufferTag>,
 
     /// Tile values (empty / full)
-    values: ImageBuffer<ValuesBufferTag>,
+    values: FlexBuffer<ValuesBufferTag>,
 }
 
 /// Error type when resizing root tile buffers
@@ -1004,7 +1004,7 @@ impl<const N: usize> TileBuffers<N> {
         render_size: TileRenderSize,
     ) -> Result<Self, TileBuffersError> {
         // Allocate enough words to write all of the output tiles
-        let tiles = ArrayBuffer::new(
+        let tiles = FlexBuffer::new(
             device,
             format!("tiles_out{N}"),
             Self::tiles_buf_size(render_size),
@@ -1015,15 +1015,12 @@ impl<const N: usize> TileBuffers<N> {
         })?;
 
         let values_buf_size = Self::values_buf_size(render_size);
-        let values = ImageBuffer::new(
-            device,
-            format!("tile{N}_values"),
-            values_buf_size,
-        )
-        .map_err(|err| TileBuffersError {
-            buf: TileBufferName::Values,
-            err,
-        })?;
+        let values =
+            FlexBuffer::new(device, format!("tile{N}_values"), values_buf_size)
+                .map_err(|err| TileBuffersError {
+                    buf: TileBufferName::Values,
+                    err,
+                })?;
         Ok(Self { tiles, values })
     }
 
