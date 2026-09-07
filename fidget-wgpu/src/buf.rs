@@ -126,7 +126,7 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     /// Calculate size from buffer item count
     ///
     /// Size is rounded up to the nearest multiple of 4 for alignment
-    fn calculate_buffer_size(item_count: B) -> u64 {
+    pub fn calculate_buffer_size(item_count: B) -> u64 {
         let out = u64::try_from(item_count.item_count())
             .unwrap()
             .checked_mul(u64::try_from(std::mem::size_of::<T::T>()).unwrap())
@@ -135,6 +135,9 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
     }
 
     /// Returns the active buffer size (in bytes)
+    ///
+    /// Note that this is rounded up to the nearest multiple of 4, per
+    /// [`calculate_buffer_size`](Self::calculate_buffer_size)
     pub fn size_bytes(&self) -> u64 {
         Self::calculate_buffer_size(self.size)
     }
@@ -232,28 +235,25 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
 /// is an image size).
 pub type ReadBuffer<T, S> = GenericFlexBuffer<MappedBufferTag<T>, S>;
 
-/// Handle to a mapped [`ReadBuffer`] containing an image
+/// Handle to a mapped [`ReadBuffer`]
 ///
 /// The buffer is automatically unmapped when this handle is dropped
-pub struct MappedImage<'a, T: BufferTag, S: BufferItemCount + RenderSize + Copy>
-{
+pub struct MappedBuffer<'a, T: BufferTag, S: BufferItemCount + Copy> {
     buf: &'a ReadBuffer<T, S>,
     slice: wgpu::BufferSlice<'a>,
 }
 
-impl<T: BufferTag, S: BufferItemCount + RenderSize + Copy> Drop
-    for MappedImage<'_, T, S>
-{
+impl<T: BufferTag, S: BufferItemCount + Copy> Drop for MappedBuffer<'_, T, S> {
     fn drop(&mut self) {
         self.buf.data().unmap();
     }
 }
 
-impl<'a, T, S> MappedImage<'a, T, S>
+impl<'a, T, S> MappedBuffer<'a, T, S>
 where
     T: BufferTag,
     T::T: zerocopy::FromBytes + zerocopy::Immutable + Copy,
-    S: BufferItemCount + RenderSize + Copy,
+    S: BufferItemCount + Copy,
 {
     /// Basic constructor
     pub(crate) fn new(
@@ -263,12 +263,43 @@ where
         Self { buf, slice }
     }
 
+    /// Copies the buffer data into a `Vec`
+    pub fn to_vec(&self) -> Vec<T::T> {
+        // We don't want to use the buffer's size, because it's rounded up to a
+        // multiple of 4; use the raw item size (in bytes) instead.
+        let slice = self.slice.get_mapped_range();
+        let n = self.buf.size().item_count() * std::mem::size_of::<T::T>();
+        <[T::T]>::ref_from_bytes(&slice[..n]).unwrap().to_owned()
+    }
+}
+
+/// Handle to a mapped [`ReadBuffer`] containing an image
+///
+/// The buffer is automatically unmapped when this handle is dropped
+pub struct MappedImage<'a, T: BufferTag, S: BufferItemCount + RenderSize + Copy>(
+    MappedBuffer<'a, T, S>,
+);
+
+impl<'a, T, S> From<MappedBuffer<'a, T, S>> for MappedImage<'a, T, S>
+where
+    T: BufferTag,
+    T::T: Copy,
+    S: BufferItemCount + RenderSize + Copy,
+{
+    fn from(value: MappedBuffer<'a, T, S>) -> Self {
+        Self(value)
+    }
+}
+
+impl<'a, T, S> MappedImage<'a, T, S>
+where
+    T: BufferTag,
+    T::T: zerocopy::FromBytes + zerocopy::Immutable + Copy,
+    S: BufferItemCount + RenderSize + Copy,
+{
     /// Returns the image's data
     pub fn image(&self) -> fidget_raster::Image<T::T, S> {
-        let result = <[T::T]>::ref_from_bytes(&self.slice.get_mapped_range())
-            .unwrap()
-            .to_owned();
-        fidget_raster::Image::build(result, self.buf.size()).unwrap()
+        fidget_raster::Image::build(self.0.to_vec(), self.0.buf.size()).unwrap()
     }
 }
 
