@@ -2933,7 +2933,7 @@ mod test {
             out.colors.len()
         );
 
-        let (_out, img_size) = out.shaded.take();
+        let (shaded, img_size) = out.shaded.take();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
 
@@ -2943,6 +2943,15 @@ mod test {
                 assert_eq!(c.a, 0);
             } else {
                 assert_eq!(c.a, 0xFF);
+            }
+        }
+        for (m, c) in out.merged.iter().zip(shaded.iter()) {
+            let p = m.z;
+            if p == 0 {
+                assert_eq!(*c, 0);
+            } else {
+                // Check that the alpha channel is fully opaque
+                assert_eq!(c & (0xFF << 24), (0xFF << 24));
             }
         }
     }
