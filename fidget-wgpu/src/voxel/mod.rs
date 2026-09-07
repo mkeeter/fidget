@@ -2809,7 +2809,7 @@ mod test {
     struct RenderOutput {
         merged: Vec<PackedVoxel>,
         colors: Vec<Rgba>,
-        shaded: fidget_raster::Image<u32, ImageSize>,
+        shaded: fidget_raster::Image<u32, VoxelSize>,
     }
 
     fn render(
@@ -2867,13 +2867,9 @@ mod test {
         // Compute shaded image (with color, overwriting shade_buf)
         let mut shade_out = gpu.read_buffer_for(shade_buf.output());
         effects_ctx
-            .submit_shade(
-                &merge_buf,
-                Some(&ssao_buf),
-                &mut shade_buf,
-                Some(&mut shade_out),
-            )
+            .submit_shade(&merge_buf, Some(&ssao_buf), &mut shade_buf)
             .unwrap();
+        gpu.copy(shade_buf.output(), &mut shade_out);
 
         let img = gpu.map(&mut shade_out);
         let shaded = img.image();

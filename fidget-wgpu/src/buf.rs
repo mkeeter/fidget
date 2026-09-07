@@ -3,6 +3,7 @@
 //! This module is mostly internal to the crate, but is public because its types
 //! appear as return values and arguments.
 use fidget_core::render::{ImageSize, VoxelSize};
+use fidget_raster::RenderSize;
 use zerocopy::FromBytes;
 
 /// Handle around a growable GPU buffer
@@ -227,35 +228,44 @@ impl<T: BufferTag, B: BufferItemCount + Copy> GenericFlexBuffer<T, B> {
 
 /// Buffer for reading data back from the GPU
 ///
-/// Once mapped, this is wrapped by a [`MappedImage`]
-pub type ImageReadBuffer<T> = ImageBuffer<MappedBufferTag<T>>;
+/// Once mapped, this can be wrapped by a [`MappedImage`] (if the `S` parameter
+/// is an image size).
+pub type ReadBuffer<T, S> = GenericFlexBuffer<MappedBufferTag<T>, S>;
 
-/// Handle to a mapped [`ImageReadBuffer`], which unmaps the image when dropped
-pub struct MappedImage<'a, T: BufferTag> {
-    buf: &'a ImageReadBuffer<T>,
+/// Handle to a mapped [`ReadBuffer`] containing an image
+///
+/// The buffer is automatically unmapped when this handle is dropped
+pub struct MappedImage<'a, T: BufferTag, S: BufferItemCount + RenderSize + Copy>
+{
+    buf: &'a ReadBuffer<T, S>,
     slice: wgpu::BufferSlice<'a>,
 }
 
-impl<T: BufferTag> Drop for MappedImage<'_, T> {
+impl<T: BufferTag, S: BufferItemCount + RenderSize + Copy> Drop
+    for MappedImage<'_, T, S>
+{
     fn drop(&mut self) {
         self.buf.data().unmap();
     }
 }
 
-impl<'a, T: BufferTag> MappedImage<'a, T> {
-    /// Blocking function to build a new mapped image
-    pub fn map(
-        device: &wgpu::Device,
-        image: &'a mut ImageReadBuffer<T>,
+impl<'a, T, S> MappedImage<'a, T, S>
+where
+    T: BufferTag,
+    T::T: zerocopy::FromBytes + zerocopy::Immutable + Copy,
+    S: BufferItemCount + RenderSize + Copy,
+{
+    /// Basic constructor
+    pub(crate) fn new(
+        buf: &'a ReadBuffer<T, S>,
+        slice: wgpu::BufferSlice<'a>,
     ) -> Self {
-        let slice = image.map_async(|_| {});
-        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        MappedImage { buf: image, slice }
+        Self { buf, slice }
     }
 
     /// Returns the image's data
-    pub fn image(&self) -> fidget_raster::Image<u32, ImageSize> {
-        let result = <[u32]>::ref_from_bytes(&self.slice.get_mapped_range())
+    pub fn image(&self) -> fidget_raster::Image<T::T, S> {
+        let result = <[T::T]>::ref_from_bytes(&self.slice.get_mapped_range())
             .unwrap()
             .to_owned();
         fidget_raster::Image::build(result, self.buf.size()).unwrap()
