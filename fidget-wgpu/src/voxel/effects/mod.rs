@@ -12,8 +12,8 @@
 use crate::{
     Gpu, RegPipeline, ShapeColorBuffers,
     buf::{
-        BufferSizeError, DepthImageBuffer, ImageBuffer, ImageReadBuffer,
-        buffer_ro, buffer_rw, buffer_uniform,
+        BufferSizeError, DepthImageBuffer, ImageBuffer, buffer_ro, buffer_rw,
+        buffer_uniform,
     },
     shaders, tag,
     voxel::GeomBufferTag,
@@ -546,7 +546,6 @@ impl Context {
         image: &MergeBuffers,
         ssao: Option<&SsaoBuffers>,
         buf: &mut ShadeBuffers,
-        out: Option<&mut ImageReadBuffer<ShadedImageTag>>,
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
         if buf.has_color {
@@ -634,21 +633,6 @@ impl Context {
             );
         }
         buf.has_color = false;
-        if let Some(image) = out {
-            image
-                .grow_to_fit(&self.gpu.device, buf.out.size().into())
-                .expect(
-                    "buf.out.size should always be \
-                     a valid size for grow_to_fit",
-                );
-            encoder.copy_buffer_to_buffer(
-                buf.out.data(),
-                0,
-                image.data(),
-                0,
-                buf.out.size_bytes(),
-            );
-        }
         self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }

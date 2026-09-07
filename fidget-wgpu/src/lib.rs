@@ -8,6 +8,7 @@ use fidget_core::{
     var::{Var, VarMap},
     vm::VmShape,
 };
+use fidget_raster::RenderSize;
 
 use heck::ToShoutySnakeCase;
 use std::collections::{BTreeMap, HashMap};
@@ -120,27 +121,20 @@ impl Gpu {
     }
 
     /// Returns a readable buffer for the given image buffer
-    pub fn read_buffer_for<
-        T: buf::BufferTag,
-        B: buf::BufferItemCount + Copy + Into<fidget_core::render::ImageSize>,
-    >(
+    pub fn read_buffer_for<T, B>(
         &self,
         buf: &buf::GenericFlexBuffer<T, B>,
-    ) -> buf::ImageReadBuffer<T> {
-        buf::ImageBuffer::new(
+    ) -> buf::ReadBuffer<T, B>
+    where
+        T: buf::BufferTag,
+        B: buf::BufferItemCount + Copy,
+    {
+        buf::ReadBuffer::new(
             &self.device,
             format!("{} (read)", buf.name()),
-            buf.size().into(),
+            buf.size(),
         )
-        .expect("buf.size should always be a valid size for ImageBuffer::new")
-    }
-
-    /// Maps a readable image buffer, returning a mapped image
-    pub fn map<'a, T: buf::BufferTag>(
-        &self,
-        buf: &'a mut buf::ImageReadBuffer<T>,
-    ) -> buf::MappedImage<'a, T> {
-        buf::MappedImage::map(&self.device, buf)
+        .expect("buf.size should always be a valid size for ReadBuffer::new")
     }
 
     /// Debug function to read from a buffer to a `Vec<T>`
@@ -189,6 +183,87 @@ impl Gpu {
         colors: &[ShapeColor<VmShape>],
     ) -> Result<ShapeColorBuffers, ShapeColorError> {
         ShapeColorBuffers::new(colors, &self.device)
+    }
+
+    /// Copies from a GPU-resident buffer to a host-mappable buffer
+    ///
+    /// The host-mappable destination buffer is resized to fit the data.
+    pub fn copy<A, S>(
+        &self,
+        src: &buf::GenericFlexBuffer<A, S>,
+        dst: &mut buf::ReadBuffer<A, S>,
+    ) where
+        A: buf::BufferTag,
+        S: buf::BufferItemCount + Copy,
+    {
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("read_buffer"),
+            },
+        );
+        self.encode_copy(src, dst, &mut encoder);
+        self.queue.submit(Some(encoder.finish()));
+    }
+
+    /// Low-level command to submit a buffer copy to a command encoder
+    ///
+    /// See [`copy`](Self::copy) for details
+    pub fn encode_copy<A, S>(
+        &self,
+        src: &buf::GenericFlexBuffer<A, S>,
+        dst: &mut buf::ReadBuffer<A, S>,
+        encoder: &mut wgpu::CommandEncoder,
+    ) where
+        A: buf::BufferTag,
+        S: buf::BufferItemCount + Copy,
+    {
+        dst.grow_to_fit(&self.device, src.size())
+            .expect("dst buffer should be resizable to match src buffer");
+        encoder.copy_buffer_to_buffer(
+            src.data(),
+            0,
+            dst.data(),
+            0,
+            src.size_bytes(),
+        );
+    }
+
+    /// Blocking function to build a new mapped image
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn map<'a, T, S>(
+        &self,
+        image: &'a mut buf::ReadBuffer<T, S>,
+    ) -> buf::MappedImage<'a, T, S>
+    where
+        T: buf::BufferTag,
+        T::T: Immutable + FromBytes + Copy,
+        S: buf::BufferItemCount + RenderSize + Copy,
+    {
+        pollster::block_on(self.map_async(image))
+    }
+
+    /// Async function to build a new mapped image
+    ///
+    /// This can be called on either native or web platforms.  On native
+    /// platforms, the single `await` is trivial (guaranteed to always be
+    /// ready); on the web, the mapping sends us back to the event loop until
+    /// it's ready.
+    pub async fn map_async<'a, T, S>(
+        &self,
+        image: &'a mut buf::ReadBuffer<T, S>,
+    ) -> buf::MappedImage<'a, T, S>
+    where
+        T: buf::BufferTag,
+        T::T: Immutable + FromBytes + Copy,
+        S: buf::BufferItemCount + RenderSize + Copy,
+    {
+        let (tx, rx) = flume::bounded(1);
+        let slice = image.map_async(move |_| tx.send(()).unwrap());
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        rx.recv_async().await.unwrap();
+        buf::MappedImage::new(image, slice)
     }
 }
 

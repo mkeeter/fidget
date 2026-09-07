@@ -61,6 +61,7 @@
   simple `Option<f32>` (not the previous weird `Result<f32, PixelFill>`).
 - `submit*` functions in WebGPU voxel rendering no longer take an optional `out`
   parameter; it's instead passed into `map_image[_async]`.
+- More reorganization of `fidget::wgpu` buffer APIs
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one

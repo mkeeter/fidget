@@ -21,11 +21,11 @@ heck.workspace = true
 log.workspace = true
 naga.workspace = true
 nalgebra.workspace = true
+pollster.workspace = true
 static_assertions.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 zerocopy.workspace = true
 
 [dev-dependencies]
-pollster.workspace = true
 facet.workspace = true

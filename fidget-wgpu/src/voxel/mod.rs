@@ -2809,7 +2809,7 @@ mod test {
     struct RenderOutput {
         merged: Vec<PackedVoxel>,
         colors: Vec<Rgba>,
-        shaded: fidget_raster::Image<u32, ImageSize>,
+        shaded: fidget_raster::Image<u32, VoxelSize>,
     }
 
     fn render(
@@ -2867,13 +2867,9 @@ mod test {
         // Compute shaded image (with color, overwriting shade_buf)
         let mut shade_out = gpu.read_buffer_for(shade_buf.output());
         effects_ctx
-            .submit_shade(
-                &merge_buf,
-                Some(&ssao_buf),
-                &mut shade_buf,
-                Some(&mut shade_out),
-            )
+            .submit_shade(&merge_buf, Some(&ssao_buf), &mut shade_buf)
             .unwrap();
+        gpu.copy(shade_buf.output(), &mut shade_out);
 
         let img = gpu.map(&mut shade_out);
         let shaded = img.image();
@@ -2933,7 +2929,7 @@ mod test {
             out.colors.len()
         );
 
-        let (_out, img_size) = out.shaded.take();
+        let (shaded, img_size) = out.shaded.take();
         assert_eq!(img_size.width(), size);
         assert_eq!(img_size.height(), size);
 
@@ -2943,6 +2939,15 @@ mod test {
                 assert_eq!(c.a, 0);
             } else {
                 assert_eq!(c.a, 0xFF);
+            }
+        }
+        for (m, c) in out.merged.iter().zip(shaded.iter()) {
+            let p = m.z;
+            if p == 0 {
+                assert_eq!(*c, 0);
+            } else {
+                // Check that the alpha channel is fully opaque
+                assert_eq!(c & (0xFF << 24), (0xFF << 24));
             }
         }
     }
