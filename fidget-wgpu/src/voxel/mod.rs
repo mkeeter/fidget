@@ -56,13 +56,11 @@
 //! - [`Buffers`] contains GPU buffers needed for rendering at a particular
 //!   image size.  It is primarily expensive in GPU memory, as it contains
 //!   several full-frame buffers.  Best practice is to construct one [`Buffers`]
-//!   object per worker context (or per simultaneous render); if image sizes
-//!   change, it can be resized with [`Context::set_buffers_image_size`] (which
-//!   will grow buffers, but does not shrink them).  Systems with high
-//!   variability in image size may want to periodically compare
-//!   [`size`](Buffers::size) versus [`capacity`](Buffers::capacity) and fully
-//!   reallocate buffers (by constructing a new `Buffers` object) if they get
-//!   too out of whack.
+//!   object per worker context (or per simultaneous render); it will be
+//!   automatically resized when used.  Systems with high variability in image
+//!   size may want to periodically compare [`size`](Buffers::size) versus
+//!   [`capacity`](Buffers::capacity) and fully reallocate buffers (by
+//!   constructing a new `Buffers` object) if they get too out of whack.
 //! - [`RenderConfig`] sets the transform matrix for rendering.  This is cheap
 //!   to construct and could be built once per frame
 //!
@@ -79,11 +77,10 @@
 //!
 //! GPU operations are asynchronous; operations are submitted to a queue, and
 //! are completed at some point in the future.  [`Context::run`] blocks until
-//! operations are complete, but is only valid on the desktop; it uses
-//! [`wgpu::Device::poll`], which is a no-op on the web.
-//! [`Context::run_async`] is the async equivalent, and is only valid in WebGPU.
-//! These functions are feature-flagged and available depending on compile
-//! target (native versus WebAssembly).
+//! operations are complete, but is only valid on the desktop (and is disabled
+//! by feature flag on the web); it uses [`wgpu::Device::poll`], which is a
+//! no-op on the web. [`Context::run_async`] is the async equivalent, and can be
+//! used either natively or on the web.
 //!
 //! ## Low-level building blocks
 //!
@@ -92,15 +89,12 @@
 //! - Run the GPU kernels to produce an output image, which is a
 //!   [`GeometryPixel`] array in a GPU storage buffer
 //! - Copy from that GPU storage buffer to a mappable buffer (for read-back)
-//! - Map that buffer into a [`MappedImage`]
+//! - Map that buffer into a [`MappedImage`](crate::buf::MappedImage)
 //! - Read image data back to the CPU
 //!
 //! Lower-level building blocks are also available: [`Context::submit`] submits
-//! the render operations to the GPU, and [`Context::map_image`] /
-//! [`Context::map_image_async`] copy and map the image buffer back to the CPU.
-//!
-//! To reuse the image buffer within a more complex GPU pipeline, rendering
-//! output is available in [`Buffers::output`] for subsequent pipelines.
+//! the render operations to the GPU, and [`Buffers::output`] returns the output
+//! buffer.
 
 use crate::{
     Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
@@ -2054,9 +2048,9 @@ impl Context {
         Ok(image.image())
     }
 
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    /// Renders the image, with an async wait to read pixel data from the GPU
     ///
-    /// This function is only relevant for the web target
+    /// This can be called either natively or on the web
     pub async fn run_async(
         &self,
         shape: &RenderShape,
@@ -2074,9 +2068,9 @@ impl Context {
         .await
     }
 
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    /// Renders the image, with an async wait to read pixel data from the GPU
     ///
-    /// This function is only relevant for the web target
+    /// This can be called either natively or on the web
     pub async fn run_with_vars_async(
         &self,
         shape: &RenderShape,
@@ -2251,18 +2245,6 @@ impl Context {
         // Submit the commands and wait for the GPU to complete
         self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
-    }
-
-    /// Resizes buffers to the given image size
-    ///
-    /// Buffer allocations may grow but do not shrink; delete and recreate
-    /// buffers if their capacity exceeds their size to a significant degree.
-    pub fn set_buffers_image_size(
-        &self,
-        buffers: &mut Buffers,
-        image_size: VoxelSize,
-    ) -> Result<(), BuffersError> {
-        buffers.set_image_size(&self.gpu.device, image_size)
     }
 }
 

@@ -413,9 +413,6 @@ tag!(pub PixelBufferTag, RawDistancePixel, ImageSize, STORAGE | COPY_SRC | COPY_
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
 /// that particular [`Context`].
-///
-/// A successfully constructed (or resized) `Buffers` object also guarantees
-/// infallible construction of an [`ImageReadBuffer`] object of the same size.
 pub struct Buffers {
     /// Image render size
     ///
@@ -516,10 +513,6 @@ impl Buffers {
     /// Resizes to render the target image size
     ///
     /// Internal buffers are resized to fit (only getting larger)
-    ///
-    /// This function also checks that the size is appropriate for an
-    /// [`ImageReadBuffer`] (though we do not store such an object), so that
-    /// later functions can resize it infallibly.
     fn set_image_size(
         &mut self,
         device: &wgpu::Device,
