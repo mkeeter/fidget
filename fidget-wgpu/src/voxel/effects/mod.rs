@@ -1237,7 +1237,7 @@ mod test {
             .unwrap();
         let mut ssao_buf = effects_ctx.ssao_buffers();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
-        let ssao_out = gpu.read_vec::<f32>(ssao_buf.raw_occlusion().data());
+        let ssao_out = gpu.read_vec(ssao_buf.raw_occlusion());
 
         let quadrants =
             [(0, 0), (size / 2, 0), (0, size / 2), (size / 2, size / 2)];

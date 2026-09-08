@@ -2834,7 +2834,7 @@ mod test {
                 .submit_merge(buf.image_storage_buffer(), true, &mut merge_buf)
                 .unwrap();
         }
-        let merged = gpu.read_vec::<PackedVoxel>(merge_buf.output().data());
+        let merged = gpu.read_vec(merge_buf.output());
         let shape_colors = shapes
             .iter()
             .map(|(_, c)| {
@@ -2864,7 +2864,10 @@ mod test {
 
         // At this point, we should have either transparent (white) or opaque
         // colored pixels in the color output buffer
-        let colors = gpu.read_vec(shade_buf.output().data());
+        let raw_colors = gpu.read_vec(shade_buf.output());
+        let colors = <[Rgba]>::ref_from_bytes(raw_colors.as_bytes())
+            .unwrap()
+            .to_vec();
 
         // Compute shaded image (with color, overwriting shade_buf)
         let mut shade_out = gpu.read_buffer_for(shade_buf.output());
