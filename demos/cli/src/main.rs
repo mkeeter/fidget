@@ -607,7 +607,7 @@ fn postprocess2d(
     image: fidget::raster::pixel::Image,
     mode: &RenderMode2D,
     threads: Option<&fidget::render::ThreadPool>,
-) -> fidget::raster::RgbaImage {
+) -> fidget::raster::Image<[u8; 4]> {
     match mode {
         RenderMode2D::Mono => {
             fidget::raster::effects::to_rgba_bitmap(image, false, threads)

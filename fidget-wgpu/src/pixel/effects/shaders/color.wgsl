@@ -29,8 +29,9 @@ struct Config {
 /// Array of values for (non-xyz) variables
 @group(0) @binding(2) var<storage, read> var_values: array<f32>;
 
+@group(1) @binding(0) var<storage, read> distance: array<RawDistancePixel>;
 /// Image buffer, which is shape index going in and color going out
-@group(1) @binding(0) var<storage, read_write> image: array<u32>;
+@group(1) @binding(1) var<storage, read_write> color: array<u32>;
 
 @compute @workgroup_size(8, 8)
 fn color_main(
@@ -43,25 +44,22 @@ fn color_main(
         return;
     }
 
-    // Shape indices are in the second half of the buffer, offset by image size
+    // Shape indices are in the color buffer; we'll overwrite them here
     var i = global_id.x + config.image_size.x * global_id.y;
-    let distance = RawDistancePixel(image[i]);
-
-    // Shift to address shape index / color
-    i += config.image_size.x * config.image_size.y;
+    let d = distance[i];
 
     // Store alpha; early exit if we only care about color for filled pixels
     var alpha = 0u;
-    if distance_pixel_is_inside(distance) {
+    if distance_pixel_is_inside(d) {
         alpha = 0xFF;
     } else if config.only_filled != 0 {
-        image[i] = 0x00000000;
+        color[i] = 0x00000000;
         return;
     }
 
-    let tag = image[i];
+    let tag = color[i];
     if tag >= arrayLength(&shape_start) {
-        image[i] = 0xFF0000FF; // corrupt, fill with red
+        color[i] = 0xFF0000FF; // corrupt, fill with red
         return;
     }
 
@@ -85,5 +83,5 @@ fn color_main(
     let g = u32(clamp(out_g.value.v, 0.0, 1.0) * 255.0);
     let b = u32(clamp(out_b.value.v, 0.0, 1.0) * 255.0);
 
-    image[i] = (alpha << 24) | (b << 16) | (g << 8) | r;
+    color[i] = (alpha << 24) | (b << 16) | (g << 8) | r;
 }

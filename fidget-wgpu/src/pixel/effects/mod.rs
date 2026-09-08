@@ -12,11 +12,10 @@
 //! image to be completed) would simply be blurry; with distance interpolation,
 //! it remains sharper (though not pixel-perfect).
 //!
-//! Output is stored in the [`MergeBuffers`] object, which wraps a single GPU
-//! buffer with back-to-back distance and color images.  Note that if color has
-//! not been computed, then the second image instead stores merged shape index,
-//! (which is not particularly meaningful to users); in that case,
-//! [`MappedImage::color`] will return `None`.
+//! Output is stored in the [`MergeBuffers`] object, and may be accessed with
+//! [`output_distance`](MergeBuffers::output_distance) and
+//! [`output_color`](MergeBuffers::output_color).
+//! Note that if color has not been computed, `output_color` will return `None`.
 use crate::{
     Gpu, RegPipeline, ShapeColorBuffers,
     buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw, buffer_uniform},
@@ -24,7 +23,6 @@ use crate::{
     shaders, tag,
 };
 use fidget_core::{render::ImageSize, shape::ShapeVars};
-use fidget_raster::RgbaImage;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use crate::voxel::effects::ColorError;
@@ -79,28 +77,34 @@ pub enum MergeError {
 ////////////////////////////////////////////////////////////////////////////////
 
 tag!(
-    pub MergedPixelBufferTag,
-    // This is a hack; we store two images side by side, not interleaved
-    [u32; 2],
+    pub PixelDistanceBufferTag,
+    RawDistancePixel,
     ImageSize,
     STORAGE | COPY_SRC,
-    "Buffer tag for on-GPU merged images"
+    "Buffer tag for on-GPU distance images"
+);
+
+tag!(
+    pub PixelColorBufferTag,
+    u32, // also doubles as shape index, but not in user-visible APIs
+    ImageSize,
+    STORAGE | COPY_SRC,
+    "Buffer tag for on-GPU color images"
 );
 
 /// Handle to a set of buffers used when merging images
 pub struct MergeBuffers {
     config: wgpu::Buffer,
-
-    /// Stores two images back-to-back
-    ///
-    /// The first image is [`RawDistancePixel`] data; the second is initially
-    /// the shape index then is rewritten to be color.
-    out: FlexBuffer<MergedPixelBufferTag>,
+    distance: FlexBuffer<PixelDistanceBufferTag>,
+    color: FlexBuffer<PixelColorBufferTag>,
 
     /// Number of images merged together
     image_count: usize,
 
-    /// Set to `true` if the second half of the output buffer represents color
+    /// Indicates whether the `color` buffer represents color
+    ///
+    /// When this is `false`, the `color` buffer represents shape index instead,
+    /// and [`output_color`](Self::output_color) returns `None`.
     has_color: bool,
 }
 
@@ -114,20 +118,23 @@ impl MergeBuffers {
         self.image_count = 0;
     }
 
-    /// Returns `true` if the second half of the output buffer represents color
+    /// Returns `true` if the output color buffer is valid
     pub fn has_color(&self) -> bool {
         self.has_color
     }
 
-    /// Returns a handle to the output buffer
-    ///
-    /// The output buffer – despite the associated type in
-    /// [`MergedPixelBufferTag`] – stores two images side-by-side, **not**
-    /// interleaved.  The first is distance (as [`RawDistancePixel`] values);
-    /// the second is either shape index or RGBA color depending on
-    /// [`has_color`](Self::has_color).
-    pub fn output(&self) -> &FlexBuffer<MergedPixelBufferTag> {
-        &self.out
+    /// Returns a handle to the distance output buffer
+    pub fn output_distance(&self) -> &FlexBuffer<PixelDistanceBufferTag> {
+        &self.distance
+    }
+
+    /// Returns a handle to the color output buffer, if populated
+    pub fn output_color(&self) -> Option<&FlexBuffer<PixelColorBufferTag>> {
+        if self.has_color {
+            Some(&self.color)
+        } else {
+            None
+        }
     }
 }
 
@@ -169,7 +176,8 @@ impl Context {
                 entries: &[
                     buffer_uniform(0),
                     buffer_ro(1), // image
-                    buffer_rw(2), // out
+                    buffer_rw(2), // distance
+                    buffer_rw(3), // color (used here as an index)
                 ],
             },
         );
@@ -221,15 +229,19 @@ impl Context {
     ) -> Result<(), MergeError> {
         let size = image.size();
         if buf.image_count > 0 {
-            if size != buf.out.size() {
+            let buf_size = buf.distance.size();
+            if size != buf_size {
                 return Err(ImageSizeMismatch {
                     expected: size,
-                    actual: buf.out.size(),
+                    actual: buf_size,
                 }
                 .into());
             }
         } else {
-            buf.out
+            buf.distance
+                .grow_to_fit(&self.gpu.device, size)
+                .map_err(MergeError::OutputSize)?;
+            buf.color
                 .grow_to_fit(&self.gpu.device, size)
                 .map_err(MergeError::OutputSize)?;
         }
@@ -284,7 +296,11 @@ impl Context {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
-                                resource: buf.out.bind_active(),
+                                resource: buf.distance.bind_active(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: buf.color.bind_active(),
                             },
                         ],
                     });
@@ -311,14 +327,20 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = FlexBuffer::new(
+        let distance = FlexBuffer::new(
+            &self.gpu.device,
+            "merge output".to_owned(),
+            image_size,
+        )?;
+        let color = FlexBuffer::new(
             &self.gpu.device,
             "merge output".to_owned(),
             image_size,
         )?;
         Ok(MergeBuffers {
             config,
-            out,
+            distance,
+            color,
             image_count: 0,
             has_color: false,
         })
@@ -352,141 +374,6 @@ impl Context {
     ) -> Result<(), ColorError> {
         self.color_ctx
             .submit(merge, settings, shape, vars, &self.gpu)
-    }
-
-    /// Returns an [`ImageReadBuffer`] to read from a [`MergeBuffers`] object
-    pub fn image_buffer(&self) -> ImageReadBuffer {
-        ImageReadBuffer::new(&self.gpu.device, "image".to_owned())
-    }
-
-    /// Copies image data and maps a CPU-readable image buffer
-    pub fn map_image<'a>(
-        &self,
-        image_in: &'a MergeBuffers,
-        image_out: &'a mut ImageReadBuffer,
-    ) -> MappedImage<'a> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-        image_out
-            .grow_to_fit(&self.gpu.device, image_in.out.size())
-            .expect(
-                "image_in.out.size() should always be \
-                a valid size for ImageReadBuffer::grow_to_fit",
-            );
-        encoder.copy_buffer_to_buffer(
-            image_in.out.data(),
-            0,
-            image_out.buffer.data(),
-            0,
-            image_in.out.size_bytes(),
-        );
-        self.gpu.queue.submit(Some(encoder.finish()));
-        let slice = image_out.buffer.map_async(|_| {});
-        self.gpu
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        MappedImage {
-            image: image_out,
-            has_color: image_in.has_color,
-            slice,
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Buffer for reading data back from the GPU
-///
-/// This object is constructed by [`Context::image_buffer`] and may only be used
-/// with that particular [`Context`].
-///
-/// Once mapped, this is wrapped by a [`MappedImage`]
-pub struct ImageReadBuffer {
-    /// Image render size
-    image_size: ImageSize,
-
-    /// Result buffer that can be read back from the CPU
-    buffer: ImageReadArrayBuffer,
-}
-
-impl ImageReadBuffer {
-    fn new(device: &wgpu::Device, name: String) -> Self {
-        let image_size = 64.into();
-        Self {
-            image_size,
-            buffer: ImageReadArrayBuffer::new(
-                device,
-                name,
-                image_size.width() as usize * image_size.height() as usize * 2,
-            )
-            .expect("64 should always be a valid size"),
-        }
-    }
-
-    fn grow_to_fit(
-        &mut self,
-        device: &wgpu::Device,
-        image_size: ImageSize,
-    ) -> Result<(), BufferSizeError> {
-        self.image_size = image_size;
-        self.buffer.grow_to_fit(
-            device,
-            image_size.width() as usize * image_size.height() as usize * 2,
-        )
-    }
-}
-
-tag!(ImageReadTag, u32, usize, COPY_DST | MAP_READ);
-type ImageReadArrayBuffer = FlexBuffer<ImageReadTag>;
-
-/// Handle to a mapped image, which unmaps the image when dropped
-pub struct MappedImage<'a> {
-    image: &'a ImageReadBuffer,
-    slice: wgpu::BufferSlice<'a>,
-
-    /// Set to `true` if the color portion of the buffer is valid
-    has_color: bool,
-}
-
-impl Drop for MappedImage<'_> {
-    fn drop(&mut self) {
-        self.image.buffer.data().unmap();
-    }
-}
-
-impl MappedImage<'_> {
-    /// Returns the image's distance data
-    pub fn distance(&self) -> super::Image {
-        // Get the pixel-populated image
-        let result = <[RawDistancePixel]>::ref_from_bytes(
-            &self.slice.get_mapped_range()[..self.image_bytes()],
-        )
-        .unwrap()
-        .to_owned();
-        super::Image::build(result, self.image.image_size).unwrap()
-    }
-
-    /// Returns the image's color data
-    pub fn color(&self) -> Option<RgbaImage> {
-        if self.has_color {
-            // Get the pixel-populated image
-            let result = <[[u8; 4]]>::ref_from_bytes(
-                &self.slice.get_mapped_range()[self.image_bytes()..],
-            )
-            .unwrap()
-            .to_owned();
-            Some(RgbaImage::build(result, self.image.image_size).unwrap())
-        } else {
-            None
-        }
-    }
-
-    fn image_bytes(&self) -> usize {
-        (self.image.image_size.width() as usize)
-            * (self.image.image_size.height() as usize)
-            * std::mem::size_of::<RawDistancePixel>()
     }
 }
 
@@ -556,7 +443,10 @@ impl ColorContext {
         let image_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("color images"),
-                entries: &[buffer_rw(0)],
+                entries: &[
+                    buffer_ro(0), // distance
+                    buffer_rw(1), // color
+                ],
             });
 
         let pipeline_layout =
@@ -608,7 +498,7 @@ impl ColorContext {
         } else if image.has_color {
             return Err(ColorError::AlreadyHasColor);
         }
-        let size = image.out.size();
+        let size = image.distance.size();
         let mat = settings.world_to_model
             * ImageSize::new(size.width(), size.height()).screen_to_world();
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
@@ -648,10 +538,16 @@ impl ColorContext {
                 gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("color image bind group"),
                     layout: &self.image_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: image.out.bind_active(),
-                    }],
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: image.distance.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: image.color.bind_active(),
+                        },
+                    ],
                 });
             compute_pass.set_bind_group(1, &image_bg, &[]);
             compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));

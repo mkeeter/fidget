@@ -1334,7 +1334,6 @@ mod test {
     use super::effects::ColorSettings;
     use super::*;
     use crate::ShapeColor;
-    use fidget_raster::RgbaImage;
 
     use fidget_core::{context::Tree, vm::VmShape};
 
@@ -1360,7 +1359,7 @@ mod test {
 
     struct RenderOutput {
         distance: Image,
-        color: RgbaImage,
+        color: fidget_raster::Image<u32, ImageSize>,
     }
 
     fn render(
@@ -1409,12 +1408,15 @@ mod test {
             )
             .unwrap();
 
-        let mut out = effects_ctx.image_buffer();
-        let img = effects_ctx.map_image(&merge_buf, &mut out);
+        let mut distance_out = gpu.read_buffer_for(merge_buf.output_distance());
+        let mut color_out =
+            gpu.read_buffer_for(merge_buf.output_color().unwrap());
+        gpu.copy(merge_buf.output_distance(), &mut distance_out);
+        gpu.copy(merge_buf.output_color().unwrap(), &mut color_out);
 
         RenderOutput {
-            color: img.color().unwrap(),
-            distance: img.distance(),
+            color: gpu.map_image(&mut color_out).image(),
+            distance: gpu.map_image(&mut distance_out).image(),
         }
     }
 
@@ -1489,12 +1491,12 @@ mod test {
                     let p = out.color[(j as usize, i as usize)];
                     let r = (pos.x.powi(2) + pos.y.powi(2)).sqrt();
                     let alpha = if r < 0.5 { 255 } else { 0 };
-                    let expected_color = [
+                    let expected_color = u32::from_ne_bytes([
                         (pos.x.clamp(0.0, 1.0) * 255.0) as u8,
                         (pos.y.clamp(0.0, 1.0) * 255.0) as u8,
                         127,
                         alpha,
-                    ];
+                    ]);
                     assert_eq!(
                         p, expected_color,
                         "color mismatch at {i}, {j} ({pos})"
@@ -1553,7 +1555,7 @@ mod test {
         for j in 0..image_size.height() {
             for i in 0..image_size.width() {
                 let p = out.color[(j as usize, i as usize)];
-                let c = match p {
+                let c = match p.to_ne_bytes() {
                     [0, 0, 255, 0] => "b",
                     [0, 0, 255, 255] => "B",
                     [0, 255, 0, 0] => "g",

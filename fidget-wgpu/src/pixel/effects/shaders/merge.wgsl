@@ -12,9 +12,8 @@ struct MergeConfig {
 @group(0) @binding(0) var<uniform> config: MergeConfig;
 
 @group(0) @binding(1) var<storage, read> image: array<RawDistancePixel>;
-
-// Distance and index values, packed as separate images
-@group(0) @binding(2) var<storage, read_write> out: array<u32>;
+@group(0) @binding(2) var<storage, read_write> distance: array<RawDistancePixel>;
+@group(0) @binding(3) var<storage, read_write> index: array<u32>;
 
 
 @compute @workgroup_size(8, 8)
@@ -30,19 +29,18 @@ fn merge_main(
 
     let pos = global_id.xy;
     let i = config.image_size.x * pos.y + pos.x;
-    let offset = config.image_size.x * config.image_size.y;
 
     var p = TaggedRawDistancePixel(RawDistancePixel(0), 0); // dummy value
     let b = tag_at(pos);
     if config.index_base == 0 {
         p = b;
     } else {
-        p = TaggedRawDistancePixel(RawDistancePixel(out[i]), out[i + offset]);
+        p = TaggedRawDistancePixel(distance[i], index[i]);
         p = merge_pixel(p, b);
     }
 
-    out[i] = p.distance.data;
-    out[i + offset] = p.index;
+    distance[i] = p.distance;
+    index[i] = p.index;
 }
 
 fn tag_at(pos: vec2u) -> TaggedRawDistancePixel {
