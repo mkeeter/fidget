@@ -647,23 +647,19 @@ fn run2d_wgpu(
     let mut image = Default::default();
     let start = std::time::Instant::now();
     let mut buffers = ctx.buffers();
-    let mut out = ctx.image_buffer();
+    let mut out = gpu.read_buffer_for(buffers.output());
     let shape = gpu.shape(&shape)?;
-    let mut compute_pass_time = std::time::Duration::ZERO;
     let mut postprocess_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        ctx.submit(&shape, &mut buffers, &cfg)?;
-        let img = ctx.map_image(&buffers, &mut out);
-        compute_pass_time += img.time().unwrap();
+        let img = ctx.run(&shape, &mut buffers, &mut out, cfg)?;
         let pp_start = std::time::Instant::now();
-        image = postprocess2d(img.image(), &mode, threads);
+        image = postprocess2d(img, &mode, threads);
         postprocess_time += pp_start.elapsed();
     }
     info!(
-        "Rendered {}× at {:.2?} ms/frame ({:.2?} ms/compute pass)",
+        "Rendered {}× at {:.2?} ms/frame",
         settings.n,
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
-        compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
 
     info!(
