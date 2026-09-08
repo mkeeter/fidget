@@ -2871,7 +2871,7 @@ mod test {
             .unwrap();
         gpu.copy(shade_buf.output(), &mut shade_out);
 
-        let img = gpu.map(&mut shade_out);
+        let img = gpu.map_image(&mut shade_out);
         let shaded = img.image();
 
         RenderOutput {

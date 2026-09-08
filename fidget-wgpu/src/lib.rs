@@ -228,18 +228,56 @@ impl Gpu {
         );
     }
 
-    /// Blocking function to build a new mapped image
+    /// Blocking function to build a new mapped buffer
     #[cfg(not(target_arch = "wasm32"))]
     pub fn map<'a, T, S>(
         &self,
         image: &'a mut buf::ReadBuffer<T, S>,
+    ) -> buf::MappedBuffer<'a, T, S>
+    where
+        T: buf::BufferTag,
+        T::T: Immutable + FromBytes + Copy,
+        S: buf::BufferItemCount + Copy,
+    {
+        pollster::block_on(self.map_async(image))
+    }
+
+    /// Async function to build a new mapped buffer
+    ///
+    /// This can be called on either native or web platforms.  On native
+    /// platforms, the single `await` is trivial (guaranteed to always be
+    /// ready); on the web, the mapping sends us back to the event loop until
+    /// it's ready.
+    pub async fn map_async<'a, T, S>(
+        &self,
+        data: &'a mut buf::ReadBuffer<T, S>,
+    ) -> buf::MappedBuffer<'a, T, S>
+    where
+        T: buf::BufferTag,
+        T::T: Immutable + FromBytes + Copy,
+        S: buf::BufferItemCount + Copy,
+    {
+        let (tx, rx) = flume::bounded(1);
+        let slice = data.map_async(move |_| tx.send(()).unwrap());
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        rx.recv_async().await.unwrap();
+        buf::MappedBuffer::new(data, slice)
+    }
+
+    /// Blocking function to build a new mapped image
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn map_image<'a, T, S>(
+        &self,
+        data: &'a mut buf::ReadBuffer<T, S>,
     ) -> buf::MappedImage<'a, T, S>
     where
         T: buf::BufferTag,
         T::T: Immutable + FromBytes + Copy,
         S: buf::BufferItemCount + RenderSize + Copy,
     {
-        pollster::block_on(self.map_async(image))
+        pollster::block_on(self.map_image_async(data))
     }
 
     /// Async function to build a new mapped image
@@ -248,22 +286,16 @@ impl Gpu {
     /// platforms, the single `await` is trivial (guaranteed to always be
     /// ready); on the web, the mapping sends us back to the event loop until
     /// it's ready.
-    pub async fn map_async<'a, T, S>(
+    pub async fn map_image_async<'a, T, S>(
         &self,
-        image: &'a mut buf::ReadBuffer<T, S>,
+        data: &'a mut buf::ReadBuffer<T, S>,
     ) -> buf::MappedImage<'a, T, S>
     where
         T: buf::BufferTag,
         T::T: Immutable + FromBytes + Copy,
         S: buf::BufferItemCount + RenderSize + Copy,
     {
-        let (tx, rx) = flume::bounded(1);
-        let slice = image.map_async(move |_| tx.send(()).unwrap());
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        rx.recv_async().await.unwrap();
-        buf::MappedImage::new(image, slice)
+        self.map_async(data).await.into()
     }
 }
 

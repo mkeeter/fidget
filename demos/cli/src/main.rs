@@ -449,7 +449,7 @@ fn run3d_wgpu(
                 &mut shade_buf,
             )?;
             gpu.copy(shade_buf.output(), &mut out_buf);
-            let out = gpu.map(&mut out_buf);
+            let out = gpu.map_image(&mut out_buf);
             out.image().as_bytes().to_vec()
         }
     };
