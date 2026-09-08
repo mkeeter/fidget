@@ -1371,8 +1371,7 @@ mod test {
         let effects_ctx = effects::Context::new(&gpu);
 
         let mut buf = pixel_ctx.buffers();
-        let mut merge_buf =
-            effects_ctx.merge_buffers(render_config.image_size).unwrap();
+        let mut merge_buf = effects_ctx.merge_buffers();
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
@@ -1585,32 +1584,32 @@ mod test {
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggGGGGGGGgggggggggggggggggggggggggBBBBBBBgggggggggggg
-            gggggggggggGGGGGGGGGGGgggggggggggggggggggggBBBBBBBBBBBgggggggggg
-            ggggggggggGGGGGGGGGGGGGgggggggggggggggggggBBBBBBBBBBBBBggggggggg
-            ggggggggggGGGGGGGGGGGGGgggggggggggggggggggBBBBBBBBBBBBBggggggggg
-            gggggggggGGGGGGGGGGGGGGGgggggggggggggggggBBBBBBBBBBBBBBBgggggggg
-            gggggggggGGGGGGGGGGGGGGGgggggggggggggggggBBBBBBBBBBBBBBBgggggggg
-            gggggggggGGGGGGGGGGGGGGGgggggggggggggggggBBBBBBBBBBBBBBBgggggggg
-            gggggggggGGGGGGGGGGGGGGGgggggggggggggggggBBBBBBBBBBBBBBBgggggggg
-            gggggggggGGGGGGGGGGGGGGGgggggggggggggggggBBBBBBBBBBBBBBBgggggggg
-            gggggggggGGGGGGGGGGGGGGGgggggggggggggggggBBBBBBBBBBBBBBBgggggggg
-            gggggggggGGGGGGGGGGGGGGGgggggggggggggggggBBBBBBBBBBBBBBBgggggggg
-            ggggggggggGGGGGGGGGGGGGgggggggggggggggggggBBBBBBBBBBBBBggggggggg
-            ggggggggggGGGGGGGGGGGGGgggggggggggggggggggBBBBBBBBBBBBBggggggggg
-            gggggggggggGGGGGGGGGGGgggggggggggggggggggggBBBBBBBBBBBgggggggggg
-            gggggggggggggGGGGGGGgggggggggggggggggggggggggBBBBBBBgggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            gggggggggggggGGGGGGGgggggggggggggbbbbbbbbbbbbBBBBBBBbbbbbbbbbbbb
+            gggggggggggGGGGGGGGGGGgggggggggggbbbbbbbbbbBBBBBBBBBBBbbbbbbbbbb
+            ggggggggggGGGGGGGGGGGGGggggggggggbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            ggggggggggGGGGGGGGGGGGGggggggggggbbbbbbbbbBBBBBBBBBBBBBbbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggbbbbbbbbBBBBBBBBBBBBBBBbbbbbbbb
+            gggggggggGGGGGGGGGGGGGGGgggggggggggggggbbBBBBBBBBBBBBBBBgggggggg
+            gggggggggGGGGGGGGGGGGGGGgggggggggggggggbbBBBBBBBBBBBBBBBbggggggg
+            ggggggggggGGGGGGGGGGGGGggggggggggggggggbbbBBBBBBBBBBBBBbbggggggg
+            ggggggggggGGGGGGGGGGGGGggggggggggggggggbbbBBBBBBBBBBBBBbbggggggg
+            gggggggggggGGGGGGGGGGGgggggggggggggggggbbbbBBBBBBBBBBBbbbggggggg
+            gggggggggggggGGGGGGGgggggggggggggggggggbbbbbbBBBBBBBbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
+            gggggggggggggggggggggggggggggggggggggggbbbbbbbbbbbbbbbbbbggggggg
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg

@@ -62,7 +62,7 @@ fn shade_main(
         accum *= occlusion[i] * 0.6 + 0.4;
     }
     let brightness = clamp(accum, 0.0, 1.0);
-    let alpha = 0xFF << 24;
+    let alpha = 0xFFu << 24;
     if (config.flags & SHADE_CONFIG_HAS_COLOR) != 0 {
         let color = vec4f(unpack4xU8(out[i])) * brightness;
         out[i] = pack4xU8(vec4u(color)) | alpha;

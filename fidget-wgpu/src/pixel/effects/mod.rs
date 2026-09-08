@@ -317,10 +317,7 @@ impl Context {
     }
 
     /// Builds a new set of [`MergeBuffers`] for the given image size
-    pub fn merge_buffers(
-        &self,
-        image_size: ImageSize,
-    ) -> Result<MergeBuffers, BufferSizeError> {
+    pub fn merge_buffers(&self) -> MergeBuffers {
         let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
             size: std::mem::size_of::<MergeConfig>() as u64,
@@ -329,21 +326,23 @@ impl Context {
         });
         let distance = FlexBuffer::new(
             &self.gpu.device,
-            "merge output".to_owned(),
-            image_size,
-        )?;
+            "pixel merge distance".to_owned(),
+            64.into(),
+        )
+        .unwrap();
         let color = FlexBuffer::new(
             &self.gpu.device,
-            "merge output".to_owned(),
-            image_size,
-        )?;
-        Ok(MergeBuffers {
+            "pixel merge color".to_owned(),
+            64.into(),
+        )
+        .unwrap();
+        MergeBuffers {
             config,
             distance,
             color,
             image_count: 0,
             has_color: false,
-        })
+        }
     }
 
     /// Submits a color evaluation pass

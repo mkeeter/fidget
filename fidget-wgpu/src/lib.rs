@@ -139,6 +139,25 @@ impl Gpu {
         .expect("buf.size should always be a valid size for ReadBuffer::new")
     }
 
+    /// Builds a new readable buffer
+    ///
+    /// The buffer has an arbitrary starting size and will be resized when used
+    /// in [`copy`](Self::copy).
+    ///
+    /// If the target buffer is known, use
+    /// [`read_buffer_for`](Self::read_buffer_for) to avoid this reallocation.
+    pub fn read_buffer<T>(&self, name: &str) -> buf::ReadBuffer<T>
+    where
+        T: buf::BufferTag,
+        T::S: TryFrom<u32>,
+    {
+        let Ok(size) = 64u32.try_into() else {
+            panic!("could not build size");
+        };
+        buf::ReadBuffer::new(&self.device, name.to_owned(), size)
+            .expect("64 should always be a valid size for ReadBuffer::new")
+    }
+
     /// Helper function to read from a buffer to a `Vec`
     ///
     /// Under the hood, this function simply calls
