@@ -139,36 +139,28 @@ impl Gpu {
         .expect("buf.size should always be a valid size for ReadBuffer::new")
     }
 
-    /// Debug function to read from a buffer to a `Vec<T>`
-    pub fn read_vec<T: FromBytes + Immutable + Clone + Copy>(
+    /// Helper function to read from a buffer to a `Vec`
+    ///
+    /// Under the hood, this function simply calls
+    /// [`read_buffer_for`](Self::read_buffer_for),
+    /// [`copy`](Self::copy), [`map`](Self::map), and
+    /// [`to_vec`](buf::MappedBuffer::to_vec).
+    ///
+    /// Note that this function allocates a GPU buffer; if the same source
+    /// buffer is being read repeatedly, it's recommended to build the read
+    /// buffer *once* and then call `copy`, `map`, `to_vec` repeatedly.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn read_vec<T: buf::BufferTag>(
         &self,
-        buf: &wgpu::Buffer,
-    ) -> Vec<T> {
-        let scratch = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: buf.size(),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("read_buffer"),
-            },
-        );
-        encoder.copy_buffer_to_buffer(buf, 0, &scratch, 0, buf.size());
-        self.queue.submit(Some(encoder.finish()));
-
-        let buffer_slice = scratch.slice(..);
-        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        let result = <[T]>::ref_from_bytes(&buffer_slice.get_mapped_range())
-            .unwrap()
-            .to_vec();
-        scratch.unmap();
-        result
+        buf: &buf::FlexBuffer<T>,
+    ) -> Vec<T::T>
+    where
+        T::T: FromBytes + Immutable + Clone + Copy,
+    {
+        let mut scratch = self.read_buffer_for(buf);
+        self.copy(buf, &mut scratch);
+        let data = self.map(&mut scratch);
+        data.to_vec()
     }
 
     /// Builds a new [`RenderShape`] object for the given shape

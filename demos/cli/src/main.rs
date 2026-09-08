@@ -419,7 +419,7 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
-            let ssao = gpu.read_vec::<f32>(ssao_buf.blurred_occlusion().data());
+            let ssao = gpu.read_vec(ssao_buf.blurred_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::RawOcclusion { denoise } => {
@@ -429,7 +429,7 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
-            let ssao = gpu.read_vec::<f32>(ssao_buf.raw_occlusion().data());
+            let ssao = gpu.read_vec(ssao_buf.raw_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
