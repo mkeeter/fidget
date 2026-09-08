@@ -1568,6 +1568,7 @@ dependencies = [
  "strum",
  "wgpu",
  "workspace-hack",
+ "zerocopy",
 ]
 
 [[package]]

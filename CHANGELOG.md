@@ -60,8 +60,11 @@
 - Restored `RawDistancePixel::distance` to get a distance value; it's now a
   simple `Option<f32>` (not the previous weird `Result<f32, PixelFill>`).
 - `submit*` functions in WebGPU voxel rendering no longer take an optional `out`
-  parameter; it's instead passed into `map_image[_async]`.
+  parameter; callers should instead use `Gpu::copy` and `Gpu::map` (along with
+  `Gpu::read_buffer_for` to generate the host-readable buffer)
 - More reorganization of `fidget::wgpu` buffer APIs
+- Remove timestamps from `fidget::wgpu` pixel and voxel rendering; they will
+  come back in a new form at some point in the future
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one

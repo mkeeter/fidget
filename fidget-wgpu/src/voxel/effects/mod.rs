@@ -1233,7 +1233,7 @@ mod test {
             )
             .unwrap();
         effects_ctx
-            .submit_merge(buf.image_storage_buffer(), true, &mut merge_buf)
+            .submit_merge(buf.output(), true, &mut merge_buf)
             .unwrap();
         let mut ssao_buf = effects_ctx.ssao_buffers();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();

@@ -56,13 +56,11 @@
 //! - [`Buffers`] contains GPU buffers needed for rendering at a particular
 //!   image size.  It is primarily expensive in GPU memory, as it contains
 //!   several full-frame buffers.  Best practice is to construct one [`Buffers`]
-//!   object per worker context (or per simultaneous render); if image sizes
-//!   change, it can be resized with [`Context::set_buffers_image_size`] (which
-//!   will grow buffers, but does not shrink them).  Systems with high
-//!   variability in image size may want to periodically compare
-//!   [`size`](Buffers::size) versus [`capacity`](Buffers::capacity) and fully
-//!   reallocate buffers (by constructing a new `Buffers` object) if they get
-//!   too out of whack.
+//!   object per worker context (or per simultaneous render); it will be
+//!   automatically resized when used.  Systems with high variability in image
+//!   size may want to periodically compare [`size`](Buffers::size) versus
+//!   [`capacity`](Buffers::capacity) and fully reallocate buffers (by
+//!   constructing a new `Buffers` object) if they get too out of whack.
 //! - [`RenderConfig`] sets the transform matrix for rendering.  This is cheap
 //!   to construct and could be built once per frame
 //!
@@ -71,18 +69,18 @@
 //! - Use [`Gpu::shape`] to convert from a [`VmShape`](fidget_core::vm::VmShape)
 //!   to a [`RenderShape`]
 //! - Use [`Context::buffers`] to get [`Buffers`] at a particular image size
-//! - Use [`Context::image_buffer`] to get an [`ImageReadBuffer`]
+//! - Use [`Gpu::read_buffer_for(buffers.output())`](Gpu::read_buffer_for) to
+//!   get an output buffer
 //! - Call [`Context::run`] or [`Context::run_async`] to get an image
 //!
 //! ## Sync and async operation
 //!
 //! GPU operations are asynchronous; operations are submitted to a queue, and
 //! are completed at some point in the future.  [`Context::run`] blocks until
-//! operations are complete, but is only valid on the desktop; it uses
-//! [`wgpu::Device::poll`], which is a no-op on the web.
-//! [`Context::run_async`] is the async equivalent, and is only valid in WebGPU.
-//! These functions are feature-flagged and available depending on compile
-//! target (native versus WebAssembly).
+//! operations are complete, but is only valid on the desktop (and is disabled
+//! by feature flag on the web); it uses [`wgpu::Device::poll`], which is a
+//! no-op on the web. [`Context::run_async`] is the async equivalent, and can be
+//! used either natively or on the web.
 //!
 //! ## Low-level building blocks
 //!
@@ -91,21 +89,17 @@
 //! - Run the GPU kernels to produce an output image, which is a
 //!   [`GeometryPixel`] array in a GPU storage buffer
 //! - Copy from that GPU storage buffer to a mappable buffer (for read-back)
-//! - Map that buffer into a [`MappedImage`]
+//! - Map that buffer into a [`MappedImage`](crate::buf::MappedImage)
 //! - Read image data back to the CPU
 //!
 //! Lower-level building blocks are also available: [`Context::submit`] submits
-//! the render operations to the GPU, and [`Context::map_image`] /
-//! [`Context::map_image_async`] copy and map the image buffer back to the CPU.
-//!
-//! To reuse the image buffer within a more complex GPU pipeline, rendering
-//! output is available in [`Buffers::image_storage_buffer`] for subsequent
-//! pipelines.
+//! the render operations to the GPU, and [`Buffers::output`] returns the output
+//! buffer.
 
 use crate::{
     Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
-        BufferItemCount, BufferSizeError, BufferType, FlexBuffer, buffer_ro,
+        BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_ro_dyn, buffer_rw,
     },
     shaders, tag,
@@ -336,11 +330,6 @@ impl TileRenderSize {
     /// Number of voxels in the Z axis (always a multiple of 64)
     fn depth(&self) -> u32 {
         self.0.depth() * 64
-    }
-
-    /// Number of pixels in total
-    fn pixels(&self) -> usize {
-        self.width() as usize * self.height() as usize
     }
 }
 
@@ -1007,7 +996,6 @@ impl NormalsContext {
 /// Context for 3D (combined heightmap and normal) rendering
 pub struct Context {
     gpu: Gpu,
-    has_timestamps: bool,
 
     /// Bind group layout for the common bind group (used by all stages)
     common_bind_group_layout: wgpu::BindGroupLayout,
@@ -1308,7 +1296,7 @@ impl RootTileBuffers {
 }
 
 tag!(TileTapesBufferTag, u32, usize, STORAGE | COPY_DST);
-tag!(VoxelsBufferTag, u32, usize, STORAGE | COPY_DST);
+tag!(VoxelsBufferTag, u32, VoxelSize, STORAGE | COPY_DST);
 tag!(pub GeomBufferTag, GeometryPixel, VoxelSize, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`GeometryPixel`] values");
 
@@ -1316,9 +1304,6 @@ tag!(pub GeomBufferTag, GeometryPixel, VoxelSize, STORAGE | COPY_SRC | COPY_DST,
 ///
 /// This object is constructed by [`Context::buffers`] and may only be used with
 /// that particular [`Context`].
-///
-/// A successfully constructed (or resized) `Buffers` object also guarantees
-/// infallible construction of an [`ImageReadBuffer`] object of the same size.
 pub struct Buffers {
     /// Image render size
     ///
@@ -1351,72 +1336,16 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxel tile evaluation (rounded up)
-    voxels: FlexBuffer<VoxelsBufferTag>, // XXX should this be an ImageBuffer?
+    voxels: FlexBuffer<VoxelsBufferTag>,
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
     ///
     /// This is at the original image size
     geom: FlexBuffer<GeomBufferTag>,
 
-    /// Query set for timestamps
-    ///
-    /// This must be present if and only if the parent context has timestamps
-    /// enabled (per [`Context::has_timestamps`])
-    timestamps: Option<wgpu::QuerySet>,
-
-    /// Buffer into which we resolve the timestamp query
-    ts_buf: wgpu::Buffer,
-
     /// Cached bind groups
     bind_groups: BindGroups,
 }
-
-/// Buffer for reading data back from the GPU
-///
-/// This object is constructed by [`Context::image_buffer`] and may only be used
-/// with that particular [`Context`].
-///
-/// Once mapped, this is wrapped by a [`MappedImage`]
-pub struct ImageReadBuffer {
-    /// Image render size
-    image_size: VoxelSize,
-
-    /// Result buffer that can be read back from the CPU
-    ///
-    /// This is mostly image pixels (as [`GeometryPixel`] values), but also
-    /// contains two trailing `u64` values for timestamps.
-    buffer: ImageReadArrayBuffer,
-}
-
-impl ImageReadBuffer {
-    fn new(
-        device: &wgpu::Device,
-        name: String,
-        image_size: VoxelSize,
-    ) -> Result<Self, BufferSizeError> {
-        Ok(Self {
-            image_size,
-            buffer: ImageReadArrayBuffer::new(
-                device,
-                name,
-                Buffers::image_buf_size(image_size),
-            )?,
-        })
-    }
-
-    fn grow_to_fit(
-        &mut self,
-        device: &wgpu::Device,
-        image_size: VoxelSize,
-    ) -> Result<(), BufferSizeError> {
-        self.image_size = image_size;
-        self.buffer
-            .grow_to_fit(device, Buffers::image_buf_size(image_size))
-    }
-}
-
-tag!(ImageReadTag, u8, usize, COPY_DST | MAP_READ);
-type ImageReadArrayBuffer = FlexBuffer<ImageReadTag>;
 
 /// Cached bind groups (constructed on-demand)
 #[derive(Default)]
@@ -1756,17 +1685,17 @@ impl Buffers {
         self.image_size
     }
 
-    /// Returns a handle to the image storage buffer
+    /// Returns a handle to the image output buffer
     ///
     /// This is intended for subsequent shaders which want to use the
     /// [`GeometryPixel`] image data without copying to the CPU.  It requires a
     /// exclusive borrow of the `Buffers` object (and then extends that
     /// lifetime) so that other callers can't simultaneously touch the buffer.
-    pub fn image_storage_buffer(&mut self) -> &FlexBuffer<GeomBufferTag> {
+    pub fn output(&mut self) -> &FlexBuffer<GeomBufferTag> {
         &self.geom
     }
 
-    fn new(device: &wgpu::Device, has_timestamps: bool) -> Self {
+    fn new(device: &wgpu::Device) -> Self {
         // The config buffer is statically sized, so we can check it here
         static_assertions::const_assert!(
             (std::mem::size_of::<Config>()
@@ -1803,27 +1732,9 @@ impl Buffers {
         let geom =
             FlexBuffer::new(device, "geom".to_string(), image_size).unwrap();
 
-        let ts_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ts"),
-            size: 2 * std::mem::size_of::<u64>() as u64,
-            usage: wgpu::BufferUsages::QUERY_RESOLVE
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
         let tile64 = RootTileBuffers::new(device, render_size).unwrap();
         let tile16 = TileBuffers::new(device, render_size).unwrap();
         let tile4 = TileBuffers::new(device, render_size).unwrap();
-
-        let timestamps = if has_timestamps {
-            Some(device.create_query_set(&wgpu::QuerySetDescriptor {
-                label: Some("timestamp query set"),
-                ty: wgpu::QueryType::Timestamp,
-                count: 2,
-            }))
-        } else {
-            None
-        };
 
         // z_hist_buf never changes size
         let z_hist_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1846,9 +1757,7 @@ impl Buffers {
             tile4,
             voxels,
             geom,
-            timestamps,
             z_hist_buf,
-            ts_buf,
             bind_groups: Default::default(),
         }
     }
@@ -1900,29 +1809,17 @@ impl Buffers {
             .unwrap()
     }
 
-    fn voxels_buf_size(render_size: TileRenderSize) -> usize {
-        render_size.pixels()
-    }
-
-    /// Returns image buffer size (in bytes)
-    fn image_buf_size(image_size: VoxelSize) -> usize {
-        image_size
-            .item_count()
-            // Convert from GeometryPixel item count to bytes
-            .checked_mul(std::mem::size_of::<GeometryPixel>())
-            .unwrap()
-            // Allocate an extra 16 bytes for timestamp queries
-            .checked_add(16)
-            .unwrap()
+    fn voxels_buf_size(render_size: TileRenderSize) -> VoxelSize {
+        VoxelSize::new(
+            render_size.width(),
+            render_size.height(),
+            render_size.depth(),
+        )
     }
 
     /// Resizes to render the target image size
     ///
     /// Internal buffers are resized to fit (only getting larger)
-    ///
-    /// This function also checks that the size is appropriate for an
-    /// [`ImageReadBuffer`] (though we do not store such an object), so that
-    /// later functions can resize it infallibly.
     fn set_image_size(
         &mut self,
         device: &wgpu::Device,
@@ -1939,8 +1836,6 @@ impl Buffers {
             tile4,
             voxels,
             geom,
-            timestamps: _,
-            ts_buf: _,
             bind_groups,
         } = self;
         // Clear our cached bind groups if the image sizes is changing
@@ -1984,15 +1879,6 @@ impl Buffers {
                 buf: BufferName::Geom,
                 err,
             })?;
-
-        // Check that we can build an `ImageReadBuffer` of the appropriate
-        // size (even though they are stored separately)
-        ImageReadArrayBuffer::check_size(Self::image_buf_size(image_size))
-            .map_err(|err| BuffersError {
-                buf: BufferName::Image,
-                err,
-            })?;
-
         Ok(())
     }
 
@@ -2009,8 +1895,6 @@ impl Buffers {
             tile4,
             voxels,
             geom,
-            timestamps: _,
-            ts_buf,
             bind_groups: _,
         } = self;
         config_buf.size()
@@ -2021,7 +1905,6 @@ impl Buffers {
             + tile4.capacity()
             + voxels.capacity()
             + geom.capacity()
-            + ts_buf.size()
     }
 
     /// Returns total active size (in bytes)
@@ -2037,8 +1920,6 @@ impl Buffers {
             tile4,
             voxels,
             geom,
-            timestamps: _,
-            ts_buf,
             bind_groups: _,
         } = self;
         config_buf.size()
@@ -2049,27 +1930,12 @@ impl Buffers {
             + tile4.size()
             + voxels.size_bytes()
             + geom.size_bytes()
-            + ts_buf.size()
     }
 }
 
 impl Context {
     /// Build a new 3D rendering context, given a device and queue
-    ///
-    /// If render timestamps are desirable, then the device should be
-    /// initialized with [`wgpu::Features::TIMESTAMP_QUERY`].
     pub fn new(gpu: &Gpu) -> Self {
-        let has_timestamps = gpu
-            .device
-            .features()
-            .contains(wgpu::Features::TIMESTAMP_QUERY);
-        if !has_timestamps {
-            log::warn!(
-                "WGPU device is missing `TIMESTAMP_QUERY`; \
-                 timestamps are disabled"
-            );
-        }
-
         // Create bind group layout and bind group
         let common_bind_group_layout = gpu.device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
@@ -2128,7 +1994,6 @@ impl Context {
 
         Self {
             gpu: gpu.clone(),
-            has_timestamps,
             common_bind_group_layout,
             vars_bind_group_layout,
             root_ctx,
@@ -2148,13 +2013,7 @@ impl Context {
     /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
     /// [`submit`](Self::submit)).
     pub fn buffers(&self) -> Buffers {
-        Buffers::new(&self.gpu.device, self.has_timestamps)
-    }
-
-    /// Returns an [`ImageReadBuffer`]
-    pub fn image_buffer(&self) -> ImageReadBuffer {
-        ImageReadBuffer::new(&self.gpu.device, "image".to_owned(), 64.into())
-            .expect("64 should always be a valid size for ImageReadBuffer::new")
+        Buffers::new(&self.gpu.device)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2165,7 +2024,7 @@ impl Context {
         &self,
         shape: &RenderShape,
         buffers: &mut Buffers,
-        out: &mut ImageReadBuffer,
+        out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.run_with_vars(shape, &Default::default(), buffers, out, settings)
@@ -2180,23 +2039,23 @@ impl Context {
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         buffers: &mut Buffers,
-        out: &mut ImageReadBuffer,
+        out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.submit_with_vars(shape, vars, buffers, &settings)?;
-        let image = self.map_image(buffers, out);
+        self.gpu.copy(&buffers.geom, out);
+        let image = self.gpu.map_image(out);
         Ok(image.image())
     }
 
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    /// Renders the image, with an async wait to read pixel data from the GPU
     ///
-    /// This function is only relevant for the web target
-    #[cfg(any(target_arch = "wasm32", doc))]
+    /// This can be called either natively or on the web
     pub async fn run_async(
         &self,
         shape: &RenderShape,
         buffers: &mut Buffers,
-        out: &mut ImageReadBuffer,
+        out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.run_with_vars_async(
@@ -2209,28 +2068,27 @@ impl Context {
         .await
     }
 
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    /// Renders the image, with an async wait to read pixel data from the GPU
     ///
-    /// This function is only relevant for the web target
-    #[cfg(any(target_arch = "wasm32", doc))]
+    /// This can be called either natively or on the web
     pub async fn run_with_vars_async(
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         buffers: &mut Buffers,
-        out: &mut ImageReadBuffer,
+        out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.submit_with_vars(shape, vars, buffers, &settings)?;
-        let image = self.map_image_async(buffers, out).await;
+        self.gpu.copy(&buffers.geom, out);
+        let image = self.gpu.map_image_async(out).await;
         Ok(image.image())
     }
 
     /// Submits a single image to be rendered on the GPU
     ///
     /// The resulting image (as a buffer of [`GeometryPixel`] data) is available
-    /// on the GPU in
-    /// [`buffers.image_storage_buffer()`](Buffers::image_storage_buffer).
+    /// on the GPU in [`buffers.output()`](Buffers::output).
     pub fn submit(
         &self,
         shape: &RenderShape,
@@ -2332,13 +2190,7 @@ impl Context {
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
-                timestamp_writes: buffers.timestamps.as_ref().map(
-                    |query_set| wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: Some(0),
-                        end_of_pass_write_index: Some(1),
-                    },
-                ),
+                timestamp_writes: None,
             });
 
         // Build the common config buffer
@@ -2393,166 +2245,6 @@ impl Context {
         // Submit the commands and wait for the GPU to complete
         self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
-    }
-
-    fn copy_image(&self, buffers: &Buffers, image_out: &mut ImageReadBuffer) {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("map_image"),
-            },
-        );
-        image_out
-            .grow_to_fit(&self.gpu.device, buffers.image_size)
-            .expect(
-                "buffers.image_size should always be \
-                     a valid size for ImageReadBuffer::grow_to_fit",
-            );
-        // Resolve the raw GPU ticks into the resolve buffer, then copy them
-        // into the last 16 bytes of the image buffer
-        if let Some(timestamps) = &buffers.timestamps {
-            encoder.resolve_query_set(timestamps, 0..2, &buffers.ts_buf, 0);
-            encoder.copy_buffer_to_buffer(
-                &buffers.ts_buf,
-                0,
-                image_out.buffer.data(),
-                buffers.geom.size_bytes(), // offset past the image data
-                buffers.ts_buf.size(),
-            );
-        }
-
-        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
-        encoder.copy_buffer_to_buffer(
-            buffers.geom.data(),
-            0,
-            image_out.buffer.data(),
-            0,
-            buffers.geom.size_bytes(),
-        );
-
-        self.gpu.queue.submit(Some(encoder.finish()));
-    }
-
-    /// Synchronously maps an image read buffer
-    ///
-    /// The image read buffer should be populated by passing it as an argument
-    /// when calling [`submit`](Self::submit).
-    ///
-    /// The image is borrowed exclusively to avoid double-mapping
-    ///
-    /// This is a blocking function suitable for use on the desktop
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn map_image<'a>(
-        &self,
-        buffers: &Buffers,
-        image: &'a mut ImageReadBuffer,
-    ) -> MappedImage<'a> {
-        self.copy_image(buffers, image);
-        let slice = image.buffer.map_async(|_| {});
-        self.gpu
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        MappedImage {
-            image,
-            slice,
-            ns_per_tick: if self.has_timestamps {
-                Some(self.gpu.queue.get_timestamp_period())
-            } else {
-                None
-            },
-        }
-    }
-
-    /// Asynchronously maps an image read buffer
-    ///
-    /// The image read buffer should be populated by passing it as an argument
-    /// when calling [`submit`](Self::submit).
-    ///
-    /// The image is borrowed exclusively to avoid double-mapping
-    ///
-    /// This is an `async` function suitable for use in WebAssembly.
-    #[cfg(any(target_arch = "wasm32", doc))]
-    pub async fn map_image_async<'a>(
-        &self,
-        buffers: &Buffers,
-        image: &'a mut ImageReadBuffer,
-    ) -> MappedImage<'a> {
-        self.copy_image(buffers, image);
-        let (tx, rx) = flume::bounded(0);
-        let slice = image.buffer.map_async(move |_| tx.send(()).unwrap());
-        rx.recv_async().await.unwrap();
-        MappedImage {
-            image,
-            slice,
-            ns_per_tick: if self.has_timestamps {
-                Some(self.gpu.queue.get_timestamp_period())
-            } else {
-                None
-            },
-        }
-    }
-
-    /// Resizes buffers to the given image size
-    ///
-    /// Buffer allocations may grow but do not shrink; delete and recreate
-    /// buffers if their capacity exceeds their size to a significant degree.
-    pub fn set_buffers_image_size(
-        &self,
-        buffers: &mut Buffers,
-        image_size: VoxelSize,
-    ) -> Result<(), BuffersError> {
-        buffers.set_image_size(&self.gpu.device, image_size)
-    }
-}
-
-/// Handle to a mapped image, which unmaps the image when dropped
-pub struct MappedImage<'a> {
-    image: &'a ImageReadBuffer,
-    slice: wgpu::BufferSlice<'a>,
-
-    /// Nanoseconds per tick, for resolving timestamps
-    ns_per_tick: Option<f32>,
-}
-
-impl Drop for MappedImage<'_> {
-    fn drop(&mut self) {
-        self.image.buffer.data().unmap();
-    }
-}
-
-impl MappedImage<'_> {
-    /// Returns the image's data
-    pub fn image(&self) -> Image {
-        // Get the pixel-populated image
-        let result = <[GeometryPixel]>::ref_from_bytes(
-            &self.slice.get_mapped_range()[..self.image_bytes()],
-        )
-        .unwrap()
-        .to_owned();
-        Image::build(result, self.image.image_size).unwrap()
-    }
-
-    /// Returns the time spent in the compute pass
-    ///
-    /// This may be 0 on platforms which advertise `TIMESTAMP_QUERY` but do not
-    /// actually populate timestamps, and will be `None` if the context does not
-    /// have `TIMESTAMP_QUERY` enabled.
-    pub fn time(&self) -> Option<std::time::Duration> {
-        self.ns_per_tick.map(|ns_per_tick| {
-            let slice = self.slice.get_mapped_range();
-            let ts =
-                <[u64]>::ref_from_bytes(&slice[self.image_bytes()..]).unwrap();
-            std::time::Duration::from_nanos(
-                (ts[1].saturating_sub(ts[0]) as f64 * ns_per_tick as f64)
-                    as u64,
-            )
-        })
-    }
-
-    fn image_bytes(&self) -> usize {
-        (self.image.image_size.width() as usize)
-            * (self.image.image_size.height() as usize)
-            * std::mem::size_of::<GeometryPixel>()
     }
 }
 
@@ -2831,7 +2523,7 @@ mod test {
             let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
             voxel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
             effects_ctx
-                .submit_merge(buf.image_storage_buffer(), true, &mut merge_buf)
+                .submit_merge(buf.output(), true, &mut merge_buf)
                 .unwrap();
         }
         let merged = gpu.read_vec(merge_buf.output());

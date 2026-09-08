@@ -10,6 +10,7 @@ use anyhow::{Context as _, Result, bail};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
+use zerocopy::IntoBytes;
 
 use fidget::{
     context::{Context, Node},
@@ -385,21 +386,16 @@ fn run3d_wgpu(
     let mut image = Default::default();
     let start = std::time::Instant::now();
     let mut buffers = ctx.buffers();
-    let mut out = ctx.image_buffer();
+    let mut out = gpu.read_buffer_for(buffers.output());
     let shape = gpu.shape(&shape)?;
-    let mut compute_pass_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        ctx.submit(&shape, &mut buffers, &cfg)?;
-        let img = ctx.map_image(&buffers, &mut out);
-        compute_pass_time += img.time().unwrap();
-        image = img.image();
+        image = ctx.run(&shape, &mut buffers, &mut out, cfg)?;
     }
     let _ = image;
     info!(
-        "Rendered {}× at {:.2?} ms/frame ({:.2?} ms/compute pass)",
+        "Rendered {}× at {:.2?} ms/frame",
         settings.n,
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
-        compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
 
     let effects = fidget::wgpu::voxel::effects::Context::new(&gpu);
@@ -413,44 +409,29 @@ fn run3d_wgpu(
             bail!("only shaded rendering is supported on the GPU")
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
-            effects.submit_merge(
-                buffers.image_storage_buffer(),
-                denoise,
-                &mut merge_buf,
-            )?;
+            effects.submit_merge(buffers.output(), denoise, &mut merge_buf)?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.blurred_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::RawOcclusion { denoise } => {
-            effects.submit_merge(
-                buffers.image_storage_buffer(),
-                denoise,
-                &mut merge_buf,
-            )?;
+            effects.submit_merge(buffers.output(), denoise, &mut merge_buf)?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.raw_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
-            effects.submit_merge(
-                buffers.image_storage_buffer(),
-                denoise,
-                &mut merge_buf,
-            )?;
+            effects.submit_merge(buffers.output(), denoise, &mut merge_buf)?;
             if ssao {
                 effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
             }
 
-            let mut out_buf = gpu.read_buffer_for(shade_buf.output());
             effects.submit_shade(
                 &merge_buf,
                 if ssao { Some(&ssao_buf) } else { None },
                 &mut shade_buf,
             )?;
-            gpu.copy(shade_buf.output(), &mut out_buf);
-            let out = gpu.map_image(&mut out_buf);
-            out.image().as_bytes().to_vec()
+            gpu.read_vec(shade_buf.output()).as_bytes().to_vec()
         }
     };
     info!("Post-processed image in {:?}", start.elapsed());
@@ -666,23 +647,19 @@ fn run2d_wgpu(
     let mut image = Default::default();
     let start = std::time::Instant::now();
     let mut buffers = ctx.buffers();
-    let mut out = ctx.image_buffer();
+    let mut out = gpu.read_buffer_for(buffers.output());
     let shape = gpu.shape(&shape)?;
-    let mut compute_pass_time = std::time::Duration::ZERO;
     let mut postprocess_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        ctx.submit(&shape, &mut buffers, &cfg)?;
-        let img = ctx.map_image(&buffers, &mut out);
-        compute_pass_time += img.time().unwrap();
+        let img = ctx.run(&shape, &mut buffers, &mut out, cfg)?;
         let pp_start = std::time::Instant::now();
-        image = postprocess2d(img.image(), &mode, threads);
+        image = postprocess2d(img, &mode, threads);
         postprocess_time += pp_start.elapsed();
     }
     info!(
-        "Rendered {}× at {:.2?} ms/frame ({:.2?} ms/compute pass)",
+        "Rendered {}× at {:.2?} ms/frame",
         settings.n,
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
-        compute_pass_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
 
     info!(
