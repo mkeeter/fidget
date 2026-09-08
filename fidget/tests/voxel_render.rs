@@ -112,7 +112,7 @@ mod wgpu {
         let size = 32;
         let image_size = RenderSize::from(size);
         let mut buf = ctx.buffers();
-        let mut out = ctx.image_buffer();
+        let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
                 let sphere = (x.square() + y.square() + z.square()).sqrt()
@@ -162,7 +162,7 @@ mod wgpu {
         let size = 32;
         let image_size = RenderSize::from(size);
         let mut buf = ctx.buffers();
-        let mut out = ctx.image_buffer();
+        let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
                 let mut vars = ShapeVars::new();
