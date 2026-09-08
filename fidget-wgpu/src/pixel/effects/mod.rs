@@ -19,10 +19,7 @@
 //! [`MappedImage::color`] will return `None`.
 use crate::{
     Gpu, RegPipeline, ShapeColorBuffers,
-    buf::{
-        ArrayBuffer, BufferSizeError, ImageBuffer, buffer_ro, buffer_rw,
-        buffer_uniform,
-    },
+    buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw, buffer_uniform},
     pixel::{PixelBufferTag, RawDistancePixel},
     shaders, tag,
 };
@@ -85,6 +82,7 @@ tag!(
     pub MergedPixelBufferTag,
     // This is a hack; we store two images side by side, not interleaved
     [u32; 2],
+    ImageSize,
     STORAGE | COPY_SRC,
     "Buffer tag for on-GPU merged images"
 );
@@ -97,7 +95,7 @@ pub struct MergeBuffers {
     ///
     /// The first image is [`RawDistancePixel`] data; the second is initially
     /// the shape index then is rewritten to be color.
-    out: ImageBuffer<MergedPixelBufferTag>,
+    out: FlexBuffer<MergedPixelBufferTag>,
 
     /// Number of images merged together
     image_count: usize,
@@ -128,7 +126,7 @@ impl MergeBuffers {
     /// interleaved.  The first is distance (as [`RawDistancePixel`] values);
     /// the second is either shape index or RGBA color depending on
     /// [`has_color`](Self::has_color).
-    pub fn output(&self) -> &ImageBuffer<MergedPixelBufferTag> {
+    pub fn output(&self) -> &FlexBuffer<MergedPixelBufferTag> {
         &self.out
     }
 }
@@ -217,7 +215,7 @@ impl Context {
     /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
-        image: &ImageBuffer<PixelBufferTag>,
+        image: &FlexBuffer<PixelBufferTag>,
         remove_nans: bool,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
@@ -313,7 +311,7 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = ImageBuffer::new(
+        let out = FlexBuffer::new(
             &self.gpu.device,
             "merge output".to_owned(),
             image_size,
@@ -440,8 +438,8 @@ impl ImageReadBuffer {
     }
 }
 
-tag!(ImageReadTag, u32, COPY_DST | MAP_READ);
-type ImageReadArrayBuffer = ArrayBuffer<ImageReadTag>;
+tag!(ImageReadTag, u32, usize, COPY_DST | MAP_READ);
+type ImageReadArrayBuffer = FlexBuffer<ImageReadTag>;
 
 /// Handle to a mapped image, which unmaps the image when dropped
 pub struct MappedImage<'a> {

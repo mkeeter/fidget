@@ -105,8 +105,8 @@
 use crate::{
     Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
-        ArrayBuffer, BufferItemCount, BufferSizeError, BufferType,
-        DepthImageBuffer, ImageBuffer, buffer_ro, buffer_ro_dyn, buffer_rw,
+        BufferItemCount, BufferSizeError, BufferType, FlexBuffer, buffer_ro,
+        buffer_ro_dyn, buffer_rw,
     },
     shaders, tag,
 };
@@ -1025,17 +1025,17 @@ pub struct Context {
     clear_ctx: ClearContext,
 }
 
-tag!(TilesBufferTag, u32, STORAGE | INDIRECT);
-tag!(SortedBufferTag, u32, STORAGE | INDIRECT);
-tag!(ZminBufferTag, u32, STORAGE | COPY_DST);
+tag!(TilesBufferTag, u32, usize, STORAGE | INDIRECT);
+tag!(SortedBufferTag, u32, usize, STORAGE | INDIRECT);
+tag!(ZminBufferTag, u32, ImageSize, STORAGE | COPY_DST);
 
 struct TileBuffers<const N: u64> {
     /// Tiles written by the stage outputting N³ tiles
-    tiles: ArrayBuffer<TilesBufferTag>,
+    tiles: FlexBuffer<TilesBufferTag>,
     /// Sorted version of [`tiles`](Self::tiles)
-    sorted: ArrayBuffer<SortedBufferTag>,
+    sorted: FlexBuffer<SortedBufferTag>,
     /// Minimum Z height at each XY tile
-    zmin: ImageBuffer<ZminBufferTag>,
+    zmin: FlexBuffer<ZminBufferTag>,
 }
 
 impl<const N: u64> TileBuffers<N> {
@@ -1046,18 +1046,18 @@ impl<const N: u64> TileBuffers<N> {
     ) -> Result<Self, TileBuffersError> {
         let tile_buf_size = Self::tile_buf_size(render_size);
         let tiles =
-            ArrayBuffer::new(device, format!("active_tile{N}"), tile_buf_size)
+            FlexBuffer::new(device, format!("active_tile{N}"), tile_buf_size)
                 .map_err(|err| TileBuffersError {
-                    buf: TileBufferName::Tiles,
-                    err,
-                })?;
+                buf: TileBufferName::Tiles,
+                err,
+            })?;
         let sorted =
-            ArrayBuffer::new(device, format!("sorted_tile{N}"), tile_buf_size)
+            FlexBuffer::new(device, format!("sorted_tile{N}"), tile_buf_size)
                 .map_err(|err| TileBuffersError {
-                    buf: TileBufferName::Sorted,
-                    err,
-                })?;
-        let zmin = ImageBuffer::new(
+                buf: TileBufferName::Sorted,
+                err,
+            })?;
+        let zmin = FlexBuffer::new(
             device,
             format!("tile{N}_zmin"),
             Self::zmin_buf_size(render_size),
@@ -1148,19 +1148,24 @@ impl<const N: u64> TileBuffers<N> {
     }
 }
 
-tag!(RootTilesBufferTag, u32, STORAGE | COPY_DST);
-tag!(RootStrataBufferTag, u8, STORAGE | INDIRECT | COPY_DST);
-tag!(RootZminBufferTag, u32, STORAGE | COPY_DST);
-tag!(RootZmaxBufferTag, u32, STORAGE | COPY_DST);
+tag!(RootTilesBufferTag, u32, usize, STORAGE | COPY_DST);
+tag!(
+    RootStrataBufferTag,
+    u8,
+    usize,
+    STORAGE | INDIRECT | COPY_DST
+);
+tag!(RootZminBufferTag, u32, ImageSize, STORAGE | COPY_DST);
+tag!(RootZmaxBufferTag, u32, ImageSize, STORAGE | COPY_DST);
 
 /// Root tile buffers store strata-packed tile lists
 struct RootTileBuffers {
     /// Initial output tiles
-    tiles: ArrayBuffer<RootTilesBufferTag>,
+    tiles: FlexBuffer<RootTilesBufferTag>,
     /// Strata-sorted output tiles
-    strata: ArrayBuffer<RootStrataBufferTag>,
-    zmin: ImageBuffer<RootZminBufferTag>,
-    zmax: ImageBuffer<RootZmaxBufferTag>,
+    strata: FlexBuffer<RootStrataBufferTag>,
+    zmin: FlexBuffer<RootZminBufferTag>,
+    zmax: FlexBuffer<RootZmaxBufferTag>,
 }
 
 impl RootTileBuffers {
@@ -1173,7 +1178,7 @@ impl RootTileBuffers {
         const N: usize = 64;
 
         // Allocate enough words to write all of the output tiles
-        let tiles = ArrayBuffer::new(
+        let tiles = FlexBuffer::new(
             device,
             format!("tiles_out{N}"),
             Self::tiles_buf_size(render_size),
@@ -1183,7 +1188,7 @@ impl RootTileBuffers {
             err,
         })?;
 
-        let strata = ArrayBuffer::new(
+        let strata = FlexBuffer::new(
             device,
             format!("strata_tile{N}"),
             Self::strata_buf_size(render_size),
@@ -1194,18 +1199,16 @@ impl RootTileBuffers {
         })?;
 
         let z_buf_size = Self::z_buf_size(render_size);
-        let zmin =
-            ImageBuffer::new(device, format!("tile{N}_zmin"), z_buf_size)
-                .map_err(|err| RootTileBuffersError {
-                    buf: RootTileBufferName::Zmin,
-                    err,
-                })?;
-        let zmax =
-            ImageBuffer::new(device, format!("tile{N}_zmax"), z_buf_size)
-                .map_err(|err| RootTileBuffersError {
-                    buf: RootTileBufferName::Zmax,
-                    err,
-                })?;
+        let zmin = FlexBuffer::new(device, format!("tile{N}_zmin"), z_buf_size)
+            .map_err(|err| RootTileBuffersError {
+                buf: RootTileBufferName::Zmin,
+                err,
+            })?;
+        let zmax = FlexBuffer::new(device, format!("tile{N}_zmax"), z_buf_size)
+            .map_err(|err| RootTileBuffersError {
+                buf: RootTileBufferName::Zmax,
+                err,
+            })?;
         Ok(Self {
             tiles,
             strata,
@@ -1304,9 +1307,9 @@ impl RootTileBuffers {
     }
 }
 
-tag!(TileTapesBufferTag, u32, STORAGE | COPY_DST);
-tag!(VoxelsBufferTag, u32, STORAGE | COPY_DST);
-tag!(pub GeomBufferTag, GeometryPixel, STORAGE | COPY_SRC | COPY_DST,
+tag!(TileTapesBufferTag, u32, usize, STORAGE | COPY_DST);
+tag!(VoxelsBufferTag, u32, usize, STORAGE | COPY_DST);
+tag!(pub GeomBufferTag, GeometryPixel, VoxelSize, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`GeometryPixel`] values");
 
 /// Buffers for rendering
@@ -1336,7 +1339,7 @@ pub struct Buffers {
     z_hist_buf: wgpu::Buffer,
 
     /// Map from tile to the relevant tape (as a start index)
-    tile_tapes: ArrayBuffer<TileTapesBufferTag>,
+    tile_tapes: FlexBuffer<TileTapesBufferTag>,
 
     /// Root tile Z heights (64³)
     tile64: RootTileBuffers,
@@ -1348,12 +1351,12 @@ pub struct Buffers {
     tile4: TileBuffers<4>,
 
     /// Z heights for voxel tile evaluation (rounded up)
-    voxels: ArrayBuffer<VoxelsBufferTag>, // XXX should this be an ImageBuffer?
+    voxels: FlexBuffer<VoxelsBufferTag>, // XXX should this be an ImageBuffer?
 
     /// Buffer of [`GeometryPixel`] data, generated by the normal pass
     ///
     /// This is at the original image size
-    geom: DepthImageBuffer<GeomBufferTag>,
+    geom: FlexBuffer<GeomBufferTag>,
 
     /// Query set for timestamps
     ///
@@ -1412,8 +1415,8 @@ impl ImageReadBuffer {
     }
 }
 
-tag!(ImageReadTag, u8, COPY_DST | MAP_READ);
-type ImageReadArrayBuffer = ArrayBuffer<ImageReadTag>;
+tag!(ImageReadTag, u8, usize, COPY_DST | MAP_READ);
+type ImageReadArrayBuffer = FlexBuffer<ImageReadTag>;
 
 /// Cached bind groups (constructed on-demand)
 #[derive(Default)]
@@ -1759,7 +1762,7 @@ impl Buffers {
     /// [`GeometryPixel`] image data without copying to the CPU.  It requires a
     /// exclusive borrow of the `Buffers` object (and then extends that
     /// lifetime) so that other callers can't simultaneously touch the buffer.
-    pub fn image_storage_buffer(&mut self) -> &DepthImageBuffer<GeomBufferTag> {
+    pub fn image_storage_buffer(&mut self) -> &FlexBuffer<GeomBufferTag> {
         &self.geom
     }
 
@@ -1784,13 +1787,13 @@ impl Buffers {
         });
 
         let render_size = TileRenderSize::from(image_size);
-        let voxels = ArrayBuffer::new(
+        let voxels = FlexBuffer::new(
             device,
             "voxels".to_string(),
             Self::voxels_buf_size(render_size),
         )
         .unwrap();
-        let tile_tapes = ArrayBuffer::new(
+        let tile_tapes = FlexBuffer::new(
             device,
             "tile tape".to_string(),
             Self::tile_tapes_buf_size(render_size),
@@ -1798,8 +1801,7 @@ impl Buffers {
         .unwrap();
 
         let geom =
-            DepthImageBuffer::new(device, "geom".to_string(), image_size)
-                .unwrap();
+            FlexBuffer::new(device, "geom".to_string(), image_size).unwrap();
 
         let ts_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ts"),
