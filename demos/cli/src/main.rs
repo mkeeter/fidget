@@ -508,21 +508,18 @@ fn postprocess3d(
             let blurred = fidget::raster::effects::blur_ssao(&ssao, threads);
             occlusion_to_rgba(blurred.as_slice())
         }
-        RenderMode3D::Heightmap => {
-            let z_max =
-                u64::from(image.iter().map(|p| p.depth).max().unwrap_or(1));
-            image
-                .into_iter()
-                .flat_map(|p| {
-                    if p.depth > 0 {
-                        let z = (u64::from(p.depth) * 255 / z_max) as u8;
-                        [z, z, z, 255]
-                    } else {
-                        [0, 0, 0, 0]
-                    }
-                })
-                .collect()
-        }
+        RenderMode3D::Heightmap => image
+            .iter()
+            .flat_map(|p| {
+                if p.depth > 0 {
+                    let z = ((p.depth as f32 / image.size().depth() as f32)
+                        * 255.0) as u8;
+                    [z, z, z, 255]
+                } else {
+                    [0, 0, 0, 0]
+                }
+            })
+            .collect(),
     };
     info!("Post-processed image in {:?}", start.elapsed());
 
