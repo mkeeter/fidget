@@ -70,3 +70,31 @@ fn rand(seed: u32) -> f32 {
 fn mix(a: u32, b: u32) -> u32 {
     return hash(a + hash(b));
 }
+
+fn hsl_to_rgb(hsl: vec3f) -> vec3f {
+    let h = hsl[0];
+    let s = hsl[1];
+    let l = hsl[2];
+
+    let c = (1.0 - abs(2.0 * l - 1.0)) * s;
+    let h_ = h * 6.0;
+    let x = c * (1.0 - abs(h_ % 2.0 - 1.0));
+
+    var rgb: vec3<f32>;
+    if (h_ < 1.0) {
+        rgb = vec3<f32>(c, x, 0.0);
+    } else if (h_ < 2.0) {
+        rgb = vec3<f32>(x, c, 0.0);
+    } else if (h_ < 3.0) {
+        rgb = vec3<f32>(0.0, c, x);
+    } else if (h_ < 4.0) {
+        rgb = vec3<f32>(0.0, x, c);
+    } else if (h_ < 5.0) {
+        rgb = vec3<f32>(x, 0.0, c);
+    } else {
+        rgb = vec3<f32>(c, 0.0, x);
+    }
+
+    let m = l - c / 2.0;
+    return rgb + vec3f(m);
+}

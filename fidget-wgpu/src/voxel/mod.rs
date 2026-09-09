@@ -2530,13 +2530,17 @@ mod test {
         let merged = gpu.read_vec(merge_buf.output());
         let shape_colors = shapes
             .iter()
-            .map(|(_, c)| {
-                let ShapeColor::Rgb { r, g, b } = c;
-                ShapeColor::Rgb {
+            .map(|(_, c)| match c {
+                ShapeColor::Rgb { r, g, b } => ShapeColor::Rgb {
                     r: VmShape::from(r.clone()),
                     g: VmShape::from(g.clone()),
                     b: VmShape::from(b.clone()),
-                }
+                },
+                ShapeColor::Hsl { h, s, l } => ShapeColor::Hsl {
+                    h: VmShape::from(h.clone()),
+                    s: VmShape::from(s.clone()),
+                    l: VmShape::from(l.clone()),
+                },
             })
             .collect::<Vec<_>>();
         let shape_colors = gpu.color_buffers(&shape_colors).unwrap();
@@ -2950,6 +2954,70 @@ mod test {
             "invalid color set {color_set:X?} in {} pixels",
             out.colors.len()
         );
+    }
+
+    #[test]
+    fn voxel_hsl() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let size = 128;
+        let (x, y, z) = Tree::axes();
+        let x_ = x.clone() - 0.2;
+        let sphere1 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let x_ = x + 0.2;
+        let sphere2 = (x_.square() + y.square() + z.square()).sqrt()
+            - Tree::constant(0.5);
+        let out = render(
+            &[
+                (
+                    sphere1,
+                    ShapeColor::Hsl {
+                        h: Tree::constant(0.0),
+                        s: Tree::constant(1.0),
+                        l: Tree::constant(0.5),
+                    },
+                ),
+                (
+                    sphere2,
+                    ShapeColor::Hsl {
+                        h: Tree::constant(0.5),
+                        s: Tree::constant(0.4),
+                        l: Tree::constant(0.7),
+                    },
+                ),
+            ],
+            RenderConfig::from_size(size.into()),
+        );
+
+        let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
+        assert_eq!(color_set.len(), 3);
+        assert!(
+            color_set.contains(&Rgba {
+                r: 0xFF,
+                g: 0xFF,
+                b: 0xFF,
+                a: 0x00,
+            }) && color_set.contains(&Rgba {
+                r: 0xFF,
+                g: 0x00,
+                b: 0x00,
+                a: 0xFF,
+            }) && color_set.contains(&Rgba {
+                r: 0x93,
+                g: 0xD1,
+                b: 0xD1,
+                a: 0xFF
+            }),
+            "invalid color set {color_set:X?} in {} pixels",
+            out.colors.len()
+        );
+        println!("{color_set:#x?}");
     }
 
     #[test]

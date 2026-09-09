@@ -1383,13 +1383,17 @@ mod test {
         }
         let shape_colors = shapes
             .iter()
-            .map(|(_, c)| {
-                let ShapeColor::Rgb { r, g, b } = c;
-                ShapeColor::Rgb {
+            .map(|(_, c)| match c {
+                ShapeColor::Rgb { r, g, b } => ShapeColor::Rgb {
                     r: VmShape::from(r.clone()),
                     g: VmShape::from(g.clone()),
                     b: VmShape::from(b.clone()),
-                }
+                },
+                ShapeColor::Hsl { h, s, l } => ShapeColor::Hsl {
+                    h: VmShape::from(h.clone()),
+                    s: VmShape::from(s.clone()),
+                    l: VmShape::from(l.clone()),
+                },
             })
             .collect::<Vec<_>>();
         let shape_colors = gpu.color_buffers(&shape_colors).unwrap();
@@ -1633,6 +1637,139 @@ mod test {
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
             gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            "
+            .replace(" ", "")
+        );
+    }
+
+    #[test]
+    fn pixel_hsl() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let circle_a = ((Tree::x() - 0.5).square() + Tree::y().square()).sqrt()
+            - Tree::constant(0.25);
+        let circle_b = ((Tree::x() + 0.5).square() + Tree::y().square()).sqrt()
+            - Tree::constant(0.25);
+
+        // Test a variety of image sizes for correctness
+        let image_size = RenderSize::new(64, 64);
+        let out = render(
+            &[
+                (
+                    circle_a,
+                    ShapeColor::Hsl {
+                        h: Tree::constant(0.0),
+                        s: Tree::constant(1.0),
+                        l: Tree::constant(0.5),
+                    },
+                ),
+                (
+                    circle_b,
+                    ShapeColor::Hsl {
+                        h: Tree::constant(0.5),
+                        s: Tree::constant(1.0),
+                        l: Tree::constant(0.5),
+                    },
+                ),
+            ],
+            RenderConfig {
+                image_size,
+                world_to_model: nalgebra::Matrix3::identity(),
+                pixel_perfect: false,
+                z: 0.0,
+            },
+        );
+        assert_eq!(out.color.size(), image_size);
+        assert_eq!(out.distance.size(), image_size);
+
+        let mut pixels = String::new();
+        for j in 0..image_size.height() {
+            for i in 0..image_size.width() {
+                let p = out.color[(j as usize, i as usize)];
+                let c = match p.to_ne_bytes() {
+                    [255, 0, 0, 0] => "r",
+                    [255, 0, 0, 255] => "R",
+                    [0, 255, 255, 0] => "c",
+                    [0, 255, 255, 255] => "C",
+                    _ => panic!("invalid color {:?}", p.to_ne_bytes()),
+                };
+                pixels += c;
+            }
+            pixels += "\n";
+        }
+
+        assert_eq!(
+            pixels,
+            "\
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+            cccccccccccccCCCCCCCcccccccccccccrrrrrrrrrrrrRRRRRRRrrrrrrrrrrrr
+            cccccccccccCCCCCCCCCCCcccccccccccrrrrrrrrrrRRRRRRRRRRRrrrrrrrrrr
+            ccccccccccCCCCCCCCCCCCCccccccccccrrrrrrrrrRRRRRRRRRRRRRrrrrrrrrr
+            ccccccccccCCCCCCCCCCCCCccccccccccrrrrrrrrrRRRRRRRRRRRRRrrrrrrrrr
+            cccccccccCCCCCCCCCCCCCCCcccccccccrrrrrrrrRRRRRRRRRRRRRRRrrrrrrrr
+            cccccccccCCCCCCCCCCCCCCCcccccccccrrrrrrrrRRRRRRRRRRRRRRRrrrrrrrr
+            cccccccccCCCCCCCCCCCCCCCcccccccccrrrrrrrrRRRRRRRRRRRRRRRrrrrrrrr
+            cccccccccCCCCCCCCCCCCCCCcccccccccrrrrrrrrRRRRRRRRRRRRRRRrrrrrrrr
+            cccccccccCCCCCCCCCCCCCCCcccccccccrrrrrrrrRRRRRRRRRRRRRRRrrrrrrrr
+            cccccccccCCCCCCCCCCCCCCCcccccccccccccccrrRRRRRRRRRRRRRRRcccccccc
+            cccccccccCCCCCCCCCCCCCCCcccccccccccccccrrRRRRRRRRRRRRRRRrccccccc
+            ccccccccccCCCCCCCCCCCCCccccccccccccccccrrrRRRRRRRRRRRRRrrccccccc
+            ccccccccccCCCCCCCCCCCCCccccccccccccccccrrrRRRRRRRRRRRRRrrccccccc
+            cccccccccccCCCCCCCCCCCcccccccccccccccccrrrrRRRRRRRRRRRrrrccccccc
+            cccccccccccccCCCCCCCcccccccccccccccccccrrrrrrRRRRRRRrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccrrrrrrrrrrrrrrrrrrccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
             "
             .replace(" ", "")
         );
