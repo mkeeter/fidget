@@ -2530,13 +2530,17 @@ mod test {
         let merged = gpu.read_vec(merge_buf.output());
         let shape_colors = shapes
             .iter()
-            .map(|(_, c)| {
-                let ShapeColor::Rgb { r, g, b } = c;
-                ShapeColor::Rgb {
+            .map(|(_, c)| match c {
+                ShapeColor::Rgb { r, g, b } => ShapeColor::Rgb {
                     r: VmShape::from(r.clone()),
                     g: VmShape::from(g.clone()),
                     b: VmShape::from(b.clone()),
-                }
+                },
+                ShapeColor::Hsl { h, s, l } => ShapeColor::Hsl {
+                    h: VmShape::from(h.clone()),
+                    s: VmShape::from(s.clone()),
+                    l: VmShape::from(l.clone()),
+                },
             })
             .collect::<Vec<_>>();
         let shape_colors = gpu.color_buffers(&shape_colors).unwrap();

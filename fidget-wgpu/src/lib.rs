@@ -460,7 +460,9 @@ pub struct ShapeColorBuffers {
     /// before each evaluation
     config: wgpu::Buffer,
 
-    /// Start of the RGB tapes for each shape
+    /// Start of the channel tapes for each shape
+    ///
+    /// The high bit indicates whether this is RGB (0) or HSL (1)
     ///
     /// This is baked once (at construction)
     shape_start: wgpu::Buffer,
@@ -475,7 +477,7 @@ pub struct ShapeColorBuffers {
     vars: wgpu::Buffer,
 }
 
-/// Generic shape color generator
+/// Generic shape color
 pub enum ShapeColor<T> {
     /// Red / green / blue channels
     Rgb {
@@ -486,6 +488,24 @@ pub enum ShapeColor<T> {
         /// Blue component
         b: T,
     },
+    /// Hue / saturation / lightness channels
+    Hsl {
+        /// Hue
+        h: T,
+        /// Saturation
+        s: T,
+        /// Lightness
+        l: T,
+    },
+}
+
+impl<T> ShapeColor<T> {
+    fn channels(&self) -> [&T; 3] {
+        match self {
+            ShapeColor::Rgb { r, g, b } => [r, g, b],
+            ShapeColor::Hsl { h, s, l } => [h, s, l],
+        }
+    }
 }
 
 impl ShapeColorBuffers {
@@ -500,8 +520,7 @@ impl ShapeColorBuffers {
         // Build a single unified variable map, used across all tapes
         let mut var_map = VarMap::new();
         for c in colors {
-            let ShapeColor::Rgb { r, g, b } = c;
-            for channel in [r, g, b] {
+            for channel in c.channels() {
                 let vars = channel.inner().vars();
                 for (v, _index) in vars.iter() {
                     var_map.insert(v);
@@ -513,10 +532,18 @@ impl ShapeColorBuffers {
         let mut bytecode_data: Vec<u32> = Vec::new();
         let mut local_var_map = HashMap::new();
         for c in colors {
-            let ShapeColor::Rgb { r, g, b } = c;
             // Divide by 2 to convert from `u32` to `TapeWord`
-            shape_start.push(u32::try_from(bytecode_data.len() / 2).unwrap());
-            for channel in [r, g, b] {
+            let kind = match c {
+                ShapeColor::Rgb { .. } => 0,
+                ShapeColor::Hsl { .. } => 1 << 31,
+            };
+            let index = u32::try_from(bytecode_data.len() / 2).unwrap();
+            assert!(
+                index & (1 << 31) == 0,
+                "you have built more than 2 GiB of shape tapes?!"
+            );
+            shape_start.push(index | kind);
+            for channel in c.channels() {
                 // Build a local variable remapping array, reusing allocations
                 local_var_map.clear();
                 local_var_map.extend(channel.inner().vars().iter().map(
