@@ -128,6 +128,22 @@ fn merge_pixel(
     let b_inside = distance_pixel_is_inside(b.distance);
     if a_inside && !b_inside {
         return a;
+    } else if !a_inside && b_inside {
+        return b;
+    } else if a_inside && b_inside {
+        return b;
+    } else if !distance_pixel_is_fill(a.distance) &&
+              !distance_pixel_is_fill(b.distance)
+    {
+        // Outside pixels are only rendered in SDF mode, which is pixel-perfect
+        // (so we should always have distance values).  In this case, we'll do a
+        // true `min` for outside pixels, instead of the `b`-over-`a` logic
+        // which is used for inside pixels
+        if a.distance.data < b.distance.data {
+            return a;
+        } else {
+            return b;
+        }
     } else {
         return b;
     }
