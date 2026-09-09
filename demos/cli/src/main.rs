@@ -405,8 +405,13 @@ fn run3d_wgpu(
 
     let start = std::time::Instant::now();
     let out_bytes = match mode {
-        RenderMode3D::Heightmap | RenderMode3D::Normals { .. } => {
-            bail!("only shaded rendering is supported on the GPU")
+        RenderMode3D::Heightmap => {
+            effects.submit_merge(buffers.output(), false, &mut merge_buf)?;
+            effects.submit_heightmap(&merge_buf, &mut shade_buf)?;
+            gpu.read_vec(shade_buf.output()).as_bytes().to_vec()
+        }
+        RenderMode3D::Normals { .. } => {
+            bail!("normal rendering is not supported on the GPU")
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             effects.submit_merge(buffers.output(), denoise, &mut merge_buf)?;

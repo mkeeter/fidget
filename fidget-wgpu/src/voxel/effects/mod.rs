@@ -31,6 +31,9 @@ pub struct Context {
     shade_bind_group_layout: wgpu::BindGroupLayout,
     shade_pipeline: wgpu::ComputePipeline,
 
+    heightmap_bind_group_layout: wgpu::BindGroupLayout,
+    heightmap_pipeline: wgpu::ComputePipeline,
+
     ssao_ctx: SsaoContext,
 
     color_ctx: ColorContext,
@@ -39,6 +42,7 @@ pub struct Context {
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const SHADE_SHADER: &str = include_str!("shaders/shade.wgsl");
+const HEIGHTMAP_SHADER: &str = include_str!("shaders/heightmap.wgsl");
 const SSAO_SHADER: &str = include_str!("shaders/ssao.wgsl");
 const BLUR_SHADER: &str = include_str!("shaders/blur.wgsl");
 const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
@@ -49,6 +53,10 @@ fn merge_shader() -> String {
 
 fn shade_shader() -> String {
     SHADE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
+}
+
+fn heightmap_shader() -> String {
+    HEIGHTMAP_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
 }
 
 fn ssao_shader() -> String {
@@ -140,6 +148,17 @@ struct ShadeConfig {
     flags: u32,
 }
 
+#[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
+#[cfg_attr(test, derive(facet::Facet))]
+#[repr(C)]
+struct HeightmapConfig {
+    /// Image size, in pixels
+    image_size: [u32; 3],
+
+    /// Flag to indicate whether the color is valid
+    has_color: u32,
+}
+
 /// Must match constants in `shade.wgsl`
 const SHADE_CONFIG_HAS_SSAO: u32 = 1u32;
 const SHADE_CONFIG_HAS_COLOR: u32 = 2u32;
@@ -204,6 +223,24 @@ pub enum MergeError {
 /// Error returned when submitting a shade operation
 #[derive(Debug, thiserror::Error)]
 pub enum ShadeError {
+    /// An error occurred while resizing the output buffer
+    #[error(transparent)]
+    OutputSize(BufferSizeError),
+
+    /// Input and output buffers are different sizes when `has_color` is true
+    ///
+    /// This is not allowed because `has_color = true` means that the output
+    /// buffer's pixel values should be used as diffuse color
+    #[error(
+        "input and output buffers must be the same size when
+        `has_color` is true, but they do not match"
+    )]
+    InvalidColorSize,
+}
+
+/// Error returned when submitting a heightmap operation
+#[derive(Debug, thiserror::Error)]
+pub enum HeightmapError {
     /// An error occurred while resizing the output buffer
     #[error(transparent)]
     OutputSize(BufferSizeError),
@@ -341,6 +378,41 @@ impl Context {
             },
         );
 
+        let heightmap_bind_group_layout = gpu.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    buffer_uniform(0),
+                    buffer_ro(1), // merged image
+                    buffer_rw(2), // out
+                ],
+            },
+        );
+        let shader_code = heightmap_shader();
+        let pipeline_layout = gpu.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
+                label: Some("effects heightmap pipeline"),
+                bind_group_layouts: &[Some(&heightmap_bind_group_layout)],
+                immediate_size: 0u32,
+            },
+        );
+        let shader_module =
+            gpu.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("effects heightmap shader module"),
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
+        let heightmap_pipeline = gpu.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("effects heightmap compute pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("heightmap_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        );
+
         let ssao_ctx = SsaoContext::new(&gpu.device);
         let color_ctx = ColorContext::new(&gpu.device);
 
@@ -350,6 +422,8 @@ impl Context {
             merge_pipeline,
             shade_bind_group_layout,
             shade_pipeline,
+            heightmap_bind_group_layout,
+            heightmap_pipeline,
             ssao_ctx,
             color_ctx,
         }
@@ -537,7 +611,7 @@ impl Context {
 
     /// Submits an operation to shade an image
     ///
-    /// The output buffer is resized to fit the images
+    /// The output buffer is resized to fit the incoming image
     pub fn submit_shade(
         &self,
         image: &MergeBuffers,
@@ -618,6 +692,88 @@ impl Context {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 3,
+                                resource: buf.out.bind_active(),
+                            },
+                        ],
+                    });
+            compute_pass.set_bind_group(0, Some(&bg), &[]);
+            compute_pass.dispatch_workgroups(
+                size.width().div_ceil(8),
+                size.height().div_ceil(8),
+                1,
+            );
+        }
+        buf.has_color = false;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Submits an operation to generate RGB color from a heightmap
+    ///
+    /// The output buffer is resized to fit the incoming image
+    pub fn submit_heightmap(
+        &self,
+        image: &MergeBuffers,
+        buf: &mut ShadeBuffers,
+    ) -> Result<(), HeightmapError> {
+        let size = image.out.size();
+        if buf.has_color {
+            if size != buf.out.size() {
+                return Err(HeightmapError::InvalidColorSize);
+            }
+        } else {
+            buf.out
+                .grow_to_fit(&self.gpu.device, size)
+                .map_err(HeightmapError::OutputSize)?;
+        }
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("heightmap compute encoder"),
+            },
+        );
+
+        // Scope to bound the lifetime of compute_pass
+        {
+            let mut compute_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("heightmap compute pass"),
+                    timestamp_writes: None, // TODO add timestamps?
+                });
+            compute_pass.set_pipeline(&self.heightmap_pipeline);
+            let cfg = HeightmapConfig {
+                image_size: [size.width(), size.height(), size.depth()],
+                has_color: buf.has_color.into(),
+            };
+            {
+                let mut writer = self
+                    .gpu
+                    .queue
+                    .write_buffer_with(
+                        &buf.config,
+                        0,
+                        buf.config.size().try_into().unwrap(),
+                    )
+                    .unwrap();
+                writer.copy_from_slice(cfg.as_bytes());
+            }
+            // TODO This is created on every pass
+            let bg =
+                self.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("heightmap bind group"),
+                        layout: &self.heightmap_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: buf.config.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: image.out.bind_active(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
                                 resource: buf.out.bind_active(),
                             },
                         ],
@@ -1179,6 +1335,11 @@ mod test {
     }
 
     #[test]
+    fn compile_heightmap_shader() {
+        crate::compile_shader(&heightmap_shader(), "heightmap");
+    }
+
+    #[test]
     fn compile_ssao_shader() {
         crate::compile_shader(&ssao_shader(), "ssao");
     }
@@ -1293,6 +1454,14 @@ mod test {
         crate::test::compare_struct_layout::<ShadeConfig>(
             &shade_shader(),
             "ShadeConfig",
+        );
+    }
+
+    #[test]
+    fn heightmap_config_layout() {
+        crate::test::compare_struct_layout::<HeightmapConfig>(
+            &heightmap_shader(),
+            "HeightmapConfig",
         );
     }
 
