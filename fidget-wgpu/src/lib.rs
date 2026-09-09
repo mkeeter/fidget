@@ -479,7 +479,7 @@ pub struct ShapeColorBuffers {
 
 /// Generic shape color
 pub enum ShapeColor<T> {
-    /// Red / green / blue channels
+    /// Red / green / blue channels, in the 0-1 range
     Rgb {
         /// Red component
         r: T,
@@ -488,7 +488,7 @@ pub enum ShapeColor<T> {
         /// Blue component
         b: T,
     },
-    /// Hue / saturation / lightness channels
+    /// Hue / saturation / lightness channels, in the 0-1 range
     Hsl {
         /// Hue
         h: T,
