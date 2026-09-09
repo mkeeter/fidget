@@ -2504,6 +2504,7 @@ mod test {
         merged: Vec<PackedVoxel>,
         colors: Vec<Rgba>,
         shaded: fidget_raster::Image<u32, VoxelSize>,
+        heightmap: fidget_raster::Image<u32, VoxelSize>,
     }
 
     fn render(
@@ -2567,14 +2568,29 @@ mod test {
             .submit_shade(&merge_buf, Some(&ssao_buf), &mut shade_buf)
             .unwrap();
         gpu.copy(shade_buf.output(), &mut shade_out);
+        let shaded = gpu.map_image(&mut shade_out).image();
 
-        let img = gpu.map_image(&mut shade_out);
-        let shaded = img.image();
+        // Recompute per-pixel colors
+        effects_ctx
+            .submit_color(
+                &merge_buf,
+                &render_config.world_to_model,
+                &shape_colors,
+                &mut shade_buf,
+            )
+            .unwrap();
+        // Compute heightmap
+        effects_ctx
+            .submit_heightmap(&merge_buf, &mut shade_buf)
+            .unwrap();
+        gpu.copy(shade_buf.output(), &mut shade_out);
+        let heightmap = gpu.map_image(&mut shade_out).image();
 
         RenderOutput {
             merged,
             colors,
             shaded,
+            heightmap,
         }
     }
 
@@ -2645,8 +2661,33 @@ mod test {
             } else {
                 // Check that the alpha channel is fully opaque
                 assert_eq!(c & (0xFF << 24), (0xFF << 24));
+                // Check that the other colors are approximately correct
+                let g = (c >> 8) & 0xFF;
+                let b = (c >> 16) & 0xFF;
+                assert!(
+                    (g / 4).abs_diff(b) < 2,
+                    "invalid G/B ratio {g}/{b} (expected 4)"
+                );
             }
         }
+        for (m, c) in out.merged.iter().zip(out.heightmap.iter()) {
+            let p = m.z;
+            if p == 0 {
+                assert_eq!(*c, 0);
+            } else {
+                // Check that the alpha channel is fully opaque
+                assert_eq!(c & (0xFF << 24), (0xFF << 24));
+                // Check that the other colors are approximately correct
+                let g = (c >> 8) & 0xFF;
+                let b = (c >> 16) & 0xFF;
+                assert!(
+                    (g / 4).abs_diff(b) < 2,
+                    "invalid G/B ratio {g}/{b} (expected 4)"
+                );
+            }
+        }
+        // Make sure that the heightmap and shaded images are different!
+        assert!(out.heightmap.iter().zip(shaded.iter()).any(|(a, b)| a != b));
     }
 
     #[test]
