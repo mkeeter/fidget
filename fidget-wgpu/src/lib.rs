@@ -396,10 +396,10 @@ impl RenderShape {
         gpu: &Gpu,
         vars: &ShapeVars<f32>,
         buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
-    ) -> Result<bool, CopyVarsError> {
+    ) -> Result<CopyVarsChanged, CopyVarsError> {
         // Copy vars (if present)
         let vs = self.shape.inner().vars();
-        let mut changed = false;
+        let mut changed = CopyVarsChanged::BufferUnchanged;
         if vs.has_free_vars() {
             // Do an initial pass to check for errors before resizing the buffer
             for (v, _i) in vs.iter() {
@@ -418,7 +418,7 @@ impl RenderShape {
             // binding an overly-large buffer is fine?
             let r = buf.grow_to_fit(&gpu.device, vs.len())?;
             if !matches!(r, std::cmp::Ordering::Equal) {
-                changed = true;
+                changed = CopyVarsChanged::BufferChanged;
             }
             let mut writer = gpu
                 .queue
@@ -453,6 +453,13 @@ enum CopyVarsError {
     BufferSize(#[from] buf::BufferSizeError),
     #[error(transparent)]
     MissingVar(#[from] MissingVar),
+}
+
+#[must_use]
+#[derive(Copy, Clone, Debug)]
+enum CopyVarsChanged {
+    BufferChanged,
+    BufferUnchanged,
 }
 
 ////////////////////////////////////////////////////////////////////////////////

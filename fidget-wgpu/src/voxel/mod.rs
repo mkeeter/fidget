@@ -97,7 +97,8 @@
 //! buffer.
 
 use crate::{
-    CopyVarsError, Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
+    CopyVarsChanged, CopyVarsError, Gpu, RegPipeline, RenderShape,
+    TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_ro_dyn, buffer_rw,
@@ -2143,7 +2144,10 @@ impl Context {
 
         // Copy vars (if present), then reset relevant bind groups if the buffer
         // size has changed.
-        if shape.copy_vars(&self.gpu, vars, &mut buffers.vars_buf)? {
+        if matches!(
+            shape.copy_vars(&self.gpu, vars, &mut buffers.vars_buf)?,
+            CopyVarsChanged::BufferChanged
+        ) {
             buffers.bind_groups.common = Default::default();
         }
 
