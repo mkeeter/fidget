@@ -1,19 +1,17 @@
 # 0.5.1 (unpublished)
+The most significant change in this verison is unlocking all-GPU rendering: we
+can start with a shape on the CPU, then perform a full rendering pipeline
+(including shading and post-processing) entirely on the GPU.  The APIs were
+codesigned along with [Halfspace](https://github.com/mkeeter/halfspace),
+with a goal of moving its heavy work to the GPU for native-equivalent
+performance on the web.
+
+As such, this release includes *many* changes to `fidget::wgpu`, which I break
+out into a separate section below.  It also includes a bunch of other changes!
+
 - In `fidget::raster`, reorganize `RenderConfig` to separate out the render
   settings (transform, size, etc) from evaluation settings (thread count,
   cancellation, etc); the latter are now in a new `EvalConfig`.
-- `fidget::wgpu` now uses the `RenderConfig` type from `fidget::raster` instead
-  of its own, slightly-different `RenderConfig`.  This was, in fact, the
-  motivation for the reorganization!
-    - Render size in `fidget::wgpu::voxel` is now set by the `RenderConfig`,
-      instead of by the `Buffers` object.  This means that buffers are generated
-      without a size, and resized when passed to render functions.  Functions
-      which do resizing have a new possible error variant if the render size is
-      too large for WGPU buffers.
-    - Removed size from many buffer construction functions in
-      `fidget::wgpu::voxel`, since they're resized when used in evaluation.
-    - Add `fidget::wgpu::buf::DepthImageBuffer`, which is a flexible image
-      buffer taking a `VoxelSize` (so that it preserves depth).
 - Add `z` to `fidget::raster::pixel::RenderConfig` to set the Z evaluation level
 - Move `PartialEq` implementation from `Tree` to `TreeOp`; switch to
   `OrderedFloat` semantics so that pointer comparisons are valid.  Previously,
@@ -22,12 +20,6 @@
 - Add a `Hash` implementation to `Tree` and `TreeOp`, again using `OrderedFloat`
   semantics.  This allows trees to be stored in hashmaps; thanks to @virtualritz
   for the suggestion!
-- Add `fidget::wgpu::pixel` module for 2D rasterization on the GPU.  This is
-  sometimes slower than the CPU evaluator for very complex expressions, but is
-  blazingly fast for simpler expressions.  Plus, it allows for an all-GPU
-  evaluation architecture when embedding Fidget into other applications.
-    - The `fidget::wgpu::pixel::effects` module is also new; it includes merging
-      and color evaluation for 2D images.
 - Move more VM functions onto `Grad` and `Interval` (out of the VM
   implementation); add a `FloatExt` trait which adds them to `f32` as well.
 - Fix a JIT bug in the gradient evaluator on Windows, where we assumed that
@@ -46,14 +38,37 @@
       **agree exactly** with the canonical operator definition.  This required
       removing the JIT implementation for `modulo`, which was not exactly in
       agreement with the non-JIT implementation.
-- Move `fidget_wgpu::effects` to `fidget_wgpu::voxel::effects`
-- Add evaluation of per-pixel colors to `fidget_wgpu::voxel::effects`; see
-  `fidget_wgpu::voxel::effects::Context::submit_color` as the main entry point.
-    - Move `ShapeColorBuffers` construction to top-level `Gpu` object
 - Add `fidget_bytecode::Bytecode::build_with_input_map` for building a
   `Bytecode` object with a particular remapping function for inputs.  This is
   helpful if you're going to combine multiple bytecode tapes and want them to
   share a common input indexing order.
+
+## `fidget::wgpu` changes
+This section may not be all-inclusive; sorry!  I _did_ warn you that
+`fidget::wgpu` was "even more experimental than the rest of Fidget"!.
+
+- `fidget::wgpu` now uses the `RenderConfig` type from `fidget::raster` instead
+  of its own, slightly-different `RenderConfig`.  This was, in fact, the
+  motivation for the reorganization!
+    - Render size in `fidget::wgpu::voxel` is now set by the `RenderConfig`,
+      instead of by the `Buffers` object.  This means that buffers are generated
+      without a size, and resized when passed to render functions.  Functions
+      which do resizing have a new possible error variant if the render size is
+      too large for WGPU buffers.
+    - Removed size from many buffer construction functions in
+      `fidget::wgpu::voxel`, since they're resized when used in evaluation.
+    - Add `fidget::wgpu::buf::DepthImageBuffer`, which is a flexible image
+      buffer taking a `VoxelSize` (so that it preserves depth).
+- Add `fidget::wgpu::pixel` module for 2D rasterization on the GPU.  This is
+  sometimes slower than the CPU evaluator for very complex expressions, but is
+  blazingly fast for simpler expressions.  Plus, it allows for an all-GPU
+  evaluation architecture when embedding Fidget into other applications.
+    - The `fidget::wgpu::pixel::effects` module is also new; it includes merging
+      and color evaluation for 2D images.
+- Move `fidget_wgpu::effects` to `fidget_wgpu::voxel::effects`
+- Add evaluation of per-pixel colors to `fidget_wgpu::voxel::effects`; see
+  `fidget_wgpu::voxel::effects::Context::submit_color` as the main entry point.
+    - Move `ShapeColorBuffers` construction to top-level `Gpu` object
 - `VarMap` now implements `Debug`
 - `VarMap::has_free_vars` checks whether there are non-XYZ vars in the map
 - `RawDistancePixel` now implements `zerocopy::IntoBytes`
@@ -65,6 +80,8 @@
 - More reorganization of `fidget::wgpu` buffer APIs
 - Remove timestamps from `fidget::wgpu` pixel and voxel rendering; they will
   come back in a new form at some point in the future
+- Make `RenderShape` _not_ store GPU objects, so it can be constructed
+  independently through `RenderShape::new`.
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
