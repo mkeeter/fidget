@@ -5,8 +5,14 @@ struct MergeConfig {
     /// Whether or not to denoise when merging (bool)
     denoise: u32,
 
+    /// Scale to compensate for z-flattening
+    z_scale: f32,
+
     /// Offset applied to indices when merging
     index_base: u32,
+
+    // Padding to next multiple of 8 bytes
+    _pad: u32,
 }
 
 @group(0) @binding(0) var<uniform> config: MergeConfig;
@@ -41,7 +47,8 @@ fn merge_main(
 
 fn pack_at(pos: vec2u) -> PackedVoxel {
     let i = config.image_size.x * pos.y + pos.x;
-    let p = maybe_denoise(pos);
+    var p = maybe_denoise(pos);
+    p.normal.z /= config.z_scale;
     return pack(TaggedGeometryPixel(p, config.index_base));
 }
 

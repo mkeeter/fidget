@@ -321,6 +321,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &ImageSettings,
     depth: Option<u32>,
     threads: Option<&fidget::render::ThreadPool>,
+    zflatten: f32,
 ) -> fidget::raster::voxel::Image {
     let render_cfg = fidget::raster::voxel::RenderConfig {
         world_to_model,
@@ -350,7 +351,16 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         settings.n,
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
     );
-    image
+    let mut out = fidget::raster::voxel::Image::new(image.size());
+    out.apply_effect(
+        |x, y| {
+            let mut p = image[(y, x)];
+            p.normal[2] /= zflatten;
+            p
+        },
+        threads,
+    );
+    out
 }
 
 fn occlusion_to_rgba(data: &[f32]) -> Vec<u8> {
@@ -373,6 +383,7 @@ fn run3d_wgpu(
     settings: &ImageSettings,
     depth: Option<u32>,
     mode: RenderMode3D,
+    zflatten: f32,
 ) -> Result<Vec<u8>> {
     // Build a fidget gpu context
     let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?;
@@ -404,9 +415,17 @@ fn run3d_wgpu(
     let mut shade_buf = effects.shade_buffers();
 
     let start = std::time::Instant::now();
+    use fidget::wgpu::voxel::effects::MergeSettings;
     let out_bytes = match mode {
         RenderMode3D::Heightmap => {
-            effects.submit_merge(buffers.output(), false, &mut merge_buf)?;
+            effects.submit_merge(
+                buffers.output(),
+                MergeSettings {
+                    denoise: false,
+                    z_scale: zflatten,
+                },
+                &mut merge_buf,
+            )?;
             effects.submit_heightmap(&merge_buf, &mut shade_buf)?;
             gpu.read_vec(shade_buf.output()).as_bytes().to_vec()
         }
@@ -414,19 +433,40 @@ fn run3d_wgpu(
             bail!("normal rendering is not supported on the GPU")
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
-            effects.submit_merge(buffers.output(), denoise, &mut merge_buf)?;
+            effects.submit_merge(
+                buffers.output(),
+                MergeSettings {
+                    denoise,
+                    z_scale: zflatten,
+                },
+                &mut merge_buf,
+            )?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.blurred_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::RawOcclusion { denoise } => {
-            effects.submit_merge(buffers.output(), denoise, &mut merge_buf)?;
+            effects.submit_merge(
+                buffers.output(),
+                MergeSettings {
+                    denoise,
+                    z_scale: zflatten,
+                },
+                &mut merge_buf,
+            )?;
             effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.raw_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
-            effects.submit_merge(buffers.output(), denoise, &mut merge_buf)?;
+            effects.submit_merge(
+                buffers.output(),
+                MergeSettings {
+                    denoise,
+                    z_scale: zflatten,
+                },
+                &mut merge_buf,
+            )?;
             if ssao {
                 effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
             }
@@ -919,7 +959,7 @@ fn main() -> Result<()> {
             let mut camera = nalgebra::Transform3::identity();
             *camera.matrix_mut().get_mut((3, 2)).unwrap() = perspective;
 
-            let zflatten = nalgebra::Scale3::new(1.0, 1.0, zflatten);
+            let zflatten_mat = nalgebra::Scale3::new(1.0, 1.0, zflatten);
 
             let t = center.to_homogeneous()
                 * yaw.to_homogeneous()
@@ -927,7 +967,7 @@ fn main() -> Result<()> {
                 * pitch.to_homogeneous()
                 * scale.to_homogeneous()
                 * camera.to_homogeneous()
-                * zflatten.to_homogeneous();
+                * zflatten_mat.to_homogeneous();
 
             let threads = match settings.threads {
                 Some(n) if n.get() == 1 => None,
@@ -946,19 +986,33 @@ fn main() -> Result<()> {
                     bail!("can't combine --wgpu and --jit");
                 }
                 let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                run3d_wgpu(shape, t, &settings, depth, mode)?
+                run3d_wgpu(shape, t, &settings, depth, mode, zflatten)?
             } else {
                 let image = match settings.eval {
                     #[cfg(feature = "jit")]
                     EvalMode::Jit => {
                         let shape = fidget::jit::JitShape::new(&ctx, root)?;
                         info!("Built shape in {:?}", start.elapsed());
-                        run3d(shape, t, &settings, depth, threads.as_ref())
+                        run3d(
+                            shape,
+                            t,
+                            &settings,
+                            depth,
+                            threads.as_ref(),
+                            zflatten,
+                        )
                     }
                     EvalMode::Vm => {
                         let shape = fidget::vm::VmShape::new(&ctx, root)?;
                         info!("Built shape in {:?}", start.elapsed());
-                        run3d(shape, t, &settings, depth, threads.as_ref())
+                        run3d(
+                            shape,
+                            t,
+                            &settings,
+                            depth,
+                            threads.as_ref(),
+                            zflatten,
+                        )
                     }
                 };
                 postprocess3d(image, mode, threads.as_ref())
