@@ -398,7 +398,7 @@ fn run3d_wgpu(
     let start = std::time::Instant::now();
     let mut buffers = ctx.buffers();
     let mut out = gpu.read_buffer_for(buffers.output());
-    let shape = gpu.shape(&shape)?;
+    let shape = fidget::wgpu::RenderShape::new(&shape)?;
     for _ in 0..settings.n {
         image = ctx.run(&shape, &mut buffers, &mut out, cfg)?;
     }
@@ -690,7 +690,7 @@ fn run2d_wgpu(
     let start = std::time::Instant::now();
     let mut buffers = ctx.buffers();
     let mut out = gpu.read_buffer_for(buffers.output());
-    let shape = gpu.shape(&shape)?;
+    let shape = fidget::wgpu::RenderShape::new(&shape)?;
     let mut postprocess_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
         let img = ctx.run(&shape, &mut buffers, &mut out, cfg)?;

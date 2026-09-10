@@ -111,7 +111,6 @@ use fidget_core::{
     var::Var,
 };
 use fidget_raster::voxel::{GeometryPixel, Image};
-use std::num::NonZeroU64;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub mod effects;
@@ -211,6 +210,7 @@ pub enum BufferName {
     Heightmap,
     Geom,
     Image,
+    Vars,
 }
 
 impl std::fmt::Display for BufferName {
@@ -224,6 +224,7 @@ impl std::fmt::Display for BufferName {
             BufferName::Heightmap => write!(f, "`heightmap`"),
             BufferName::Geom => write!(f, "`geom`"),
             BufferName::Image => write!(f, "`image`"),
+            BufferName::Vars => write!(f, "`vars`"),
         }
     }
 }
@@ -446,12 +447,11 @@ impl RootContext {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
-        vars_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         // Create bind group layout and bind group
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
+                label: Some("common"),
                 entries: &[
                     buffer_rw(0), // tiles_out
                     buffer_rw(1), // tile64_zmax
@@ -460,10 +460,9 @@ impl RootContext {
 
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
+                label: Some("root pipeline"),
                 bind_group_layouts: &[
                     Some(common_bind_group_layout),
-                    Some(vars_bind_group_layout),
                     Some(&bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -472,7 +471,7 @@ impl RootContext {
             let shader_code = interval_root_shader(reg_count);
             let shader_module =
                 device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: None,
+                    label: Some("interval root"),
                     source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                 });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -501,7 +500,7 @@ impl RootContext {
     ) {
         let bind_group = buffers.bind_groups.root(ctx, buffers);
         compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
-        compute_pass.set_bind_group(2, bind_group, &[]);
+        compute_pass.set_bind_group(1, bind_group, &[]);
 
         // Workgroup is 4x4x4, so we divide by 4 here on each axis
         let nx = render_size.nx().div_ceil(4);
@@ -524,12 +523,11 @@ impl RepackContext {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
-        vars_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         // Create bind group layout and bind group
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
+                label: Some("repack"),
                 entries: &[
                     buffer_ro(0), // tiles_out
                     buffer_ro(1), // tile64_zmin
@@ -541,10 +539,9 @@ impl RepackContext {
             let shader_code = repack_shader();
             let pipeline_layout = device.create_pipeline_layout(
                 &wgpu::PipelineLayoutDescriptor {
-                    label: None,
+                    label: Some("repack"),
                     bind_group_layouts: &[
                         Some(common_bind_group_layout),
-                        Some(vars_bind_group_layout),
                         Some(&bind_group_layout),
                     ],
                     immediate_size: 0u32,
@@ -552,7 +549,7 @@ impl RepackContext {
             );
             let shader_module =
                 device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: None,
+                    label: Some("repack"),
                     source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                 });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -581,7 +578,7 @@ impl RepackContext {
         let bind_group = buffers.bind_groups.repack(ctx, buffers);
 
         compute_pass.set_pipeline(&self.repack_pipeline);
-        compute_pass.set_bind_group(2, bind_group, &[]);
+        compute_pass.set_bind_group(1, bind_group, &[]);
 
         // Workgroup is 64x1x1, so we divide on the X axis.  It doesn't matter
         // much; we just need one thread per possible output tile from the
@@ -620,12 +617,11 @@ impl IntervalContext {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
-        vars_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         // Create bind group layout and bind group
         let interval_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
+                label: Some("interval"),
                 entries: &[
                     buffer_ro_dyn(0), // tiles_in
                     buffer_ro(1),     // tile_zmin
@@ -640,7 +636,6 @@ impl IntervalContext {
                 label: Some("interval pipeline layout"),
                 bind_group_layouts: &[
                     Some(common_bind_group_layout),
-                    Some(vars_bind_group_layout),
                     Some(&interval_bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -726,7 +721,6 @@ impl IntervalContext {
                 label: Some("sort pipeline layout"),
                 bind_group_layouts: &[
                     Some(common_bind_group_layout),
-                    Some(vars_bind_group_layout),
                     Some(&sort_bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -797,7 +791,7 @@ impl IntervalContext {
         let bind_group16 = buffers.bind_groups.interval16(ctx, buffers);
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(
-            2,
+            1,
             bind_group16,
             &[u32::try_from(offset_bytes).unwrap()],
         );
@@ -808,19 +802,19 @@ impl IntervalContext {
 
         let bind_group_sort16 = buffers.bind_groups.sort16(ctx, buffers);
         compute_pass.set_pipeline(&self.sort16_pipeline);
-        compute_pass.set_bind_group(2, bind_group_sort16, &[]);
+        compute_pass.set_bind_group(1, bind_group_sort16, &[]);
         compute_pass
             .dispatch_workgroups_indirect(buffers.tile16.tiles.data(), 0);
 
         let bind_group4 = buffers.bind_groups.interval4(ctx, buffers);
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
-        compute_pass.set_bind_group(2, bind_group4, &[0]);
+        compute_pass.set_bind_group(1, bind_group4, &[0]);
         compute_pass
             .dispatch_workgroups_indirect(buffers.tile16.sorted.data(), 0);
 
         let bind_group_sort4 = buffers.bind_groups.sort4(ctx, buffers);
         compute_pass.set_pipeline(&self.sort4_pipeline);
-        compute_pass.set_bind_group(2, bind_group_sort4, &[]);
+        compute_pass.set_bind_group(1, bind_group_sort4, &[]);
         compute_pass
             .dispatch_workgroups_indirect(buffers.tile4.tiles.data(), 0);
     }
@@ -840,7 +834,6 @@ impl VoxelContext {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
-        vars_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         // Create bind group layout and bind group
         let bind_group_layout =
@@ -858,7 +851,6 @@ impl VoxelContext {
                 label: Some("voxel pipeline layout"),
                 bind_group_layouts: &[
                     Some(common_bind_group_layout),
-                    Some(vars_bind_group_layout),
                     Some(&bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -906,7 +898,7 @@ impl VoxelContext {
     ) {
         let bind_group = buffers.bind_groups.voxel(ctx, buffers);
         compute_pass.set_pipeline(self.voxel_pipeline.get(reg_count));
-        compute_pass.set_bind_group(2, bind_group, &[]);
+        compute_pass.set_bind_group(1, bind_group, &[]);
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
@@ -927,7 +919,6 @@ impl NormalsContext {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
-        vars_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         // Create bind group layout and bind group
         let bind_group_layout =
@@ -944,7 +935,6 @@ impl NormalsContext {
                 label: Some("normals pipeline"),
                 bind_group_layouts: &[
                     Some(common_bind_group_layout),
-                    Some(vars_bind_group_layout),
                     Some(&bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -981,7 +971,7 @@ impl NormalsContext {
     ) {
         let bind_group = buffers.bind_groups.normals(ctx, buffers);
         compute_pass.set_pipeline(self.normals_pipeline.get(reg_count));
-        compute_pass.set_bind_group(2, bind_group, &[]);
+        compute_pass.set_bind_group(1, bind_group, &[]);
 
         compute_pass.dispatch_workgroups(
             buffers.image_size.width().div_ceil(8),
@@ -999,9 +989,6 @@ pub struct Context {
 
     /// Bind group layout for the common bind group (used by all stages)
     common_bind_group_layout: wgpu::BindGroupLayout,
-
-    /// Bind group layout for the vars bind group (also by all stages)
-    vars_bind_group_layout: wgpu::BindGroupLayout,
 
     root_ctx: RootContext,
     repack_ctx: RepackContext,
@@ -1299,6 +1286,7 @@ tag!(TileTapesBufferTag, u32, usize, STORAGE | COPY_DST);
 tag!(VoxelsBufferTag, u32, VoxelSize, STORAGE | COPY_DST);
 tag!(pub GeomBufferTag, GeometryPixel, VoxelSize, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`GeometryPixel`] values");
+tag!(pub(crate) VarsBufferTag, f32, usize, STORAGE | COPY_DST);
 
 /// Buffers for rendering
 ///
@@ -1313,6 +1301,9 @@ pub struct Buffers {
 
     /// Config and tape data buffer (constant size)
     config_buf: wgpu::Buffer,
+
+    /// Scratch space to upload variable values
+    vars_buf: FlexBuffer<VarsBufferTag>,
 
     /// Buffer for z histogram counters
     ///
@@ -1379,6 +1370,10 @@ impl BindGroups {
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: buffers.tile_tapes.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffers.vars_buf.bind_active(),
                         },
                     ],
                 })
@@ -1748,6 +1743,8 @@ impl Buffers {
             mapped_at_creation: false,
         });
 
+        let vars_buf = FlexBuffer::new(device, "vars".to_string(), 4).unwrap();
+
         Self {
             config_buf,
             image_size,
@@ -1757,6 +1754,7 @@ impl Buffers {
             tile4,
             voxels,
             geom,
+            vars_buf,
             z_hist_buf,
             bind_groups: Default::default(),
         }
@@ -1830,6 +1828,7 @@ impl Buffers {
             image_size: image_size_ref,
             config_buf: _,
             z_hist_buf: _,
+            vars_buf: _,
             tile_tapes,
             tile64,
             tile16,
@@ -1840,6 +1839,8 @@ impl Buffers {
         } = self;
         // Clear our cached bind groups if the image sizes is changing
         if *image_size_ref != image_size {
+            // TODO this also clears the common bind group, which isn't
+            // necessary (since it's not size-dependent)
             *bind_groups = Default::default();
         }
         *image_size_ref = image_size;
@@ -1890,6 +1891,7 @@ impl Buffers {
             config_buf,
             z_hist_buf,
             tile_tapes,
+            vars_buf,
             tile64,
             tile16,
             tile4,
@@ -1898,6 +1900,7 @@ impl Buffers {
             bind_groups: _,
         } = self;
         config_buf.size()
+            + vars_buf.capacity()
             + z_hist_buf.size()
             + tile_tapes.capacity()
             + tile64.capacity()
@@ -1913,6 +1916,7 @@ impl Buffers {
         let Buffers {
             image_size: _,
             config_buf,
+            vars_buf,
             z_hist_buf,
             tile_tapes,
             tile64,
@@ -1923,6 +1927,7 @@ impl Buffers {
             bind_groups: _,
         } = self;
         config_buf.size()
+            + vars_buf.size_bytes()
             + z_hist_buf.size()
             + tile_tapes.size_bytes()
             + tile64.size()
@@ -1943,59 +1948,29 @@ impl Context {
                 entries: &[
                     buffer_rw(0), // config (including tape buffer)
                     buffer_rw(1), // tile_tape (hierarchical)
-                ],
-            },
-        );
-        let vars_bind_group_layout = gpu.device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
-                label: Some("vars bind group layout"),
-                entries: &[
-                    buffer_ro(0), // vars
+                    buffer_ro(2), // vars
                 ],
             },
         );
 
-        let root_ctx = RootContext::new(
-            &gpu.device,
-            &common_bind_group_layout,
-            &vars_bind_group_layout,
-        );
-        let repack_ctx = RepackContext::new(
-            &gpu.device,
-            &common_bind_group_layout,
-            &vars_bind_group_layout,
-        );
-        let interval_ctx = IntervalContext::new(
-            &gpu.device,
-            &common_bind_group_layout,
-            &vars_bind_group_layout,
-        );
-        let voxel_ctx = VoxelContext::new(
-            &gpu.device,
-            &common_bind_group_layout,
-            &vars_bind_group_layout,
-        );
-        let normals_ctx = NormalsContext::new(
-            &gpu.device,
-            &common_bind_group_layout,
-            &vars_bind_group_layout,
-        );
-        let merge_ctx = MergeContext::new(
-            &gpu.device,
-            &common_bind_group_layout,
-            &vars_bind_group_layout,
-        );
-        let clear_ctx = ClearContext::new(
-            &gpu.device,
-            &common_bind_group_layout,
-            &vars_bind_group_layout,
-        );
+        let root_ctx = RootContext::new(&gpu.device, &common_bind_group_layout);
+        let repack_ctx =
+            RepackContext::new(&gpu.device, &common_bind_group_layout);
+        let interval_ctx =
+            IntervalContext::new(&gpu.device, &common_bind_group_layout);
+        let voxel_ctx =
+            VoxelContext::new(&gpu.device, &common_bind_group_layout);
+        let normals_ctx =
+            NormalsContext::new(&gpu.device, &common_bind_group_layout);
+        let merge_ctx =
+            MergeContext::new(&gpu.device, &common_bind_group_layout);
+        let clear_ctx =
+            ClearContext::new(&gpu.device, &common_bind_group_layout);
         let reset_ctx = ResetContext;
 
         Self {
             gpu: gpu.clone(),
             common_bind_group_layout,
-            vars_bind_group_layout,
             root_ctx,
             repack_ctx,
             interval_ctx,
@@ -2157,11 +2132,33 @@ impl Context {
         }
 
         // Copy vars (if present)
-        if let Some(var_size) = NonZeroU64::new(shape.vars.size()) {
+        let vs = shape.shape.inner().vars();
+        if vs.has_free_vars() {
+            // If we have to change the vars buffer size, then clear the cached
+            // bind group.  TODO: only do this if we grow the buffer, since
+            // binding an overly-large buffer is fine?
+            let r = buffers
+                .vars_buf
+                .grow_to_fit(&self.gpu.device, vs.len())
+                .map_err(|err| {
+                    SubmitError::Buffers(BuffersError {
+                        buf: BufferName::Vars,
+                        err,
+                    })
+                })?;
+            if !matches!(r, std::cmp::Ordering::Equal) {
+                buffers.bind_groups.common = Default::default();
+            }
             let mut writer = self
                 .gpu
                 .queue
-                .write_buffer_with(&shape.vars, 0, var_size)
+                .write_buffer_with(
+                    buffers.vars_buf.data(),
+                    0,
+                    ((vars.len() * std::mem::size_of::<f32>()) as u64)
+                        .try_into()
+                        .unwrap(),
+                )
                 .unwrap();
             for (v, i) in shape.shape.inner().vars().iter() {
                 match v {
@@ -2196,9 +2193,6 @@ impl Context {
         // Build the common config buffer
         let common_bind_group = buffers.bind_groups.common(self, buffers);
         compute_pass.set_bind_group(0, common_bind_group, &[]);
-        let vars_bind_group = shape
-            .vars_bind_group(&self.gpu.device, &self.vars_bind_group_layout);
-        compute_pass.set_bind_group(1, vars_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
@@ -2257,7 +2251,6 @@ impl ClearContext {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
-        vars_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         // Create bind group layout and bind group
         let bind_group_layout =
@@ -2278,7 +2271,6 @@ impl ClearContext {
                 label: Some("clear pipeline layout"),
                 bind_group_layouts: &[
                     Some(common_bind_group_layout),
-                    Some(vars_bind_group_layout),
                     Some(&bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -2316,7 +2308,7 @@ impl ClearContext {
     ) {
         let bind_group = buffers.bind_groups.clear(ctx, buffers);
         compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(2, bind_group, &[]);
+        compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(1, 1, 1);
     }
 }
@@ -2330,7 +2322,6 @@ impl MergeContext {
     fn new(
         device: &wgpu::Device,
         common_bind_group_layout: &wgpu::BindGroupLayout,
-        vars_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let shader_code = merge_shader();
 
@@ -2352,7 +2343,6 @@ impl MergeContext {
                 label: Some("merge pipeline layout"),
                 bind_group_layouts: &[
                     Some(common_bind_group_layout),
-                    Some(vars_bind_group_layout),
                     Some(&bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -2390,7 +2380,7 @@ impl MergeContext {
         let render_size = buffers.render_size();
         let bind_group = buffers.bind_groups.merge(ctx, buffers);
         compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(2, bind_group, &[]);
+        compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(
             render_size.width().div_ceil(8),
             render_size.height().div_ceil(8),
@@ -2521,7 +2511,8 @@ mod test {
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
-            let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
+            let shape =
+                RenderShape::new(&VmShape::from(shape.clone())).unwrap();
             voxel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
             effects_ctx
                 .submit_merge(buf.output(), Default::default(), &mut merge_buf)

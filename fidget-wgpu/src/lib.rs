@@ -182,14 +182,6 @@ impl Gpu {
         data.to_vec()
     }
 
-    /// Builds a new [`RenderShape`] object for the given shape
-    pub fn shape(
-        &self,
-        shape: &VmShape,
-    ) -> Result<RenderShape, RenderShapeError> {
-        RenderShape::new(shape, &self.device)
-    }
-
     /// Build a set of buffers for doing shape color evaluation
     pub fn color_buffers(
         &self,
@@ -339,25 +331,16 @@ impl RegPipeline {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Shape for rendering
+/// Shape for rendering on the GPU
 ///
-/// This object is constructed by [`Gpu::shape`] and may only be used with
-/// that particular [`Gpu`].
+/// Note that this object does not allocate any memory on the GPU itself; it
+/// stores a bytecode-serialized version of the shape, which is copied to the
+/// GPU during rendering.
 pub struct RenderShape {
     /// Copy of our shape (kept around for access to the variable map)
     shape: VmShape,
     /// Serialized bytecode for the shape
     bytecode: Bytecode,
-    /// GPU buffer to contain variables
-    ///
-    /// This doesn't live in a `Buffers` object because it's dynamically sized
-    /// based on the shape; everything in `Buffers` is based on image size.
-    vars: wgpu::Buffer,
-    /// Lazily-constructed bind group for the vars array
-    ///
-    /// This is not cached in a buffer-specific `BindGroups` object because it
-    /// is shape-specific.
-    vars_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
 }
 
 /// Error type when constructing a [`RenderShape`]
@@ -383,36 +366,17 @@ pub enum ShapeColorError {
 }
 
 impl RenderShape {
-    fn new(
-        shape: &VmShape,
-        device: &wgpu::Device,
-    ) -> Result<Self, RenderShapeError> {
+    /// Builds a new render shape
+    pub fn new(shape: &VmShape) -> Result<Self, RenderShapeError> {
         // Generate bytecode for the root tape
         let bytecode = Bytecode::new(shape.inner().data())?;
         if bytecode.len() / 2 > TAPE_DATA_CAPACITY {
             return Err(RenderShapeError::TooLong(bytecode.len() / 2));
         }
 
-        let vars = shape.inner().vars();
-
-        // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
-        // as well, but we special-case them in evaluation.  If the tape has no
-        // variables, we'll allocate 4 bytes (because empty buffers are not
-        // allowed).
-        let vars = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vars"),
-            size: u64::try_from(std::mem::size_of::<f32>() * vars.len())
-                .unwrap()
-                .max(4),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         Ok(Self {
             shape: shape.clone(),
             bytecode,
-            vars,
-            vars_bind_group: Default::default(),
         })
     }
 
@@ -421,23 +385,6 @@ impl RenderShape {
         let vars = self.shape.inner().vars();
         [Var::X, Var::Y, Var::Z]
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
-    }
-
-    fn vars_bind_group(
-        &self,
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-    ) -> &wgpu::BindGroup {
-        self.vars_bind_group.get_or_init(|| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("vars bind group"),
-                layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.vars.as_entire_binding(),
-                }],
-            })
-        })
     }
 }
 

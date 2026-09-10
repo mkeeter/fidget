@@ -45,7 +45,7 @@ struct Config {
 @group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
 
 /// Array of values for (non-xyz) variables
-@group(1) @binding(0) var<storage, read> var_values: array<f32>;
+@group(0) @binding(2) var<storage, read> var_values: array<f32>;
 
 /// For a given position and recursion level, return the offset into `tile_tape`
 fn get_tape_offset_for_level(corner_pos: vec2u, level: u32) -> u32 {

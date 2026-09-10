@@ -1,10 +1,10 @@
 // Interval evaluation stage for pixel rasterization
 
 /// Per-state IO bindings
-@group(2) @binding(0) var<storage, read> tiles_in: TileListInput;
+@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
 
-@group(2) @binding(1) var<storage, read_write> subtiles_out: TileListOutput;
-@group(2) @binding(2) var<storage, read_write> subtile_values: array<RawDistancePixel>;
+@group(1) @binding(1) var<storage, read_write> subtiles_out: TileListOutput;
+@group(1) @binding(2) var<storage, read_write> subtile_values: array<RawDistancePixel>;
 
 /// Input tile size; one input tile maps to a 8x8 workgroup
 const TILE_SIZE: u32 = 64;
