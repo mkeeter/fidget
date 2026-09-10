@@ -131,10 +131,16 @@ pub(crate) struct MergeConfig {
     /// Whether or not to denoise when merging (non-zero is true)
     pub denoise: u32,
 
+    /// Scale to compensate for z-flattening
+    pub z_scale: f32,
+
     /// Offset applied to indices when merging
     ///
     /// When this is 0, we initialize the output image
     pub index_base: u32,
+
+    // Padding to next multiple of 8 bytes
+    _pad: u32,
 }
 
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
@@ -157,6 +163,28 @@ struct HeightmapConfig {
 
     /// Flag to indicate whether the color is valid
     has_color: u32,
+}
+
+/// Settings for image merging pass
+#[derive(Copy, Clone, Debug)]
+pub struct MergeSettings {
+    /// Denoise normals (replacing backwards-facing normals with a neighbor)
+    pub denoise: bool,
+
+    /// Non-uniform Z scaling applied to the model
+    ///
+    /// The Z normal is *divided* by this value when merging images, to cancel
+    /// out the effect of the scaling.
+    pub z_scale: f32,
+}
+
+impl Default for MergeSettings {
+    fn default() -> Self {
+        Self {
+            denoise: true,
+            z_scale: 1.0,
+        }
+    }
 }
 
 /// Must match constants in `shade.wgsl`
@@ -528,7 +556,7 @@ impl Context {
     pub fn submit_merge(
         &self,
         image: &FlexBuffer<GeomBufferTag>,
-        denoise: bool,
+        settings: MergeSettings,
         buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
         let size = image.size();
@@ -558,8 +586,10 @@ impl Context {
             compute_pass.set_pipeline(&self.merge_pipeline);
             let cfg = MergeConfig {
                 image_size: [size.width(), size.height()],
-                denoise: denoise as u32,
+                denoise: settings.denoise as u32,
                 index_base: buf.image_count as u32,
+                z_scale: settings.z_scale,
+                _pad: 0,
             };
             {
                 let mut writer = self
@@ -1394,7 +1424,7 @@ mod test {
             )
             .unwrap();
         effects_ctx
-            .submit_merge(buf.output(), true, &mut merge_buf)
+            .submit_merge(buf.output(), Default::default(), &mut merge_buf)
             .unwrap();
         let mut ssao_buf = effects_ctx.ssao_buffers();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();

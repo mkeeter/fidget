@@ -2524,7 +2524,7 @@ mod test {
             let shape = gpu.shape(&VmShape::from(shape.clone())).unwrap();
             voxel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
             effects_ctx
-                .submit_merge(buf.output(), true, &mut merge_buf)
+                .submit_merge(buf.output(), Default::default(), &mut merge_buf)
                 .unwrap();
         }
         let merged = gpu.read_vec(merge_buf.output());
