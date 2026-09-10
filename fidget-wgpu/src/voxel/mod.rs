@@ -66,8 +66,8 @@
 //!
 //! With all that out of the way, usage is pretty simple:
 //! - Build a [`Context`]
-//! - Use [`Gpu::shape`] to convert from a [`VmShape`](fidget_core::vm::VmShape)
-//!   to a [`RenderShape`]
+//! - Use [`RenderShape::new`] to convert from a
+//!   [`VmShape`](fidget_core::vm::VmShape) to a [`RenderShape`]
 //! - Use [`Context::buffers`] to get [`Buffers`] at a particular image size
 //! - Use [`Gpu::read_buffer_for(buffers.output())`](Gpu::read_buffer_for) to
 //!   get an output buffer
@@ -461,7 +461,7 @@ impl RootContext {
         // Create bind group layout and bind group
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("common"),
+                label: Some("root"),
                 entries: &[
                     buffer_rw(0), // tiles_out
                     buffer_rw(1), // tile64_zmax

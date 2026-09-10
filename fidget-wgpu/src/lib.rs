@@ -401,8 +401,20 @@ impl RenderShape {
         let vs = self.shape.inner().vars();
         let mut changed = false;
         if vs.has_free_vars() {
-            // If we have to change the vars buffer size, then clear the cached
-            // bind group.  TODO: only do this if we grow the buffer, since
+            // Do an initial pass to check for errors before resizing the buffer
+            for (v, _i) in vs.iter() {
+                match v {
+                    Var::X | Var::Y | Var::Z => (),
+                    Var::V(vi) => {
+                        if vars.get(vi).is_none() {
+                            return Err(MissingVar { var: vi }.into());
+                        };
+                    }
+                }
+            }
+            // If we have to change the vars buffer size, then we'll return
+            // `true` indicating that things have changed and bind groups should
+            // be invalidated.  TODO: only do this if we grow the buffer, since
             // binding an overly-large buffer is fine?
             let r = buf.grow_to_fit(&gpu.device, vs.len())?;
             if !matches!(r, std::cmp::Ordering::Equal) {
@@ -422,9 +434,7 @@ impl RenderShape {
                 match v {
                     Var::X | Var::Y | Var::Z => (),
                     Var::V(vi) => {
-                        let Some(value) = vars.get(vi) else {
-                            return Err(MissingVar { var: vi }.into());
-                        };
+                        let value = vars.get(vi).unwrap(); // checked above
                         let offset = i * std::mem::size_of::<f32>();
                         writer
                             .slice(offset..offset + 4)

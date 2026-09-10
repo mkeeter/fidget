@@ -1,5 +1,5 @@
 # 0.5.1 (unpublished)
-The most significant change in this verison is unlocking all-GPU rendering: we
+The most significant change in this version is unlocking all-GPU rendering: we
 can start with a shape on the CPU, then perform a full rendering pipeline
 (including shading and post-processing) entirely on the GPU.  The APIs were
 codesigned along with [Halfspace](https://github.com/mkeeter/halfspace),
