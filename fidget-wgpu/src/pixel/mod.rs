@@ -3,7 +3,7 @@
 //! See the [`voxel`](crate::voxel) module for details docs; this module is
 //! analogous (down to the naming of types).
 use crate::{
-    Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
+    CopyVarsError, Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_rw,
@@ -12,10 +12,8 @@ use crate::{
     voxel::VarsBufferTag,
 };
 use fidget_core::{
-    eval::Function,
     render::ImageSize,
     shape::{MissingVar, ShapeVars},
-    var::Var,
 };
 use fidget_raster::pixel::{Image, RawDistancePixel};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -665,6 +663,18 @@ pub enum SubmitError {
     Buffers(#[from] BuffersError),
 }
 
+impl From<CopyVarsError> for SubmitError {
+    fn from(value: CopyVarsError) -> Self {
+        match value {
+            CopyVarsError::MissingVar(v) => Self::MissingVar(v),
+            CopyVarsError::BufferSize(err) => Self::Buffers(BuffersError {
+                buf: BufferName::Vars,
+                err,
+            }),
+        }
+    }
+}
+
 /// Cached bind groups (constructed on-demand)
 #[derive(Default)]
 struct BindGroups {
@@ -1137,49 +1147,10 @@ impl Context {
                 .copy_from_slice(shape.bytecode.as_bytes());
         }
 
-        // Copy vars (if present)
-        let vs = shape.shape.inner().vars();
-        if vs.has_free_vars() {
-            // If we have to change the vars buffer size, then clear the cached
-            // bind group.  TODO: only do this if we grow the buffer, since
-            // binding an overly-large buffer is fine?
-            let r = buffers
-                .vars_buf
-                .grow_to_fit(&self.gpu.device, vs.len())
-                .map_err(|err| {
-                    SubmitError::Buffers(BuffersError {
-                        buf: BufferName::Vars,
-                        err,
-                    })
-                })?;
-            if !matches!(r, std::cmp::Ordering::Equal) {
-                buffers.bind_groups.common = Default::default();
-            }
-            let mut writer = self
-                .gpu
-                .queue
-                .write_buffer_with(
-                    buffers.vars_buf.data(),
-                    0,
-                    ((vars.len() * std::mem::size_of::<f32>()) as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            for (v, i) in shape.shape.inner().vars().iter() {
-                match v {
-                    Var::X | Var::Y | Var::Z => (),
-                    Var::V(vi) => {
-                        let Some(value) = vars.get(vi) else {
-                            return Err(MissingVar { var: vi }.into());
-                        };
-                        let offset = i * std::mem::size_of::<f32>();
-                        writer
-                            .slice(offset..offset + 4)
-                            .copy_from_slice(value.as_bytes());
-                    }
-                }
-            }
+        // Copy vars (if present), then reset relevant bind groups if the buffer
+        // size has changed.
+        if shape.copy_vars(&self.gpu, vars, &mut buffers.vars_buf)? {
+            buffers.bind_groups.common = Default::default();
         }
 
         // Create a command encoder and dispatch the compute work

@@ -386,6 +386,63 @@ impl RenderShape {
         [Var::X, Var::Y, Var::Z]
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
     }
+
+    /// Copies variables into a variables buffer
+    ///
+    /// Returns `true` if the buffer size changed, which could invalidate cached
+    /// bind groups.
+    fn copy_vars(
+        &self,
+        gpu: &Gpu,
+        vars: &ShapeVars<f32>,
+        buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
+    ) -> Result<bool, CopyVarsError> {
+        // Copy vars (if present)
+        let vs = self.shape.inner().vars();
+        let mut changed = false;
+        if vs.has_free_vars() {
+            // If we have to change the vars buffer size, then clear the cached
+            // bind group.  TODO: only do this if we grow the buffer, since
+            // binding an overly-large buffer is fine?
+            let r = buf.grow_to_fit(&gpu.device, vs.len())?;
+            if !matches!(r, std::cmp::Ordering::Equal) {
+                changed = true;
+            }
+            let mut writer = gpu
+                .queue
+                .write_buffer_with(
+                    buf.data(),
+                    0,
+                    ((vars.len() * std::mem::size_of::<f32>()) as u64)
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap();
+            for (v, i) in vs.iter() {
+                match v {
+                    Var::X | Var::Y | Var::Z => (),
+                    Var::V(vi) => {
+                        let Some(value) = vars.get(vi) else {
+                            return Err(MissingVar { var: vi }.into());
+                        };
+                        let offset = i * std::mem::size_of::<f32>();
+                        writer
+                            .slice(offset..offset + 4)
+                            .copy_from_slice(value.as_bytes());
+                    }
+                }
+            }
+        }
+        Ok(changed)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum CopyVarsError {
+    #[error(transparent)]
+    BufferSize(#[from] buf::BufferSizeError),
+    #[error(transparent)]
+    MissingVar(#[from] MissingVar),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
