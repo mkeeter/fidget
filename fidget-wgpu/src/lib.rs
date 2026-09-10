@@ -182,14 +182,6 @@ impl Gpu {
         data.to_vec()
     }
 
-    /// Builds a new [`RenderShape`] object for the given shape
-    pub fn shape(
-        &self,
-        shape: &VmShape,
-    ) -> Result<RenderShape, RenderShapeError> {
-        RenderShape::new(shape, &self.device)
-    }
-
     /// Build a set of buffers for doing shape color evaluation
     pub fn color_buffers(
         &self,
@@ -339,25 +331,16 @@ impl RegPipeline {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Shape for rendering
+/// Shape for rendering on the GPU
 ///
-/// This object is constructed by [`Gpu::shape`] and may only be used with
-/// that particular [`Gpu`].
+/// Note that this object does not allocate any memory on the GPU itself; it
+/// stores a bytecode-serialized version of the shape, which is copied to the
+/// GPU during rendering.
 pub struct RenderShape {
     /// Copy of our shape (kept around for access to the variable map)
     shape: VmShape,
     /// Serialized bytecode for the shape
     bytecode: Bytecode,
-    /// GPU buffer to contain variables
-    ///
-    /// This doesn't live in a `Buffers` object because it's dynamically sized
-    /// based on the shape; everything in `Buffers` is based on image size.
-    vars: wgpu::Buffer,
-    /// Lazily-constructed bind group for the vars array
-    ///
-    /// This is not cached in a buffer-specific `BindGroups` object because it
-    /// is shape-specific.
-    vars_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
 }
 
 /// Error type when constructing a [`RenderShape`]
@@ -383,36 +366,17 @@ pub enum ShapeColorError {
 }
 
 impl RenderShape {
-    fn new(
-        shape: &VmShape,
-        device: &wgpu::Device,
-    ) -> Result<Self, RenderShapeError> {
+    /// Builds a new render shape
+    pub fn new(shape: &VmShape) -> Result<Self, RenderShapeError> {
         // Generate bytecode for the root tape
         let bytecode = Bytecode::new(shape.inner().data())?;
         if bytecode.len() / 2 > TAPE_DATA_CAPACITY {
             return Err(RenderShapeError::TooLong(bytecode.len() / 2));
         }
 
-        let vars = shape.inner().vars();
-
-        // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
-        // as well, but we special-case them in evaluation.  If the tape has no
-        // variables, we'll allocate 4 bytes (because empty buffers are not
-        // allowed).
-        let vars = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vars"),
-            size: u64::try_from(std::mem::size_of::<f32>() * vars.len())
-                .unwrap()
-                .max(4),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         Ok(Self {
             shape: shape.clone(),
             bytecode,
-            vars,
-            vars_bind_group: Default::default(),
         })
     }
 
@@ -423,22 +387,79 @@ impl RenderShape {
             .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
     }
 
-    fn vars_bind_group(
+    /// Copies variables into a variables buffer
+    ///
+    /// Returns `true` if the buffer size changed, which could invalidate cached
+    /// bind groups.
+    fn copy_vars(
         &self,
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-    ) -> &wgpu::BindGroup {
-        self.vars_bind_group.get_or_init(|| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("vars bind group"),
-                layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.vars.as_entire_binding(),
-                }],
-            })
-        })
+        gpu: &Gpu,
+        vars: &ShapeVars<f32>,
+        buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
+    ) -> Result<CopyVarsChanged, CopyVarsError> {
+        // Copy vars (if present)
+        let vs = self.shape.inner().vars();
+        let mut changed = CopyVarsChanged::BufferUnchanged;
+        if vs.has_free_vars() {
+            // Do an initial pass to check for errors before resizing the buffer
+            for (v, _i) in vs.iter() {
+                match v {
+                    Var::X | Var::Y | Var::Z => (),
+                    Var::V(vi) => {
+                        if vars.get(vi).is_none() {
+                            return Err(MissingVar { var: vi }.into());
+                        };
+                    }
+                }
+            }
+            // If we have to change the vars buffer size, then we'll return
+            // `true` indicating that things have changed and bind groups should
+            // be invalidated.  TODO: only do this if we grow the buffer, since
+            // binding an overly-large buffer is fine?
+            let r = buf.grow_to_fit(&gpu.device, vs.len())?;
+            if !matches!(r, std::cmp::Ordering::Equal) {
+                changed = CopyVarsChanged::BufferChanged;
+            }
+            let mut writer = gpu
+                .queue
+                .write_buffer_with(
+                    buf.data(),
+                    0,
+                    ((vars.len() * std::mem::size_of::<f32>()) as u64)
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap();
+            for (v, i) in vs.iter() {
+                match v {
+                    Var::X | Var::Y | Var::Z => (),
+                    Var::V(vi) => {
+                        let value = vars.get(vi).unwrap(); // checked above
+                        let offset = i * std::mem::size_of::<f32>();
+                        writer
+                            .slice(offset..offset + 4)
+                            .copy_from_slice(value.as_bytes());
+                    }
+                }
+            }
+        }
+        Ok(changed)
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum CopyVarsError {
+    #[error(transparent)]
+    BufferSize(#[from] buf::BufferSizeError),
+    #[error(transparent)]
+    MissingVar(#[from] MissingVar),
+}
+
+#[must_use]
+#[derive(Copy, Clone, Debug)]
+enum CopyVarsChanged {
+    BufferChanged,
+    BufferUnchanged,
 }
 
 ////////////////////////////////////////////////////////////////////////////////

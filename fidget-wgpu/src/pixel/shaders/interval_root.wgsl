@@ -1,7 +1,6 @@
 // Interval root tile evaluation
-
-@group(2) @binding(0) var<storage, read_write> tiles_out: TileListOutput;
-@group(2) @binding(1) var<storage, read_write> tile_values: array<RawDistancePixel>;
+@group(1) @binding(0) var<storage, read_write> tiles_out: TileListOutput;
+@group(1) @binding(1) var<storage, read_write> tile_values: array<RawDistancePixel>;
 
 /// Root tile size
 const TILE_SIZE: u32 = 64;

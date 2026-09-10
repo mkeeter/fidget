@@ -157,12 +157,16 @@ impl<T: BufferTag> FlexBuffer<T> {
     /// but we always update the internal `item_count` (e.g. so that
     /// [`bind_active`](Self::bind_active) returns the correct subset of the
     /// buffer).
+    ///
+    /// Returns a comparison between the previous item count and the new item
+    /// count (set by `size`).
     pub(crate) fn grow_to_fit(
         &mut self,
         device: &wgpu::Device,
         size: T::S,
-    ) -> Result<(), BufferSizeError> {
+    ) -> Result<std::cmp::Ordering, BufferSizeError> {
         Self::check_size(size)?;
+        let r = self.size.item_count().cmp(&size.item_count());
         let new_size = Self::calculate_buffer_size(size);
         if new_size > self.capacity() {
             let usage = self.data.usage();
@@ -174,7 +178,7 @@ impl<T: BufferTag> FlexBuffer<T> {
             });
         }
         self.size = size;
-        Ok(())
+        Ok(r)
     }
 
     /// Returns a binding resource for the active slice of the buffer

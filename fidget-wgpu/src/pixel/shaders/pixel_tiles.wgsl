@@ -1,8 +1,8 @@
 // VM interpreter for floating-point values, using voxel tiles
-@group(2) @binding(0) var<storage, read> tiles_in: TileListInput;
+@group(1) @binding(0) var<storage, read> tiles_in: TileListInput;
 
 /// Output array, as an image size (*not* rounded up)
-@group(2) @binding(1) var<storage, read_write> result: array<RawDistancePixel>;
+@group(1) @binding(1) var<storage, read_write> result: array<RawDistancePixel>;
 
 @compute @workgroup_size(8, 8)
 fn pixel_tiles_main(

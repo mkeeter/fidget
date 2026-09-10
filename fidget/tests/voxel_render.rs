@@ -117,8 +117,10 @@ mod wgpu {
             for r in [0.5, 0.75] {
                 let sphere = (x.square() + y.square() + z.square()).sqrt()
                     - Tree::constant(r);
-                let shape =
-                    gpu.shape(&fidget::vm::VmShape::from(sphere)).unwrap();
+                let shape = fidget_wgpu::RenderShape::new(
+                    &fidget::vm::VmShape::from(sphere),
+                )
+                .unwrap();
                 let image = ctx
                     .run(
                         &shape,
@@ -157,7 +159,7 @@ mod wgpu {
         let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
         let shape = fidget::vm::VmShape::from(sphere);
         let ctx = fidget_wgpu::voxel::Context::new(&gpu);
-        let render_shape = gpu.shape(&shape).unwrap();
+        let render_shape = fidget::wgpu::RenderShape::new(&shape).unwrap();
 
         let size = 32;
         let image_size = RenderSize::from(size);

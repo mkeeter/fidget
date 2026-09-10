@@ -1,7 +1,7 @@
 /// Merge all tile stages into a pixel array
-@group(2) @binding(0) var<storage, read> tile64_values: array<RawDistancePixel>;
-@group(2) @binding(1) var<storage, read> tile8_values: array<RawDistancePixel>;
-@group(2) @binding(2) var<storage, read_write> pixels: array<RawDistancePixel>;
+@group(1) @binding(0) var<storage, read> tile64_values: array<RawDistancePixel>;
+@group(1) @binding(1) var<storage, read> tile8_values: array<RawDistancePixel>;
+@group(1) @binding(2) var<storage, read_write> pixels: array<RawDistancePixel>;
 
 // Dispatched as an 2D workgroup across render_size pixels
 @compute @workgroup_size(8, 8)
