@@ -2,9 +2,10 @@
 //!
 //! This module is mostly internal to the crate, but is public because its types
 //! appear as return values and arguments.
+use crate::Gpu;
 use fidget_core::render::{ImageSize, VoxelSize};
 use fidget_raster::RenderSize;
-use zerocopy::FromBytes;
+use zerocopy::{FromBytes, IntoBytes};
 
 /// Handle around a growable GPU buffer
 ///
@@ -148,21 +149,42 @@ pub(crate) type FlexConfigBuffer<C, T> = FlexBuffer<FlexConfigTag<C, T>>;
 
 impl<C, T> FlexConfigBuffer<C, T>
 where
-    C: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
-    T: Copy,
+    C: zerocopy::IntoBytes + zerocopy::Immutable,
+    T: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
 {
-    /// Writes a config value to the buffer
-    pub(crate) fn write_config(&self, c: &C, queue: &wgpu::Queue) {
+    pub(crate) fn write(
+        &mut self,
+        gpu: &Gpu,
+        c: &C,
+        data: &[T],
+    ) -> Result<ConfigBufferWrite, BufferSizeError> {
+        let r = self.grow_to_fit(&gpu.device, data.len().into())?;
         let config_len = std::mem::size_of::<C>();
-        let mut writer = queue
+        let data_len = std::mem::size_of_val(data);
+        let mut writer = gpu
+            .queue
             .write_buffer_with(
-                self.data(),
+                &self.data,
                 0,
-                (config_len as u64).try_into().unwrap(),
+                ((config_len + data_len) as u64).try_into().unwrap(),
             )
             .unwrap();
-        writer.copy_from_slice(c.as_bytes());
+        writer.slice(..config_len).copy_from_slice(c.as_bytes());
+        writer.slice(config_len..).copy_from_slice(data.as_bytes());
+        Ok(match r {
+            std::cmp::Ordering::Equal => ConfigBufferWrite::BufferUnchanged,
+            std::cmp::Ordering::Less | std::cmp::Ordering::Greater => {
+                ConfigBufferWrite::BufferChanged
+            }
+        })
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[must_use]
+pub(crate) enum ConfigBufferWrite {
+    BufferChanged,
+    BufferUnchanged,
 }
 
 impl<T: BufferTag> FlexBuffer<T> {

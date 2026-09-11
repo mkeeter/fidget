@@ -8,7 +8,7 @@
 //! [`voxel::effects::ColorWorkspace`](crate::voxel::effects::ColorWorkspace)
 use crate::{
     CopyVarsChanged, CopyVarsError, Gpu,
-    buf::{BufferSizeError, FlexBuffer, FlexConfigBuffer},
+    buf::{BufferSizeError, ConfigBufferWrite, FlexBuffer, FlexConfigBuffer},
     tag,
     voxel::VarsBufferTag,
 };
@@ -101,31 +101,18 @@ where
         Ok(())
     }
 
-    pub(crate) fn copy_tape(
+    pub(crate) fn copy_config_and_tape(
         &mut self,
         gpu: &Gpu,
+        config: &C,
         bytecode: &[u32],
     ) -> Result<(), BufferSizeError> {
-        let r = self
-            .config
-            .grow_to_fit(&gpu.device, bytecode.len().into())?;
-        if !matches!(r, std::cmp::Ordering::Equal) {
-            self.bind_group = Default::default();
+        match self.config.write(gpu, config, bytecode)? {
+            ConfigBufferWrite::BufferChanged => {
+                self.bind_group = Default::default()
+            }
+            ConfigBufferWrite::BufferUnchanged => (),
         }
-        let Ok(byte_count) =
-            (std::mem::size_of_val(bytecode) as u64).try_into()
-        else {
-            return Ok(());
-        };
-        let mut writer = gpu
-            .queue
-            .write_buffer_with(
-                self.config.data(),
-                std::mem::size_of::<C>() as u64,
-                byte_count,
-            )
-            .unwrap();
-        writer.copy_from_slice(bytecode.as_bytes());
         Ok(())
     }
 
@@ -151,10 +138,6 @@ where
             .unwrap();
         writer.copy_from_slice(shape_starts.as_bytes());
         Ok(())
-    }
-
-    pub(crate) fn copy_config(&mut self, gpu: &Gpu, config: &C) {
-        self.config.write_config(config, &gpu.queue)
     }
 }
 
