@@ -155,7 +155,7 @@ impl Gpu {
         let Ok(size) = 64u32.try_into() else {
             panic!("could not build size");
         };
-        buf::ReadBuffer::new(&self.device, name.to_owned(), size)
+        buf::ReadBuffer::new(&self.device, name, size)
             .expect("64 should always be a valid size for ReadBuffer::new")
     }
 

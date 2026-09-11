@@ -330,16 +330,13 @@ impl Context {
         });
         let distance = FlexBuffer::new(
             &self.gpu.device,
-            "pixel merge distance".to_owned(),
+            "pixel merge distance",
             64.into(),
         )
         .unwrap();
-        let color = FlexBuffer::new(
-            &self.gpu.device,
-            "pixel merge color".to_owned(),
-            64.into(),
-        )
-        .unwrap();
+        let color =
+            FlexBuffer::new(&self.gpu.device, "pixel merge color", 64.into())
+                .unwrap();
         MergeBuffers {
             config,
             distance,

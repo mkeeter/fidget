@@ -1724,19 +1724,18 @@ impl Buffers {
         let render_size = TileRenderSize::from(image_size);
         let voxels = FlexBuffer::new(
             device,
-            "voxels".to_string(),
+            "voxels",
             Self::voxels_buf_size(render_size),
         )
         .unwrap();
         let tile_tapes = FlexBuffer::new(
             device,
-            "tile tape".to_string(),
+            "tile tape",
             Self::tile_tapes_buf_size(render_size),
         )
         .unwrap();
 
-        let geom =
-            FlexBuffer::new(device, "geom".to_string(), image_size).unwrap();
+        let geom = FlexBuffer::new(device, "geom", image_size).unwrap();
 
         let tile64 = RootTileBuffers::new(device, render_size).unwrap();
         let tile16 = TileBuffers::new(device, render_size).unwrap();
@@ -1754,7 +1753,7 @@ impl Buffers {
             mapped_at_creation: false,
         });
 
-        let vars_buf = FlexBuffer::new(device, "vars".to_string(), 4).unwrap();
+        let vars_buf = FlexBuffer::new(device, "vars", 4).unwrap();
 
         Self {
             config_buf,

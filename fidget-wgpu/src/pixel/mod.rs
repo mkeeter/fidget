@@ -463,17 +463,16 @@ impl Buffers {
         let render_size = TileRenderSize::from(image_size);
         let tile_tapes = FlexBuffer::new(
             device,
-            "tile tape".to_string(),
+            "tile tape",
             Self::tile_tapes_buf_size(render_size),
         )
         .unwrap();
 
-        let pixels =
-            FlexBuffer::new(device, "pixels".to_string(), image_size).unwrap();
+        let pixels = FlexBuffer::new(device, "pixels", image_size).unwrap();
 
         let tile64 = TileBuffers::new(device, render_size).unwrap();
         let tile8 = TileBuffers::new(device, render_size).unwrap();
-        let vars_buf = FlexBuffer::new(device, "vars".to_string(), 4).unwrap();
+        let vars_buf = FlexBuffer::new(device, "vars", 4).unwrap();
 
         Self {
             config_buf,

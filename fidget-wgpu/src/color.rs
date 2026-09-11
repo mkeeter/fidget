@@ -47,13 +47,10 @@ where
     C: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
 {
     pub(crate) fn new(device: &wgpu::Device) -> Self {
-        let config =
-            FlexBuffer::new(device, "color config".to_owned(), 4.into())
-                .unwrap();
+        let config = FlexBuffer::new(device, "color config", 4.into()).unwrap();
         let shape_start =
-            FlexBuffer::new(device, "shape start".to_owned(), 4usize).unwrap();
-        let vars_buf =
-            FlexBuffer::new(device, "color vars".to_owned(), 4usize).unwrap();
+            FlexBuffer::new(device, "shape start", 4usize).unwrap();
+        let vars_buf = FlexBuffer::new(device, "color vars", 4usize).unwrap();
         Self {
             config,
             shape_start,
