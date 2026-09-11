@@ -1306,20 +1306,16 @@ impl ColorContext {
                 CopyVarsError::BufferSize(b) => ColorError::VarBufferSize(b),
                 CopyVarsError::MissingVar(v) => ColorError::MissingVar(v),
             })?;
-        bufs.copy_tape(gpu, shape.bytecode())
-            .map_err(ColorError::ConfigBufferSize)?;
-        bufs.copy_shape_starts(gpu, shape.shape_start())
-            .expect("shape starts should always fit if shape bytecode fits");
-
-        // We'll write the config last, because writing the tape could have
-        // invalidated it.
         let config = ColorConfig {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes(),
             image_size: [size.width(), size.height()],
             _pad: 0,
         };
-        bufs.copy_config(gpu, &config);
+        bufs.copy_config_and_tape(gpu, &config, shape.bytecode())
+            .map_err(ColorError::ConfigBufferSize)?;
+        bufs.copy_shape_starts(gpu, shape.shape_start())
+            .expect("shape starts should always fit if shape bytecode fits");
 
         let config_bg =
             bufs.config_bind_group(&gpu.device, &self.config_bind_group_layout);
