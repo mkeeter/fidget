@@ -2401,7 +2401,7 @@ impl ResetContext {
 #[cfg(test)]
 mod test {
     use super::{effects::PackedVoxel, *};
-    use crate::ShapeColor;
+    use crate::color::{ShapeColor, ShapeColorBuffers};
     use fidget_core::{context::Tree, vm::VmShape};
     use std::collections::HashSet;
 
@@ -2509,7 +2509,8 @@ mod test {
                 },
             })
             .collect::<Vec<_>>();
-        let shape_colors = gpu.color_buffers(&shape_colors).unwrap();
+        let shape_colors = ShapeColorBuffers::new(&shape_colors).unwrap();
+        let mut color_workspace = effects_ctx.color_workspace();
 
         // Compute SSAO buffer
         let mut ssao_buf = effects_ctx.ssao_buffers();
@@ -2521,6 +2522,7 @@ mod test {
                 &merge_buf,
                 &render_config.world_to_model,
                 &shape_colors,
+                &mut color_workspace,
                 &mut shade_buf,
             )
             .unwrap();
@@ -2546,6 +2548,7 @@ mod test {
                 &merge_buf,
                 &render_config.world_to_model,
                 &shape_colors,
+                &mut color_workspace,
                 &mut shade_buf,
             )
             .unwrap();

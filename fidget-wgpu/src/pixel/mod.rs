@@ -1311,7 +1311,7 @@ impl ResetContext {
 mod test {
     use super::effects::ColorSettings;
     use super::*;
-    use crate::ShapeColor;
+    use crate::color::{ShapeColor, ShapeColorBuffers};
 
     use fidget_core::{context::Tree, vm::VmShape};
 
@@ -1343,6 +1343,7 @@ mod test {
     fn render(
         shapes: &[(Tree, ShapeColor<Tree>)],
         render_config: RenderConfig,
+        vars: &fidget_core::shape::ShapeVars<f32>,
     ) -> RenderOutput {
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let pixel_ctx = Context::new(&gpu);
@@ -1355,7 +1356,9 @@ mod test {
         for (shape, _) in shapes {
             let shape =
                 RenderShape::new(&VmShape::from(shape.clone())).unwrap();
-            pixel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
+            pixel_ctx
+                .submit_with_vars(&shape, vars, &mut buf, &render_config)
+                .unwrap();
             effects_ctx
                 .submit_merge(buf.output(), true, &mut merge_buf)
                 .unwrap();
@@ -1375,11 +1378,12 @@ mod test {
                 },
             })
             .collect::<Vec<_>>();
-        let shape_colors = gpu.color_buffers(&shape_colors).unwrap();
+        let shape_colors = ShapeColorBuffers::new(&shape_colors).unwrap();
+        let mut color_workspace = effects_ctx.color_workspace();
 
         // Compute per-pixel colors
         effects_ctx
-            .submit_color(
+            .submit_color_with_vars(
                 &mut merge_buf,
                 ColorSettings {
                     z: 0.0,
@@ -1387,6 +1391,8 @@ mod test {
                     world_to_model: render_config.world_to_model,
                 },
                 &shape_colors,
+                &mut color_workspace,
+                vars,
             )
             .unwrap();
 
@@ -1436,6 +1442,7 @@ mod test {
                     pixel_perfect: false,
                     z: 0.0,
                 },
+                &Default::default(),
             );
             assert_eq!(out.color.size(), image_size);
             assert_eq!(out.distance.size(), image_size);
@@ -1529,6 +1536,7 @@ mod test {
                 pixel_perfect: false,
                 z: 0.0,
             },
+            &Default::default(),
         );
         assert_eq!(out.color.size(), image_size);
         assert_eq!(out.distance.size(), image_size);
@@ -1622,6 +1630,149 @@ mod test {
     }
 
     #[test]
+    fn pixel_vars() {
+        // We only run in CI if we're on MacOS (because other runners don't have
+        // GPUs and will fail to build the context).
+        #[cfg(not(target_os = "macos"))]
+        if std::env::var("CI").is_ok() {
+            return;
+        }
+
+        let va = fidget_core::var::Var::new();
+        let vb = fidget_core::var::Var::new();
+        let vc = fidget_core::var::Var::new();
+        let vd = fidget_core::var::Var::new();
+        let circle_a = ((Tree::x() - 0.5).square() + Tree::y().square()).sqrt()
+            - Tree::from(va);
+        let circle_b = ((Tree::x() + va).square() + Tree::y().square()).sqrt()
+            - Tree::from(vb);
+
+        // Test a variety of image sizes for correctness
+        let image_size = RenderSize::new(64, 64);
+        let mut vars = fidget_core::shape::ShapeVars::new();
+        vars.insert(va.index().unwrap(), 0.25);
+        vars.insert(vb.index().unwrap(), 0.55);
+        vars.insert(vc.index().unwrap(), 0.75);
+        vars.insert(vd.index().unwrap(), 0.5);
+        let out = render(
+            &[
+                (
+                    circle_a,
+                    ShapeColor::Rgb {
+                        r: Tree::constant(0.0),
+                        g: Tree::constant(0.0),
+                        b: Tree::from(vc),
+                    },
+                ),
+                (
+                    circle_b,
+                    ShapeColor::Rgb {
+                        r: Tree::constant(0.0),
+                        g: Tree::from(vd),
+                        b: Tree::constant(0.0),
+                    },
+                ),
+            ],
+            RenderConfig {
+                image_size,
+                world_to_model: nalgebra::Matrix3::identity(),
+                pixel_perfect: false,
+                z: 0.0,
+            },
+            &vars,
+        );
+        assert_eq!(out.color.size(), image_size);
+        assert_eq!(out.distance.size(), image_size);
+
+        let mut pixels = String::new();
+        for j in 0..image_size.height() {
+            for i in 0..image_size.width() {
+                let p = out.color[(j as usize, i as usize)];
+                let c = match p.to_ne_bytes() {
+                    [0, 0, 191, 0] => "b",
+                    [0, 0, 191, 255] => "B",
+                    [0, 127, 0, 0] => "g",
+                    [0, 127, 0, 255] => "G",
+                    _ => panic!("invalid color {:?}", p.to_ne_bytes()),
+                };
+                pixels += c;
+            }
+            pixels += "\n";
+        }
+
+        assert_eq!(
+            pixels,
+            "\
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            ggggggggggggggggggggGGGGGGGGGggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggGGGGGGGGGGGGGGGgggggggggggggbbbbbbbbbbbbggggggg
+            gggggggggggggggGGGGGGGGGGGGGGGGGGGgggggggggggbbbbbbbbbbbbggggggg
+            ggggggggggggggGGGGGGGGGGGGGGGGGGGGGgggggggggbbbbbbbbbbbbbggggggg
+            gggggggggggggGGGGGGGGGGGGGGGGGGGGGGGggggggggbbbbbbbbbbbbbggggggg
+            ggggggggggggGGGGGGGGGGGGGGGGGGGGGGGGGgggggggbbbbbbbbbbbbbggggggg
+            gggggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGgggggbbbbbbbbbbbbbbggggggg
+            ggggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGggggbbbbbbbbbbbbbbggggggg
+            gggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGgggbbbbbbbbbbbbbbggggggg
+            gggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGggbbbbbbbbbbbbbbbbbbbbbb
+            ggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGgbbbBBBBBBBbbbbbbbbbbbb
+            ggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGgbBBBBBBBBBBBbbbbbbbbbb
+            ggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGgBBBBBBBBBBBBBbbbbbbbbb
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBbbbbbbbbb
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBBbbbbbbbb
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBBbbbbbbbb
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBBbbbbbbbb
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBBbbbbbbbb
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBBbbbbbbbb
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBBgggggggg
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBBbggggggg
+            gggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGBBBBBBBBBBBBBbbggggggg
+            ggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGgBBBBBBBBBBBBBbbggggggg
+            ggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGgbBBBBBBBBBBBbbbggggggg
+            ggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGgbbbBBBBBBBbbbbbggggggg
+            gggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGggbbbbbbbbbbbbbbbggggggg
+            gggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGggbbbbbbbbbbbbbbbggggggg
+            ggggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGGGggggggggggggggggggggggggg
+            gggggggggggGGGGGGGGGGGGGGGGGGGGGGGGGGGgggggggggggggggggggggggggg
+            ggggggggggggGGGGGGGGGGGGGGGGGGGGGGGGGggggggggggggggggggggggggggg
+            gggggggggggggGGGGGGGGGGGGGGGGGGGGGGGgggggggggggggggggggggggggggg
+            ggggggggggggggGGGGGGGGGGGGGGGGGGGGGggggggggggggggggggggggggggggg
+            gggggggggggggggGGGGGGGGGGGGGGGGGGGgggggggggggggggggggggggggggggg
+            gggggggggggggggggGGGGGGGGGGGGGGGgggggggggggggggggggggggggggggggg
+            ggggggggggggggggggggGGGGGGGGGggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+            "
+            .replace(" ", "")
+        );
+    }
+
+    #[test]
     fn pixel_hsl() {
         // We only run in CI if we're on MacOS (because other runners don't have
         // GPUs and will fail to build the context).
@@ -1662,6 +1813,7 @@ mod test {
                 pixel_perfect: false,
                 z: 0.0,
             },
+            &Default::default(),
         );
         assert_eq!(out.color.size(), image_size);
         assert_eq!(out.distance.size(), image_size);

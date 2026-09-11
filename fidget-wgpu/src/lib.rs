@@ -11,10 +11,11 @@ use fidget_core::{
 use fidget_raster::RenderSize;
 
 use heck::ToShoutySnakeCase;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub mod buf;
+pub mod color;
 pub mod pixel;
 pub mod voxel;
 
@@ -180,14 +181,6 @@ impl Gpu {
         self.copy(buf, &mut scratch);
         let data = self.map(&mut scratch);
         data.to_vec()
-    }
-
-    /// Build a set of buffers for doing shape color evaluation
-    pub fn color_buffers(
-        &self,
-        colors: &[ShapeColor<VmShape>],
-    ) -> Result<ShapeColorBuffers, ShapeColorError> {
-        ShapeColorBuffers::new(colors, &self.device)
     }
 
     /// Copies from a GPU-resident buffer to a host-mappable buffer
@@ -357,14 +350,6 @@ pub enum RenderShapeError {
     RegisterError(#[from] ReservedRegister),
 }
 
-/// Error type when constructing a [`ShapeColorBuffers`]
-#[derive(Debug, thiserror::Error)]
-pub enum ShapeColorError {
-    /// The shape uses a reserved register
-    #[error(transparent)]
-    RegisterError(#[from] ReservedRegister),
-}
-
 impl RenderShape {
     /// Builds a new render shape
     pub fn new(shape: &VmShape) -> Result<Self, RenderShapeError> {
@@ -397,54 +382,61 @@ impl RenderShape {
         vars: &ShapeVars<f32>,
         buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
     ) -> Result<CopyVarsChanged, CopyVarsError> {
-        // Copy vars (if present)
-        let vs = self.shape.inner().vars();
-        let mut changed = CopyVarsChanged::BufferUnchanged;
-        if vs.has_free_vars() {
-            // Do an initial pass to check for errors before resizing the buffer
-            for (v, _i) in vs.iter() {
-                match v {
-                    Var::X | Var::Y | Var::Z => (),
-                    Var::V(vi) => {
-                        if vars.get(vi).is_none() {
-                            return Err(MissingVar { var: vi }.into());
-                        };
-                    }
-                }
-            }
-            // If we have to change the vars buffer size, then we'll return
-            // `true` indicating that things have changed and bind groups should
-            // be invalidated.  TODO: only do this if we grow the buffer, since
-            // binding an overly-large buffer is fine?
-            let r = buf.grow_to_fit(&gpu.device, vs.len())?;
-            if !matches!(r, std::cmp::Ordering::Equal) {
-                changed = CopyVarsChanged::BufferChanged;
-            }
-            let mut writer = gpu
-                .queue
-                .write_buffer_with(
-                    buf.data(),
-                    0,
-                    ((vars.len() * std::mem::size_of::<f32>()) as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            for (v, i) in vs.iter() {
-                match v {
-                    Var::X | Var::Y | Var::Z => (),
-                    Var::V(vi) => {
-                        let value = vars.get(vi).unwrap(); // checked above
-                        let offset = i * std::mem::size_of::<f32>();
-                        writer
-                            .slice(offset..offset + 4)
-                            .copy_from_slice(value.as_bytes());
-                    }
+        copy_vars(gpu, self.shape.inner().vars(), vars, buf)
+    }
+}
+
+pub(crate) fn copy_vars(
+    gpu: &Gpu,
+    vs: &VarMap,
+    vars: &ShapeVars<f32>,
+    buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
+) -> Result<CopyVarsChanged, CopyVarsError> {
+    let mut changed = CopyVarsChanged::BufferUnchanged;
+    if vs.has_free_vars() {
+        // Do an initial pass to check for errors before resizing the buffer
+        for (v, _i) in vs.iter() {
+            match v {
+                Var::X | Var::Y | Var::Z => (),
+                Var::V(vi) => {
+                    if vars.get(vi).is_none() {
+                        return Err(MissingVar { var: vi }.into());
+                    };
                 }
             }
         }
-        Ok(changed)
+        // If we have to change the vars buffer size, then we'll return
+        // `true` indicating that things have changed and bind groups should
+        // be invalidated.  TODO: only do this if we grow the buffer, since
+        // binding an overly-large buffer is fine?
+        let r = buf.grow_to_fit(&gpu.device, vs.len())?;
+        if !matches!(r, std::cmp::Ordering::Equal) {
+            changed = CopyVarsChanged::BufferChanged;
+        }
+        let mut writer = gpu
+            .queue
+            .write_buffer_with(
+                buf.data(),
+                0,
+                ((vs.len() * std::mem::size_of::<f32>()) as u64)
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap();
+        for (v, i) in vs.iter() {
+            match v {
+                Var::X | Var::Y | Var::Z => (),
+                Var::V(vi) => {
+                    let value = vars.get(vi).unwrap(); // checked above
+                    let offset = i * std::mem::size_of::<f32>();
+                    writer
+                        .slice(offset..offset + 4)
+                        .copy_from_slice(value.as_bytes());
+                }
+            }
+        }
     }
+    Ok(changed)
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -460,268 +452,6 @@ enum CopyVarsError {
 enum CopyVarsChanged {
     BufferChanged,
     BufferUnchanged,
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Color buffers for rendering a shape's diffuse color
-pub struct ShapeColorBuffers {
-    /// Unified [`VarMap`] object
-    var_map: VarMap,
-
-    /// Number of shapes available
-    shape_count: usize,
-
-    /// Maximum number of registers used by any tape
-    reg_count: u8,
-
-    /// Config and serialized tapes, all squished together
-    ///
-    /// The tape data is baked once (at construction); config data is edited
-    /// before each evaluation
-    config: wgpu::Buffer,
-
-    /// Start of the channel tapes for each shape
-    ///
-    /// The high bit indicates whether this is RGB (0) or HSL (1)
-    ///
-    /// This is baked once (at construction)
-    shape_start: wgpu::Buffer,
-
-    /// Lazily-constructed bind group for the config buffers
-    config_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
-
-    /// GPU buffer to contain variables (passed in during evaluation)
-    ///
-    /// This doesn't live in a `Buffers` object because it's dynamically sized
-    /// based on the shape; everything in `Buffers` is based on image size.
-    vars: wgpu::Buffer,
-}
-
-/// Generic shape color
-pub enum ShapeColor<T> {
-    /// Red / green / blue channels, in the 0-1 range
-    Rgb {
-        /// Red component
-        r: T,
-        /// Green component
-        g: T,
-        /// Blue component
-        b: T,
-    },
-    /// Hue / saturation / lightness channels, in the 0-1 range
-    Hsl {
-        /// Hue
-        h: T,
-        /// Saturation
-        s: T,
-        /// Lightness
-        l: T,
-    },
-}
-
-impl<T> ShapeColor<T> {
-    fn channels(&self) -> [&T; 3] {
-        match self {
-            ShapeColor::Rgb { r, g, b } => [r, g, b],
-            ShapeColor::Hsl { h, s, l } => [h, s, l],
-        }
-    }
-}
-
-impl ShapeColorBuffers {
-    const fn expected_config_size() -> usize {
-        std::mem::size_of::<voxel::effects::ColorConfig>()
-    }
-
-    fn new(
-        colors: &[ShapeColor<VmShape>],
-        device: &wgpu::Device,
-    ) -> Result<Self, ShapeColorError> {
-        // Build a single unified variable map, used across all tapes
-        let mut var_map = VarMap::new();
-        for c in colors {
-            for channel in c.channels() {
-                let vars = channel.inner().vars();
-                for (v, _index) in vars.iter() {
-                    var_map.insert(v);
-                }
-            }
-        }
-        let mut reg_count = 0;
-        let mut shape_start = Vec::with_capacity(colors.len());
-        let mut bytecode_data: Vec<u32> = Vec::new();
-        let mut local_var_map = HashMap::new();
-        for c in colors {
-            // Divide by 2 to convert from `u32` to `TapeWord`
-            let kind = match c {
-                ShapeColor::Rgb { .. } => 0,
-                ShapeColor::Hsl { .. } => 1 << 31,
-            };
-            let index = u32::try_from(bytecode_data.len() / 2).unwrap();
-            assert!(
-                index & (1 << 31) == 0,
-                "you have built more than 2 GiB of shape tapes?!"
-            );
-            shape_start.push(index | kind);
-            for channel in c.channels() {
-                // Build a local variable remapping array, reusing allocations
-                local_var_map.clear();
-                local_var_map.extend(channel.inner().vars().iter().map(
-                    |(v, i)| {
-                        (
-                            u32::try_from(i).unwrap(),
-                            u32::try_from(var_map.get(&v).unwrap()).unwrap(),
-                        )
-                    },
-                ));
-
-                // Generate bytecode for the root tape
-                let bytecode = Bytecode::new_with_input_map(
-                    channel.inner().data(),
-                    &local_var_map,
-                )?;
-                bytecode_data.extend(bytecode.data());
-                reg_count = reg_count.max(bytecode.reg_count());
-            }
-        }
-
-        // Build a buffer for non-XYZ vars.  This buffer includes slots for XYZ
-        // as well, but we special-case them in evaluation.  If the tape has no
-        // variables, then we'll allocate 4 bytes (because empty buffers aren't
-        // allowed).
-        let vars = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vars"),
-            size: u64::try_from(std::mem::size_of::<f32>() * var_map.len())
-                .unwrap()
-                .max(4),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let shape_start_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shape_start"),
-            size: u64::try_from(std::mem::size_of::<u32>() * shape_start.len())
-                .unwrap(),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: true,
-        });
-        shape_start_buf
-            .get_mapped_range_mut(0..)
-            .copy_from_slice(shape_start.as_bytes());
-        shape_start_buf.unmap();
-
-        let config_size = Self::expected_config_size();
-        let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shape_start"),
-            size: u64::try_from(
-                std::mem::size_of::<u32>() * bytecode_data.len() + config_size,
-            )
-            .unwrap(),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: true,
-        });
-        config_buf
-            .get_mapped_range_mut(config_size as u64..)
-            .copy_from_slice(bytecode_data.as_bytes());
-        config_buf.unmap();
-
-        Ok(Self {
-            config: config_buf,
-            shape_count: colors.len(),
-            shape_start: shape_start_buf,
-            var_map,
-            vars,
-            config_bind_group: Default::default(),
-            reg_count,
-        })
-    }
-
-    /// Helper function to return XYZ variable indices
-    fn axes(&self) -> [u32; 3] {
-        [Var::X, Var::Y, Var::Z]
-            .map(|a| self.var_map.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
-    }
-
-    /// Writes a config value
-    ///
-    /// # Panics
-    /// If the config object is not the expected size
-    fn write_config<C: IntoBytes + Immutable>(
-        &self,
-        c: &C,
-        queue: &wgpu::Queue,
-    ) {
-        let config_len = std::mem::size_of::<C>();
-        assert_eq!(
-            config_len,
-            Self::expected_config_size(),
-            "wrong config object size"
-        );
-        let mut writer = queue
-            .write_buffer_with(
-                &self.config,
-                0,
-                (config_len as u64).try_into().unwrap(),
-            )
-            .unwrap();
-        writer.copy_from_slice(c.as_bytes());
-    }
-
-    fn write_vars(
-        &self,
-        vars: &ShapeVars<f32>,
-        queue: &wgpu::Queue,
-    ) -> Result<(), MissingVar> {
-        if self.var_map.has_free_vars() {
-            let var_size = self.vars.size();
-            let mut writer = queue
-                .write_buffer_with(&self.vars, 0, var_size.try_into().unwrap())
-                .unwrap();
-            for (v, i) in self.var_map.iter() {
-                match v {
-                    Var::X | Var::Y | Var::Z => (),
-                    Var::V(vi) => {
-                        let Some(value) = vars.get(vi) else {
-                            return Err(MissingVar { var: vi });
-                        };
-                        let offset = i * std::mem::size_of::<f32>();
-                        writer
-                            .slice(offset..offset + 4)
-                            .copy_from_slice(value.as_bytes());
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn config_bind_group(
-        &self,
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-    ) -> &wgpu::BindGroup {
-        self.config_bind_group.get_or_init(|| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("config bind group"),
-                layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.config.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: self.shape_start.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.vars.as_entire_binding(),
-                    },
-                ],
-            })
-        })
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

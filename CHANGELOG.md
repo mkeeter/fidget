@@ -81,7 +81,10 @@ This section may not be all-inclusive; sorry!  I _did_ warn you that
 - Remove timestamps from `fidget::wgpu` pixel and voxel rendering; they will
   come back in a new form at some point in the future
 - Make `RenderShape` _not_ store GPU objects, so it can be constructed
-  independently through `RenderShape::new`.
+  independently through `RenderShape::new` (and shared between threads).
+- Similarly, make `ShapeColorBuffers` not store GPU objects, so it can be
+  constructed independently through `ShapeColorBuffers::new` (and shared between
+  threads).
 
 # 0.5.0
 This is a large release with a bunch of small features, reorganization, and one
