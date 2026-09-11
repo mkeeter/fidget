@@ -95,6 +95,76 @@ impl BufferItemCount for VoxelSize {
     }
 }
 
+/// Tag for a flex buffer which contains a config `C` followed by many `T`
+///
+/// Item count is reported in bytes
+pub(crate) struct FlexConfigSize<C, T> {
+    count: usize,
+    _c: std::marker::PhantomData<C>,
+    _t: std::marker::PhantomData<T>,
+}
+
+impl<C, T> From<usize> for FlexConfigSize<C, T> {
+    fn from(value: usize) -> Self {
+        Self {
+            count: value,
+            _c: std::marker::PhantomData,
+            _t: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<C, T> Clone for FlexConfigSize<C, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<C, T> Copy for FlexConfigSize<C, T> {}
+
+impl<C, T> BufferItemCount for FlexConfigSize<C, T> {
+    fn item_count(&self) -> usize {
+        self.count * std::mem::size_of::<T>() + std::mem::size_of::<C>()
+    }
+}
+
+pub(crate) struct FlexConfigTag<C, T> {
+    _c: std::marker::PhantomData<C>,
+    _t: std::marker::PhantomData<T>,
+}
+
+impl<C, T> BufferTag for FlexConfigTag<C, T>
+where
+    T: Copy,
+{
+    type T = u8;
+    type S = FlexConfigSize<C, T>;
+    fn usage() -> u32 {
+        wgpu::BufferUsages::COPY_DST.bits() | wgpu::BufferUsages::STORAGE.bits()
+    }
+}
+
+/// Buffer which contains one config `C` followed by many `T`
+pub(crate) type FlexConfigBuffer<C, T> = FlexBuffer<FlexConfigTag<C, T>>;
+
+impl<C, T> FlexConfigBuffer<C, T>
+where
+    C: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
+    T: Copy,
+{
+    /// Writes a config value to the buffer
+    pub(crate) fn write_config(&self, c: &C, queue: &wgpu::Queue) {
+        let config_len = std::mem::size_of::<C>();
+        let mut writer = queue
+            .write_buffer_with(
+                self.data(),
+                0,
+                (config_len as u64).try_into().unwrap(),
+            )
+            .unwrap();
+        writer.copy_from_slice(c.as_bytes());
+    }
+}
+
 impl<T: BufferTag> FlexBuffer<T> {
     pub(crate) fn new(
         device: &wgpu::Device,

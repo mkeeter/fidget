@@ -187,6 +187,7 @@ impl<F> Shape<F> {
 /// Note that this cannot store `X`, `Y`, `Z` variables (which are passed in as
 /// first-class arguments); it only stores [`Var::V`] values (identified by
 /// their inner [`VarIndex`]).
+#[derive(Debug)]
 pub struct ShapeVars<F>(HashMap<VarIndex, F>);
 
 impl<F> Default for ShapeVars<F> {

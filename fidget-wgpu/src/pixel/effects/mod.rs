@@ -17,8 +17,9 @@
 //! [`output_color`](MergeBuffers::output_color).
 //! Note that if color has not been computed, `output_color` will return `None`.
 use crate::{
-    Gpu, RegPipeline, ShapeColorBuffers,
+    CopyVarsError, Gpu, RegPipeline,
     buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw, buffer_uniform},
+    color::{ColorWorkspace as GenericColorWorkspace, ShapeColorBuffers},
     pixel::{PixelBufferTag, RawDistancePixel},
     shaders, tag,
 };
@@ -29,6 +30,9 @@ pub use crate::voxel::effects::ColorError;
 
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
+
+/// Workspace for evaluating color expressions
+pub type ColorWorkspace = GenericColorWorkspace<ColorConfig>;
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
@@ -355,8 +359,15 @@ impl Context {
         merge: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
+        bufs: &mut ColorWorkspace,
     ) -> Result<(), ColorError> {
-        self.submit_color_with_vars(merge, settings, shape, &Default::default())
+        self.submit_color_with_vars(
+            merge,
+            settings,
+            shape,
+            bufs,
+            &Default::default(),
+        )
     }
 
     /// Submits a color evaluation pass with auxiliary variables
@@ -369,20 +380,30 @@ impl Context {
         merge: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
+        bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
     ) -> Result<(), ColorError> {
         self.color_ctx
-            .submit(merge, settings, shape, vars, &self.gpu)
+            .submit(merge, settings, shape, bufs, vars, &self.gpu)
+    }
+
+    /// Returns a new workspace for color evaluation
+    pub fn color_workspace(&self) -> ColorWorkspace {
+        ColorWorkspace::new(&self.gpu.device)
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Configuration for the color evaluation pass
+///
+/// This is quietly public because it's part of a public API, but is unlikely to
+/// be useful for end-users of the library.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-pub(crate) struct ColorConfig {
+#[doc(hidden)]
+pub struct ColorConfig {
     /// Screen-to-model transform matrix (mat3x3)
     mat: [f32; 12],
 
@@ -486,13 +507,14 @@ impl ColorContext {
         image: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
+        bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         gpu: &Gpu,
     ) -> Result<(), ColorError> {
-        if image.image_count != shape.shape_count {
+        if image.image_count != shape.shape_count() {
             return Err(ColorError::BadShapeCount {
                 merge_count: image.image_count,
-                shape_count: shape.shape_count,
+                shape_count: shape.shape_count(),
             });
         } else if image.has_color {
             return Err(ColorError::AlreadyHasColor);
@@ -503,9 +525,19 @@ impl ColorContext {
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
 
-        let config_bg = shape
-            .config_bind_group(&gpu.device, &self.config_bind_group_layout);
+        bufs.copy_vars(gpu, shape.var_map(), vars)
+            .map_err(|e| match e {
+                CopyVarsError::BufferSize(b) => ColorError::VarBufferSize(b),
+                CopyVarsError::MissingVar(v) => ColorError::MissingVar(v),
+            })?;
 
+        bufs.copy_tape(gpu, shape.bytecode())
+            .map_err(ColorError::ConfigBufferSize)?;
+        bufs.copy_shape_starts(gpu, shape.shape_start())
+            .expect("shape starts should always fit if shape bytecode fits");
+
+        // We'll write the config last, because writing the tape could have
+        // invalidated it.
         let config = ColorConfig {
             mat: mat4.data.as_slice().try_into().unwrap(),
             axes: shape.axes(),
@@ -514,8 +546,10 @@ impl ColorContext {
             _pad: [0; 3],
             z: settings.z,
         };
-        shape.write_config(&config, &gpu.queue);
-        shape.write_vars(vars, &gpu.queue)?;
+        bufs.copy_config(gpu, &config);
+
+        let config_bg =
+            bufs.config_bind_group(&gpu.device, &self.config_bind_group_layout);
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = gpu.device.create_command_encoder(
@@ -549,7 +583,8 @@ impl ColorContext {
                     ],
                 });
             compute_pass.set_bind_group(1, &image_bg, &[]);
-            compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
+            compute_pass
+                .set_pipeline(self.color_pipeline.get(shape.reg_count()));
             compute_pass.dispatch_workgroups(
                 size.width().div_ceil(8),
                 size.height().div_ceil(8),
@@ -591,14 +626,6 @@ mod test {
         crate::test::compare_struct_layout::<ColorConfig>(
             &color_shader(16),
             "Config",
-        );
-    }
-
-    #[test]
-    fn color_config_size() {
-        assert_eq!(
-            std::mem::size_of::<ColorConfig>(),
-            ShapeColorBuffers::expected_config_size(),
         );
     }
 }

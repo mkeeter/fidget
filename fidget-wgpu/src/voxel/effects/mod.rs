@@ -10,8 +10,9 @@
 //! - Apply shading to a [`PackedVoxel`] buffer, producing an RGBA image buffer
 
 use crate::{
-    Gpu, RegPipeline, ShapeColorBuffers,
+    CopyVarsError, Gpu, RegPipeline,
     buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw, buffer_uniform},
+    color::{ColorWorkspace as GenericColorWorkspace, ShapeColorBuffers},
     shaders, tag,
     voxel::GeomBufferTag,
 };
@@ -38,6 +39,9 @@ pub struct Context {
 
     color_ctx: ColorContext,
 }
+
+/// Workspace for evaluating color expressions
+pub type ColorWorkspace = GenericColorWorkspace<ColorConfig>;
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
@@ -101,10 +105,14 @@ pub struct PackedVoxel {
 }
 
 /// Configuration for the color evaluation pass
+///
+/// This is quietly public because it's part of a public API, but is unlikely to
+/// be useful for end-users of the library.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-pub(crate) struct ColorConfig {
+#[doc(hidden)]
+pub struct ColorConfig {
     /// Screen-to-model transform matrix
     mat: [f32; 16],
 
@@ -296,8 +304,16 @@ pub enum SsaoError {
 #[derive(Debug, thiserror::Error)]
 pub enum ColorError {
     /// An error occurred while resizing the output buffer
-    #[error(transparent)]
-    OutputSize(BufferSizeError),
+    #[error("could not resize output buffer")]
+    OutputSize(#[source] BufferSizeError),
+
+    /// An error occurred while resizing the vars buffer
+    #[error("could not resize vars buffer")]
+    VarBufferSize(#[source] BufferSizeError),
+
+    /// An error occurred while resizing the config buffer
+    #[error("could not resize config buffer")]
+    ConfigBufferSize(#[source] BufferSizeError),
 
     /// A variable is missing from the map
     #[error(transparent)]
@@ -839,12 +855,14 @@ impl Context {
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
+        bufs: &mut ColorWorkspace,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
             merge,
             world_to_model,
             shape,
+            bufs,
             &Default::default(),
             out,
         )
@@ -860,6 +878,7 @@ impl Context {
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
+        bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
@@ -867,10 +886,16 @@ impl Context {
             merge,
             world_to_model,
             shape,
+            bufs,
             vars,
             out,
             &self.gpu,
         )
+    }
+
+    /// Returns a new workspace for color evaluation
+    pub fn color_workspace(&self) -> ColorWorkspace {
+        ColorWorkspace::new(&self.gpu.device)
     }
 }
 
@@ -1262,19 +1287,21 @@ impl ColorContext {
     }
 
     /// The output buffer is resized to fit `image`
+    #[allow(clippy::too_many_arguments)] // what are ya gonna do?
     fn submit(
         &self,
         image: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
+        bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
         gpu: &Gpu,
     ) -> Result<(), ColorError> {
-        if image.image_count != shape.shape_count {
+        if image.image_count != shape.shape_count() {
             return Err(ColorError::BadShapeCount {
                 merge_count: image.image_count,
-                shape_count: shape.shape_count,
+                shape_count: shape.shape_count(),
             });
         }
         let size = image.out.size();
@@ -1285,17 +1312,28 @@ impl ColorContext {
 
         let mat = world_to_model * size.screen_to_world();
 
-        let config_bg = shape
-            .config_bind_group(&gpu.device, &self.config_bind_group_layout);
+        bufs.copy_vars(gpu, shape.var_map(), vars)
+            .map_err(|e| match e {
+                CopyVarsError::BufferSize(b) => ColorError::VarBufferSize(b),
+                CopyVarsError::MissingVar(v) => ColorError::MissingVar(v),
+            })?;
+        bufs.copy_tape(gpu, shape.bytecode())
+            .map_err(ColorError::ConfigBufferSize)?;
+        bufs.copy_shape_starts(gpu, shape.shape_start())
+            .expect("shape starts should always fit if shape bytecode fits");
 
+        // We'll write the config last, because writing the tape could have
+        // invalidated it.
         let config = ColorConfig {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes(),
             image_size: [size.width(), size.height()],
             _pad: 0,
         };
-        shape.write_config(&config, &gpu.queue);
-        shape.write_vars(vars, &gpu.queue)?;
+        bufs.copy_config(gpu, &config);
+
+        let config_bg =
+            bufs.config_bind_group(&gpu.device, &self.config_bind_group_layout);
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = gpu.device.create_command_encoder(
@@ -1329,7 +1367,8 @@ impl ColorContext {
                     ],
                 });
             compute_pass.set_bind_group(1, &image_bg, &[]);
-            compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count));
+            compute_pass
+                .set_pipeline(self.color_pipeline.get(shape.reg_count()));
             compute_pass.dispatch_workgroups(
                 size.width().div_ceil(8),
                 size.height().div_ceil(8),
@@ -1509,14 +1548,6 @@ mod test {
         crate::test::compare_struct_layout::<BlurConfig>(
             &blur_shader(),
             "BlurConfig",
-        );
-    }
-
-    #[test]
-    fn color_config_size() {
-        assert_eq!(
-            std::mem::size_of::<ColorConfig>(),
-            ShapeColorBuffers::expected_config_size(),
         );
     }
 }
