@@ -168,14 +168,14 @@ where
 impl<T: BufferTag> FlexBuffer<T> {
     pub(crate) fn new(
         device: &wgpu::Device,
-        name: String,
+        name: impl AsRef<str>,
         size: T::S,
     ) -> Result<Self, BufferSizeError> {
         Self::check_size(size)?;
         let size_bytes = Self::calculate_buffer_size(size);
         let usage = wgpu::BufferUsages::from_bits(T::usage()).unwrap();
         let data = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(name.as_str()),
+            label: Some(name.as_ref()),
             size: size_bytes,
             usage,
             mapped_at_creation: false,
@@ -183,7 +183,7 @@ impl<T: BufferTag> FlexBuffer<T> {
         Ok(Self {
             data,
             size,
-            name,
+            name: name.as_ref().to_owned(),
             _t: std::marker::PhantomData,
         })
     }

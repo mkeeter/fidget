@@ -484,12 +484,8 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = FlexBuffer::new(
-            &self.gpu.device,
-            "merge output".to_owned(),
-            64.into(),
-        )
-        .expect("64 is always a valid size");
+        let out = FlexBuffer::new(&self.gpu.device, "merge output", 64.into())
+            .expect("64 is always a valid size");
         MergeBuffers {
             config,
             out,
@@ -509,12 +505,8 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let out = FlexBuffer::new(
-            &self.gpu.device,
-            "shade output".to_owned(),
-            64.into(),
-        )
-        .expect("64 is always a valid size");
+        let out = FlexBuffer::new(&self.gpu.device, "shade output", 64.into())
+            .expect("64 is always a valid size");
         ShadeBuffers {
             config,
             has_color: false,
@@ -536,12 +528,9 @@ impl Context {
                 mapped_at_creation: false,
             });
         let image_size = 64.into();
-        let raw_occlusion = FlexBuffer::new(
-            &self.gpu.device,
-            "ssao raw occlusion".to_owned(),
-            image_size,
-        )
-        .expect("64 is always a valid size");
+        let raw_occlusion =
+            FlexBuffer::new(&self.gpu.device, "ssao raw occlusion", image_size)
+                .expect("64 is always a valid size");
         let blur_config =
             self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("blur config"),
@@ -552,7 +541,7 @@ impl Context {
             });
         let blurred_occlusion = FlexBuffer::new(
             &self.gpu.device,
-            "ssao blurred occlusion".to_owned(),
+            "ssao blurred occlusion",
             image_size,
         )
         .expect("64 is always a valid size");
