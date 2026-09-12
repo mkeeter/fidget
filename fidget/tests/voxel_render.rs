@@ -111,7 +111,7 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.buffers();
+        let mut buf = ctx.workspace();
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
@@ -163,7 +163,7 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.buffers();
+        let mut buf = ctx.workspace();
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {

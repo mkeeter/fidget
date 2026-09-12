@@ -204,13 +204,13 @@ tag!(pub MergeVoxelBufferTag, PackedVoxel, VoxelSize, STORAGE | COPY_SRC,
 );
 
 /// Handle to a set of buffers used when merging images
-pub struct MergeBuffers {
+pub struct MergeWorkspace {
     config: wgpu::Buffer,
     out: FlexBuffer<MergeVoxelBufferTag>,
     image_count: usize,
 }
 
-impl MergeBuffers {
+impl MergeWorkspace {
     /// Returns a handle to the output buffer
     pub fn output(&self) -> &FlexBuffer<MergeVoxelBufferTag> {
         &self.out
@@ -231,13 +231,13 @@ tag!(
 );
 
 /// Handle to a set of buffers used when shading images
-pub struct ShadeBuffers {
+pub struct ShadeWorkspace {
     config: wgpu::Buffer,
     has_color: bool,
     out: FlexBuffer<ShadedImageTag>,
 }
 
-impl ShadeBuffers {
+impl ShadeWorkspace {
     /// Returns a reference to the output buffer
     pub fn output(&self) -> &FlexBuffer<ShadedImageTag> {
         &self.out
@@ -473,11 +473,11 @@ impl Context {
         }
     }
 
-    /// Builds a new set of [`MergeBuffers`]
+    /// Builds a new set of [`MergeWorkspace`]
     ///
     /// These will be resized when first used (in
     /// [`submit_merge`](Self::submit_merge))
-    pub fn merge_buffers(&self) -> MergeBuffers {
+    pub fn merge_workspace(&self) -> MergeWorkspace {
         let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
             size: std::mem::size_of::<MergeConfig>() as u64,
@@ -486,19 +486,19 @@ impl Context {
         });
         let out = FlexBuffer::new(&self.gpu.device, "merge output", 64.into())
             .expect("64 is always a valid size");
-        MergeBuffers {
+        MergeWorkspace {
             config,
             out,
             image_count: 0,
         }
     }
 
-    /// Builds a new set of [`ShadeBuffers`]
+    /// Builds a new set of [`ShadeWorkspace`]
     ///
     /// These will be resized when first used (in
     /// either [`submit_color`](Self::submit_color) or
     /// [`submit_shade`](Self::submit_shade))
-    pub fn shade_buffers(&self) -> ShadeBuffers {
+    pub fn shade_workspace(&self) -> ShadeWorkspace {
         let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shade config"),
             size: std::mem::size_of::<ShadeConfig>() as u64,
@@ -507,18 +507,18 @@ impl Context {
         });
         let out = FlexBuffer::new(&self.gpu.device, "shade output", 64.into())
             .expect("64 is always a valid size");
-        ShadeBuffers {
+        ShadeWorkspace {
             config,
             has_color: false,
             out,
         }
     }
 
-    /// Builds a new set of [`SsaoBuffers`]
+    /// Builds a new set of [`SsaoWorkspace`]
     ///
     /// These will be resized when first used (in
     /// [`submit_ssao`](Self::submit_ssao))
-    pub fn ssao_buffers(&self) -> SsaoBuffers {
+    pub fn ssao_workspace(&self) -> SsaoWorkspace {
         let ssao_config =
             self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("ssao config"),
@@ -545,7 +545,7 @@ impl Context {
             image_size,
         )
         .expect("64 is always a valid size");
-        SsaoBuffers {
+        SsaoWorkspace {
             ssao_config,
             blur_config,
             raw_occlusion,
@@ -555,14 +555,14 @@ impl Context {
 
     /// Accumulates an image into a merged image buffer
     ///
-    /// [`MergeBuffers::reset`] should be called before the first call to
+    /// [`MergeWorkspace::reset`] should be called before the first call to
     /// `submit_merge`. For the first merge after a reset, the output buffer is
     /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
         image: &FlexBuffer<GeomBufferTag>,
         settings: MergeSettings,
-        buf: &mut MergeBuffers,
+        buf: &mut MergeWorkspace,
     ) -> Result<(), MergeError> {
         let size = image.size();
         if buf.image_count == 0 {
@@ -649,9 +649,9 @@ impl Context {
     /// The output buffer is resized to fit the incoming image
     pub fn submit_shade(
         &self,
-        image: &MergeBuffers,
-        ssao: Option<&SsaoBuffers>,
-        buf: &mut ShadeBuffers,
+        image: &MergeWorkspace,
+        ssao: Option<&SsaoWorkspace>,
+        buf: &mut ShadeWorkspace,
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
         if buf.has_color {
@@ -748,8 +748,8 @@ impl Context {
     /// The output buffer is resized to fit the incoming image
     pub fn submit_heightmap(
         &self,
-        image: &MergeBuffers,
-        buf: &mut ShadeBuffers,
+        image: &MergeWorkspace,
+        buf: &mut ShadeWorkspace,
     ) -> Result<(), HeightmapError> {
         let size = image.out.size();
         if buf.has_color {
@@ -828,24 +828,24 @@ impl Context {
     /// Submits a pass to compute an SSAO buffer
     pub fn submit_ssao(
         &self,
-        image: &MergeBuffers,
-        buf: &mut SsaoBuffers,
+        image: &MergeWorkspace,
+        buf: &mut SsaoWorkspace,
     ) -> Result<(), SsaoError> {
         self.ssao_ctx.submit(image, buf, &self.gpu)
     }
 
     /// Submits a color evaluation pass
     ///
-    /// Image size is set from the `MergeBuffers`; the transform matrix is
+    /// Image size is set from the `MergeWorkspace`; the transform matrix is
     /// provided separately (but should be the same one used for image
     /// evaluation).
     pub fn submit_color(
         &self,
-        merge: &MergeBuffers,
+        merge: &MergeWorkspace,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
         bufs: &mut ColorWorkspace,
-        out: &mut ShadeBuffers,
+        out: &mut ShadeWorkspace,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
             merge,
@@ -859,17 +859,17 @@ impl Context {
 
     /// Submits a color evaluation pass with auxiliary variables
     ///
-    /// Image size is set from the `MergeBuffers`; the transform matrix is
+    /// Image size is set from the `MergeWorkspace`; the transform matrix is
     /// provided separately (but should be the same one used for image
     /// evaluation).
     pub fn submit_color_with_vars(
         &self,
-        merge: &MergeBuffers,
+        merge: &MergeWorkspace,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
         bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
-        out: &mut ShadeBuffers,
+        out: &mut ShadeWorkspace,
     ) -> Result<(), ColorError> {
         self.color_ctx.submit(
             merge,
@@ -896,7 +896,7 @@ tag!(pub SsaoBlurredBufferTag, f32, ImageSize, STORAGE | COPY_SRC,
     "Tag for a blurred SSAO occlusion buffer");
 
 /// Handle to a set of buffers used when running an SSAO pass
-pub struct SsaoBuffers {
+pub struct SsaoWorkspace {
     ssao_config: wgpu::Buffer, // TODO add a `ConfigBuffer` type?
     raw_occlusion: FlexBuffer<SsaoRawBufferTag>,
 
@@ -904,7 +904,7 @@ pub struct SsaoBuffers {
     blurred_occlusion: FlexBuffer<SsaoBlurredBufferTag>,
 }
 
-impl SsaoBuffers {
+impl SsaoWorkspace {
     /// Returns a shared handle to the raw SSAO occlusion buffer
     pub fn raw_occlusion(&self) -> &FlexBuffer<SsaoRawBufferTag> {
         &self.raw_occlusion
@@ -1085,8 +1085,8 @@ impl SsaoContext {
 
     fn submit(
         &self,
-        image: &MergeBuffers,
-        buf: &mut SsaoBuffers,
+        image: &MergeWorkspace,
+        buf: &mut SsaoWorkspace,
         gpu: &Gpu,
     ) -> Result<(), SsaoError> {
         let image_size = image.out.size();
@@ -1279,12 +1279,12 @@ impl ColorContext {
     #[allow(clippy::too_many_arguments)] // what are ya gonna do?
     fn submit(
         &self,
-        image: &MergeBuffers,
+        image: &MergeWorkspace,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
         bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
-        out: &mut ShadeBuffers,
+        out: &mut ShadeWorkspace,
         gpu: &Gpu,
     ) -> Result<(), ColorError> {
         if image.image_count != shape.shape_count() {
@@ -1429,8 +1429,8 @@ mod test {
 
         let size = 128;
         let image_size = RenderSize::from(size);
-        let mut buf = voxel_ctx.buffers();
-        let mut merge_buf = effects_ctx.merge_buffers();
+        let mut voxel_buf = voxel_ctx.workspace();
+        let mut merge_buf = effects_ctx.merge_workspace();
 
         let (x, y, z) = Tree::axes();
         let sphere =
@@ -1441,7 +1441,7 @@ mod test {
         voxel_ctx
             .submit(
                 &shape,
-                &mut buf,
+                &mut voxel_buf,
                 &crate::voxel::RenderConfig {
                     image_size,
                     world_to_model: nalgebra::Matrix4::identity(),
@@ -1449,9 +1449,13 @@ mod test {
             )
             .unwrap();
         effects_ctx
-            .submit_merge(buf.output(), Default::default(), &mut merge_buf)
+            .submit_merge(
+                voxel_buf.output(),
+                Default::default(),
+                &mut merge_buf,
+            )
             .unwrap();
-        let mut ssao_buf = effects_ctx.ssao_buffers();
+        let mut ssao_buf = effects_ctx.ssao_workspace();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
         let ssao_out = gpu.read_vec(ssao_buf.raw_occlusion());
 

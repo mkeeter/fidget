@@ -188,12 +188,12 @@ impl RootContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         reg_count: u8,
         render_size: TileRenderSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.root_tiles(ctx, buffers);
+        let bind_group = workspace.bind_groups.root_tiles(ctx, workspace);
         compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -265,17 +265,17 @@ impl IntervalTilesContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.interval_tiles(ctx, buffers);
+        let bind_group = workspace.bind_groups.interval_tiles(ctx, workspace);
         compute_pass.set_pipeline(self.tiles_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
         // Indirect dispatch based on previous tile output
         compute_pass
-            .dispatch_workgroups_indirect(buffers.tile64.tiles.data(), 0);
+            .dispatch_workgroups_indirect(workspace.tile64.tiles.data(), 0);
     }
 }
 
@@ -340,17 +340,17 @@ impl PixelTilesContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.pixel_tiles(ctx, buffers);
+        let bind_group = workspace.bind_groups.pixel_tiles(ctx, workspace);
         compute_pass.set_pipeline(self.tiles_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
         // Indirect dispatch based on previous tile output
         compute_pass
-            .dispatch_workgroups_indirect(buffers.tile8.tiles.data(), 0);
+            .dispatch_workgroups_indirect(workspace.tile8.tiles.data(), 0);
     }
 }
 
@@ -402,11 +402,11 @@ tag!(TileTapesBufferTag, u32, usize, STORAGE | COPY_DST);
 tag!(pub PixelBufferTag, RawDistancePixel, ImageSize, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`RawDistancePixel`] values");
 
-/// Buffers for rendering
+/// Workspace for rendering
 ///
-/// This object is constructed by [`Context::buffers`] and may only be used with
+/// This object is constructed by [`Context::workspace`] and may only be used with
 /// that particular [`Context`].
-pub struct Buffers {
+pub struct Workspace {
     /// Image render size
     ///
     /// Note that the tile buffers below round up to the nearest root tile
@@ -435,7 +435,7 @@ pub struct Buffers {
     bind_groups: BindGroups,
 }
 
-impl Buffers {
+impl Workspace {
     /// Builds a new set of buffers with a default size
     ///
     /// It is expected that these will be resized before being used
@@ -514,9 +514,9 @@ impl Buffers {
         &mut self,
         device: &wgpu::Device,
         image_size: ImageSize,
-    ) -> Result<(), BuffersError> {
+    ) -> Result<(), BufferError> {
         let render_size = TileRenderSize::from(image_size);
-        let Buffers {
+        let Workspace {
             image_size: image_size_ref,
             tile_tapes,
             tile64,
@@ -533,25 +533,25 @@ impl Buffers {
         *image_size_ref = image_size;
         tile_tapes
             .grow_to_fit(device, Self::tile_tapes_buf_size(render_size))
-            .map_err(|err| BuffersError {
+            .map_err(|err| BufferError {
                 buf: BufferName::TileTapes,
                 err,
             })?;
         tile64
             .grow_to_fit(device, render_size)
-            .map_err(|e| BuffersError {
+            .map_err(|e| BufferError {
                 buf: BufferName::Tile64(e.buf),
                 err: e.err,
             })?;
         tile8
             .grow_to_fit(device, render_size)
-            .map_err(|e| BuffersError {
+            .map_err(|e| BufferError {
                 buf: BufferName::Tile8(e.buf),
                 err: e.err,
             })?;
         pixels
             .grow_to_fit(device, image_size)
-            .map_err(|err| BuffersError {
+            .map_err(|err| BufferError {
                 buf: BufferName::Pixel,
                 err,
             })?;
@@ -561,7 +561,7 @@ impl Buffers {
     /// Returns total allocated size (in bytes)
     pub fn capacity(&self) -> u64 {
         // Destructure to make sure we take all members into account
-        let Buffers {
+        let Workspace {
             image_size: _,
             config_buf,
             vars_buf,
@@ -582,7 +582,7 @@ impl Buffers {
     /// Returns total active size (in bytes)
     pub fn size(&self) -> u64 {
         // Destructure to make sure we take all members into account
-        let Buffers {
+        let Workspace {
             image_size: _,
             vars_buf,
             config_buf,
@@ -604,17 +604,17 @@ impl Buffers {
     ///
     /// This is intended for subsequent shaders which want to use the
     /// [`RawDistancePixel`] image data without copying to the CPU.  It requires
-    /// a exclusive borrow of the `Buffers` object (and then extends that
+    /// an exclusive borrow of the `Workspace` object (and then extends that
     /// lifetime) so that other callers can't simultaneously touch the buffer.
     pub fn output(&mut self) -> &FlexBuffer<PixelBufferTag> {
         &self.pixels
     }
 }
 
-/// Error returned when resizing a [`Buffers`] object
+/// Error returned when resizing buffers in a [`Workspace`] object
 #[derive(Debug, thiserror::Error)]
 #[error("failed to build {buf} buffer")]
-pub struct BuffersError {
+pub struct BufferError {
     /// Buffer which failed to resize
     pub buf: BufferName,
     /// Error returned by buffer resizing
@@ -660,14 +660,14 @@ pub enum SubmitError {
     MissingVar(#[from] MissingVar),
     /// Error while resizing buffers
     #[error(transparent)]
-    Buffers(#[from] BuffersError),
+    Buffers(#[from] BufferError),
 }
 
 impl From<CopyVarsError> for SubmitError {
     fn from(value: CopyVarsError) -> Self {
         match value {
             CopyVarsError::MissingVar(v) => Self::MissingVar(v),
-            CopyVarsError::BufferSize(err) => Self::Buffers(BuffersError {
+            CopyVarsError::BufferSize(err) => Self::Buffers(BufferError {
                 buf: BufferName::Vars,
                 err,
             }),
@@ -686,7 +686,7 @@ struct BindGroups {
 }
 
 impl BindGroups {
-    fn common(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn common(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.common.get_or_init(|| {
             ctx.gpu
                 .device
@@ -696,22 +696,26 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.config_buf.as_entire_binding(),
+                            resource: workspace.config_buf.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile_tapes.bind_active(),
+                            resource: workspace.tile_tapes.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.vars_buf.bind_active(),
+                            resource: workspace.vars_buf.bind_active(),
                         },
                     ],
                 })
         })
     }
 
-    fn root_tiles(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn root_tiles(
+        &self,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.root_tiles.get_or_init(|| {
             ctx.gpu
                 .device
@@ -721,11 +725,11 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile64.tiles.bind_active(),
+                            resource: workspace.tile64.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile64.values.bind_active(),
+                            resource: workspace.tile64.values.bind_active(),
                         },
                     ],
                 })
@@ -735,7 +739,7 @@ impl BindGroups {
     fn interval_tiles(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         self.interval_tiles.get_or_init(|| {
             ctx.gpu
@@ -746,15 +750,15 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile64.tiles.bind_active(),
+                            resource: workspace.tile64.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile8.tiles.bind_active(),
+                            resource: workspace.tile8.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.tile8.values.bind_active(),
+                            resource: workspace.tile8.values.bind_active(),
                         },
                     ],
                 })
@@ -764,7 +768,7 @@ impl BindGroups {
     fn pixel_tiles(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         self.pixel_tiles.get_or_init(|| {
             ctx.gpu
@@ -775,18 +779,18 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile8.tiles.bind_active(),
+                            resource: workspace.tile8.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.pixels.bind_active(),
+                            resource: workspace.pixels.bind_active(),
                         },
                     ],
                 })
         })
     }
 
-    fn merge(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn merge(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.merge.get_or_init(|| {
             ctx.gpu
                 .device
@@ -796,15 +800,15 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile64.values.bind_active(),
+                            resource: workspace.tile64.values.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile8.values.bind_active(),
+                            resource: workspace.tile8.values.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.pixels.bind_active(),
+                            resource: workspace.pixels.bind_active(),
                         },
                     ],
                 })
@@ -829,7 +833,7 @@ struct TileBuffers<const N: usize> {
 /// Error type when resizing root tile buffers
 #[derive(Debug, thiserror::Error)]
 #[error("failed to resize `{buf}` root tile buffer")]
-pub struct TileBuffersError {
+pub struct TileBufferError {
     /// Buffer which failed to resize
     pub buf: TileBufferName,
     /// Error returned by buffer resizing
@@ -860,14 +864,14 @@ impl<const N: usize> TileBuffers<N> {
     fn new(
         device: &wgpu::Device,
         render_size: TileRenderSize,
-    ) -> Result<Self, TileBuffersError> {
+    ) -> Result<Self, TileBufferError> {
         // Allocate enough words to write all of the output tiles
         let tiles = FlexBuffer::new(
             device,
             format!("tiles_out{N}"),
             Self::tiles_buf_size(render_size),
         )
-        .map_err(|err| TileBuffersError {
+        .map_err(|err| TileBufferError {
             buf: TileBufferName::Tiles,
             err,
         })?;
@@ -875,7 +879,7 @@ impl<const N: usize> TileBuffers<N> {
         let values_buf_size = Self::values_buf_size(render_size);
         let values =
             FlexBuffer::new(device, format!("tile{N}_values"), values_buf_size)
-                .map_err(|err| TileBuffersError {
+                .map_err(|err| TileBufferError {
                     buf: TileBufferName::Values,
                     err,
                 })?;
@@ -906,18 +910,18 @@ impl<const N: usize> TileBuffers<N> {
         &mut self,
         device: &wgpu::Device,
         render_size: TileRenderSize,
-    ) -> Result<(), TileBuffersError> {
+    ) -> Result<(), TileBufferError> {
         // Destructure to make sure we take all members into account
         let TileBuffers { tiles, values } = self;
         tiles
             .grow_to_fit(device, Self::tiles_buf_size(render_size))
-            .map_err(|err| TileBuffersError {
+            .map_err(|err| TileBufferError {
                 buf: TileBufferName::Tiles,
                 err,
             })?;
         values
             .grow_to_fit(device, Self::values_buf_size(render_size))
-            .map_err(|err| TileBuffersError {
+            .map_err(|err| TileBufferError {
                 buf: TileBufferName::Values,
                 err,
             })?;
@@ -1001,13 +1005,13 @@ impl Context {
         }
     }
 
-    /// Builds a new [`Buffers`] object for use in rendering
+    /// Builds a new [`Workspace`] object for use in rendering
     ///
     /// The buffers are initialized with a dummy size and resized automatically
     /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
     /// [`submit`](Self::submit)).
-    pub fn buffers(&self) -> Buffers {
-        Buffers::new(&self.gpu.device)
+    pub fn workspace(&self) -> Workspace {
+        Workspace::new(&self.gpu.device)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1017,11 +1021,11 @@ impl Context {
     pub fn run(
         &self,
         shape: &RenderShape,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.run_with_vars(shape, &Default::default(), buffers, out, settings)
+        self.run_with_vars(shape, &Default::default(), workspace, out, settings)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1032,12 +1036,12 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, &settings)?;
-        self.gpu.copy(buffers.output(), out);
+        self.submit_with_vars(shape, vars, workspace, &settings)?;
+        self.gpu.copy(workspace.output(), out);
         let image = self.gpu.map_image(out);
         Ok(image.image())
     }
@@ -1046,14 +1050,14 @@ impl Context {
     pub async fn run_async(
         &self,
         shape: &RenderShape,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.run_with_vars_async(
             shape,
             &Default::default(),
-            buffers,
+            workspace,
             out,
             settings,
         )
@@ -1065,12 +1069,12 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, &settings)?;
-        self.gpu.copy(buffers.output(), out);
+        self.submit_with_vars(shape, vars, workspace, &settings)?;
+        self.gpu.copy(workspace.output(), out);
         let image = self.gpu.map_image_async(out).await;
         Ok(image.image())
     }
@@ -1078,14 +1082,14 @@ impl Context {
     /// Submits a single image to be rendered on the GPU
     ///
     /// The resulting image (as a buffer of [`RawDistancePixel`] data) is
-    /// available on the GPU in [`buffers.output()`](Buffers::output).
+    /// available on the GPU in [`buffers.output()`](Workspace::output).
     pub fn submit(
         &self,
         shape: &RenderShape,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        self.submit_with_vars(shape, &Default::default(), buffers, settings)
+        self.submit_with_vars(shape, &Default::default(), workspace, settings)
     }
 
     /// Submits a single image to be rendered on the GPU, with extra variables
@@ -1095,16 +1099,16 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        buffers.set_image_size(&self.gpu.device, settings.image_size)?;
-        let render_size = TileRenderSize::from(buffers.image_size);
+        workspace.set_image_size(&self.gpu.device, settings.image_size)?;
+        let render_size = TileRenderSize::from(workspace.image_size);
 
         // The WebGPU config type has a mat3x3f, but that type pads each row to
         // 16 bytes, so we'll just use a mat4x4 for simplicity
         let mat =
-            settings.world_to_model * buffers.image_size.screen_to_world();
+            settings.world_to_model * workspace.image_size.screen_to_world();
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
 
@@ -1116,8 +1120,8 @@ impl Context {
             render_size: [render_size.width(), render_size.height()],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
-                buffers.image_size.width(),
-                buffers.image_size.height(),
+                workspace.image_size.width(),
+                workspace.image_size.height(),
             ],
             tape_data_offset: start_offset,
             z: settings.z,
@@ -1132,7 +1136,7 @@ impl Context {
                 .gpu
                 .queue
                 .write_buffer_with(
-                    &buffers.config_buf,
+                    &workspace.config_buf,
                     0,
                     ((config_len + shape.bytecode.as_bytes().len()) as u64)
                         .try_into()
@@ -1150,10 +1154,10 @@ impl Context {
         // Copy vars (if present), then reset relevant bind groups if the buffer
         // size has changed.
         if matches!(
-            shape.copy_vars(&self.gpu, vars, &mut buffers.vars_buf)?,
+            shape.copy_vars(&self.gpu, vars, &mut workspace.vars_buf)?,
             CopyVarsChanged::BufferChanged
         ) {
-            buffers.bind_groups.common = Default::default();
+            workspace.bind_groups.common = Default::default();
         }
 
         // Create a command encoder and dispatch the compute work
@@ -1162,7 +1166,7 @@ impl Context {
         );
 
         // Initial buffer reset pass
-        self.reset_ctx.run(&mut encoder, buffers);
+        self.reset_ctx.run(&mut encoder, workspace);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1171,26 +1175,26 @@ impl Context {
             });
 
         // Build the common config buffer
-        let common_bind_group = buffers.bind_groups.common(self, buffers);
+        let common_bind_group = workspace.bind_groups.common(self, workspace);
         compute_pass.set_bind_group(0, common_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
             self,
-            buffers,
+            workspace,
             shape.bytecode.reg_count(),
             render_size,
             &mut compute_pass,
         );
         self.tiles_ctx.run(
             self,
-            buffers,
+            workspace,
             shape.bytecode.reg_count(),
             &mut compute_pass,
         );
         self.pixels_ctx.run(
             self,
-            buffers,
+            workspace,
             shape.bytecode.reg_count(),
             &mut compute_pass,
         );
@@ -1198,7 +1202,7 @@ impl Context {
         // Merge filled tiles from large -> small
         self.merge_ctx.run(
             self,
-            buffers,
+            workspace,
             settings.image_size,
             &mut compute_pass,
         );
@@ -1272,11 +1276,11 @@ impl MergeContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         render_size: ImageSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.merge(ctx, buffers);
+        let bind_group = workspace.bind_groups.merge(ctx, workspace);
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(
@@ -1291,16 +1295,16 @@ impl MergeContext {
 struct ResetContext;
 
 impl ResetContext {
-    fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
+    fn run(&self, encoder: &mut wgpu::CommandEncoder, workspace: &Workspace) {
         // Clear `count` and `wg_size` members of the tile output buffers
-        encoder.clear_buffer(buffers.tile64.tiles.data(), 0, Some(16));
-        encoder.clear_buffer(buffers.tile8.tiles.data(), 0, Some(16));
-        buffers.tile64.values.clear(encoder);
-        buffers.tile8.values.clear(encoder);
-        buffers.pixels.clear(encoder);
+        encoder.clear_buffer(workspace.tile64.tiles.data(), 0, Some(16));
+        encoder.clear_buffer(workspace.tile8.tiles.data(), 0, Some(16));
+        workspace.tile64.values.clear(encoder);
+        workspace.tile8.values.clear(encoder);
+        workspace.pixels.clear(encoder);
 
         // Clear the whole tile tape map (TODO is this needed?)
-        buffers.tile_tapes.clear(encoder);
+        workspace.tile_tapes.clear(encoder);
     }
 }
 
@@ -1348,8 +1352,8 @@ mod test {
         let pixel_ctx = Context::new(&gpu);
         let effects_ctx = effects::Context::new(&gpu);
 
-        let mut buf = pixel_ctx.buffers();
-        let mut merge_buf = effects_ctx.merge_buffers();
+        let mut buf = pixel_ctx.workspace();
+        let mut merge_buf = effects_ctx.merge_workspace();
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
