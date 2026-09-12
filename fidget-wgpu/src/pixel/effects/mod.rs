@@ -12,9 +12,9 @@
 //! image to be completed) would simply be blurry; with distance interpolation,
 //! it remains sharper (though not pixel-perfect).
 //!
-//! Output is stored in the [`MergeBuffers`] object, and may be accessed with
-//! [`output_distance`](MergeBuffers::output_distance) and
-//! [`output_color`](MergeBuffers::output_color).
+//! Output is stored in the [`MergeWorkspace`] object, and may be accessed with
+//! [`output_distance`](MergeWorkspace::output_distance) and
+//! [`output_color`](MergeWorkspace::output_color).
 //! Note that if color has not been computed, `output_color` will return `None`.
 use crate::{
     CopyVarsError, Gpu, RegPipeline,
@@ -97,7 +97,7 @@ tag!(
 );
 
 /// Handle to a set of buffers used when merging images
-pub struct MergeBuffers {
+pub struct MergeWorkspace {
     config: wgpu::Buffer,
     distance: FlexBuffer<PixelDistanceBufferTag>,
     color: FlexBuffer<PixelColorBufferTag>,
@@ -112,7 +112,7 @@ pub struct MergeBuffers {
     has_color: bool,
 }
 
-impl MergeBuffers {
+impl MergeWorkspace {
     /// Resets the merge buffer
     ///
     /// The next call to [`Context::submit_merge`] will clear the buffer and
@@ -222,14 +222,14 @@ impl Context {
 
     /// Submits a set of merge operations to accumulate a single image
     ///
-    /// [`MergeBuffers::reset`] should be called before the first call to
+    /// [`MergeWorkspace::reset`] should be called before the first call to
     /// `submit_merge`. For the first merge after a reset, the output buffer is
     /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
         image: &FlexBuffer<PixelBufferTag>,
         remove_nans: bool,
-        buf: &mut MergeBuffers,
+        buf: &mut MergeWorkspace,
     ) -> Result<(), MergeError> {
         let size = image.size();
         if buf.image_count > 0 {
@@ -320,8 +320,8 @@ impl Context {
         Ok(())
     }
 
-    /// Builds a new set of [`MergeBuffers`] for the given image size
-    pub fn merge_buffers(&self) -> MergeBuffers {
+    /// Builds a new set of [`MergeWorkspace`] for the given image size
+    pub fn merge_workspace(&self) -> MergeWorkspace {
         let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
             size: std::mem::size_of::<MergeConfig>() as u64,
@@ -337,7 +337,7 @@ impl Context {
         let color =
             FlexBuffer::new(&self.gpu.device, "pixel merge color", 64.into())
                 .unwrap();
-        MergeBuffers {
+        MergeWorkspace {
             config,
             distance,
             color,
@@ -348,12 +348,12 @@ impl Context {
 
     /// Submits a color evaluation pass
     ///
-    /// Image size is set from the `MergeBuffers`; the transform matrix is
+    /// Image size is set from the `MergeWorkspace`; the transform matrix is
     /// provided separately (but should be the same one used for image
     /// evaluation).
     pub fn submit_color(
         &self,
-        merge: &mut MergeBuffers,
+        merge: &mut MergeWorkspace,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
         bufs: &mut ColorWorkspace,
@@ -369,12 +369,12 @@ impl Context {
 
     /// Submits a color evaluation pass with auxiliary variables
     ///
-    /// Image size is set from the `MergeBuffers`; the transform matrix is
+    /// Image size is set from the `MergeWorkspace`; the transform matrix is
     /// provided separately (but should be the same one used for image
     /// evaluation).
     pub fn submit_color_with_vars(
         &self,
-        merge: &mut MergeBuffers,
+        merge: &mut MergeWorkspace,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
         bufs: &mut ColorWorkspace,
@@ -501,7 +501,7 @@ impl ColorContext {
 
     fn submit(
         &self,
-        image: &mut MergeBuffers,
+        image: &mut MergeWorkspace,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
         bufs: &mut ColorWorkspace,

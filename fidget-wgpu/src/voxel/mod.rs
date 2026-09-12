@@ -53,14 +53,14 @@
 //! - [`RenderShape`] contains serialized bytecode to render a particular shape.
 //!   Best practice is to rebuild it only when a shape changes (i.e. not once
 //!   per frame), although in practice it's pretty fast to construct.
-//! - [`Buffers`] contains GPU buffers needed for rendering at a particular
+//! - [`Workspace`] contains GPU buffers needed for rendering at a particular
 //!   image size.  It is primarily expensive in GPU memory, as it contains
-//!   several full-frame buffers.  Best practice is to construct one [`Buffers`]
-//!   object per worker context (or per simultaneous render); it will be
-//!   automatically resized when used.  Systems with high variability in image
-//!   size may want to periodically compare [`size`](Buffers::size) versus
-//!   [`capacity`](Buffers::capacity) and fully reallocate buffers (by
-//!   constructing a new `Buffers` object) if they get too out of whack.
+//!   several full-frame buffers.  Best practice is to construct one
+//!   [`Workspace`] object per worker context (or per simultaneous render); it
+//!   will be automatically resized when used.  Systems with high variability in
+//!   image size may want to periodically compare [`size`](Workspace::size)
+//!   versus [`capacity`](Workspace::capacity) and fully reallocate buffers (by
+//!   constructing a new `Workspace` object) if they get too out of whack.
 //! - [`RenderConfig`] sets the transform matrix for rendering.  This is cheap
 //!   to construct and could be built once per frame
 //!
@@ -68,7 +68,7 @@
 //! - Build a [`Context`]
 //! - Use [`RenderShape::new`] to convert from a
 //!   [`VmShape`](fidget_core::vm::VmShape) to a [`RenderShape`]
-//! - Use [`Context::buffers`] to get [`Buffers`] at a particular image size
+//! - Use [`Context::workspace`] to get [`Workspace`]
 //! - Use [`Gpu::read_buffer_for(buffers.output())`](Gpu::read_buffer_for) to
 //!   get an output buffer
 //! - Call [`Context::run`] or [`Context::run_async`] to get an image
@@ -93,8 +93,8 @@
 //! - Read image data back to the CPU
 //!
 //! Lower-level building blocks are also available: [`Context::submit`] submits
-//! the render operations to the GPU, and [`Buffers::output`] returns the output
-//! buffer.
+//! the render operations to the GPU, and [`Workspace::output`] returns the
+//! output buffer.
 
 use crate::{
     CopyVarsChanged, CopyVarsError, Gpu, RegPipeline, RenderShape,
@@ -228,10 +228,10 @@ impl std::fmt::Display for BufferName {
     }
 }
 
-/// Error returned when resizing a [`Buffers`] object
+/// Error returned when resizing buffers in a [`Workspace`] object
 #[derive(Debug, thiserror::Error)]
 #[error("failed to build {buf} buffer")]
-pub struct BuffersError {
+pub struct BufferError {
     /// Buffer which failed to resize
     pub buf: BufferName,
     /// Error returned by buffer resizing
@@ -247,14 +247,14 @@ pub enum SubmitError {
     MissingVar(#[from] MissingVar),
     /// Error while resizing buffers
     #[error(transparent)]
-    Buffers(#[from] BuffersError),
+    Buffer(#[from] BufferError),
 }
 
 impl From<CopyVarsError> for SubmitError {
     fn from(value: CopyVarsError) -> Self {
         match value {
             CopyVarsError::MissingVar(v) => Self::MissingVar(v),
-            CopyVarsError::BufferSize(err) => Self::Buffers(BuffersError {
+            CopyVarsError::BufferSize(err) => Self::Buffer(BufferError {
                 buf: BufferName::Vars,
                 err,
             }),
@@ -504,12 +504,12 @@ impl RootContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         reg_count: u8,
         render_size: TileRenderSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.root(ctx, buffers);
+        let bind_group = workspace.bind_groups.root(ctx, workspace);
         compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -582,11 +582,11 @@ impl RepackContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         render_size: TileRenderSize,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.repack(ctx, buffers);
+        let bind_group = workspace.bind_groups.repack(ctx, workspace);
 
         compute_pass.set_pipeline(&self.repack_pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
@@ -792,14 +792,15 @@ impl IntervalContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         strata: u64,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let strata_bytes = u64::try_from(buffers.strata_size_bytes()).unwrap();
+        let strata_bytes =
+            u64::try_from(workspace.strata_size_bytes()).unwrap();
         let offset_bytes = strata * strata_bytes;
-        let bind_group16 = buffers.bind_groups.interval16(ctx, buffers);
+        let bind_group16 = workspace.bind_groups.interval16(ctx, workspace);
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(
             1,
@@ -807,27 +808,27 @@ impl IntervalContext {
             &[u32::try_from(offset_bytes).unwrap()],
         );
         compute_pass.dispatch_workgroups_indirect(
-            buffers.tile64.strata.data(),
+            workspace.tile64.strata.data(),
             offset_bytes,
         );
 
-        let bind_group_sort16 = buffers.bind_groups.sort16(ctx, buffers);
+        let bind_group_sort16 = workspace.bind_groups.sort16(ctx, workspace);
         compute_pass.set_pipeline(&self.sort16_pipeline);
         compute_pass.set_bind_group(1, bind_group_sort16, &[]);
         compute_pass
-            .dispatch_workgroups_indirect(buffers.tile16.tiles.data(), 0);
+            .dispatch_workgroups_indirect(workspace.tile16.tiles.data(), 0);
 
-        let bind_group4 = buffers.bind_groups.interval4(ctx, buffers);
+        let bind_group4 = workspace.bind_groups.interval4(ctx, workspace);
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group4, &[0]);
         compute_pass
-            .dispatch_workgroups_indirect(buffers.tile16.sorted.data(), 0);
+            .dispatch_workgroups_indirect(workspace.tile16.sorted.data(), 0);
 
-        let bind_group_sort4 = buffers.bind_groups.sort4(ctx, buffers);
+        let bind_group_sort4 = workspace.bind_groups.sort4(ctx, workspace);
         compute_pass.set_pipeline(&self.sort4_pipeline);
         compute_pass.set_bind_group(1, bind_group_sort4, &[]);
         compute_pass
-            .dispatch_workgroups_indirect(buffers.tile4.tiles.data(), 0);
+            .dispatch_workgroups_indirect(workspace.tile4.tiles.data(), 0);
     }
 }
 
@@ -903,18 +904,18 @@ impl VoxelContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.voxel(ctx, buffers);
+        let bind_group = workspace.bind_groups.voxel(ctx, workspace);
         compute_pass.set_pipeline(self.voxel_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
         // Each workgroup is 4x4x4, i.e. covering a 4x4 splat of pixels with 4x
         // workers in the Z direction.
         compute_pass
-            .dispatch_workgroups_indirect(buffers.tile4.sorted.data(), 0);
+            .dispatch_workgroups_indirect(workspace.tile4.sorted.data(), 0);
     }
 }
 
@@ -976,17 +977,17 @@ impl NormalsContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         reg_count: u8,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.normals(ctx, buffers);
+        let bind_group = workspace.bind_groups.normals(ctx, workspace);
         compute_pass.set_pipeline(self.normals_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
         compute_pass.dispatch_workgroups(
-            buffers.image_size.width().div_ceil(8),
-            buffers.image_size.height().div_ceil(8),
+            workspace.image_size.width().div_ceil(8),
+            workspace.image_size.height().div_ceil(8),
             1,
         );
     }
@@ -1299,11 +1300,11 @@ tag!(pub GeomBufferTag, GeometryPixel, VoxelSize, STORAGE | COPY_SRC | COPY_DST,
     "Tag for a on-GPU buffer storing [`GeometryPixel`] values");
 tag!(pub(crate) VarsBufferTag, f32, usize, STORAGE | COPY_DST);
 
-/// Buffers for rendering
+/// Workspace for rendering
 ///
-/// This object is constructed by [`Context::buffers`] and may only be used with
+/// This object is constructed by [`Context::workspace`] and may only be used with
 /// that particular [`Context`].
-pub struct Buffers {
+pub struct Workspace {
     /// Image render size
     ///
     /// Note that the tile buffers below round up to the nearest root tile
@@ -1366,7 +1367,7 @@ struct BindGroups {
 }
 
 impl BindGroups {
-    fn common(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn common(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.common.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1376,22 +1377,22 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.config_buf.as_entire_binding(),
+                            resource: workspace.config_buf.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile_tapes.bind_active(),
+                            resource: workspace.tile_tapes.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.vars_buf.bind_active(),
+                            resource: workspace.vars_buf.bind_active(),
                         },
                     ],
                 })
         })
     }
 
-    fn clear(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn clear(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.clear.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1401,7 +1402,7 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers
+                            resource: workspace
                                 .tile16
                                 .tiles
                                 .data()
@@ -1410,7 +1411,7 @@ impl BindGroups {
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers
+                            resource: workspace
                                 .tile16
                                 .sorted
                                 .data()
@@ -1419,7 +1420,7 @@ impl BindGroups {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers
+                            resource: workspace
                                 .tile4
                                 .tiles
                                 .data()
@@ -1428,7 +1429,7 @@ impl BindGroups {
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: buffers
+                            resource: workspace
                                 .tile4
                                 .sorted
                                 .data()
@@ -1437,14 +1438,14 @@ impl BindGroups {
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: buffers.z_hist_buf.as_entire_binding(),
+                            resource: workspace.z_hist_buf.as_entire_binding(),
                         },
                     ],
                 })
         })
     }
 
-    fn merge(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn merge(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.merge.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1454,26 +1455,26 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile64.zmin.bind_active(),
+                            resource: workspace.tile64.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile16.zmin.bind_active(),
+                            resource: workspace.tile16.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.tile4.zmin.bind_active(),
+                            resource: workspace.tile4.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: buffers.voxels.bind_active(),
+                            resource: workspace.voxels.bind_active(),
                         },
                     ],
                 })
         })
     }
 
-    fn root(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn root(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.root.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1483,18 +1484,18 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile64.tiles.bind_active(),
+                            resource: workspace.tile64.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile64.zmax.bind_active(),
+                            resource: workspace.tile64.zmax.bind_active(),
                         },
                     ],
                 })
         })
     }
 
-    fn repack(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn repack(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.repack.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1504,23 +1505,28 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile64.tiles.bind_active(),
+                            resource: workspace.tile64.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile64.zmax.bind_active(),
+                            resource: workspace.tile64.zmax.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.tile64.strata.bind_active(),
+                            resource: workspace.tile64.strata.bind_active(),
                         },
                     ],
                 })
         })
     }
 
-    fn interval16(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
-        let strata_bytes = u64::try_from(buffers.strata_size_bytes()).unwrap();
+    fn interval16(
+        &self,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
+        let strata_bytes =
+            u64::try_from(workspace.strata_size_bytes()).unwrap();
         self.interval16.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1530,7 +1536,7 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers
+                            resource: workspace
                                 .tile64
                                 .strata
                                 .data()
@@ -1539,41 +1545,41 @@ impl BindGroups {
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile64.zmin.bind_active(),
+                            resource: workspace.tile64.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.tile16.tiles.bind_active(),
+                            resource: workspace.tile16.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: buffers.tile16.zmin.bind_active(),
+                            resource: workspace.tile16.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: buffers.z_hist_buf.slice(0..16).into(),
+                            resource: workspace.z_hist_buf.slice(0..16).into(),
                         },
                     ],
                 })
         })
     }
 
-    fn sort16(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn sort16(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.sort16.get_or_init(|| {
             Self::sort_bind_group(
                 ctx,
-                &buffers.tile16,
-                buffers.z_hist_buf.slice(0..16).into(),
+                &workspace.tile16,
+                workspace.z_hist_buf.slice(0..16).into(),
             )
         })
     }
 
-    fn sort4(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn sort4(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.sort4.get_or_init(|| {
             Self::sort_bind_group(
                 ctx,
-                &buffers.tile4,
-                buffers.z_hist_buf.slice(256..320).into(),
+                &workspace.tile4,
+                workspace.z_hist_buf.slice(256..320).into(),
             )
         })
     }
@@ -1605,7 +1611,11 @@ impl BindGroups {
             })
     }
 
-    fn interval4(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn interval4(
+        &self,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.interval4.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1615,30 +1625,33 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile16.sorted.bind_active(),
+                            resource: workspace.tile16.sorted.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile16.zmin.bind_active(),
+                            resource: workspace.tile16.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.tile4.tiles.bind_active(),
+                            resource: workspace.tile4.tiles.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: buffers.tile4.zmin.bind_active(),
+                            resource: workspace.tile4.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: buffers.z_hist_buf.slice(256..320).into(),
+                            resource: workspace
+                                .z_hist_buf
+                                .slice(256..320)
+                                .into(),
                         },
                     ],
                 })
         })
     }
 
-    fn voxel(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn voxel(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
         self.voxel.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1648,22 +1661,26 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.tile4.sorted.bind_active(),
+                            resource: workspace.tile4.sorted.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.tile4.zmin.bind_active(),
+                            resource: workspace.tile4.zmin.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: buffers.voxels.bind_active(),
+                            resource: workspace.voxels.bind_active(),
                         },
                     ],
                 })
         })
     }
 
-    fn normals(&self, ctx: &Context, buffers: &Buffers) -> &wgpu::BindGroup {
+    fn normals(
+        &self,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.normals.get_or_init(|| {
             ctx.gpu
                 .device
@@ -1673,11 +1690,11 @@ impl BindGroups {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: buffers.voxels.bind_active(),
+                            resource: workspace.voxels.bind_active(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: buffers.geom.bind_active(),
+                            resource: workspace.geom.bind_active(),
                         },
                     ],
                 })
@@ -1685,7 +1702,7 @@ impl BindGroups {
     }
 }
 
-impl Buffers {
+impl Workspace {
     /// Returns the current image size
     pub fn image_size(&self) -> VoxelSize {
         self.image_size
@@ -1695,7 +1712,7 @@ impl Buffers {
     ///
     /// This is intended for subsequent shaders which want to use the
     /// [`GeometryPixel`] image data without copying to the CPU.  It requires a
-    /// exclusive borrow of the `Buffers` object (and then extends that
+    /// exclusive borrow of the `Workspace` object (and then extends that
     /// lifetime) so that other callers can't simultaneously touch the buffer.
     pub fn output(&mut self) -> &FlexBuffer<GeomBufferTag> {
         &self.geom
@@ -1832,9 +1849,9 @@ impl Buffers {
         &mut self,
         device: &wgpu::Device,
         image_size: VoxelSize,
-    ) -> Result<(), BuffersError> {
+    ) -> Result<(), BufferError> {
         let render_size = TileRenderSize::from(image_size);
-        let Buffers {
+        let Workspace {
             image_size: image_size_ref,
             config_buf: _,
             z_hist_buf: _,
@@ -1856,37 +1873,37 @@ impl Buffers {
         *image_size_ref = image_size;
         tile_tapes
             .grow_to_fit(device, Self::tile_tapes_buf_size(render_size))
-            .map_err(|err| BuffersError {
+            .map_err(|err| BufferError {
                 buf: BufferName::TileTapes,
                 err,
             })?;
         tile64
             .grow_to_fit(device, render_size)
-            .map_err(|e| BuffersError {
+            .map_err(|e| BufferError {
                 buf: BufferName::Tile64(e.buf),
                 err: e.err,
             })?;
         tile16
             .grow_to_fit(device, render_size)
-            .map_err(|e| BuffersError {
+            .map_err(|e| BufferError {
                 buf: BufferName::Tile16(e.buf),
                 err: e.err,
             })?;
         tile4
             .grow_to_fit(device, render_size)
-            .map_err(|e| BuffersError {
+            .map_err(|e| BufferError {
                 buf: BufferName::Tile4(e.buf),
                 err: e.err,
             })?;
 
         voxels
             .grow_to_fit(device, Self::voxels_buf_size(render_size))
-            .map_err(|err| BuffersError {
+            .map_err(|err| BufferError {
                 buf: BufferName::Voxels,
                 err,
             })?;
         geom.grow_to_fit(device, image_size)
-            .map_err(|err| BuffersError {
+            .map_err(|err| BufferError {
                 buf: BufferName::Geom,
                 err,
             })?;
@@ -1896,7 +1913,7 @@ impl Buffers {
     /// Returns total allocated size (in bytes)
     pub fn capacity(&self) -> u64 {
         // Destructure to make sure we take all members into account
-        let Buffers {
+        let Workspace {
             image_size: _,
             config_buf,
             z_hist_buf,
@@ -1923,7 +1940,7 @@ impl Buffers {
     /// Returns total active size (in bytes)
     pub fn size(&self) -> u64 {
         // Destructure to make sure we take all members into account
-        let Buffers {
+        let Workspace {
             image_size: _,
             config_buf,
             vars_buf,
@@ -1992,13 +2009,13 @@ impl Context {
         }
     }
 
-    /// Builds a new [`Buffers`] object for use in rendering
+    /// Builds a new [`Workspace`] object for use in rendering
     ///
     /// The buffers are initialized with a dummy size and resized automatically
     /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
     /// [`submit`](Self::submit)).
-    pub fn buffers(&self) -> Buffers {
-        Buffers::new(&self.gpu.device)
+    pub fn workspace(&self) -> Workspace {
+        Workspace::new(&self.gpu.device)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2008,11 +2025,11 @@ impl Context {
     pub fn run(
         &self,
         shape: &RenderShape,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.run_with_vars(shape, &Default::default(), buffers, out, settings)
+        self.run_with_vars(shape, &Default::default(), workspace, out, settings)
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2023,12 +2040,12 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, &settings)?;
-        self.gpu.copy(&buffers.geom, out);
+        self.submit_with_vars(shape, vars, workspace, &settings)?;
+        self.gpu.copy(&workspace.geom, out);
         let image = self.gpu.map_image(out);
         Ok(image.image())
     }
@@ -2039,14 +2056,14 @@ impl Context {
     pub async fn run_async(
         &self,
         shape: &RenderShape,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.run_with_vars_async(
             shape,
             &Default::default(),
-            buffers,
+            workspace,
             out,
             settings,
         )
@@ -2060,12 +2077,12 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, buffers, &settings)?;
-        self.gpu.copy(&buffers.geom, out);
+        self.submit_with_vars(shape, vars, workspace, &settings)?;
+        self.gpu.copy(&workspace.geom, out);
         let image = self.gpu.map_image_async(out).await;
         Ok(image.image())
     }
@@ -2073,14 +2090,14 @@ impl Context {
     /// Submits a single image to be rendered on the GPU
     ///
     /// The resulting image (as a buffer of [`GeometryPixel`] data) is available
-    /// on the GPU in [`buffers.output()`](Buffers::output).
+    /// on the GPU in [`workspace.output()`](Workspace::output).
     pub fn submit(
         &self,
         shape: &RenderShape,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        self.submit_with_vars(shape, &Default::default(), buffers, settings)
+        self.submit_with_vars(shape, &Default::default(), workspace, settings)
     }
 
     /// Submits a single image to be rendered on the GPU, with extra variables
@@ -2090,14 +2107,34 @@ impl Context {
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
-        buffers: &mut Buffers,
+        workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        buffers.set_image_size(&self.gpu.device, settings.image_size)?;
-        let render_size = TileRenderSize::from(buffers.image_size);
+        // Create a command encoder and dispatch the compute work
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
+        self.encode_with_vars(shape, vars, workspace, settings, &mut encoder)?;
+        self.gpu.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Encodes a single image to be rendered on the GPU, with extra variables
+    ///
+    /// See [`submit`](Self::submit) for additional details.
+    pub fn encode_with_vars(
+        &self,
+        shape: &RenderShape,
+        vars: &ShapeVars<f32>,
+        workspace: &mut Workspace,
+        settings: &RenderConfig,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), SubmitError> {
+        workspace.set_image_size(&self.gpu.device, settings.image_size)?;
+        let render_size = TileRenderSize::from(workspace.image_size);
 
         let mat =
-            settings.world_to_model * buffers.image_size.screen_to_world();
+            settings.world_to_model * workspace.image_size.screen_to_world();
 
         // Divide by 2 to go from `u32` -> `TapeWord`
         let start_offset = u32::try_from(shape.bytecode.len()).unwrap() / 2;
@@ -2111,9 +2148,9 @@ impl Context {
             ],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
-                buffers.image_size.width(),
-                buffers.image_size.height(),
-                buffers.image_size.depth(),
+                workspace.image_size.width(),
+                workspace.image_size.height(),
+                workspace.image_size.depth(),
             ],
             tape_data_offset: start_offset,
             root_tape_len: start_offset,
@@ -2126,7 +2163,7 @@ impl Context {
                 .gpu
                 .queue
                 .write_buffer_with(
-                    &buffers.config_buf,
+                    &workspace.config_buf,
                     0,
                     ((config_len + shape.bytecode.as_bytes().len()) as u64)
                         .try_into()
@@ -2144,19 +2181,14 @@ impl Context {
         // Copy vars (if present), then reset relevant bind groups if the buffer
         // size has changed.
         if matches!(
-            shape.copy_vars(&self.gpu, vars, &mut buffers.vars_buf)?,
+            shape.copy_vars(&self.gpu, vars, &mut workspace.vars_buf)?,
             CopyVarsChanged::BufferChanged
         ) {
-            buffers.bind_groups.common = Default::default();
+            workspace.bind_groups.common = Default::default();
         }
 
-        // Create a command encoder and dispatch the compute work
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-
         // Initial buffer reset pass
-        self.reset_ctx.run(&mut encoder, buffers);
+        self.reset_ctx.run(encoder, workspace);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -2165,53 +2197,51 @@ impl Context {
             });
 
         // Build the common config buffer
-        let common_bind_group = buffers.bind_groups.common(self, buffers);
+        let common_bind_group = workspace.bind_groups.common(self, workspace);
         compute_pass.set_bind_group(0, common_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
             self,
-            buffers,
+            workspace,
             shape.bytecode.reg_count(),
             render_size,
             &mut compute_pass,
         );
         // Repack root tiles into strata
         self.repack_ctx
-            .run(self, buffers, render_size, &mut compute_pass);
+            .run(self, workspace, render_size, &mut compute_pass);
 
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         let strata_count = u64::from(render_size.depth()).div_ceil(64);
         for strata in 0..strata_count {
             self.interval_ctx.run(
                 self,
-                buffers,
+                workspace,
                 strata,
                 shape.bytecode.reg_count(),
                 &mut compute_pass,
             );
             self.voxel_ctx.run(
                 self,
-                buffers,
+                workspace,
                 shape.bytecode.reg_count(),
                 &mut compute_pass,
             );
 
             // Merge filled tiles from large -> small, populating the heightmap
-            self.merge_ctx.run(self, buffers, &mut compute_pass);
+            self.merge_ctx.run(self, workspace, &mut compute_pass);
             self.normals_ctx.run(
                 self,
-                buffers,
+                workspace,
                 shape.bytecode.reg_count(),
                 &mut compute_pass,
             );
 
-            self.clear_ctx.run(self, buffers, &mut compute_pass);
+            self.clear_ctx.run(self, workspace, &mut compute_pass);
         }
-        drop(compute_pass);
 
         // Submit the commands and wait for the GPU to complete
-        self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
 }
@@ -2277,10 +2307,10 @@ impl ClearContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = buffers.bind_groups.clear(ctx, buffers);
+        let bind_group = workspace.bind_groups.clear(ctx, workspace);
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(1, 1, 1);
@@ -2348,11 +2378,11 @@ impl MergeContext {
     fn run(
         &self,
         ctx: &Context,
-        buffers: &Buffers,
+        workspace: &Workspace,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let render_size = buffers.render_size();
-        let bind_group = buffers.bind_groups.merge(ctx, buffers);
+        let render_size = workspace.render_size();
+        let bind_group = workspace.bind_groups.merge(ctx, workspace);
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(
@@ -2366,32 +2396,32 @@ impl MergeContext {
 struct ResetContext;
 
 impl ResetContext {
-    fn run(&self, encoder: &mut wgpu::CommandEncoder, buffers: &Buffers) {
+    fn run(&self, encoder: &mut wgpu::CommandEncoder, workspace: &Workspace) {
         // Clear only the `count` member of the tile64 `tiles_out` buffer
-        encoder.clear_buffer(buffers.tile64.tiles.data(), 12, Some(4));
+        encoder.clear_buffer(workspace.tile64.tiles.data(), 12, Some(4));
 
         // Per-strata counters may now be at a different location in memory if
         // we're using the buffers for multiple renders of different sizes!  To
         // be safe, we'll clear them here, rather than in a render pass.
-        let strata_size_bytes = buffers.strata_size_bytes();
-        for s in 0..buffers.render_size().nz() {
+        let strata_size_bytes = workspace.strata_size_bytes();
+        for s in 0..workspace.render_size().nz() {
             encoder.clear_buffer(
-                buffers.tile64.strata.data(),
+                workspace.tile64.strata.data(),
                 u64::from(s) * u64::try_from(strata_size_bytes).unwrap(),
                 Some(16),
             );
         }
 
         // Clear all of the heightmaps and output maps
-        buffers.tile64.zmin.clear(encoder);
-        buffers.tile64.zmax.clear(encoder);
-        buffers.tile16.zmin.clear(encoder);
-        buffers.tile4.zmin.clear(encoder);
-        buffers.voxels.clear(encoder);
-        buffers.geom.clear(encoder);
+        workspace.tile64.zmin.clear(encoder);
+        workspace.tile64.zmax.clear(encoder);
+        workspace.tile16.zmin.clear(encoder);
+        workspace.tile4.zmin.clear(encoder);
+        workspace.voxels.clear(encoder);
+        workspace.geom.clear(encoder);
 
         // Clear the whole tile tape map (TODO is this needed?)
-        buffers.tile_tapes.clear(encoder);
+        workspace.tile_tapes.clear(encoder);
 
         // tiles / sorted counters and z_hist are reset in clear shader
     }
@@ -2479,9 +2509,9 @@ mod test {
         let voxel_ctx = Context::new(&gpu);
         let effects_ctx = effects::Context::new(&gpu);
 
-        let mut buf = voxel_ctx.buffers();
-        let mut merge_buf = effects_ctx.merge_buffers();
-        let mut shade_buf = effects_ctx.shade_buffers();
+        let mut buf = voxel_ctx.workspace();
+        let mut merge_buf = effects_ctx.merge_workspace();
+        let mut shade_buf = effects_ctx.shade_workspace();
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
@@ -2512,7 +2542,7 @@ mod test {
         let mut color_workspace = effects_ctx.color_workspace();
 
         // Compute SSAO buffer
-        let mut ssao_buf = effects_ctx.ssao_buffers();
+        let mut ssao_buf = effects_ctx.ssao_workspace();
         effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
 
         // Compute per-pixel colors

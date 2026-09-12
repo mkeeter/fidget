@@ -396,11 +396,11 @@ fn run3d_wgpu(
     };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let mut buffers = ctx.buffers();
-    let mut out = gpu.read_buffer_for(buffers.output());
+    let mut workspace = ctx.workspace();
+    let mut out = gpu.read_buffer_for(workspace.output());
     let shape = fidget::wgpu::RenderShape::new(&shape)?;
     for _ in 0..settings.n {
-        image = ctx.run(&shape, &mut buffers, &mut out, cfg)?;
+        image = ctx.run(&shape, &mut workspace, &mut out, cfg)?;
     }
     let _ = image;
     info!(
@@ -410,16 +410,16 @@ fn run3d_wgpu(
     );
 
     let effects = fidget::wgpu::voxel::effects::Context::new(&gpu);
-    let mut merge_buf = effects.merge_buffers();
-    let mut ssao_buf = effects.ssao_buffers();
-    let mut shade_buf = effects.shade_buffers();
+    let mut merge_buf = effects.merge_workspace();
+    let mut ssao_buf = effects.ssao_workspace();
+    let mut shade_buf = effects.shade_workspace();
 
     let start = std::time::Instant::now();
     use fidget::wgpu::voxel::effects::MergeSettings;
     let out_bytes = match mode {
         RenderMode3D::Heightmap => {
             effects.submit_merge(
-                buffers.output(),
+                workspace.output(),
                 MergeSettings {
                     denoise: false,
                     z_scale: zflatten,
@@ -434,7 +434,7 @@ fn run3d_wgpu(
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             effects.submit_merge(
-                buffers.output(),
+                workspace.output(),
                 MergeSettings {
                     denoise,
                     z_scale: zflatten,
@@ -447,7 +447,7 @@ fn run3d_wgpu(
         }
         RenderMode3D::RawOcclusion { denoise } => {
             effects.submit_merge(
-                buffers.output(),
+                workspace.output(),
                 MergeSettings {
                     denoise,
                     z_scale: zflatten,
@@ -460,7 +460,7 @@ fn run3d_wgpu(
         }
         RenderMode3D::Shaded { denoise, ssao } => {
             effects.submit_merge(
-                buffers.output(),
+                workspace.output(),
                 MergeSettings {
                     denoise,
                     z_scale: zflatten,
@@ -688,7 +688,7 @@ fn run2d_wgpu(
     };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let mut buffers = ctx.buffers();
+    let mut buffers = ctx.workspace();
     let mut out = gpu.read_buffer_for(buffers.output());
     let shape = fidget::wgpu::RenderShape::new(&shape)?;
     let mut postprocess_time = std::time::Duration::ZERO;

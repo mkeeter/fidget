@@ -1,4 +1,66 @@
 //! Shader generation and WGPU-based image rendering
+//!
+//! # API design
+//! Using GPUs is complicated<sup>[citation needed]</sup>.  The APIs in this
+//! crate try to strike a balance between ease of use and efficiency.  As
+//! always, feel free to open an issue or discussion if the APIs don't work for
+//! you; they were codesigned along with
+//! [Halfspace](https://github.com/mkeeter/halfspace), and may not yet be
+//! suitable for every use case.
+//!
+//! ## Object types
+//! All of the modules use similar patterns of objects:
+//!
+//! - The [`Gpu`] object is passed around to provide device and queues
+//! - A `Context` object contains pipelines
+//! - A `Workspace` object contains buffers used when rendering
+//! - An output buffer can be read back to the CPU or passed to a subsequent
+//!   render pipeline
+//!
+//! ### Context objects
+//! A context object contains GPU pipelines and allow users to dispatch work to
+//! the GPU.  Voxel and pixel rendering are managed by [`voxel::Context`] and
+//! [`pixel::Context`] respectively.  Post-processing is done by
+//! [`voxel::effects::Context`] and [`pixel::effects::Context`].
+//!
+//! Users are expected to create one (of each) context object per thread or
+//! worker, since GPU resources can't be shared.
+//!
+//! Context objects have two flavors of functions.  At the highest level, `run`
+//! and `run_async` functions perform rendering and copy data back to the CPU
+//! (e.g. [`voxel::Context::run`] and [`run_async`](voxel::Context::run_async)).
+//! To simply submit work to the GPU, use a `submit` function (e.g.
+//! [`voxel::Context::submit`]).
+//!
+//! ### Workspace objects
+//! Workspace objects contain all of the buffers that are used when dispatching
+//! work to the GPU.  They are also per-thread (or per-worker).  You may have
+//! more than one per thread if you want to dispatch multiple jobs
+//! simultaneously; it's your computer.
+//!
+//! Workspaces resize themselves automatically when used in rendering.  They
+//! typically have [`size()`](voxel::Workspace::size) (active bytes) and
+//! [`capacity()`](voxel::Workspace::capacity) (total allocated bytes)
+//! functions; users may want to check for overly large ratios and recreate
+//! workspaces.
+//!
+//! Workspaces are stateful; after they are used in a `submit` function, they
+//! will contain data in a GPU buffer.  The output buffer is typically accessed
+//! with the `output()` function, e.g. [`voxel::Workspace::output`].
+//!
+//! ### Reading data from buffers
+//! The output of a workspace is a [`FlexBuffer`](crate::buf::FlexBuffer)
+//! (indeed, they are used pervasively throughout this crate).  Output buffers
+//! are created with `STORAGE | COPY_SRC`.  Reading data back to the CPU is a
+//! three-part process:
+//!
+//! - Create a CPU-readable buffer with [`Gpu::read_buffer_for`]
+//! - Copy data with [`Gpu::copy`]
+//! - Map the readable buffer with [`Gpu::map`] or [`Gpu::map_async`]
+//!
+//! For quick debugging, [`Gpu::read_vec`] does all of these steps.  You
+//! wouldn't want to use in a tight loop, since it allocates a GPU buffer on
+//! each call.
 #![warn(missing_docs)]
 
 use fidget_bytecode::{Bytecode, ReservedRegister};
