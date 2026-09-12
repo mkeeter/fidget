@@ -73,7 +73,6 @@ use fidget_core::{
 use fidget_raster::RenderSize;
 
 use heck::ToShoutySnakeCase;
-use std::collections::BTreeMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub mod buf;
@@ -358,15 +357,20 @@ impl Gpu {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Container of multiple pipelines, parameterized by register count
-pub(crate) struct RegPipeline(BTreeMap<u8, wgpu::ComputePipeline>);
+pub(crate) struct RegPipeline {
+    thunk: Box<dyn Fn(u8) -> wgpu::ComputePipeline>,
+    cache:
+        [std::cell::OnceCell<wgpu::ComputePipeline>; REG_PIPELINE_SIZES.len()],
+}
+
+const REG_PIPELINE_SIZES: &[u8] = &[8, 16, 32, 64, 128, 192, 255];
 
 impl RegPipeline {
-    pub fn build<F: Fn(u8) -> wgpu::ComputePipeline>(builder: F) -> Self {
-        let mut out = BTreeMap::new();
-        for reg_count in [8, 16, 32, 64, 128, 192, 255] {
-            out.insert(reg_count, builder(reg_count));
+    pub fn build(builder: Box<dyn Fn(u8) -> wgpu::ComputePipeline>) -> Self {
+        Self {
+            thunk: builder,
+            cache: std::array::from_fn(|_| Default::default()),
         }
-        Self(out)
     }
 
     /// Returns the pipeline with sufficient registers to render `reg_count`
@@ -374,13 +378,12 @@ impl RegPipeline {
     /// # Panics
     /// If `reg_count` is 256 (which is not allowed in bytecode tapes)
     pub fn get(&self, reg_count: u8) -> &wgpu::ComputePipeline {
-        let (r, v) = self
-            .0
-            .range(reg_count..)
-            .next()
+        let (i, r) = REG_PIPELINE_SIZES
+            .iter()
+            .enumerate()
+            .find(|(_i, r)| reg_count <= **r)
             .expect("bytecode tape cannot use more than 255 registers");
-        assert!(*r >= reg_count);
-        v
+        self.cache[i].get_or_init(|| (*self.thunk)(*r))
     }
 }
 
