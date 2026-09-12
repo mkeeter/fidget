@@ -475,14 +475,15 @@ impl ColorContext {
                 ],
                 immediate_size: 0u32,
             });
-        let color_pipeline = RegPipeline::build(|reg_count| {
+        let device_ = device.clone();
+        let color_pipeline = RegPipeline::build(Box::new(move |reg_count| {
             let shader_code = color_shader(reg_count);
             let shader_module =
-                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
                     source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                 });
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device_.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(&format!("color ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
@@ -490,7 +491,7 @@ impl ColorContext {
                 compilation_options: Default::default(),
                 cache: None,
             })
-        });
+        }));
 
         Self {
             config_bind_group_layout,

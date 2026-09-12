@@ -162,14 +162,15 @@ impl RootContext {
                 immediate_size: 0u32,
             });
 
-        let root_pipeline = RegPipeline::build(|reg_count| {
+        let device_ = device.clone();
+        let root_pipeline = RegPipeline::build(Box::new(move |reg_count| {
             let shader_code = interval_root_shader(reg_count);
             let shader_module =
-                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
                     source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                 });
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device_.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(&format!("interval root ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
@@ -177,7 +178,7 @@ impl RootContext {
                 compilation_options: Default::default(),
                 cache: None,
             })
-        });
+        }));
 
         Self {
             bind_group_layout,
@@ -239,14 +240,15 @@ impl IntervalTilesContext {
                 immediate_size: 0u32,
             });
 
-        let tiles_pipeline = RegPipeline::build(|reg_count| {
+        let device_ = device.clone();
+        let tiles_pipeline = RegPipeline::build(Box::new(move |reg_count| {
             let shader_code = interval_tiles_shader(reg_count);
             let shader_module =
-                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
                     source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                 });
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device_.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(&format!("interval tiles ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
@@ -254,7 +256,7 @@ impl IntervalTilesContext {
                 compilation_options: Default::default(),
                 cache: None,
             })
-        });
+        }));
 
         Self {
             bind_group_layout,
@@ -314,14 +316,15 @@ impl PixelTilesContext {
                 immediate_size: 0u32,
             });
 
-        let tiles_pipeline = RegPipeline::build(|reg_count| {
+        let device_ = device.clone();
+        let tiles_pipeline = RegPipeline::build(Box::new(move |reg_count| {
             let shader_code = pixel_tiles_shader(reg_count);
             let shader_module =
-                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
                     source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                 });
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device_.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(&format!("pixel tiles ({reg_count})")),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
@@ -329,7 +332,7 @@ impl PixelTilesContext {
                 compilation_options: Default::default(),
                 cache: None,
             })
-        });
+        }));
 
         Self {
             bind_group_layout,
