@@ -491,8 +491,6 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::CompareImmReg(out, arg, imm) => {
                     v[out] = Interval::compare(imm, v[arg]);
                 }
-                // Mix operations may produce literally anything, unless the
-                // interval is a single value
                 RegOp::MixRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs].mix(v[rhs]);
                 }
