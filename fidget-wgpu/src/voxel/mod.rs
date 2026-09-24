@@ -2132,11 +2132,10 @@ impl Context {
         workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        // Create a command encoder and dispatch the compute work
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
-        self.encode_with_vars(shape, vars, workspace, settings, &mut encoder)?;
+        self.encode(shape, vars, workspace, settings, &mut encoder)?;
         self.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
     }
@@ -2144,7 +2143,7 @@ impl Context {
     /// Encodes a single image to be rendered on the GPU, with extra variables
     ///
     /// See [`submit`](Self::submit) for additional details.
-    pub fn encode_with_vars(
+    pub fn encode(
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,

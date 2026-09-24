@@ -26,11 +26,18 @@
 //! Users are expected to create one (of each) context object per thread or
 //! worker, since GPU resources can't be shared.
 //!
-//! Context objects have two flavors of functions.  At the highest level, `run`
-//! and `run_async` functions perform rendering and copy data back to the CPU
-//! (e.g. [`voxel::Context::run`] and [`run_async`](voxel::Context::run_async)).
-//! To simply submit work to the GPU, use a `submit` function (e.g.
-//! [`voxel::Context::submit`]).
+//! Context objects have three flavors of functions:
+//!
+//! - At the highest level, `run` and `run_async` functions perform rendering
+//!   and copy data back to the CPU (e.g. [`voxel::Context::run`] and
+//!   [`run_async`](voxel::Context::run_async)).
+//! - To simply submit work to the GPU, use a `submit` function (e.g.
+//!   [`voxel::Context::submit`]).
+//! - At the lowest level, to encode a rendering operation into a WebGPU
+//!   `CommandEncoder`, use an `encode` function (e.g.
+//!   [`voxel::Context::encode`]).  Note that encode-flavored functions may
+//!   still use the GPU device and queue from the context, e.g. to allocate
+//!   buffers or copy configuration blobs.
 //!
 //! ### Workspace objects
 //! Workspace objects contain all of the buffers that are used when dispatching
