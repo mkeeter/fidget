@@ -102,6 +102,8 @@ pub struct MergeWorkspace {
     distance: FlexBuffer<PixelDistanceBufferTag>,
     color: FlexBuffer<PixelColorBufferTag>,
 
+    color_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
+
     /// Number of images merged together
     image_count: usize,
 
@@ -242,12 +244,25 @@ impl Context {
                 .into());
             }
         } else {
-            buf.distance
-                .grow_to_fit(&self.gpu.device, size)
-                .map_err(MergeError::OutputSize)?;
-            buf.color
-                .grow_to_fit(&self.gpu.device, size)
-                .map_err(MergeError::OutputSize)?;
+            // Resize the buffers, clearing the bind group if either has
+            // changed.  It would be incorrect for one to change and not the
+            // other, so we also have an assertion to make sure they agree!
+            let distance_changed = !matches!(
+                buf.distance
+                    .grow_to_fit(&self.gpu.device, size)
+                    .map_err(MergeError::OutputSize)?,
+                std::cmp::Ordering::Equal
+            );
+            let color_changed = !matches!(
+                buf.color
+                    .grow_to_fit(&self.gpu.device, size)
+                    .map_err(MergeError::OutputSize)?,
+                std::cmp::Ordering::Equal
+            );
+            assert_eq!(distance_changed, color_changed, "mismatched buffers");
+            if distance_changed {
+                buf.color_bind_group = Default::default();
+            }
         }
         buf.has_color = false;
         let mut encoder = self.gpu.device.create_command_encoder(
@@ -341,6 +356,7 @@ impl Context {
             config,
             distance,
             color,
+            color_bind_group: Default::default(),
             image_count: 0,
             has_color: false,
         }
@@ -555,12 +571,7 @@ impl ColorContext {
                     timestamp_writes: None, // TODO add timestamps?
                 });
             compute_pass.set_bind_group(0, config_bg, &[]);
-
-            // TODO this creates a bind group for every evaluation, instead of
-            // caching it somewhere.  However, *where* to cache it is not
-            // obvious, because it combines fields from two different buffer
-            // objects.
-            let image_bg =
+            let image_bg = image.color_bind_group.get_or_init(|| {
                 gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("color image bind group"),
                     layout: &self.image_bind_group_layout,
@@ -574,8 +585,9 @@ impl ColorContext {
                             resource: image.color.bind_active(),
                         },
                     ],
-                });
-            compute_pass.set_bind_group(1, &image_bg, &[]);
+                })
+            });
+            compute_pass.set_bind_group(1, image_bg, &[]);
             compute_pass
                 .set_pipeline(self.color_pipeline.get(shape.reg_count()));
             compute_pass.dispatch_workgroups(
