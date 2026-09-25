@@ -81,7 +81,7 @@ strum_macros = { version = "0.27.2" } # see fidget#371
 thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-wgpu = "29.0.0"
+wgpu = "30.0.0"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Memory"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 
