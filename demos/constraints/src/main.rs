@@ -106,7 +106,7 @@ impl ConstraintsApp {
 
 impl eframe::App for ConstraintsApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let (response, painter) =
                 ui.allocate_painter(Vec2::new(SIZE, SIZE), Sense::hover());
 

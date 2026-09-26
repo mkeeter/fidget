@@ -25,7 +25,7 @@ members = [
 exclude = ["demos/web-editor/crate"]
 
 [workspace.package]
-rust-version = "1.92"
+rust-version = "1.95"
 edition = "2024"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
@@ -56,9 +56,9 @@ clap = { version = "4", features = ["derive"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-channel = "0.5"
 document-features = "0.2"
-dynasmrt = "5.0"
-eframe = { version = "0.34", features = ["wgpu"] }
-enum-map = "2.7.3"
+dynasmrt = "5.1"
+eframe = { version = "0.36", features = ["wgpu"] }
+enum-map = "3.1.0"
 facet = { version = "0.46", features = ["reflect", "doc"] }
 env_logger = "0.11"
 flume = { version = "0.12", features = ["async"] }
@@ -66,22 +66,22 @@ heck = { version = "0.5" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 log = "0.4"
-naga = { version = "29.0.0", features = ["wgsl-in"] }
-nalgebra = { version = "0.35", features = ["serde-serialize"] }
+naga = { version = "30.0.0", default-features = false, features = ["wgsl-in"] }
+nalgebra = { version = "0.35", default-features = false, features = ["std", "serde-serialize"] }
 notify = "8.0"
 ordered-float = "5"
 rand = "0.10"
-pollster = "0.4.0"
+pollster = "1.0.1"
 rayon = "1.10"
 rhai = { version = "1.24", features = ["sync"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
 strum = { version = "0.28", features = ["derive"] }
-strum_macros = { version = "0.27.2" } # see fidget#371
+strum_macros = { version = "0.28" } # see fidget#371
 thiserror = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-wgpu = "29.0.0"
+wgpu = "30.0.1"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Memory"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 
