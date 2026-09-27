@@ -1,3 +1,6 @@
+# 0.5.2
+- Makes `fidget::wgpu::buf::FlexBuffer::new` public
+
 # 0.5.1
 The most significant change in this version is unlocking all-GPU rendering: we
 can start with a shape on the CPU, then perform a full rendering pipeline

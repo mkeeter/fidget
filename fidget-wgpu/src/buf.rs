@@ -188,7 +188,8 @@ pub(crate) enum ConfigBufferWrite {
 }
 
 impl<T: BufferTag> FlexBuffer<T> {
-    pub(crate) fn new(
+    /// Builds a new `FlexBuffer` with the given size
+    pub fn new(
         device: &wgpu::Device,
         name: impl AsRef<str>,
         size: T::S,
