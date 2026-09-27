@@ -253,7 +253,7 @@ impl<T: BufferTag> FlexBuffer<T> {
     ///
     /// Returns a comparison between the previous item count and the new item
     /// count (set by `size`).
-    pub(crate) fn grow_to_fit(
+    pub fn grow_to_fit(
         &mut self,
         device: &wgpu::Device,
         size: T::S,
