@@ -577,7 +577,7 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "document-features",
  "fidget-bytecode",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-bytecode"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "fidget-core",
  "serde",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "facet",
  "getrandom 0.2.17",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-gui"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "fidget-core",
  "nalgebra",
@@ -635,7 +635,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-jit"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "arrayvec",
  "dynasmrt",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-mesh"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "arrayvec",
  "fidget-core",
@@ -675,7 +675,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-rhai"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "enum-map",
  "facet",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-shapes"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "enum-map",
  "facet",
@@ -702,7 +702,7 @@ dependencies = [
 
 [[package]]
 name = "fidget-solver"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "fidget-core",
  "nalgebra",

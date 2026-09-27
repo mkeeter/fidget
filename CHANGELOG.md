@@ -1,4 +1,4 @@
-# 0.5.1 (unpublished)
+# 0.5.1
 The most significant change in this version is unlocking all-GPU rendering: we
 can start with a shape on the CPU, then perform a full rendering pipeline
 (including shading and post-processing) entirely on the GPU.  The APIs were
@@ -38,10 +38,6 @@ out into a separate section below.  It also includes a bunch of other changes!
       **agree exactly** with the canonical operator definition.  This required
       removing the JIT implementation for `modulo`, which was not exactly in
       agreement with the non-JIT implementation.
-- Add `fidget_bytecode::Bytecode::build_with_input_map` for building a
-  `Bytecode` object with a particular remapping function for inputs.  This is
-  helpful if you're going to combine multiple bytecode tapes and want them to
-  share a common input indexing order.
 
 ## `fidget::wgpu` changes
 This section may not be all-inclusive; sorry!  I _did_ warn you that
