@@ -188,7 +188,8 @@ pub(crate) enum ConfigBufferWrite {
 }
 
 impl<T: BufferTag> FlexBuffer<T> {
-    pub(crate) fn new(
+    /// Builds a new `FlexBuffer` with the given size
+    pub fn new(
         device: &wgpu::Device,
         name: impl AsRef<str>,
         size: T::S,
@@ -252,7 +253,7 @@ impl<T: BufferTag> FlexBuffer<T> {
     ///
     /// Returns a comparison between the previous item count and the new item
     /// count (set by `size`).
-    pub(crate) fn grow_to_fit(
+    pub fn grow_to_fit(
         &mut self,
         device: &wgpu::Device,
         size: T::S,
