@@ -275,7 +275,7 @@ impl<T: BufferTag> FlexBuffer<T> {
 
     /// Returns a binding resource for the active slice of the buffer
     pub fn bind_active(&self) -> wgpu::BindingResource<'_> {
-        self.data.slice(0..self.size_bytes()).into()
+        self.data.slice(0..self.size_bytes()).try_into().unwrap()
     }
 
     /// Returns the total buffer capacity (in bytes)
@@ -357,7 +357,7 @@ where
     pub fn to_vec(&self) -> Vec<T::T> {
         // We don't want to use the buffer's size, because it's rounded up to a
         // multiple of 4; use the raw item size (in bytes) instead.
-        let slice = self.slice.get_mapped_range();
+        let slice = self.slice.get_mapped_range().unwrap();
         let n = self.buf.size().item_count() * std::mem::size_of::<T::T>();
         <[T::T]>::ref_from_bytes(&slice[..n]).unwrap().to_owned()
     }

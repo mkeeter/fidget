@@ -989,6 +989,7 @@ impl SsaoContext {
             fidget_raster::effects::ssao_kernel(KERNEL_SIZE);
         ssao_kernel
             .get_mapped_range_mut(0..ssao_kernel_size_bytes as u64)
+            .unwrap()
             .copy_from_slice(ssao_kernel_values.as_slice().as_bytes());
         ssao_kernel.unmap();
 
@@ -1003,6 +1004,7 @@ impl SsaoContext {
         let ssao_noise_values = fidget_raster::effects::ssao_noise(NOISE_SIZE);
         ssao_noise
             .get_mapped_range_mut(0..ssao_noise_size_bytes as u64)
+            .unwrap()
             .copy_from_slice(ssao_noise_values.as_slice().as_bytes());
         ssao_noise.unmap();
 

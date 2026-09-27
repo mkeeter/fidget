@@ -459,7 +459,7 @@ impl ViewerApp {
 
     fn draw_menu(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        egui::Panel::top("menu").show_inside(ui, |ui| {
+        egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("Config", |ui| {
                     let mut mode_3d = match &self.mode {
@@ -621,7 +621,7 @@ impl eframe::App for ViewerApp {
         // Draw the current image and/or error
         let r = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(egui::Color32::BLACK))
-            .show_inside(ui, |ui| self.paint_image(ui))
+            .show(ui, |ui| self.paint_image(ui))
             .inner;
 
         // Handle pan and zoom

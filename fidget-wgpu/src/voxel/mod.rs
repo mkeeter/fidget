@@ -669,13 +669,7 @@ impl IntervalContext {
                                 shader_code.into(),
                             ),
                         },
-                        wgpu::ShaderRuntimeChecks {
-                            bounds_checks: false,
-                            force_loop_bounding: false,
-                            ray_query_initialization_tracking: false,
-                            task_shader_dispatch_tracking: false,
-                            mesh_shader_primitive_indices_clamp: false,
-                        },
+                        wgpu::ShaderRuntimeChecks::unchecked(),
                     )
                 };
                 device_.create_compute_pipeline(
@@ -711,13 +705,7 @@ impl IntervalContext {
                                 shader_code.into(),
                             ),
                         },
-                        wgpu::ShaderRuntimeChecks {
-                            bounds_checks: false,
-                            force_loop_bounding: false,
-                            ray_query_initialization_tracking: false,
-                            task_shader_dispatch_tracking: false,
-                            mesh_shader_primitive_indices_clamp: false,
-                        },
+                        wgpu::ShaderRuntimeChecks::unchecked(),
                     )
                 };
                 device_.create_compute_pipeline(
@@ -765,13 +753,7 @@ impl IntervalContext {
                     label: Some("sort shader module"),
                     source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                 },
-                wgpu::ShaderRuntimeChecks {
-                    bounds_checks: false,
-                    force_loop_bounding: false,
-                    ray_query_initialization_tracking: false,
-                    task_shader_dispatch_tracking: false,
-                    mesh_shader_primitive_indices_clamp: false,
-                },
+                wgpu::ShaderRuntimeChecks::unchecked(),
             )
         };
         let sort16_pipeline =
@@ -897,13 +879,7 @@ impl VoxelContext {
                         label: Some("voxel shader module"),
                         source: wgpu::ShaderSource::Wgsl(shader_code.into()),
                     },
-                    wgpu::ShaderRuntimeChecks {
-                        bounds_checks: false,
-                        force_loop_bounding: false,
-                        ray_query_initialization_tracking: false,
-                        task_shader_dispatch_tracking: false,
-                        mesh_shader_primitive_indices_clamp: false,
-                    },
+                    wgpu::ShaderRuntimeChecks::unchecked(),
                 )
             };
             device_.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -1429,7 +1405,8 @@ impl BindGroups {
                                 .tiles
                                 .data()
                                 .slice(0..16)
-                                .into(),
+                                .try_into()
+                                .unwrap(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
@@ -1438,7 +1415,8 @@ impl BindGroups {
                                 .sorted
                                 .data()
                                 .slice(0..16)
-                                .into(),
+                                .try_into()
+                                .unwrap(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
@@ -1447,7 +1425,8 @@ impl BindGroups {
                                 .tiles
                                 .data()
                                 .slice(0..16)
-                                .into(),
+                                .try_into()
+                                .unwrap(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
@@ -1456,7 +1435,8 @@ impl BindGroups {
                                 .sorted
                                 .data()
                                 .slice(0..16)
-                                .into(),
+                                .try_into()
+                                .unwrap(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
@@ -1563,7 +1543,8 @@ impl BindGroups {
                                 .strata
                                 .data()
                                 .slice(0..strata_bytes) // dynamic offset!
-                                .into(),
+                                .try_into()
+                                .unwrap(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
@@ -1579,7 +1560,11 @@ impl BindGroups {
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: workspace.z_hist_buf.slice(0..16).into(),
+                            resource: workspace
+                                .z_hist_buf
+                                .slice(0..16)
+                                .try_into()
+                                .unwrap(),
                         },
                     ],
                 })
@@ -1591,7 +1576,7 @@ impl BindGroups {
             Self::sort_bind_group(
                 ctx,
                 &workspace.tile16,
-                workspace.z_hist_buf.slice(0..16).into(),
+                workspace.z_hist_buf.slice(0..16).try_into().unwrap(),
             )
         })
     }
@@ -1601,7 +1586,7 @@ impl BindGroups {
             Self::sort_bind_group(
                 ctx,
                 &workspace.tile4,
-                workspace.z_hist_buf.slice(256..320).into(),
+                workspace.z_hist_buf.slice(256..320).try_into().unwrap(),
             )
         })
     }
@@ -1666,7 +1651,8 @@ impl BindGroups {
                             resource: workspace
                                 .z_hist_buf
                                 .slice(256..320)
-                                .into(),
+                                .try_into()
+                                .unwrap(),
                         },
                     ],
                 })
