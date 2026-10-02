@@ -361,8 +361,8 @@ impl<T> AssemblerData<T> {
             );
         } else if self.mem_offset < 65536 {
             dynasm!(self.ops
-                ; mov w28, self.mem_offset as u32
-                ; sub sp, sp, w28
+                ; mov w9, self.mem_offset as u32
+                ; sub sp, sp, w9
             );
         } else {
             panic!("invalid mem offset: {} is too large", self.mem_offset);
