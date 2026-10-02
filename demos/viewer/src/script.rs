@@ -6,17 +6,34 @@ use std::sync::{Arc, Mutex};
 
 /// Receives scripts and executes them with Fidget
 pub(crate) fn rhai_script_thread(
-    rx: Receiver<String>,
+    rx: Receiver<(String, String)>,
     tx: Sender<Result<ScriptContext, String>>,
 ) -> Result<()> {
     let mut engine = Engine::new();
 
     loop {
-        let script = rx.recv()?;
+        let (script, path) = rx.recv()?;
         debug!("rhai script thread received script");
-        let r = engine.run(&script).map_err(|e| e.to_string());
-        debug!("rhai script thread is sending result to render thread");
-        tx.send(r)?;
+        if path.ends_with(".vm") {
+            // Parse as flat text math tree
+            use fidget::context::Context;
+            use std::io::Cursor;
+            match Context::from_text(Cursor::new(&script)) {
+                Ok((ctx, node)) => {
+                    let tree = ctx.export(node).unwrap();
+                    let mut sc = ScriptContext::new();
+                    sc.shapes.push(DrawShape { tree, color_rgb: [255, 255, 255] });
+                    tx.send(Ok(sc))?;
+                }
+                Err(e) => {
+                    tx.send(Err(format!(".vm parse error: {e}")))?;
+                }
+            }
+        } else {
+            let r = engine.run(&script).map_err(|e| e.to_string());
+            debug!("rhai script thread is sending result to render thread");
+            tx.send(r)?;
+        }
     }
 }
 
