@@ -31,7 +31,7 @@ pub fn get_constant(name: &str) -> Option<f64> {
         "FRAC_2_SQRT_PI" => Some(consts::FRAC_2_SQRT_PI),
 
         // Golden ratio and related constants
-        "PHI" | "GOLDEN_RATIO" => Some(1.618033988749895_f64), // Golden ratio (1 + sqrt(5)) / 2
+        "PHI" | "GOLDEN_RATIO" => Some(consts::GOLDEN_RATIO),
 
         // Common fractions
         "FRAC_1_SQRT_2" => Some(consts::FRAC_1_SQRT_2),
@@ -62,11 +62,13 @@ mod test {
 
         // Test golden ratio
         assert!(
-            (get_constant("PHI").unwrap() - 1.618033988749895_f64).abs()
+            (get_constant("PHI").unwrap() - std::f64::consts::GOLDEN_RATIO)
+                .abs()
                 < f64::EPSILON
         );
         assert!(
-            (get_constant("GOLDEN_RATIO").unwrap() - 1.618033988749895_f64)
+            (get_constant("GOLDEN_RATIO").unwrap()
+                - std::f64::consts::GOLDEN_RATIO)
                 .abs()
                 < f64::EPSILON
         );

@@ -1,5 +1,7 @@
 # 0.5.2
 - Makes `fidget::wgpu::buf::FlexBuffer::new` and `grow_to_fit` public
+- Fix a bug in `fidget_jit` on AArch64 where `w28` was corrupted in JIT
+  functions which use over 4096 bytes of stack.
 
 # 0.5.1
 The most significant change in this version is unlocking all-GPU rendering: we
