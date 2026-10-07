@@ -2606,13 +2606,7 @@ mod test {
 
     #[test]
     fn voxel_pipeline() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        crate::require_gpu!();
         let size = 128;
 
         let (x, y, z) = Tree::axes();
@@ -2702,13 +2696,7 @@ mod test {
 
     #[test]
     fn voxel_transform() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        crate::require_gpu!();
         let (x, y, z) = Tree::axes();
         let sphere =
             (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
@@ -2964,13 +2952,7 @@ mod test {
 
     #[test]
     fn voxel_hsl() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        crate::require_gpu!();
         let size = 128;
         let (x, y, z) = Tree::axes();
         let x_ = x.clone() - 0.2;

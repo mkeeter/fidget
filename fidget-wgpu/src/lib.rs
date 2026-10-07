@@ -554,6 +554,17 @@ fn compile_shader(src: &str, desc: &str) {
     }
 }
 
+/// Returns immedately if a `NO_GPU` environment variable is set
+#[macro_export]
+#[doc(hidden)]
+macro_rules! require_gpu {
+    () => {
+        if std::env::var("NO_GPU").is_ok() {
+            return;
+        }
+    };
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

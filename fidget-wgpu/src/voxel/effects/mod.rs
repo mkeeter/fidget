@@ -1419,13 +1419,7 @@ mod test {
     /// not, then that's likely a sampling bias – which we have seen before!
     #[test]
     fn ssao_bias() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        crate::require_gpu!();
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let voxel_ctx = crate::voxel::Context::new(&gpu);
         let effects_ctx = crate::voxel::effects::Context::new(&gpu);
