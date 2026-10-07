@@ -1416,12 +1416,7 @@ mod test {
 
     #[test]
     fn pixel_pipeline() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
+        crate::require_gpu!();
 
         let (x, y, _z) = Tree::axes();
         let circle = (x.square() + y.square()).sqrt() - Tree::constant(0.5);
@@ -1503,12 +1498,7 @@ mod test {
 
     #[test]
     fn pixel_multiple_images() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
+        crate::require_gpu!();
 
         let circle_a = ((Tree::x() - 0.5).square() + Tree::y().square()).sqrt()
             - Tree::constant(0.25);
@@ -1637,12 +1627,7 @@ mod test {
 
     #[test]
     fn pixel_vars() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
+        crate::require_gpu!();
 
         let va = fidget_core::var::Var::new();
         let vb = fidget_core::var::Var::new();
@@ -1780,12 +1765,7 @@ mod test {
 
     #[test]
     fn pixel_hsl() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
+        crate::require_gpu!();
 
         let circle_a = ((Tree::x() - 0.5).square() + Tree::y().square()).sqrt()
             - Tree::constant(0.25);

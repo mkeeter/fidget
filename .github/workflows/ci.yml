@@ -156,6 +156,12 @@ jobs:
     - uses: ./.github/actions/rust-cache
       with:
         cache-key: test
+    - name: Set `NO_GPU` on Windows
+      if: runner.os == 'Windows'
+      run: echo "NO_GPU=true" >> $env:GITHUB_ENV
+    - name: Set `NO_GPU` on Linux
+      if: runner.os == 'Linux'
+      run: echo "NO_GPU=true" >> $GITHUB_ENV
     - name: Run crate tests
       run: cargo nextest run --verbose --cargo-verbose --retries 2
     - name: Run doc tests
