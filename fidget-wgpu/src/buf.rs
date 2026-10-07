@@ -2,7 +2,6 @@
 //!
 //! This module is mostly internal to the crate, but is public because its types
 //! appear as return values and arguments.
-use crate::Gpu;
 use fidget_core::render::{ImageSize, VoxelSize};
 use fidget_raster::RenderSize;
 use zerocopy::{FromBytes, IntoBytes};
@@ -152,23 +151,23 @@ where
     C: zerocopy::IntoBytes + zerocopy::Immutable,
     T: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
 {
-    pub(crate) fn write(
+    pub(crate) fn encode_write(
         &mut self,
-        gpu: &Gpu,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
         c: &C,
         data: &[T],
     ) -> Result<ConfigBufferWrite, BufferSizeError> {
-        let r = self.grow_to_fit(&gpu.device, data.len().into())?;
+        let r = self.grow_to_fit(device, data.len().into())?;
         let config_len = std::mem::size_of::<C>();
         let data_len = std::mem::size_of_val(data);
-        let mut writer = gpu
-            .queue
-            .write_buffer_with(
-                &self.data,
-                0,
-                ((config_len + data_len) as u64).try_into().unwrap(),
-            )
-            .unwrap();
+        let mut writer = staging.write_buffer(
+            encoder,
+            &self.data,
+            0,
+            ((config_len + data_len) as u64).try_into().unwrap(),
+        );
         writer.slice(..config_len).copy_from_slice(c.as_bytes());
         writer.slice(config_len..).copy_from_slice(data.as_bytes());
         Ok(match r {

@@ -238,8 +238,12 @@ impl Context {
                 label: Some("merge compute encoder"),
             },
         );
-        self.encode_merge(image, remove_nans, buf, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode_merge(image, remove_nans, buf, &mut encoder, &mut staging)?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -250,6 +254,7 @@ impl Context {
         remove_nans: bool,
         buf: &mut MergeWorkspace,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), MergeError> {
         let size = image.size();
         if buf.image_count > 0 {
@@ -283,31 +288,30 @@ impl Context {
             }
         }
         buf.has_color = false;
+
+        // Write the config using a staging buffer
+        {
+            let cfg = MergeConfig {
+                image_size: [size.width(), size.height()],
+                remove_nans: remove_nans as u32,
+                index_base: buf.image_count as u32,
+            };
+            let mut writer = staging.write_buffer(
+                encoder,
+                &buf.config,
+                0,
+                (std::mem::size_of::<MergeConfig>() as u64)
+                    .try_into()
+                    .unwrap(),
+            );
+            writer.copy_from_slice(cfg.as_bytes());
+        }
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("merge compute pass"),
                 timestamp_writes: None, // TODO add timestamps?
             });
         compute_pass.set_pipeline(&self.merge_pipeline);
-        let cfg = MergeConfig {
-            image_size: [size.width(), size.height()],
-            remove_nans: remove_nans as u32,
-            index_base: buf.image_count as u32,
-        };
-        {
-            let mut writer = self
-                .gpu
-                .queue
-                .write_buffer_with(
-                    &buf.config,
-                    0,
-                    (std::mem::size_of::<MergeConfig>() as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(cfg.as_bytes());
-        }
 
         let bg =
             self.gpu
@@ -408,8 +412,20 @@ impl Context {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
-        self.encode_color(merge, settings, shape, bufs, vars, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode_color(
+            merge,
+            settings,
+            shape,
+            bufs,
+            vars,
+            &mut encoder,
+            &mut staging,
+        )?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -422,9 +438,18 @@ impl Context {
         bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
-        self.color_ctx
-            .encode(merge, settings, shape, bufs, vars, &self.gpu, encoder)
+        self.color_ctx.encode(
+            merge,
+            settings,
+            shape,
+            bufs,
+            vars,
+            &self.gpu.device,
+            encoder,
+            staging,
+        )
     }
 
     /// Returns a new workspace for color evaluation
@@ -551,8 +576,9 @@ impl ColorContext {
         shape: &ShapeColorBuffers,
         bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
-        gpu: &Gpu,
+        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
         if image.image_count != shape.shape_count() {
             return Err(ColorError::BadShapeCount {
@@ -568,7 +594,7 @@ impl ColorContext {
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
 
-        bufs.copy_vars(gpu, shape.var_map(), vars)
+        bufs.copy_vars(device, encoder, staging, shape.var_map(), vars)
             .map_err(|e| match e {
                 CopyVarsError::BufferSize(b) => ColorError::VarBufferSize(b),
                 CopyVarsError::MissingVar(v) => ColorError::MissingVar(v),
@@ -581,13 +607,19 @@ impl ColorContext {
             _pad: [0; 3],
             z: settings.z,
         };
-        bufs.copy_config_and_tape(gpu, &config, shape.bytecode())
-            .map_err(ColorError::ConfigBufferSize)?;
-        bufs.copy_shape_starts(gpu, shape.shape_start())
+        bufs.copy_config_and_tape(
+            device,
+            encoder,
+            staging,
+            &config,
+            shape.bytecode(),
+        )
+        .map_err(ColorError::ConfigBufferSize)?;
+        bufs.copy_shape_starts(device, encoder, staging, shape.shape_start())
             .expect("shape starts should always fit if shape bytecode fits");
 
         let config_bg =
-            bufs.config_bind_group(&gpu.device, &self.config_bind_group_layout);
+            bufs.config_bind_group(device, &self.config_bind_group_layout);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -597,7 +629,7 @@ impl ColorContext {
         compute_pass.set_bind_group(0, config_bg, &[]);
 
         let image_bg = image.color_bind_group.get_or_init(|| {
-            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("color image bind group"),
                 layout: &self.image_bind_group_layout,
                 entries: &[

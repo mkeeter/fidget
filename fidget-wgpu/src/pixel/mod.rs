@@ -1108,8 +1108,19 @@ impl Context {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
-        self.encode(shape, vars, workspace, settings, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode(
+            shape,
+            vars,
+            workspace,
+            settings,
+            &mut encoder,
+            &mut staging,
+        )?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -1121,6 +1132,7 @@ impl Context {
         workspace: &mut Workspace,
         settings: &RenderConfig,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SubmitError> {
         workspace.set_image_size(&self.gpu.device, settings.image_size)?;
         let render_size = TileRenderSize::from(workspace.image_size);
@@ -1174,7 +1186,13 @@ impl Context {
         // Copy vars (if present), then reset relevant bind groups if the buffer
         // size has changed.
         if matches!(
-            shape.copy_vars(&self.gpu, vars, &mut workspace.vars_buf)?,
+            shape.copy_vars(
+                &self.gpu.device,
+                encoder,
+                staging,
+                vars,
+                &mut workspace.vars_buf
+            )?,
             CopyVarsChanged::BufferChanged
         ) {
             workspace.bind_groups.common = Default::default();

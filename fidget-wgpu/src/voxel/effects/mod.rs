@@ -917,6 +917,8 @@ impl Context {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
         self.encode_color(
             merge,
             world_to_model,
@@ -925,8 +927,11 @@ impl Context {
             vars,
             out,
             &mut encoder,
+            &mut staging,
         )?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -941,6 +946,7 @@ impl Context {
         vars: &ShapeVars<f32>,
         out: &mut ShadeWorkspace,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
         self.color_ctx.encode(
             merge,
@@ -949,8 +955,9 @@ impl Context {
             bufs,
             vars,
             out,
-            &self.gpu,
+            &self.gpu.device,
             encoder,
+            staging,
         )
     }
 
@@ -1343,8 +1350,9 @@ impl ColorContext {
         bufs: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         out: &mut ShadeWorkspace,
-        gpu: &Gpu,
+        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
         if image.image_count != shape.shape_count() {
             return Err(ColorError::BadShapeCount {
@@ -1354,13 +1362,13 @@ impl ColorContext {
         }
         let size = image.out.size();
         out.out
-            .grow_to_fit(&gpu.device, size)
+            .grow_to_fit(device, size)
             .map_err(ColorError::OutputSize)?;
         out.has_color = true;
 
         let mat = world_to_model * size.screen_to_world();
 
-        bufs.copy_vars(gpu, shape.var_map(), vars)
+        bufs.copy_vars(device, encoder, staging, shape.var_map(), vars)
             .map_err(|e| match e {
                 CopyVarsError::BufferSize(b) => ColorError::VarBufferSize(b),
                 CopyVarsError::MissingVar(v) => ColorError::MissingVar(v),
@@ -1371,13 +1379,19 @@ impl ColorContext {
             image_size: [size.width(), size.height()],
             _pad: 0,
         };
-        bufs.copy_config_and_tape(gpu, &config, shape.bytecode())
-            .map_err(ColorError::ConfigBufferSize)?;
-        bufs.copy_shape_starts(gpu, shape.shape_start())
+        bufs.copy_config_and_tape(
+            device,
+            encoder,
+            staging,
+            &config,
+            shape.bytecode(),
+        )
+        .map_err(ColorError::ConfigBufferSize)?;
+        bufs.copy_shape_starts(device, encoder, staging, shape.shape_start())
             .expect("shape starts should always fit if shape bytecode fits");
 
         let config_bg =
-            bufs.config_bind_group(&gpu.device, &self.config_bind_group_layout);
+            bufs.config_bind_group(device, &self.config_bind_group_layout);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1390,21 +1404,20 @@ impl ColorContext {
         // caching it somewhere.  However, *where* to cache it is not
         // obvious, because it combines fields from two different buffer
         // objects.
-        let image_bg =
-            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("color image bind group"),
-                layout: &self.image_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: image.out.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: out.out.bind_active(),
-                    },
-                ],
-            });
+        let image_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("color image bind group"),
+            layout: &self.image_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: image.out.bind_active(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.out.bind_active(),
+                },
+            ],
+        });
         compute_pass.set_bind_group(1, &image_bg, &[]);
         compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count()));
         compute_pass.dispatch_workgroups(

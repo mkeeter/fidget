@@ -450,16 +450,27 @@ impl RenderShape {
     /// bind groups.
     fn copy_vars(
         &self,
-        gpu: &Gpu,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
         vars: &ShapeVars<f32>,
         buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
     ) -> Result<CopyVarsChanged, CopyVarsError> {
-        copy_vars(gpu, self.shape.inner().vars(), vars, buf)
+        encode_copy_vars(
+            device,
+            encoder,
+            staging,
+            self.shape.inner().vars(),
+            vars,
+            buf,
+        )
     }
 }
 
-pub(crate) fn copy_vars(
-    gpu: &Gpu,
+pub(crate) fn encode_copy_vars(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    staging: &mut wgpu::util::StagingBelt,
     vs: &VarMap,
     vars: &ShapeVars<f32>,
     buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
@@ -481,20 +492,18 @@ pub(crate) fn copy_vars(
         // `true` indicating that things have changed and bind groups should
         // be invalidated.  TODO: only do this if we grow the buffer, since
         // binding an overly-large buffer is fine?
-        let r = buf.grow_to_fit(&gpu.device, vs.len())?;
+        let r = buf.grow_to_fit(device, vs.len())?;
         if !matches!(r, std::cmp::Ordering::Equal) {
             changed = CopyVarsChanged::BufferChanged;
         }
-        let mut writer = gpu
-            .queue
-            .write_buffer_with(
-                buf.data(),
-                0,
-                ((vs.len() * std::mem::size_of::<f32>()) as u64)
-                    .try_into()
-                    .unwrap(),
-            )
-            .unwrap();
+        let mut writer = staging.write_buffer(
+            encoder,
+            buf.data(),
+            0,
+            ((vs.len() * std::mem::size_of::<f32>()) as u64)
+                .try_into()
+                .unwrap(),
+        );
         for (v, i) in vs.iter() {
             match v {
                 Var::X | Var::Y | Var::Z => (),
