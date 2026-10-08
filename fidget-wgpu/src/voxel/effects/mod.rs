@@ -569,8 +569,12 @@ impl Context {
                 label: Some("merge compute encoder"),
             },
         );
-        self.encode_merge(image, settings, buf, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode_merge(image, settings, buf, &mut encoder, &mut staging)?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -581,6 +585,7 @@ impl Context {
         settings: MergeSettings,
         buf: &mut MergeWorkspace,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), MergeError> {
         let size = image.size();
         if buf.image_count == 0 {
@@ -594,13 +599,6 @@ impl Context {
             }
             .into());
         }
-        // Scope to bound the lifetime of compute_pass
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("merge compute pass"),
-                timestamp_writes: None, // TODO add timestamps?
-            });
-        compute_pass.set_pipeline(&self.merge_pipeline);
         let cfg = MergeConfig {
             image_size: [size.width(), size.height()],
             denoise: settings.denoise as u32,
@@ -608,20 +606,23 @@ impl Context {
             z_scale: settings.z_scale,
             _pad: 0,
         };
-        {
-            let mut writer = self
-                .gpu
-                .queue
-                .write_buffer_with(
-                    &buf.config,
-                    0,
-                    (std::mem::size_of::<MergeConfig>() as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(cfg.as_bytes());
-        }
+        let mut writer = staging.write_buffer(
+            encoder,
+            &buf.config,
+            0,
+            (std::mem::size_of::<MergeConfig>() as u64)
+                .try_into()
+                .unwrap(),
+        );
+        writer.copy_from_slice(cfg.as_bytes());
+
+        // Scope to bound the lifetime of compute_pass
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("merge compute pass"),
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_pipeline(&self.merge_pipeline);
 
         let bg =
             self.gpu
@@ -668,8 +669,12 @@ impl Context {
                 label: Some("shade compute encoder"),
             },
         );
-        self.encode_shade(image, ssao, buf, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode_shade(image, ssao, buf, &mut encoder, &mut staging)?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -680,6 +685,7 @@ impl Context {
         ssao: Option<&SsaoWorkspace>,
         buf: &mut ShadeWorkspace,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
         if buf.has_color {
@@ -692,13 +698,7 @@ impl Context {
                 .map_err(ShadeError::OutputSize)?;
         }
 
-        // Scope to bound the lifetime of compute_pass
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("shade compute pass"),
-                timestamp_writes: None, // TODO add timestamps?
-            });
-        compute_pass.set_pipeline(&self.shade_pipeline);
+        // Load the config before beginning the compute pass
         let cfg = ShadeConfig {
             image_size: [size.width(), size.height(), size.depth()],
             flags: if ssao.is_some() {
@@ -711,18 +711,22 @@ impl Context {
                 0
             },
         };
-        {
-            let mut writer = self
-                .gpu
-                .queue
-                .write_buffer_with(
-                    &buf.config,
-                    0,
-                    buf.config.size().try_into().unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(cfg.as_bytes());
-        }
+        let mut writer = staging.write_buffer(
+            encoder,
+            &buf.config,
+            0,
+            buf.config.size().try_into().unwrap(),
+        );
+        writer.copy_from_slice(cfg.as_bytes());
+
+        // Scope to bound the lifetime of compute_pass
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("shade compute pass"),
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_pipeline(&self.shade_pipeline);
+
         // TODO This is created on every pass
         let bg =
             self.gpu
@@ -774,8 +778,12 @@ impl Context {
                 label: Some("heightmap compute encoder"),
             },
         );
-        self.encode_heightmap(image, buf, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode_heightmap(image, buf, &mut encoder, &mut staging)?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -785,6 +793,7 @@ impl Context {
         image: &MergeWorkspace,
         buf: &mut ShadeWorkspace,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), HeightmapError> {
         let size = image.out.size();
         if buf.has_color {
@@ -797,28 +806,24 @@ impl Context {
                 .map_err(HeightmapError::OutputSize)?;
         }
 
+        let cfg = HeightmapConfig {
+            image_size: [size.width(), size.height(), size.depth()],
+            has_color: buf.has_color.into(),
+        };
+        let mut writer = staging.write_buffer(
+            encoder,
+            &buf.config,
+            0,
+            buf.config.size().try_into().unwrap(),
+        );
+        writer.copy_from_slice(cfg.as_bytes());
+
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("heightmap compute pass"),
                 timestamp_writes: None, // TODO add timestamps?
             });
         compute_pass.set_pipeline(&self.heightmap_pipeline);
-        let cfg = HeightmapConfig {
-            image_size: [size.width(), size.height(), size.depth()],
-            has_color: buf.has_color.into(),
-        };
-        {
-            let mut writer = self
-                .gpu
-                .queue
-                .write_buffer_with(
-                    &buf.config,
-                    0,
-                    buf.config.size().try_into().unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(cfg.as_bytes());
-        }
         // TODO This is created on every pass
         let bg =
             self.gpu
@@ -862,8 +867,12 @@ impl Context {
                 label: Some("ssao command encoder"),
             },
         );
-        self.encode_ssao(image, buf, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode_ssao(image, buf, &mut encoder, &mut staging)?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
@@ -873,8 +882,10 @@ impl Context {
         image: &MergeWorkspace,
         buf: &mut SsaoWorkspace,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SsaoError> {
-        self.ssao_ctx.encode(image, buf, &self.gpu, encoder)
+        self.ssao_ctx
+            .encode(image, buf, &self.gpu, encoder, staging)
     }
 
     /// Submits a color evaluation pass
@@ -1170,6 +1181,7 @@ impl SsaoContext {
         buf: &mut SsaoWorkspace,
         gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SsaoError> {
         let image_size = image.out.size();
         buf.raw_occlusion
@@ -1179,12 +1191,7 @@ impl SsaoContext {
             .grow_to_fit(&gpu.device, image_size.into())
             .map_err(SsaoError::OutputSize)?;
 
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("ssao compute pass"),
-                timestamp_writes: None, // TODO add timestamps?
-            });
-        compute_pass.set_pipeline(&self.ssao_pipeline);
+        // Write config data to GPU buffers
         let cfg = SsaoConfig {
             image_size: [
                 image_size.width(),
@@ -1193,19 +1200,37 @@ impl SsaoContext {
             ],
             radius: 0.1,
         };
-        {
-            let mut writer = gpu
-                .queue
-                .write_buffer_with(
-                    &buf.ssao_config,
-                    0,
-                    (std::mem::size_of::<SsaoConfig>() as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(cfg.as_bytes());
-        }
+        let mut writer = staging.write_buffer(
+            encoder,
+            &buf.ssao_config,
+            0,
+            (std::mem::size_of::<SsaoConfig>() as u64)
+                .try_into()
+                .unwrap(),
+        );
+        writer.copy_from_slice(cfg.as_bytes());
+
+        let cfg = BlurConfig {
+            image_size: [image_size.width(), image_size.height()],
+            radius: 2,
+            _pad: 0,
+        };
+        let mut writer = staging.write_buffer(
+            encoder,
+            &buf.blur_config,
+            0,
+            (std::mem::size_of::<BlurConfig>() as u64)
+                .try_into()
+                .unwrap(),
+        );
+        writer.copy_from_slice(cfg.as_bytes());
+
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("ssao compute pass"),
+                timestamp_writes: None, // TODO add timestamps?
+            });
+        compute_pass.set_pipeline(&self.ssao_pipeline);
 
         let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ssao bind group"),
@@ -1234,24 +1259,6 @@ impl SsaoContext {
         );
 
         compute_pass.set_pipeline(&self.blur_pipeline);
-        let cfg = BlurConfig {
-            image_size: [image_size.width(), image_size.height()],
-            radius: 2,
-            _pad: 0,
-        };
-        {
-            let mut writer = gpu
-                .queue
-                .write_buffer_with(
-                    &buf.blur_config,
-                    0,
-                    (std::mem::size_of::<BlurConfig>() as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            writer.copy_from_slice(cfg.as_bytes());
-        }
 
         let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("blur bind group"),

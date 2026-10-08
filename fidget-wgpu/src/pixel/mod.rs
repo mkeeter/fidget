@@ -1161,27 +1161,22 @@ impl Context {
             _pad: 0,
         };
 
-        {
-            // We load the `Config` and shape tape data.
-            let config_len = std::mem::size_of_val(&config);
-            let mut writer = self
-                .gpu
-                .queue
-                .write_buffer_with(
-                    &workspace.config_buf,
-                    0,
-                    ((config_len + shape.bytecode.as_bytes().len()) as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            writer
-                .slice(..config_len)
-                .copy_from_slice(config.as_bytes());
-            writer
-                .slice(config_len..)
-                .copy_from_slice(shape.bytecode.as_bytes());
-        }
+        // We load the `Config` and shape tape data.
+        let config_len = std::mem::size_of_val(&config);
+        let mut writer = staging.write_buffer(
+            encoder,
+            &workspace.config_buf,
+            0,
+            ((config_len + shape.bytecode.as_bytes().len()) as u64)
+                .try_into()
+                .unwrap(),
+        );
+        writer
+            .slice(..config_len)
+            .copy_from_slice(config.as_bytes());
+        writer
+            .slice(config_len..)
+            .copy_from_slice(shape.bytecode.as_bytes());
 
         // Copy vars (if present), then reset relevant bind groups if the buffer
         // size has changed.

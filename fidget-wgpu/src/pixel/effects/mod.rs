@@ -290,22 +290,21 @@ impl Context {
         buf.has_color = false;
 
         // Write the config using a staging buffer
-        {
-            let cfg = MergeConfig {
-                image_size: [size.width(), size.height()],
-                remove_nans: remove_nans as u32,
-                index_base: buf.image_count as u32,
-            };
-            let mut writer = staging.write_buffer(
-                encoder,
-                &buf.config,
-                0,
-                (std::mem::size_of::<MergeConfig>() as u64)
-                    .try_into()
-                    .unwrap(),
-            );
-            writer.copy_from_slice(cfg.as_bytes());
-        }
+        let cfg = MergeConfig {
+            image_size: [size.width(), size.height()],
+            remove_nans: remove_nans as u32,
+            index_base: buf.image_count as u32,
+        };
+        let mut writer = staging.write_buffer(
+            encoder,
+            &buf.config,
+            0,
+            (std::mem::size_of::<MergeConfig>() as u64)
+                .try_into()
+                .unwrap(),
+        );
+        writer.copy_from_slice(cfg.as_bytes());
+
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("merge compute pass"),
