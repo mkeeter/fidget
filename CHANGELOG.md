@@ -5,6 +5,7 @@
 - Add bring-your-own-encoder functions to `fidget::wgpu` context objects.  This
   allows us to integrate with other WGPU rendering pipelines which only provide
   a `CommandEncoder`; see the main `fidget_wgpu` module docs for details.
+- Add `vars()` to the `Bytecode` object, which stores the shape's `Arc<VarMap>`
 
 # 0.5.1
 The most significant change in this version is unlocking all-GPU rendering: we
