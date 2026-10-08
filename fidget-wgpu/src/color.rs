@@ -46,7 +46,8 @@ impl<C> ColorWorkspace<C>
 where
     C: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
 {
-    pub(crate) fn new(device: &wgpu::Device) -> Self {
+    /// Builds a new workspace for color evaluation
+    pub fn new(device: &wgpu::Device) -> Self {
         let config = FlexBuffer::new(device, "color config", 4.into()).unwrap();
         let shape_start =
             FlexBuffer::new(device, "shape start", 4usize).unwrap();

@@ -192,9 +192,11 @@ impl RootContext {
         workspace: &Workspace,
         reg_count: u8,
         render_size: TileRenderSize,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.root_tiles(ctx, workspace);
+        let bind_group =
+            workspace.bind_groups.root_tiles(device, ctx, workspace);
         compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -269,9 +271,11 @@ impl IntervalTilesContext {
         ctx: &Context,
         workspace: &Workspace,
         reg_count: u8,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.interval_tiles(ctx, workspace);
+        let bind_group =
+            workspace.bind_groups.interval_tiles(device, ctx, workspace);
         compute_pass.set_pipeline(self.tiles_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -345,9 +349,11 @@ impl PixelTilesContext {
         ctx: &Context,
         workspace: &Workspace,
         reg_count: u8,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.pixel_tiles(ctx, workspace);
+        let bind_group =
+            workspace.bind_groups.pixel_tiles(device, ctx, workspace);
         compute_pass.set_pipeline(self.tiles_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -439,10 +445,12 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    /// Builds a new set of buffers with a default size
+    /// Builds a new set of buffers for pixel evaluation
     ///
-    /// It is expected that these will be resized before being used
-    fn new(device: &wgpu::Device) -> Self {
+    /// The buffers are initialized with a dummy size and resized automatically
+    /// when passed into any of the runner functions (e.g. [`Context::run`] or
+    /// [`Context::submit`]).
+    pub fn new(device: &wgpu::Device) -> Self {
         // The config buffer is statically sized, so we can check it here
         static_assertions::const_assert!(
             (std::mem::size_of::<Config>()
@@ -689,132 +697,135 @@ struct BindGroups {
 }
 
 impl BindGroups {
-    fn common(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn common(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.common.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("common bind group"),
-                    layout: &ctx.common_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.config_buf.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile_tapes.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.vars_buf.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("common bind group"),
+                layout: &ctx.common_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.config_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile_tapes.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.vars_buf.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
     fn root_tiles(
         &self,
+        device: &wgpu::Device,
         ctx: &Context,
         workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         self.root_tiles.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("interval root bind group"),
-                    layout: &ctx.root_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile64.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile64.values.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("interval root bind group"),
+                layout: &ctx.root_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile64.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile64.values.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
     fn interval_tiles(
         &self,
+        device: &wgpu::Device,
         ctx: &Context,
         workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         self.interval_tiles.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("interval tiles bind group"),
-                    layout: &ctx.tiles_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile64.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile8.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.tile8.values.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("interval tiles bind group"),
+                layout: &ctx.tiles_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile64.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile8.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.tile8.values.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
     fn pixel_tiles(
         &self,
+        device: &wgpu::Device,
         ctx: &Context,
         workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         self.pixel_tiles.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("pixel tiles bind group"),
-                    layout: &ctx.pixels_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile8.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.pixels.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pixel tiles bind group"),
+                layout: &ctx.pixels_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile8.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.pixels.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
-    fn merge(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn merge(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.merge.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge bind group"),
-                    layout: &ctx.merge_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile64.values.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile8.values.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.pixels.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("merge bind group"),
+                layout: &ctx.merge_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile64.values.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile8.values.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.pixels.bind_active(),
+                    },
+                ],
+            })
         })
     }
 }
@@ -951,8 +962,6 @@ impl<const N: usize> TileBuffers<N> {
 
 /// Context for 2D (distance field) rendering
 pub struct Context {
-    gpu: Gpu,
-
     /// Bind group layout for the common bind group (used by all stages)
     common_bind_group_layout: wgpu::BindGroupLayout,
 
@@ -998,7 +1007,6 @@ impl Context {
             MergeContext::new(&gpu.device, &common_bind_group_layout);
 
         Self {
-            gpu: gpu.clone(),
             common_bind_group_layout,
             root_ctx,
             tiles_ctx,
@@ -1008,27 +1016,26 @@ impl Context {
         }
     }
 
-    /// Builds a new [`Workspace`] object for use in rendering
-    ///
-    /// The buffers are initialized with a dummy size and resized automatically
-    /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
-    /// [`submit`](Self::submit)).
-    pub fn workspace(&self) -> Workspace {
-        Workspace::new(&self.gpu.device)
-    }
-
     /// Renders the image, with a blocking wait to read pixel data from the GPU
     ///
     /// This function is not present when built for the `wasm32` target
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.run_with_vars(shape, &Default::default(), workspace, out, settings)
+        self.run_with_vars(
+            gpu,
+            shape,
+            &Default::default(),
+            workspace,
+            out,
+            settings,
+        )
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -1037,27 +1044,30 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_with_vars(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, workspace, &settings)?;
-        self.gpu.copy(workspace.output(), out);
-        let image = self.gpu.map_image(out);
+        self.submit_with_vars(gpu, shape, vars, workspace, &settings)?;
+        gpu.copy(workspace.output(), out);
+        let image = gpu.map_image(out);
         Ok(image.image())
     }
 
     /// Renders the image, with an async wait to read pixel data from the GPU
     pub async fn run_async(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.run_with_vars_async(
+            gpu,
             shape,
             &Default::default(),
             workspace,
@@ -1070,15 +1080,16 @@ impl Context {
     /// Renders the image, with an async wait to read pixel data from the GPU
     pub async fn run_with_vars_async(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, workspace, &settings)?;
-        self.gpu.copy(workspace.output(), out);
-        let image = self.gpu.map_image_async(out).await;
+        self.submit_with_vars(gpu, shape, vars, workspace, &settings)?;
+        gpu.copy(workspace.output(), out);
+        let image = gpu.map_image_async(out).await;
         Ok(image.image())
     }
 
@@ -1088,11 +1099,18 @@ impl Context {
     /// available on the GPU in [`buffers.output()`](Workspace::output).
     pub fn submit(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        self.submit_with_vars(shape, &Default::default(), workspace, settings)
+        self.submit_with_vars(
+            gpu,
+            shape,
+            &Default::default(),
+            workspace,
+            settings,
+        )
     }
 
     /// Submits a single image to be rendered on the GPU, with extra variables
@@ -1100,41 +1118,45 @@ impl Context {
     /// See [`submit`](Self::submit) for additional details.
     pub fn submit_with_vars(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
+        let mut encoder = gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
         let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+            wgpu::util::StagingBelt::new(gpu.device.clone(), 1024);
         self.encode(
             shape,
             vars,
             workspace,
             settings,
+            &gpu.device,
             &mut encoder,
             &mut staging,
         )?;
         staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
+        gpu.queue.submit(Some(encoder.finish()));
         staging.recall();
         Ok(())
     }
 
     /// Low-level function to encode pixel rendering to a command encoder
+    #[allow(clippy::too_many_arguments)]
     pub fn encode(
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         settings: &RenderConfig,
+        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SubmitError> {
-        workspace.set_image_size(&self.gpu.device, settings.image_size)?;
+        workspace.set_image_size(device, settings.image_size)?;
         let render_size = TileRenderSize::from(workspace.image_size);
 
         // The WebGPU config type has a mat3x3f, but that type pads each row to
@@ -1182,7 +1204,7 @@ impl Context {
         // size has changed.
         if matches!(
             shape.copy_vars(
-                &self.gpu.device,
+                device,
                 encoder,
                 staging,
                 vars,
@@ -1203,7 +1225,8 @@ impl Context {
             });
 
         // Build the common config buffer
-        let common_bind_group = workspace.bind_groups.common(self, workspace);
+        let common_bind_group =
+            workspace.bind_groups.common(device, self, workspace);
         compute_pass.set_bind_group(0, common_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
@@ -1212,18 +1235,21 @@ impl Context {
             workspace,
             shape.bytecode.reg_count(),
             render_size,
+            device,
             &mut compute_pass,
         );
         self.tiles_ctx.run(
             self,
             workspace,
             shape.bytecode.reg_count(),
+            device,
             &mut compute_pass,
         );
         self.pixels_ctx.run(
             self,
             workspace,
             shape.bytecode.reg_count(),
+            device,
             &mut compute_pass,
         );
 
@@ -1232,6 +1258,7 @@ impl Context {
             self,
             workspace,
             settings.image_size,
+            device,
             &mut compute_pass,
         );
         drop(compute_pass);
@@ -1303,9 +1330,10 @@ impl MergeContext {
         ctx: &Context,
         workspace: &Workspace,
         render_size: ImageSize,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.merge(ctx, workspace);
+        let bind_group = workspace.bind_groups.merge(device, ctx, workspace);
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(
@@ -1377,18 +1405,18 @@ mod test {
         let pixel_ctx = Context::new(&gpu);
         let effects_ctx = effects::Context::new(&gpu);
 
-        let mut buf = pixel_ctx.workspace();
-        let mut merge_buf = effects_ctx.merge_workspace();
+        let mut buf = Workspace::new(&gpu.device);
+        let mut merge_buf = effects::MergeWorkspace::new(&gpu.device);
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
             let shape =
                 RenderShape::new(&VmShape::from(shape.clone())).unwrap();
             pixel_ctx
-                .submit_with_vars(&shape, vars, &mut buf, &render_config)
+                .submit_with_vars(&gpu, &shape, vars, &mut buf, &render_config)
                 .unwrap();
             effects_ctx
-                .submit_merge(buf.output(), true, &mut merge_buf)
+                .submit_merge(&gpu, buf.output(), true, &mut merge_buf)
                 .unwrap();
         }
         let shape_colors = shapes
@@ -1407,11 +1435,12 @@ mod test {
             })
             .collect::<Vec<_>>();
         let shape_colors = ShapeColorBuffers::new(&shape_colors).unwrap();
-        let mut color_workspace = effects_ctx.color_workspace();
+        let mut color_workspace = effects::ColorWorkspace::new(&gpu.device);
 
         // Compute per-pixel colors
         effects_ctx
             .submit_color_with_vars(
+                &gpu,
                 &mut merge_buf,
                 ColorSettings {
                     z: 0.0,
