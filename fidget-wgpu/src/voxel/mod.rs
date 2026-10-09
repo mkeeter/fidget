@@ -508,9 +508,10 @@ impl RootContext {
         workspace: &Workspace,
         reg_count: u8,
         render_size: TileRenderSize,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.root(ctx, workspace);
+        let bind_group = workspace.bind_groups.root(device, ctx, workspace);
         compute_pass.set_pipeline(self.root_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -585,9 +586,10 @@ impl RepackContext {
         ctx: &Context,
         workspace: &Workspace,
         render_size: TileRenderSize,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.repack(ctx, workspace);
+        let bind_group = workspace.bind_groups.repack(device, ctx, workspace);
 
         compute_pass.set_pipeline(&self.repack_pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
@@ -797,12 +799,14 @@ impl IntervalContext {
         workspace: &Workspace,
         strata: u64,
         reg_count: u8,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let strata_bytes =
             u64::try_from(workspace.strata_size_bytes()).unwrap();
         let offset_bytes = strata * strata_bytes;
-        let bind_group16 = workspace.bind_groups.interval16(ctx, workspace);
+        let bind_group16 =
+            workspace.bind_groups.interval16(device, ctx, workspace);
         compute_pass.set_pipeline(self.interval64_pipeline.get(reg_count));
         compute_pass.set_bind_group(
             1,
@@ -814,19 +818,22 @@ impl IntervalContext {
             offset_bytes,
         );
 
-        let bind_group_sort16 = workspace.bind_groups.sort16(ctx, workspace);
+        let bind_group_sort16 =
+            workspace.bind_groups.sort16(device, ctx, workspace);
         compute_pass.set_pipeline(&self.sort16_pipeline);
         compute_pass.set_bind_group(1, bind_group_sort16, &[]);
         compute_pass
             .dispatch_workgroups_indirect(workspace.tile16.tiles.data(), 0);
 
-        let bind_group4 = workspace.bind_groups.interval4(ctx, workspace);
+        let bind_group4 =
+            workspace.bind_groups.interval4(device, ctx, workspace);
         compute_pass.set_pipeline(self.interval16_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group4, &[0]);
         compute_pass
             .dispatch_workgroups_indirect(workspace.tile16.sorted.data(), 0);
 
-        let bind_group_sort4 = workspace.bind_groups.sort4(ctx, workspace);
+        let bind_group_sort4 =
+            workspace.bind_groups.sort4(device, ctx, workspace);
         compute_pass.set_pipeline(&self.sort4_pipeline);
         compute_pass.set_bind_group(1, bind_group_sort4, &[]);
         compute_pass
@@ -903,9 +910,10 @@ impl VoxelContext {
         ctx: &Context,
         workspace: &Workspace,
         reg_count: u8,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.voxel(ctx, workspace);
+        let bind_group = workspace.bind_groups.voxel(device, ctx, workspace);
         compute_pass.set_pipeline(self.voxel_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -977,9 +985,10 @@ impl NormalsContext {
         ctx: &Context,
         workspace: &Workspace,
         reg_count: u8,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.normals(ctx, workspace);
+        let bind_group = workspace.bind_groups.normals(device, ctx, workspace);
         compute_pass.set_pipeline(self.normals_pipeline.get(reg_count));
         compute_pass.set_bind_group(1, bind_group, &[]);
 
@@ -995,8 +1004,6 @@ impl NormalsContext {
 
 /// Context for 3D (combined heightmap and normal) rendering
 pub struct Context {
-    gpu: Gpu,
-
     /// Bind group layout for the common bind group (used by all stages)
     common_bind_group_layout: wgpu::BindGroupLayout,
 
@@ -1365,215 +1372,235 @@ struct BindGroups {
 }
 
 impl BindGroups {
-    fn common(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn common(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.common.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("common bind group"),
-                    layout: &ctx.common_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.config_buf.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile_tapes.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.vars_buf.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("common bind group"),
+                layout: &ctx.common_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.config_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile_tapes.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.vars_buf.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
-    fn clear(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn clear(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.clear.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("clear bind group"),
-                    layout: &ctx.clear_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace
-                                .tile16
-                                .tiles
-                                .data()
-                                .slice(0..16)
-                                .try_into()
-                                .unwrap(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace
-                                .tile16
-                                .sorted
-                                .data()
-                                .slice(0..16)
-                                .try_into()
-                                .unwrap(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace
-                                .tile4
-                                .tiles
-                                .data()
-                                .slice(0..16)
-                                .try_into()
-                                .unwrap(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: workspace
-                                .tile4
-                                .sorted
-                                .data()
-                                .slice(0..16)
-                                .try_into()
-                                .unwrap(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: workspace.z_hist_buf.as_entire_binding(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("clear bind group"),
+                layout: &ctx.clear_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace
+                            .tile16
+                            .tiles
+                            .data()
+                            .slice(0..16)
+                            .try_into()
+                            .unwrap(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace
+                            .tile16
+                            .sorted
+                            .data()
+                            .slice(0..16)
+                            .try_into()
+                            .unwrap(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace
+                            .tile4
+                            .tiles
+                            .data()
+                            .slice(0..16)
+                            .try_into()
+                            .unwrap(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: workspace
+                            .tile4
+                            .sorted
+                            .data()
+                            .slice(0..16)
+                            .try_into()
+                            .unwrap(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: workspace.z_hist_buf.as_entire_binding(),
+                    },
+                ],
+            })
         })
     }
 
-    fn merge(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn merge(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.merge.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge bind group"),
-                    layout: &ctx.merge_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile64.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile16.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.tile4.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: workspace.voxels.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("merge bind group"),
+                layout: &ctx.merge_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile64.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile16.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.tile4.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: workspace.voxels.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
-    fn root(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn root(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.root.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("interval root bind group"),
-                    layout: &ctx.root_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile64.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile64.zmax.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("interval root bind group"),
+                layout: &ctx.root_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile64.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile64.zmax.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
-    fn repack(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn repack(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.repack.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("repack bind group"),
-                    layout: &ctx.repack_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile64.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile64.zmax.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.tile64.strata.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("repack bind group"),
+                layout: &ctx.repack_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile64.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile64.zmax.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.tile64.strata.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
     fn interval16(
         &self,
+        device: &wgpu::Device,
         ctx: &Context,
         workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         let strata_bytes =
             u64::try_from(workspace.strata_size_bytes()).unwrap();
         self.interval16.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("interval16 bind group"),
-                    layout: &ctx.interval_ctx.interval_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace
-                                .tile64
-                                .strata
-                                .data()
-                                .slice(0..strata_bytes) // dynamic offset!
-                                .try_into()
-                                .unwrap(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile64.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.tile16.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: workspace.tile16.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: workspace
-                                .z_hist_buf
-                                .slice(0..16)
-                                .try_into()
-                                .unwrap(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("interval16 bind group"),
+                layout: &ctx.interval_ctx.interval_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace
+                            .tile64
+                            .strata
+                            .data()
+                            .slice(0..strata_bytes) // dynamic offset!
+                            .try_into()
+                            .unwrap(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile64.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.tile16.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: workspace.tile16.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: workspace
+                            .z_hist_buf
+                            .slice(0..16)
+                            .try_into()
+                            .unwrap(),
+                    },
+                ],
+            })
         })
     }
 
-    fn sort16(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn sort16(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.sort16.get_or_init(|| {
             Self::sort_bind_group(
+                device,
                 ctx,
                 &workspace.tile16,
                 workspace.z_hist_buf.slice(0..16).try_into().unwrap(),
@@ -1581,9 +1608,15 @@ impl BindGroups {
         })
     }
 
-    fn sort4(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn sort4(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.sort4.get_or_init(|| {
             Self::sort_bind_group(
+                device,
                 ctx,
                 &workspace.tile4,
                 workspace.z_hist_buf.slice(256..320).try_into().unwrap(),
@@ -1592,120 +1625,120 @@ impl BindGroups {
     }
 
     fn sort_bind_group<const N: u64>(
+        device: &wgpu::Device,
         ctx: &Context,
         tile_bufs: &TileBuffers<N>,
         z_hist: wgpu::BindingResource,
     ) -> wgpu::BindGroup {
-        ctx.gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(&format!("sort{N} bind group")),
-                layout: &ctx.interval_ctx.sort_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: tile_bufs.tiles.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: z_hist,
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: tile_bufs.sorted.bind_active(),
-                    },
-                ],
-            })
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(&format!("sort{N} bind group")),
+            layout: &ctx.interval_ctx.sort_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: tile_bufs.tiles.bind_active(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: z_hist,
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: tile_bufs.sorted.bind_active(),
+                },
+            ],
+        })
     }
 
     fn interval4(
         &self,
+        device: &wgpu::Device,
         ctx: &Context,
         workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         self.interval4.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("interval4 bind group"),
-                    layout: &ctx.interval_ctx.interval_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile16.sorted.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile16.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.tile4.tiles.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: workspace.tile4.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: workspace
-                                .z_hist_buf
-                                .slice(256..320)
-                                .try_into()
-                                .unwrap(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("interval4 bind group"),
+                layout: &ctx.interval_ctx.interval_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile16.sorted.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile16.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.tile4.tiles.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: workspace.tile4.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: workspace
+                            .z_hist_buf
+                            .slice(256..320)
+                            .try_into()
+                            .unwrap(),
+                    },
+                ],
+            })
         })
     }
 
-    fn voxel(&self, ctx: &Context, workspace: &Workspace) -> &wgpu::BindGroup {
+    fn voxel(
+        &self,
+        device: &wgpu::Device,
+        ctx: &Context,
+        workspace: &Workspace,
+    ) -> &wgpu::BindGroup {
         self.voxel.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("voxel bind group"),
-                    layout: &ctx.voxel_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.tile4.sorted.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.tile4.zmin.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: workspace.voxels.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("voxel bind group"),
+                layout: &ctx.voxel_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.tile4.sorted.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.tile4.zmin.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: workspace.voxels.bind_active(),
+                    },
+                ],
+            })
         })
     }
 
     fn normals(
         &self,
+        device: &wgpu::Device,
         ctx: &Context,
         workspace: &Workspace,
     ) -> &wgpu::BindGroup {
         self.normals.get_or_init(|| {
-            ctx.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("normals bind group"),
-                    layout: &ctx.normals_ctx.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: workspace.voxels.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: workspace.geom.bind_active(),
-                        },
-                    ],
-                })
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("normals bind group"),
+                layout: &ctx.normals_ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: workspace.voxels.bind_active(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: workspace.geom.bind_active(),
+                    },
+                ],
+            })
         })
     }
 }
@@ -1726,7 +1759,12 @@ impl Workspace {
         &self.geom
     }
 
-    fn new(device: &wgpu::Device) -> Self {
+    /// Builds a new [`Workspace`] object for use in rendering
+    ///
+    /// The buffers are initialized with a dummy size and resized automatically
+    /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
+    /// [`submit`](Self::submit)).
+    pub fn new(device: &wgpu::Device) -> Self {
         // The config buffer is statically sized, so we can check it here
         static_assertions::const_assert!(
             (std::mem::size_of::<Config>()
@@ -2004,7 +2042,6 @@ impl Context {
         let reset_ctx = ResetContext;
 
         Self {
-            gpu: gpu.clone(),
             common_bind_group_layout,
             root_ctx,
             repack_ctx,
@@ -2017,27 +2054,26 @@ impl Context {
         }
     }
 
-    /// Builds a new [`Workspace`] object for use in rendering
-    ///
-    /// The buffers are initialized with a dummy size and resized automatically
-    /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
-    /// [`submit`](Self::submit)).
-    pub fn workspace(&self) -> Workspace {
-        Workspace::new(&self.gpu.device)
-    }
-
     /// Renders the image, with a blocking wait to read pixel data from the GPU
     ///
     /// This function is not present when built for the `wasm32` target
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.run_with_vars(shape, &Default::default(), workspace, out, settings)
+        self.run_with_vars(
+            gpu,
+            shape,
+            &Default::default(),
+            workspace,
+            out,
+            settings,
+        )
     }
 
     /// Renders the image, with a blocking wait to read pixel data from the GPU
@@ -2046,15 +2082,16 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_with_vars(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, workspace, &settings)?;
-        self.gpu.copy(&workspace.geom, out);
-        let image = self.gpu.map_image(out);
+        self.submit_with_vars(gpu, shape, vars, workspace, &settings)?;
+        gpu.copy(&workspace.geom, out);
+        let image = gpu.map_image(out);
         Ok(image.image())
     }
 
@@ -2063,12 +2100,14 @@ impl Context {
     /// This can be called either natively or on the web
     pub async fn run_async(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
         self.run_with_vars_async(
+            gpu,
             shape,
             &Default::default(),
             workspace,
@@ -2083,15 +2122,16 @@ impl Context {
     /// This can be called either natively or on the web
     pub async fn run_with_vars_async(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
     ) -> Result<Image, SubmitError> {
-        self.submit_with_vars(shape, vars, workspace, &settings)?;
-        self.gpu.copy(&workspace.geom, out);
-        let image = self.gpu.map_image_async(out).await;
+        self.submit_with_vars(gpu, shape, vars, workspace, &settings)?;
+        gpu.copy(&workspace.geom, out);
+        let image = gpu.map_image_async(out).await;
         Ok(image.image())
     }
 
@@ -2101,11 +2141,18 @@ impl Context {
     /// on the GPU in [`workspace.output()`](Workspace::output).
     pub fn submit(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        self.submit_with_vars(shape, &Default::default(), workspace, settings)
+        self.submit_with_vars(
+            gpu,
+            shape,
+            &Default::default(),
+            workspace,
+            settings,
+        )
     }
 
     /// Submits a single image to be rendered on the GPU, with extra variables
@@ -2113,26 +2160,28 @@ impl Context {
     /// See [`submit`](Self::submit) for additional details.
     pub fn submit_with_vars(
         &self,
+        gpu: &Gpu,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
+        let mut encoder = gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
         let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+            wgpu::util::StagingBelt::new(gpu.device.clone(), 1024);
         self.encode(
             shape,
             vars,
             workspace,
             settings,
+            &gpu.device,
             &mut encoder,
             &mut staging,
         )?;
         staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
+        gpu.queue.submit(Some(encoder.finish()));
         staging.recall();
         Ok(())
     }
@@ -2146,10 +2195,11 @@ impl Context {
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         settings: &RenderConfig,
+        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SubmitError> {
-        workspace.set_image_size(&self.gpu.device, settings.image_size)?;
+        workspace.set_image_size(&device, settings.image_size)?;
         let render_size = TileRenderSize::from(workspace.image_size);
 
         let mat =
@@ -2196,7 +2246,7 @@ impl Context {
         // size has changed.
         if matches!(
             shape.copy_vars(
-                &self.gpu.device,
+                device,
                 encoder,
                 staging,
                 vars,
@@ -2217,7 +2267,8 @@ impl Context {
             });
 
         // Build the common config buffer
-        let common_bind_group = workspace.bind_groups.common(self, workspace);
+        let common_bind_group =
+            workspace.bind_groups.common(device, self, workspace);
         compute_pass.set_bind_group(0, common_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
@@ -2226,11 +2277,17 @@ impl Context {
             workspace,
             shape.bytecode.reg_count(),
             render_size,
+            device,
             &mut compute_pass,
         );
         // Repack root tiles into strata
-        self.repack_ctx
-            .run(self, workspace, render_size, &mut compute_pass);
+        self.repack_ctx.run(
+            self,
+            workspace,
+            render_size,
+            device,
+            &mut compute_pass,
+        );
 
         // Evaluate tiles in reverse-Z order by strata (64 voxels deep)
         let strata_count = u64::from(render_size.depth()).div_ceil(64);
@@ -2240,25 +2297,30 @@ impl Context {
                 workspace,
                 strata,
                 shape.bytecode.reg_count(),
+                device,
                 &mut compute_pass,
             );
             self.voxel_ctx.run(
                 self,
                 workspace,
                 shape.bytecode.reg_count(),
+                device,
                 &mut compute_pass,
             );
 
             // Merge filled tiles from large -> small, populating the heightmap
-            self.merge_ctx.run(self, workspace, &mut compute_pass);
+            self.merge_ctx
+                .run(self, workspace, device, &mut compute_pass);
             self.normals_ctx.run(
                 self,
                 workspace,
                 shape.bytecode.reg_count(),
+                device,
                 &mut compute_pass,
             );
 
-            self.clear_ctx.run(self, workspace, &mut compute_pass);
+            self.clear_ctx
+                .run(self, workspace, device, &mut compute_pass);
         }
 
         // Submit the commands and wait for the GPU to complete
@@ -2328,9 +2390,10 @@ impl ClearContext {
         &self,
         ctx: &Context,
         workspace: &Workspace,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
-        let bind_group = workspace.bind_groups.clear(ctx, workspace);
+        let bind_group = workspace.bind_groups.clear(device, ctx, workspace);
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(1, 1, 1);
@@ -2399,10 +2462,11 @@ impl MergeContext {
         &self,
         ctx: &Context,
         workspace: &Workspace,
+        device: &wgpu::Device,
         compute_pass: &mut wgpu::ComputePass,
     ) {
         let render_size = workspace.render_size();
-        let bind_group = workspace.bind_groups.merge(ctx, workspace);
+        let bind_group = workspace.bind_groups.merge(device, ctx, workspace);
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(1, bind_group, &[]);
         compute_pass.dispatch_workgroups(
@@ -2529,7 +2593,7 @@ mod test {
         let voxel_ctx = Context::new(&gpu);
         let effects_ctx = effects::Context::new(&gpu);
 
-        let mut buf = voxel_ctx.workspace();
+        let mut buf = Workspace::new(&gpu.device);
         let mut merge_buf = effects_ctx.merge_workspace();
         let mut shade_buf = effects_ctx.shade_workspace();
 
@@ -2537,7 +2601,9 @@ mod test {
         for (shape, _) in shapes {
             let shape =
                 RenderShape::new(&VmShape::from(shape.clone())).unwrap();
-            voxel_ctx.submit(&shape, &mut buf, &render_config).unwrap();
+            voxel_ctx
+                .submit(&gpu, &shape, &mut buf, &render_config)
+                .unwrap();
             effects_ctx
                 .submit_merge(buf.output(), Default::default(), &mut merge_buf)
                 .unwrap();

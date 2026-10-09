@@ -1494,7 +1494,7 @@ mod test {
 
         let size = 128;
         let image_size = RenderSize::from(size);
-        let mut voxel_buf = voxel_ctx.workspace();
+        let mut voxel_buf = crate::voxel::Workspace::new(&gpu.device);
         let mut merge_buf = effects_ctx.merge_workspace();
 
         let (x, y, z) = Tree::axes();
@@ -1505,6 +1505,7 @@ mod test {
 
         voxel_ctx
             .submit(
+                &gpu,
                 &shape,
                 &mut voxel_buf,
                 &crate::voxel::RenderConfig {
