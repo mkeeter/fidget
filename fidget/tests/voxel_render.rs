@@ -97,13 +97,7 @@ mod wgpu {
 
     #[test]
     fn sphere_wgpu() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        fidget_wgpu::require_gpu!();
         let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
@@ -111,7 +105,7 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.workspace();
+        let mut buf = fidget_wgpu::voxel::Workspace::new(&gpu.device);
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
@@ -123,6 +117,7 @@ mod wgpu {
                 .unwrap();
                 let image = ctx
                     .run(
+                        &gpu,
                         &shape,
                         &mut buf,
                         &mut out,
@@ -144,13 +139,7 @@ mod wgpu {
 
     #[test]
     fn sphere_wgpu_vars() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        fidget_wgpu::require_gpu!();
         let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
@@ -163,7 +152,7 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.workspace();
+        let mut buf = fidget_wgpu::voxel::Workspace::new(&gpu.device);
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
@@ -171,6 +160,7 @@ mod wgpu {
                 vars.insert(v.index().unwrap(), r);
                 let image = ctx
                     .run_with_vars(
+                        &gpu,
                         &render_shape,
                         &vars,
                         &mut buf,

@@ -47,6 +47,8 @@ where
     C: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
 {
     /// Builds a new workspace for color evaluation
+    ///
+    /// Buffers are lazily resized when used in context calls
     pub fn new(device: &wgpu::Device) -> Self {
         let config = FlexBuffer::new(device, "color config", 4.into()).unwrap();
         let shape_start =

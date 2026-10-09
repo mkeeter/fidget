@@ -396,11 +396,11 @@ fn run3d_wgpu(
     };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let mut workspace = ctx.workspace();
+    let mut workspace = fidget::wgpu::voxel::Workspace::new(&gpu.device);
     let mut out = gpu.read_buffer_for(workspace.output());
     let shape = fidget::wgpu::RenderShape::new(&shape)?;
     for _ in 0..settings.n {
-        image = ctx.run(&shape, &mut workspace, &mut out, cfg)?;
+        image = ctx.run(&gpu, &shape, &mut workspace, &mut out, cfg)?;
     }
     let _ = image;
     info!(
@@ -410,15 +410,19 @@ fn run3d_wgpu(
     );
 
     let effects = fidget::wgpu::voxel::effects::Context::new(&gpu);
-    let mut merge_buf = effects.merge_workspace();
-    let mut ssao_buf = effects.ssao_workspace();
-    let mut shade_buf = effects.shade_workspace();
+    let mut merge_buf =
+        fidget::wgpu::voxel::effects::MergeWorkspace::new(&gpu.device);
+    let mut ssao_buf =
+        fidget::wgpu::voxel::effects::SsaoWorkspace::new(&gpu.device);
+    let mut shade_buf =
+        fidget::wgpu::voxel::effects::ShadeWorkspace::new(&gpu.device);
 
     let start = std::time::Instant::now();
     use fidget::wgpu::voxel::effects::MergeSettings;
     let out_bytes = match mode {
         RenderMode3D::Heightmap => {
             effects.submit_merge(
+                &gpu,
                 workspace.output(),
                 MergeSettings {
                     denoise: false,
@@ -426,7 +430,7 @@ fn run3d_wgpu(
                 },
                 &mut merge_buf,
             )?;
-            effects.submit_heightmap(&merge_buf, &mut shade_buf)?;
+            effects.submit_heightmap(&gpu, &merge_buf, &mut shade_buf)?;
             gpu.read_vec(shade_buf.output()).as_bytes().to_vec()
         }
         RenderMode3D::Normals { .. } => {
@@ -434,6 +438,7 @@ fn run3d_wgpu(
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             effects.submit_merge(
+                &gpu,
                 workspace.output(),
                 MergeSettings {
                     denoise,
@@ -441,12 +446,13 @@ fn run3d_wgpu(
                 },
                 &mut merge_buf,
             )?;
-            effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+            effects.submit_ssao(&gpu, &merge_buf, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.blurred_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::RawOcclusion { denoise } => {
             effects.submit_merge(
+                &gpu,
                 workspace.output(),
                 MergeSettings {
                     denoise,
@@ -454,12 +460,13 @@ fn run3d_wgpu(
                 },
                 &mut merge_buf,
             )?;
-            effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+            effects.submit_ssao(&gpu, &merge_buf, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.raw_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
             effects.submit_merge(
+                &gpu,
                 workspace.output(),
                 MergeSettings {
                     denoise,
@@ -468,10 +475,11 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             if ssao {
-                effects.submit_ssao(&merge_buf, &mut ssao_buf)?;
+                effects.submit_ssao(&gpu, &merge_buf, &mut ssao_buf)?;
             }
 
             effects.submit_shade(
+                &gpu,
                 &merge_buf,
                 if ssao { Some(&ssao_buf) } else { None },
                 &mut shade_buf,
@@ -688,12 +696,12 @@ fn run2d_wgpu(
     };
     let mut image = Default::default();
     let start = std::time::Instant::now();
-    let mut buffers = ctx.workspace();
+    let mut buffers = fidget::wgpu::pixel::Workspace::new(&gpu.device);
     let mut out = gpu.read_buffer_for(buffers.output());
     let shape = fidget::wgpu::RenderShape::new(&shape)?;
     let mut postprocess_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
-        let img = ctx.run(&shape, &mut buffers, &mut out, cfg)?;
+        let img = ctx.run(&gpu, &shape, &mut buffers, &mut out, cfg)?;
         let pp_start = std::time::Instant::now();
         image = postprocess2d(img, &mode, threads);
         postprocess_time += pp_start.elapsed();

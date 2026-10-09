@@ -2189,6 +2189,7 @@ impl Context {
     /// Encodes a single image to be rendered on the GPU, with extra variables
     ///
     /// See [`submit`](Self::submit) for additional details.
+    #[allow(clippy::too_many_arguments)]
     pub fn encode(
         &self,
         shape: &RenderShape,
@@ -2199,7 +2200,7 @@ impl Context {
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SubmitError> {
-        workspace.set_image_size(&device, settings.image_size)?;
+        workspace.set_image_size(device, settings.image_size)?;
         let render_size = TileRenderSize::from(workspace.image_size);
 
         let mat =
@@ -2594,8 +2595,8 @@ mod test {
         let effects_ctx = effects::Context::new(&gpu);
 
         let mut buf = Workspace::new(&gpu.device);
-        let mut merge_buf = effects_ctx.merge_workspace();
-        let mut shade_buf = effects_ctx.shade_workspace();
+        let mut merge_buf = effects::MergeWorkspace::new(&gpu.device);
+        let mut shade_buf = effects::ShadeWorkspace::new(&gpu.device);
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
@@ -2605,7 +2606,12 @@ mod test {
                 .submit(&gpu, &shape, &mut buf, &render_config)
                 .unwrap();
             effects_ctx
-                .submit_merge(buf.output(), Default::default(), &mut merge_buf)
+                .submit_merge(
+                    &gpu,
+                    buf.output(),
+                    Default::default(),
+                    &mut merge_buf,
+                )
                 .unwrap();
         }
         let merged = gpu.read_vec(merge_buf.output());
@@ -2625,15 +2631,18 @@ mod test {
             })
             .collect::<Vec<_>>();
         let shape_colors = ShapeColorBuffers::new(&shape_colors).unwrap();
-        let mut color_workspace = effects_ctx.color_workspace();
+        let mut color_workspace = effects::ColorWorkspace::new(&gpu.device);
 
         // Compute SSAO buffer
-        let mut ssao_buf = effects_ctx.ssao_workspace();
-        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+        let mut ssao_buf = effects::SsaoWorkspace::new(&gpu.device);
+        effects_ctx
+            .submit_ssao(&gpu, &merge_buf, &mut ssao_buf)
+            .unwrap();
 
         // Compute per-pixel colors
         effects_ctx
             .submit_color(
+                &gpu,
                 &merge_buf,
                 &render_config.world_to_model,
                 &shape_colors,
@@ -2652,7 +2661,7 @@ mod test {
         // Compute shaded image (with color, overwriting shade_buf)
         let mut shade_out = gpu.read_buffer_for(shade_buf.output());
         effects_ctx
-            .submit_shade(&merge_buf, Some(&ssao_buf), &mut shade_buf)
+            .submit_shade(&gpu, &merge_buf, Some(&ssao_buf), &mut shade_buf)
             .unwrap();
         gpu.copy(shade_buf.output(), &mut shade_out);
         let shaded = gpu.map_image(&mut shade_out).image();
@@ -2660,6 +2669,7 @@ mod test {
         // Recompute per-pixel colors
         effects_ctx
             .submit_color(
+                &gpu,
                 &merge_buf,
                 &render_config.world_to_model,
                 &shape_colors,
@@ -2669,7 +2679,7 @@ mod test {
             .unwrap();
         // Compute heightmap
         effects_ctx
-            .submit_heightmap(&merge_buf, &mut shade_buf)
+            .submit_heightmap(&gpu, &merge_buf, &mut shade_buf)
             .unwrap();
         gpu.copy(shade_buf.output(), &mut shade_out);
         let heightmap = gpu.map_image(&mut shade_out).image();
