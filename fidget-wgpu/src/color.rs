@@ -7,7 +7,7 @@
 //! [`ColorWorkspace<C>`] is specialized to
 //! [`voxel::effects::ColorWorkspace`](crate::voxel::effects::ColorWorkspace)
 use crate::{
-    CopyVarsChanged, CopyVarsError, Gpu,
+    CopyVarsChanged, CopyVarsError,
     buf::{BufferSizeError, ConfigBufferWrite, FlexBuffer, FlexConfigBuffer},
     tag,
     voxel::VarsBufferTag,
@@ -88,11 +88,20 @@ where
 
     pub(crate) fn copy_vars(
         &mut self,
-        gpu: &Gpu,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
         vs: &VarMap,
         vars: &ShapeVars<f32>,
     ) -> Result<(), CopyVarsError> {
-        match crate::copy_vars(gpu, vs, vars, &mut self.vars_buf)? {
+        match crate::encode_copy_vars(
+            device,
+            encoder,
+            staging,
+            vs,
+            vars,
+            &mut self.vars_buf,
+        )? {
             CopyVarsChanged::BufferChanged => {
                 self.bind_group = Default::default()
             }
@@ -103,11 +112,16 @@ where
 
     pub(crate) fn copy_config_and_tape(
         &mut self,
-        gpu: &Gpu,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
         config: &C,
         bytecode: &[u32],
     ) -> Result<(), BufferSizeError> {
-        match self.config.write(gpu, config, bytecode)? {
+        match self
+            .config
+            .encode_write(device, encoder, staging, config, bytecode)?
+        {
             ConfigBufferWrite::BufferChanged => {
                 self.bind_group = Default::default()
             }
@@ -118,12 +132,12 @@ where
 
     pub(crate) fn copy_shape_starts(
         &mut self,
-        gpu: &Gpu,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
         shape_starts: &[u32],
     ) -> Result<(), BufferSizeError> {
-        let r = self
-            .shape_start
-            .grow_to_fit(&gpu.device, shape_starts.len())?;
+        let r = self.shape_start.grow_to_fit(device, shape_starts.len())?;
         if !matches!(r, std::cmp::Ordering::Equal) {
             self.bind_group = Default::default();
         }
@@ -132,10 +146,12 @@ where
         else {
             return Ok(());
         };
-        let mut writer = gpu
-            .queue
-            .write_buffer_with(self.shape_start.data(), 0, byte_count)
-            .unwrap();
+        let mut writer = staging.write_buffer(
+            encoder,
+            self.shape_start.data(),
+            0,
+            byte_count,
+        );
         writer.copy_from_slice(shape_starts.as_bytes());
         Ok(())
     }

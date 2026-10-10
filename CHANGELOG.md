@@ -2,6 +2,9 @@
 - Makes `fidget::wgpu::buf::FlexBuffer::new` and `grow_to_fit` public
 - Fix a bug in `fidget_jit` on AArch64 where `w28` was corrupted in JIT
   functions which use over 4096 bytes of stack.
+- Add bring-your-own-encoder functions to `fidget::wgpu` context objects.  This
+  allows us to integrate with other WGPU rendering pipelines which only provide
+  a `CommandEncoder`; see the main `fidget_wgpu` module docs for details.
 
 # 0.5.1
 The most significant change in this version is unlocking all-GPU rendering: we

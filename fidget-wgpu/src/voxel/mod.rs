@@ -2118,25 +2118,36 @@ impl Context {
         workspace: &mut Workspace,
         settings: &RenderConfig,
     ) -> Result<(), SubmitError> {
-        // Create a command encoder and dispatch the compute work
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
-        self.encode_with_vars(shape, vars, workspace, settings, &mut encoder)?;
+        let mut staging =
+            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
+        self.encode(
+            shape,
+            vars,
+            workspace,
+            settings,
+            &mut encoder,
+            &mut staging,
+        )?;
+        staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
         Ok(())
     }
 
     /// Encodes a single image to be rendered on the GPU, with extra variables
     ///
     /// See [`submit`](Self::submit) for additional details.
-    pub fn encode_with_vars(
+    pub fn encode(
         &self,
         shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         settings: &RenderConfig,
         encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SubmitError> {
         workspace.set_image_size(&self.gpu.device, settings.image_size)?;
         let render_size = TileRenderSize::from(workspace.image_size);
@@ -2164,32 +2175,33 @@ impl Context {
             root_tape_len: start_offset,
         };
 
-        {
-            // We load the `Config` and shape tape data.
-            let config_len = std::mem::size_of_val(&config);
-            let mut writer = self
-                .gpu
-                .queue
-                .write_buffer_with(
-                    &workspace.config_buf,
-                    0,
-                    ((config_len + shape.bytecode.as_bytes().len()) as u64)
-                        .try_into()
-                        .unwrap(),
-                )
-                .unwrap();
-            writer
-                .slice(..config_len)
-                .copy_from_slice(config.as_bytes());
-            writer
-                .slice(config_len..)
-                .copy_from_slice(shape.bytecode.as_bytes());
-        }
+        // We load the `Config` and shape tape data.
+        let config_len = std::mem::size_of_val(&config);
+        let mut writer = staging.write_buffer(
+            encoder,
+            &workspace.config_buf,
+            0,
+            ((config_len + shape.bytecode.as_bytes().len()) as u64)
+                .try_into()
+                .unwrap(),
+        );
+        writer
+            .slice(..config_len)
+            .copy_from_slice(config.as_bytes());
+        writer
+            .slice(config_len..)
+            .copy_from_slice(shape.bytecode.as_bytes());
 
         // Copy vars (if present), then reset relevant bind groups if the buffer
         // size has changed.
         if matches!(
-            shape.copy_vars(&self.gpu, vars, &mut workspace.vars_buf)?,
+            shape.copy_vars(
+                &self.gpu.device,
+                encoder,
+                staging,
+                vars,
+                &mut workspace.vars_buf
+            )?,
             CopyVarsChanged::BufferChanged
         ) {
             workspace.bind_groups.common = Default::default();

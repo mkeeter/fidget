@@ -26,12 +26,6 @@
 //! Users are expected to create one (of each) context object per thread or
 //! worker, since GPU resources can't be shared.
 //!
-//! Context objects have two flavors of functions.  At the highest level, `run`
-//! and `run_async` functions perform rendering and copy data back to the CPU
-//! (e.g. [`voxel::Context::run`] and [`run_async`](voxel::Context::run_async)).
-//! To simply submit work to the GPU, use a `submit` function (e.g.
-//! [`voxel::Context::submit`]).
-//!
 //! ### Workspace objects
 //! Workspace objects contain all of the buffers that are used when dispatching
 //! work to the GPU.  They are also per-thread (or per-worker).  You may have
@@ -61,6 +55,168 @@
 //! For quick debugging, [`Gpu::read_vec`] does all of these steps.  You
 //! wouldn't want to use in a tight loop, since it allocates a GPU buffer on
 //! each call.
+//!
+//! ## Three kinds of rendering functions
+//! Context objects have three flavors of functions, with increasing level of
+//! control (and required boilerplate).
+//!
+//! ### `run` functions
+//! At the highest level, `run` and `run_async` functions perform rendering
+//! and copy data back to the CPU (e.g. [`voxel::Context::run`] and
+//! [`run_async`](voxel::Context::run_async)).
+//!
+//! ```
+//! # fidget_wgpu::require_gpu!();
+//! use fidget_wgpu::{Gpu, voxel::Context};
+//!
+//! // GPU setup (this only needs to happen once)
+//! let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+//! let ctx = Context::new(&gpu);
+//! let mut workspace = ctx.workspace();
+//! let mut out = gpu.read_buffer_for(workspace.output());
+//!
+//! // Per-shape setup
+//! let x = fidget_core::context::Tree::x();
+//! let shape = fidget_core::vm::VmShape::from(x);
+//! let render_shape = fidget_wgpu::RenderShape::new(&shape).unwrap();
+//!
+//! // Select our render size
+//! let render_config = fidget_wgpu::voxel::RenderConfig::from_size(128.into());
+//!
+//! // Do the actual work!
+//! let image = ctx.run(
+//!     &render_shape,
+//!     &mut workspace,
+//!     &mut out,
+//!     render_config,
+//! ).unwrap();
+//!
+//! // Check that the image is correct
+//! assert_eq!(image.size().width(), 128);
+//! assert_eq!(image.size().height(), 128);
+//! for y in 0..128 {
+//!     for x in 0..128 {
+//!         let expected = if x < 64 {
+//!             127
+//!         } else {
+//!             0
+//!         };
+//!         assert_eq!(image[(y, x)].depth, expected, "bad pixel at {x}, {y}");
+//!     }
+//! }
+//! ```
+//!
+//! ### `submit` functions
+//! To simply submit work to the GPU, use a `submit` function (e.g.
+//! [`voxel::Context::submit`]).
+//!
+//! ```
+//! # fidget_wgpu::require_gpu!();
+//! # use fidget_wgpu::{Gpu, voxel::Context};
+//! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+//! # let ctx = Context::new(&gpu);
+//! # let mut workspace = ctx.workspace();
+//! # let mut out = gpu.read_buffer_for(workspace.output());
+//! # let x = fidget_core::context::Tree::x();
+//! # let shape = fidget_core::vm::VmShape::from(x);
+//! # let render_shape = fidget_wgpu::RenderShape::new(&shape).unwrap();
+//! # let render_config = fidget_wgpu::voxel::RenderConfig::from_size(128.into());
+//! // Setup is done per the previous example
+//!
+//! // Submit the work to the queue
+//! ctx.submit(
+//!     &render_shape,
+//!     &mut workspace,
+//!     &render_config,
+//! ).unwrap();
+//!
+//! // We'll also enqueue a copy to our output buffer
+//! gpu.copy(&workspace.output(), &mut out);
+//!
+//! // Mapping the image is a blocking step which waits for the GPU
+//! let image = gpu.map_image(&mut out).image();
+//!
+//! // Then we can do the same image tests as above
+//! # assert_eq!(image.size().width(), 128);
+//! # assert_eq!(image.size().height(), 128);
+//! # for y in 0..128 {
+//! #     for x in 0..128 {
+//! #         let expected = if x < 64 {
+//! #             127
+//! #         } else {
+//! #             0
+//! #         };
+//! #         assert_eq!(image[(y, x)].depth, expected, "bad pixel at {x}, {y}");
+//! #     }
+//! # }
+//! ```
+//!
+//! ### `encode` functions
+//! At the lowest level, to encode a rendering operation into a WebGPU
+//! `CommandEncoder`, use an `encode` function (e.g.
+//! [`voxel::Context::encode`]).  `encode` functions which copy data to GPU
+//! memory (i.e. most of them) also need a [`wgpu::util::StagingBelt`] object to
+//! be passed in, for subtle reasons (when config buffers are reused, we need
+//! data loading to happen at specific times within the `CommandEncoder` list,
+//! instead of submitting the data copies to a queue directly).
+//!
+//! ```
+//! # fidget_wgpu::require_gpu!();
+//! # use fidget_wgpu::{Gpu, voxel::Context};
+//! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+//! # let ctx = Context::new(&gpu);
+//! # let mut workspace = ctx.workspace();
+//! # let mut out = gpu.read_buffer_for(workspace.output());
+//! # let x = fidget_core::context::Tree::x();
+//! # let shape = fidget_core::vm::VmShape::from(x);
+//! # let render_shape = fidget_wgpu::RenderShape::new(&shape).unwrap();
+//! # let render_config = fidget_wgpu::voxel::RenderConfig::from_size(128.into());
+//! // Setup is done per the previous example
+//!
+//! // We need to provide the encoder and staging buffer ourselves
+//! let mut encoder = gpu.device.create_command_encoder(
+//!     &wgpu::CommandEncoderDescriptor { label: None },
+//! );
+//! let mut staging = wgpu::util::StagingBelt::new(gpu.device.clone(), 1024);
+//!
+//! // Encode the work in our encoder
+//! ctx.encode(
+//!     &render_shape,
+//!     &Default::default(), // vars
+//!     &mut workspace,
+//!     &render_config,
+//!     &mut encoder,
+//!     &mut staging,
+//! ).unwrap();
+//!
+//! // Note the use of `encode_copy`, which sends the copy operation to an
+//! // encoder (rather than submitting work to the GPU queue itself)
+//! gpu.encode_copy(&workspace.output(), &mut out, &mut encoder);
+//!
+//! // Submit the `StagingBelt` copies
+//! staging.finish();
+//!
+//! // ...and we're done
+//! gpu.queue.submit(Some(encoder.finish()));
+//! staging.recall();
+//!
+//! // Everything else proceeds as above (using `gpu.map_image(&mut out)` to get
+//! // the image data back to the host and test that it's correct).
+//! # let image = gpu.map_image(&mut out).image();
+//! # assert_eq!(image.size().width(), 128);
+//! # assert_eq!(image.size().height(), 128);
+//! # for y in 0..128 {
+//! #     for x in 0..128 {
+//! #         let expected = if x < 64 {
+//! #             127
+//! #         } else {
+//! #             0
+//! #         };
+//! #         assert_eq!(image[(y, x)].depth, expected, "bad pixel at {x}, {y}");
+//! #     }
+//! # }
+//! ```
+//!
 #![warn(missing_docs)]
 
 use fidget_bytecode::{Bytecode, ReservedRegister};
@@ -443,16 +599,27 @@ impl RenderShape {
     /// bind groups.
     fn copy_vars(
         &self,
-        gpu: &Gpu,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
         vars: &ShapeVars<f32>,
         buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
     ) -> Result<CopyVarsChanged, CopyVarsError> {
-        copy_vars(gpu, self.shape.inner().vars(), vars, buf)
+        encode_copy_vars(
+            device,
+            encoder,
+            staging,
+            self.shape.inner().vars(),
+            vars,
+            buf,
+        )
     }
 }
 
-pub(crate) fn copy_vars(
-    gpu: &Gpu,
+pub(crate) fn encode_copy_vars(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    staging: &mut wgpu::util::StagingBelt,
     vs: &VarMap,
     vars: &ShapeVars<f32>,
     buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
@@ -474,20 +641,18 @@ pub(crate) fn copy_vars(
         // `true` indicating that things have changed and bind groups should
         // be invalidated.  TODO: only do this if we grow the buffer, since
         // binding an overly-large buffer is fine?
-        let r = buf.grow_to_fit(&gpu.device, vs.len())?;
+        let r = buf.grow_to_fit(device, vs.len())?;
         if !matches!(r, std::cmp::Ordering::Equal) {
             changed = CopyVarsChanged::BufferChanged;
         }
-        let mut writer = gpu
-            .queue
-            .write_buffer_with(
-                buf.data(),
-                0,
-                ((vs.len() * std::mem::size_of::<f32>()) as u64)
-                    .try_into()
-                    .unwrap(),
-            )
-            .unwrap();
+        let mut writer = staging.write_buffer(
+            encoder,
+            buf.data(),
+            0,
+            ((vs.len() * std::mem::size_of::<f32>()) as u64)
+                .try_into()
+                .unwrap(),
+        );
         for (v, i) in vs.iter() {
             match v {
                 Var::X | Var::Y | Var::Z => (),
