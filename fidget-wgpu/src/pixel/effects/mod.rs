@@ -429,6 +429,7 @@ impl Context {
     }
 
     /// Low-level function to encode a color rendering pass
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_color(
         &self,
         merge: &mut MergeWorkspace,

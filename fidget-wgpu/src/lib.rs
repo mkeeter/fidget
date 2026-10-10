@@ -193,11 +193,12 @@
 //! // encoder (rather than submitting work to the GPU queue itself)
 //! gpu.encode_copy(&workspace.output(), &mut out, &mut encoder);
 //!
-//! // Cleanup for the `StagingBelt` object
+//! // Submit the `StagingBelt` copies
 //! staging.finish();
 //!
 //! // ...and we're done
 //! gpu.queue.submit(Some(encoder.finish()));
+//! staging.recall();
 //!
 //! // Everything else proceeds as above (using `gpu.map_image(&mut out)` to get
 //! // the image data back to the host and test that it's correct).
