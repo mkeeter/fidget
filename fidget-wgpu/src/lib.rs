@@ -221,7 +221,6 @@
 
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
-    eval::Function,
     shape::{MissingVar, ShapeVars},
     var::{Var, VarMap},
     vm::VmShape,
@@ -547,13 +546,10 @@ impl RegPipeline {
 
 /// Shape for rendering on the GPU
 ///
-/// Note that this object does not allocate any memory on the GPU itself; it
-/// stores a bytecode-serialized version of the shape, which is copied to the
-/// GPU during rendering.
+/// Note that this object does not allocate any memory on the GPU itself; it is
+/// a thin wrapper around a [`Bytecode`] object, which is copied to the GPU
+/// during rendering.
 pub struct RenderShape {
-    /// Copy of our shape (kept around for access to the variable map)
-    shape: VmShape,
-    /// Serialized bytecode for the shape
     bytecode: Bytecode,
 }
 
@@ -580,17 +576,18 @@ impl RenderShape {
             return Err(RenderShapeError::TooLong(bytecode.len() / 2));
         }
 
-        Ok(Self {
-            shape: shape.clone(),
-            bytecode,
-        })
+        Ok(Self { bytecode })
     }
 
     /// Helper function to return XYZ variable indices
     fn axes(&self) -> [u32; 3] {
-        let vars = self.shape.inner().vars();
-        [Var::X, Var::Y, Var::Z]
-            .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
+        [Var::X, Var::Y, Var::Z].map(|a| {
+            self.bytecode
+                .vars()
+                .get(&a)
+                .map(|v| v as u32)
+                .unwrap_or(u32::MAX)
+        })
     }
 
     /// Copies variables into a variables buffer
@@ -609,7 +606,7 @@ impl RenderShape {
             device,
             encoder,
             staging,
-            self.shape.inner().vars(),
+            self.bytecode.vars(),
             vars,
             buf,
         )
