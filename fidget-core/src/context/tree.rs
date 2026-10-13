@@ -2,7 +2,7 @@
 use super::op::{BinaryOpcode, UnaryOpcode};
 use crate::{context::NotAVar, var::Var};
 use ordered_float::OrderedFloat;
-use std::{cmp::Ordering, sync::Arc};
+use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 
 /// Opcode type for trees
 ///
@@ -74,6 +74,8 @@ impl PartialEq for TreeOp {
         if std::ptr::eq(self, other) {
             return true;
         }
+        let mut seen = HashSet::new();
+
         // Heap recursion using a `Vec`, to avoid blowing up the stack
         let mut todo = vec![(self, other)];
         while let Some((a, b)) = todo.pop() {
@@ -81,6 +83,17 @@ impl PartialEq for TreeOp {
             if std::ptr::eq(a, b) {
                 continue;
             }
+
+            // Similarly, we can memoize comparisons and skip once we've seen a
+            // particular pointer pair (because we would have returned `false`
+            // if they did not match).  We normalize by sorting the pointers;
+            // if we've seen `a == b`, then we can also skip `b == a`.
+            let a_ptr = a as *const TreeOp;
+            let b_ptr = b as *const TreeOp;
+            if !seen.insert((a_ptr.min(b_ptr), a_ptr.max(b_ptr))) {
+                continue;
+            }
+
             // Otherwise, we check opcodes then recurse
             match (a, b) {
                 (TreeOp::Input(a), TreeOp::Input(b)) => {
