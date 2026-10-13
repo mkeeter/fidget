@@ -2,7 +2,12 @@
 use super::op::{BinaryOpcode, UnaryOpcode};
 use crate::{context::NotAVar, var::Var};
 use ordered_float::OrderedFloat;
-use std::{cmp::Ordering, collections::HashSet, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    hash::Hasher,
+    sync::Arc,
+};
 
 /// Opcode type for trees
 ///
@@ -196,22 +201,50 @@ impl TreeOp {
 
 impl std::hash::Hash for TreeOp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut todo = vec![self];
-        while let Some(t) = todo.pop() {
-            std::mem::discriminant(t).hash(state);
-            match t {
-                TreeOp::Input(i) => i.hash(state),
-                TreeOp::Const(v) => OrderedFloat(*v).hash(state),
-                TreeOp::Binary(op, _lhs, _rhs) => op.hash(state),
-                TreeOp::Unary(op, _arg) => op.hash(state),
-                TreeOp::RemapAxes { .. } => (), // no non-recursive state
-                TreeOp::RemapAffine { target: _, mat } => mat
-                    .matrix()
-                    .iter()
-                    .for_each(|f| OrderedFloat(*f).hash(state)),
-            }
-            todo.extend(t.iter_children().map(|t| t.as_ref()))
+        enum Action<'a> {
+            Down(&'a TreeOp),
+            Up(&'a TreeOp),
         }
+        let mut todo = vec![Action::Down(self)];
+        let mut values: HashMap<*const TreeOp, u64> = HashMap::new();
+        while let Some(t) = todo.pop() {
+            match t {
+                Action::Down(t) => {
+                    todo.push(Action::Up(t));
+                    todo.extend(
+                        t.iter_children()
+                            .filter(|t| {
+                                !values.contains_key(&(t.as_ref() as *const _))
+                            })
+                            .map(|t| Action::Down(t.as_ref())),
+                    );
+                }
+                Action::Up(t) => {
+                    let mut hasher = DefaultHasher::new();
+                    std::mem::discriminant(t).hash(&mut hasher);
+                    match t {
+                        TreeOp::Input(i) => i.hash(&mut hasher),
+                        TreeOp::Const(v) => OrderedFloat(*v).hash(&mut hasher),
+                        TreeOp::Binary(op, _lhs, _rhs) => op.hash(&mut hasher),
+                        TreeOp::Unary(op, _arg) => op.hash(&mut hasher),
+                        TreeOp::RemapAxes { .. } => (), // no non-recursive state
+                        TreeOp::RemapAffine { target: _, mat } => mat
+                            .matrix()
+                            .iter()
+                            .for_each(|f| OrderedFloat(*f).hash(state)),
+                    }
+                    for t in t.iter_children() {
+                        values
+                            .get(&(t.as_ref() as *const _))
+                            .unwrap()
+                            .hash(&mut hasher);
+                    }
+                    values.insert(t as *const _, hasher.finish());
+                }
+            }
+        }
+        println!("stored {} values", values.len());
+        values.get(&(self as *const _)).unwrap().hash(state)
     }
 }
 
