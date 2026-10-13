@@ -76,14 +76,20 @@ impl Drop for TreeOp {
 /// (and to store values in hashmaps).
 impl PartialEq for TreeOp {
     fn eq(&self, other: &Self) -> bool {
+        // Allocation-free path if the pointers are identical
         if std::ptr::eq(self, other) {
             return true;
         }
+
+        // Cache of pointer pairs which are known to be equal.  We only put
+        // pairs into this hash if they're both shared (having > 1 strong
+        // reference); if they're unique, then by definition we won't see them
+        // again and there's no point in growing the hash.
         let mut seen = HashSet::new();
 
         // Heap recursion using a `Vec`, to avoid blowing up the stack
-        let mut todo = vec![(self, other)];
-        while let Some((a, b)) = todo.pop() {
+        let mut todo = vec![(self, other, false)];
+        while let Some((a, b, shared)) = todo.pop() {
             // Pointer equality lets us short-circuit deep checks
             if std::ptr::eq(a, b) {
                 continue;
@@ -92,10 +98,12 @@ impl PartialEq for TreeOp {
             // Similarly, we can memoize comparisons and skip once we've seen a
             // particular pointer pair (because we would have returned `false`
             // if they did not match).  We normalize by sorting the pointers;
-            // if we've seen `a == b`, then we can also skip `b == a`.
+            // if we've seen `a == b`, then we can also skip `b == a`.  This
+            // only happens if both trees come from shared Arc pointers, because
+            // otherwise it's not possible.
             let a_ptr = a as *const TreeOp;
             let b_ptr = b as *const TreeOp;
-            if !seen.insert((a_ptr.min(b_ptr), a_ptr.max(b_ptr))) {
+            if shared && !seen.insert((a_ptr.min(b_ptr), a_ptr.max(b_ptr))) {
                 continue;
             }
 
@@ -139,11 +147,13 @@ impl PartialEq for TreeOp {
                 }
                 _ => return false,
             }
-            todo.extend(
-                a.iter_children()
-                    .zip(b.iter_children())
-                    .map(|(a, b)| (a.as_ref(), b.as_ref())),
-            )
+            todo.extend(a.iter_children().zip(b.iter_children()).map(
+                |(a, b)| {
+                    let shared =
+                        Arc::strong_count(a) > 1 && Arc::strong_count(b) > 1;
+                    (a.as_ref(), b.as_ref(), shared)
+                },
+            ))
         }
         true
     }
@@ -201,25 +211,42 @@ impl TreeOp {
 
 impl std::hash::Hash for TreeOp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Heap-based recursion, to avoid blowing up the stack on deep trees
         enum Action<'a> {
-            Down(&'a TreeOp),
-            Up(&'a TreeOp),
+            Down { t: &'a TreeOp, shared: bool },
+            Up { t: &'a TreeOp, shared: bool },
         }
-        let mut todo = vec![Action::Down(self)];
-        let mut values: HashMap<*const TreeOp, u64> = HashMap::new();
+        let mut todo = vec![Action::Down {
+            t: self,
+            shared: false,
+        }];
+        let mut cache: HashMap<*const TreeOp, u64> = HashMap::new();
+        let mut stack = vec![];
         while let Some(t) = todo.pop() {
             match t {
-                Action::Down(t) => {
-                    todo.push(Action::Up(t));
-                    todo.extend(
-                        t.iter_children()
-                            .filter(|t| {
-                                !values.contains_key(&(t.as_ref() as *const _))
-                            })
-                            .map(|t| Action::Down(t.as_ref())),
-                    );
+                Action::Down { t, shared } => {
+                    if shared && let Some(v) = cache.get(&(t as *const _)) {
+                        stack.push(*v);
+                    } else {
+                        todo.push(Action::Up { t, shared });
+                        for t in t.iter_children() {
+                            let shared = Arc::strong_count(t) > 1;
+                            if shared
+                                && let Some(v) =
+                                    cache.get(&(t.as_ref() as *const _))
+                            {
+                                stack.push(*v);
+                            } else {
+                                todo.push(Action::Down {
+                                    t: t.as_ref(),
+                                    shared,
+                                });
+                            }
+                        }
+                    }
                 }
-                Action::Up(t) => {
+                Action::Up { t, shared } => {
+                    // Build a local hash for this node
                     let mut hasher = DefaultHasher::new();
                     std::mem::discriminant(t).hash(&mut hasher);
                     match t {
@@ -227,24 +254,29 @@ impl std::hash::Hash for TreeOp {
                         TreeOp::Const(v) => OrderedFloat(*v).hash(&mut hasher),
                         TreeOp::Binary(op, _lhs, _rhs) => op.hash(&mut hasher),
                         TreeOp::Unary(op, _arg) => op.hash(&mut hasher),
-                        TreeOp::RemapAxes { .. } => (), // no non-recursive state
+                        TreeOp::RemapAxes { .. } => {
+                            // no non-recursive state, so nothing to hash
+                        }
                         TreeOp::RemapAffine { target: _, mat } => mat
                             .matrix()
                             .iter()
                             .for_each(|f| OrderedFloat(*f).hash(state)),
                     }
-                    for t in t.iter_children() {
-                        values
-                            .get(&(t.as_ref() as *const _))
-                            .unwrap()
-                            .hash(&mut hasher);
+                    // At this point, all children must have been hashed and
+                    // pushed to the stack.
+                    for _ in t.iter_children() {
+                        stack.pop().unwrap().hash(&mut hasher);
                     }
-                    values.insert(t as *const _, hasher.finish());
+                    let h = hasher.finish();
+                    if shared {
+                        cache.insert(t as *const _, h);
+                    }
+                    stack.push(h);
                 }
             }
         }
-        println!("stored {} values", values.len());
-        values.get(&(self as *const _)).unwrap().hash(state)
+        stack.pop().unwrap().hash(state);
+        assert!(stack.is_empty());
     }
 }
 
@@ -719,7 +751,39 @@ mod test {
         for _ in 0..1_000_000 {
             x2 += 1.0;
         }
+        let mut x3 = Tree::x();
+        for _ in 0..1_000_000 {
+            x3 += 1.0;
+        }
         assert_eq!(x1, x2);
+
+        let a = x1.clone() + x1.clone();
+        let b = x2.clone() + x2.clone();
+        let c = x1.clone() + x2.clone();
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        assert_eq!(a, c);
+
+        // We expect to cache the `x1 == x2` result, so `e == d` should be as
+        // fast as `x1 == x2` (roughly), but `e == f` should be slower.
+        let e = x1.clone() + x1.clone();
+        let d = x2.clone() + x2.clone();
+        let f = x2.clone() + x3.clone();
+
+        let t = std::time::Instant::now();
+        assert_eq!(x1, x2);
+        let t1 = t.elapsed();
+
+        let t = std::time::Instant::now();
+        assert_eq!(e, d);
+        let t2 = t.elapsed();
+
+        let t = std::time::Instant::now();
+        assert_eq!(e, f);
+        let t3 = t.elapsed();
+
+        assert!(t1 * 3 < t3 * 2, "expected {t1:?} to be faster than {t3:?}");
+        assert!(t2 * 3 < t3 * 2, "expected {t2:?} to be faster than {t3:?}");
     }
 
     #[test]
@@ -732,10 +796,34 @@ mod test {
         for _ in 0..1_000_000 {
             x2 += 1.0;
         }
-        let t = std::time::Instant::now();
         let state = std::hash::RandomState::new();
         assert_eq!(state.hash_one(&x1), state.hash_one(&x2));
-        println!("{:?}", t.elapsed());
+
+        // `a` and `b` should deduplicate when hashing and therefore be faster
+        // than `c`, which mixes `x1` and `x2`
+        let a = x1.clone() + x1.clone();
+        let b = x2.clone() + x2.clone();
+        let c = x1 + x2;
+
+        let t = std::time::Instant::now();
+        let ha = state.hash_one(&a);
+        let ta = t.elapsed();
+
+        let t = std::time::Instant::now();
+        let hb = state.hash_one(&b);
+        let tb = t.elapsed();
+
+        let t = std::time::Instant::now();
+        let hc = state.hash_one(&c);
+        let tc = t.elapsed();
+
+        assert_eq!(ha, hb);
+        assert_eq!(hb, hc);
+        assert_eq!(ha, hc);
+
+        // Theoretically it should be 2× slower, so we'll assert 1.5×
+        assert!(ta * 3 < tc * 2, "expected {ta:?} to be faster than {tc:?}");
+        assert!(tb * 3 < tc * 2, "expected {tb:?} to be faster than {tc:?}");
     }
 
     #[test]
@@ -744,9 +832,28 @@ mod test {
         for _ in 0..1_000_000 {
             x += 1.0;
         }
+
         let mut ctx = Context::new();
-        ctx.import(&x);
-        // we should not panic here!
+        let t = std::time::Instant::now();
+        ctx.import(&x); // we should not panic here!
+        let tx = t.elapsed();
+
+        // `y` should be deduplicated while importing, and therefore should take
+        // about the same time as importing `x`.
+        let y = x.clone() + x.clone();
+        let mut ctx = Context::new();
+        let t = std::time::Instant::now();
+        ctx.import(&y);
+        let ty = t.elapsed();
+
+        let tx_millis = tx.as_millis();
+        let ty_millis = ty.as_millis();
+        let err_frac = tx_millis.abs_diff(ty_millis) as f64
+            / tx_millis.min(ty_millis) as f64;
+        assert!(
+            err_frac < 0.1,
+            "too much time difference between {tx:?} and {ty:?}"
+        );
     }
 
     #[test]
