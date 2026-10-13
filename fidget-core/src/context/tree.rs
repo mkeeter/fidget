@@ -229,20 +229,10 @@ impl std::hash::Hash for TreeOp {
                         stack.push(*v);
                     } else {
                         todo.push(Action::Up { t, shared });
-                        for t in t.iter_children() {
-                            let shared = Arc::strong_count(t) > 1;
-                            if shared
-                                && let Some(v) =
-                                    cache.get(&(t.as_ref() as *const _))
-                            {
-                                stack.push(*v);
-                            } else {
-                                todo.push(Action::Down {
-                                    t: t.as_ref(),
-                                    shared,
-                                });
-                            }
-                        }
+                        todo.extend(t.iter_children().map(|t| Action::Down {
+                            t: t.as_ref(),
+                            shared: Arc::strong_count(t) > 1,
+                        }));
                     }
                 }
                 Action::Up { t, shared } => {
