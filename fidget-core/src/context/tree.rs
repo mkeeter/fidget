@@ -699,8 +699,10 @@ mod test {
         for _ in 0..1_000_000 {
             x2 += 1.0;
         }
+        let t = std::time::Instant::now();
         let state = std::hash::RandomState::new();
         assert_eq!(state.hash_one(&x1), state.hash_one(&x2));
+        println!("{:?}", t.elapsed());
     }
 
     #[test]
