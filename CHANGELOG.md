@@ -6,6 +6,10 @@
   allows us to integrate with other WGPU rendering pipelines which only provide
   a `CommandEncoder`; see the main `fidget_wgpu` module docs for details.
 - Add `vars()` to the `Bytecode` object, which stores the shape's `Arc<VarMap>`
+- Make `TreeOp::partial_eq` and `TreeOp::hash` memoize shared work.  This may be
+  slightly slower for deep trees with no sharing, but is a significant speedup
+  for trees with shared branches (to be pedantic, these would be directed
+  acyclic graphs, rather than trees).
 
 # 0.5.1
 The most significant change in this version is unlocking all-GPU rendering: we

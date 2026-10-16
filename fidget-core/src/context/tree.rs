@@ -2,7 +2,12 @@
 use super::op::{BinaryOpcode, UnaryOpcode};
 use crate::{context::NotAVar, var::Var};
 use ordered_float::OrderedFloat;
-use std::{cmp::Ordering, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    hash::Hasher,
+    sync::Arc,
+};
 
 /// Opcode type for trees
 ///
@@ -71,16 +76,37 @@ impl Drop for TreeOp {
 /// (and to store values in hashmaps).
 impl PartialEq for TreeOp {
     fn eq(&self, other: &Self) -> bool {
+        // Allocation-free path if the pointers are identical
         if std::ptr::eq(self, other) {
             return true;
         }
+
+        // Cache of pointer pairs which are known to be equal.  We only put
+        // pairs into this hash if they're both shared (having > 1 strong
+        // reference); if they're unique, then by definition we won't see them
+        // again and there's no point in growing the hash.
+        let mut seen = HashSet::new();
+
         // Heap recursion using a `Vec`, to avoid blowing up the stack
-        let mut todo = vec![(self, other)];
-        while let Some((a, b)) = todo.pop() {
+        let mut todo = vec![(self, other, false)];
+        while let Some((a, b, shared)) = todo.pop() {
             // Pointer equality lets us short-circuit deep checks
             if std::ptr::eq(a, b) {
                 continue;
             }
+
+            // Similarly, we can memoize comparisons and skip once we've seen a
+            // particular pointer pair (because we would have returned `false`
+            // if they did not match).  We normalize by sorting the pointers;
+            // if we've seen `a == b`, then we can also skip `b == a`.  This
+            // only happens if both trees come from shared Arc pointers, because
+            // otherwise it's not possible.
+            let a_ptr = a as *const TreeOp;
+            let b_ptr = b as *const TreeOp;
+            if shared && !seen.insert((a_ptr.min(b_ptr), a_ptr.max(b_ptr))) {
+                continue;
+            }
+
             // Otherwise, we check opcodes then recurse
             match (a, b) {
                 (TreeOp::Input(a), TreeOp::Input(b)) => {
@@ -121,11 +147,13 @@ impl PartialEq for TreeOp {
                 }
                 _ => return false,
             }
-            todo.extend(
-                a.iter_children()
-                    .zip(b.iter_children())
-                    .map(|(a, b)| (a.as_ref(), b.as_ref())),
-            )
+            todo.extend(a.iter_children().zip(b.iter_children()).map(
+                |(a, b)| {
+                    let shared =
+                        Arc::strong_count(a) > 1 && Arc::strong_count(b) > 1;
+                    (a.as_ref(), b.as_ref(), shared)
+                },
+            ))
         }
         true
     }
@@ -183,22 +211,62 @@ impl TreeOp {
 
 impl std::hash::Hash for TreeOp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut todo = vec![self];
-        while let Some(t) = todo.pop() {
-            std::mem::discriminant(t).hash(state);
-            match t {
-                TreeOp::Input(i) => i.hash(state),
-                TreeOp::Const(v) => OrderedFloat(*v).hash(state),
-                TreeOp::Binary(op, _lhs, _rhs) => op.hash(state),
-                TreeOp::Unary(op, _arg) => op.hash(state),
-                TreeOp::RemapAxes { .. } => (), // no non-recursive state
-                TreeOp::RemapAffine { target: _, mat } => mat
-                    .matrix()
-                    .iter()
-                    .for_each(|f| OrderedFloat(*f).hash(state)),
-            }
-            todo.extend(t.iter_children().map(|t| t.as_ref()))
+        // Heap-based recursion, to avoid blowing up the stack on deep trees
+        enum Action<'a> {
+            Down { t: &'a TreeOp, shared: bool },
+            Up { t: &'a TreeOp, shared: bool },
         }
+        let mut todo = vec![Action::Down {
+            t: self,
+            shared: false,
+        }];
+        let mut cache: HashMap<*const TreeOp, u64> = HashMap::new();
+        let mut stack = vec![];
+        while let Some(t) = todo.pop() {
+            match t {
+                Action::Down { t, shared } => {
+                    if shared && let Some(v) = cache.get(&(t as *const _)) {
+                        stack.push(*v);
+                    } else {
+                        todo.push(Action::Up { t, shared });
+                        todo.extend(t.iter_children().map(|t| Action::Down {
+                            t: t.as_ref(),
+                            shared: Arc::strong_count(t) > 1,
+                        }));
+                    }
+                }
+                Action::Up { t, shared } => {
+                    // Build a local hash for this node
+                    let mut hasher = DefaultHasher::new();
+                    std::mem::discriminant(t).hash(&mut hasher);
+                    match t {
+                        TreeOp::Input(i) => i.hash(&mut hasher),
+                        TreeOp::Const(v) => OrderedFloat(*v).hash(&mut hasher),
+                        TreeOp::Binary(op, _lhs, _rhs) => op.hash(&mut hasher),
+                        TreeOp::Unary(op, _arg) => op.hash(&mut hasher),
+                        TreeOp::RemapAxes { .. } => {
+                            // no non-recursive state, so nothing to hash
+                        }
+                        TreeOp::RemapAffine { target: _, mat } => mat
+                            .matrix()
+                            .iter()
+                            .for_each(|f| OrderedFloat(*f).hash(&mut hasher)),
+                    }
+                    // At this point, all children must have been hashed and
+                    // pushed to the stack.
+                    for _ in t.iter_children() {
+                        stack.pop().unwrap().hash(&mut hasher);
+                    }
+                    let h = hasher.finish();
+                    if shared {
+                        cache.insert(t as *const _, h);
+                    }
+                    stack.push(h);
+                }
+            }
+        }
+        stack.pop().unwrap().hash(state);
+        assert!(stack.is_empty());
     }
 }
 
@@ -673,7 +741,39 @@ mod test {
         for _ in 0..1_000_000 {
             x2 += 1.0;
         }
+        let mut x3 = Tree::x();
+        for _ in 0..1_000_000 {
+            x3 += 1.0;
+        }
         assert_eq!(x1, x2);
+
+        let a = x1.clone() + x1.clone();
+        let b = x2.clone() + x2.clone();
+        let c = x1.clone() + x2.clone();
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        assert_eq!(a, c);
+
+        // We expect to cache the `x1 == x2` result, so `e == d` should be as
+        // fast as `x1 == x2` (roughly), but `e == f` should be slower.
+        let e = x1.clone() + x1.clone();
+        let d = x2.clone() + x2.clone();
+        let f = x2.clone() + x3.clone();
+
+        let t = std::time::Instant::now();
+        assert_eq!(x1, x2);
+        let t1 = t.elapsed();
+
+        let t = std::time::Instant::now();
+        assert_eq!(e, d);
+        let t2 = t.elapsed();
+
+        let t = std::time::Instant::now();
+        assert_eq!(e, f);
+        let t3 = t.elapsed();
+
+        assert!(t1 * 3 < t3 * 2, "expected {t1:?} to be faster than {t3:?}");
+        assert!(t2 * 3 < t3 * 2, "expected {t2:?} to be faster than {t3:?}");
     }
 
     #[test]
@@ -688,6 +788,32 @@ mod test {
         }
         let state = std::hash::RandomState::new();
         assert_eq!(state.hash_one(&x1), state.hash_one(&x2));
+
+        // `a` and `b` should deduplicate when hashing and therefore be faster
+        // than `c`, which mixes `x1` and `x2`
+        let a = x1.clone() + x1.clone();
+        let b = x2.clone() + x2.clone();
+        let c = x1 + x2;
+
+        let t = std::time::Instant::now();
+        let ha = state.hash_one(&a);
+        let ta = t.elapsed();
+
+        let t = std::time::Instant::now();
+        let hb = state.hash_one(&b);
+        let tb = t.elapsed();
+
+        let t = std::time::Instant::now();
+        let hc = state.hash_one(&c);
+        let tc = t.elapsed();
+
+        assert_eq!(ha, hb);
+        assert_eq!(hb, hc);
+        assert_eq!(ha, hc);
+
+        // Theoretically it should be 2× slower, so we'll assert 1.5×
+        assert!(ta * 3 < tc * 2, "expected {ta:?} to be faster than {tc:?}");
+        assert!(tb * 3 < tc * 2, "expected {tb:?} to be faster than {tc:?}");
     }
 
     #[test]
@@ -696,9 +822,28 @@ mod test {
         for _ in 0..1_000_000 {
             x += 1.0;
         }
+
         let mut ctx = Context::new();
-        ctx.import(&x);
-        // we should not panic here!
+        let t = std::time::Instant::now();
+        ctx.import(&x); // we should not panic here!
+        let tx = t.elapsed();
+
+        // `y` should be deduplicated while importing, and therefore should take
+        // about the same time as importing `x`.
+        let y = x.clone() + x.clone();
+        let mut ctx = Context::new();
+        let t = std::time::Instant::now();
+        ctx.import(&y);
+        let ty = t.elapsed();
+
+        let tx_millis = tx.as_millis();
+        let ty_millis = ty.as_millis();
+        let err_frac = tx_millis.abs_diff(ty_millis) as f64
+            / tx_millis.min(ty_millis) as f64;
+        assert!(
+            err_frac < 0.1,
+            "too much time difference between {tx:?} and {ty:?}"
+        );
     }
 
     #[test]
@@ -883,6 +1028,29 @@ mod test {
         let b = Tree::x().sin();
         assert_eq!(state.hash_one(&a), state.hash_one(&a_));
         assert_ne!(state.hash_one(&a), state.hash_one(&b));
+    }
+
+    #[test]
+    fn tree_eq_affine() {
+        let x = Tree::from(1.0) + Tree::x();
+        let m = nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, 3.0));
+        let t = x.remap_affine(m);
+        let a = t.clone() + t.clone();
+        let b = x.remap_affine(m) + x.remap_affine(m);
+
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn tree_hash_affine() {
+        let x = Tree::from(1.0) + Tree::x();
+        let m = nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, 3.0));
+        let t = x.remap_affine(m);
+        let a = t.clone() + t.clone();
+        let b = x.remap_affine(m) + x.remap_affine(m);
+
+        let state = std::hash::RandomState::new();
+        assert_eq!(state.hash_one(&a), state.hash_one(&b));
     }
 
     #[test]
