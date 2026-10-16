@@ -250,7 +250,7 @@ impl std::hash::Hash for TreeOp {
                         TreeOp::RemapAffine { target: _, mat } => mat
                             .matrix()
                             .iter()
-                            .for_each(|f| OrderedFloat(*f).hash(state)),
+                            .for_each(|f| OrderedFloat(*f).hash(&mut hasher)),
                     }
                     // At this point, all children must have been hashed and
                     // pushed to the stack.
@@ -1028,6 +1028,29 @@ mod test {
         let b = Tree::x().sin();
         assert_eq!(state.hash_one(&a), state.hash_one(&a_));
         assert_ne!(state.hash_one(&a), state.hash_one(&b));
+    }
+
+    #[test]
+    fn tree_eq_affine() {
+        let x = Tree::from(1.0) + Tree::x();
+        let m = nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, 3.0));
+        let t = x.remap_affine(m);
+        let a = t.clone() + t.clone();
+        let b = x.remap_affine(m) + x.remap_affine(m);
+
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn tree_hash_affine() {
+        let x = Tree::from(1.0) + Tree::x();
+        let m = nalgebra::convert(nalgebra::Translation3::new(1.0, 2.0, 3.0));
+        let t = x.remap_affine(m);
+        let a = t.clone() + t.clone();
+        let b = x.remap_affine(m) + x.remap_affine(m);
+
+        let state = std::hash::RandomState::new();
+        assert_eq!(state.hash_one(&a), state.hash_one(&b));
     }
 
     #[test]
