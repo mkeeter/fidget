@@ -9,11 +9,15 @@ struct MergeConfig {
     index_base: u32,
 }
 
+/// Bind group 0: the config buffer (tied to the workspace)
 @group(0) @binding(0) var<uniform> config: MergeConfig;
 
-@group(0) @binding(1) var<storage, read> image: array<RawDistancePixel>;
-@group(0) @binding(2) var<storage, read_write> distance: array<RawDistancePixel>;
-@group(0) @binding(3) var<storage, read_write> index: array<u32>;
+/// Bind group 1: the input buffer (tied to the pixel render buffers)
+@group(1) @binding(0) var<storage, read> image: array<RawDistancePixel>;
+
+/// Bind group 2: the output buffers (tied to the merge buffers)
+@group(2) @binding(0) var<storage, read_write> distance: array<RawDistancePixel>;
+@group(2) @binding(1) var<storage, read_write> index: array<u32>;
 
 
 @compute @workgroup_size(8, 8)

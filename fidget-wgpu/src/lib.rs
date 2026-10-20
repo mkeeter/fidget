@@ -73,20 +73,24 @@
 //! let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
 //! let ctx = Context::new(&gpu);
 //! let mut workspace = ctx.workspace();
-//! let mut out = gpu.read_buffer_for(workspace.output());
 //!
 //! // Per-shape setup
 //! let x = fidget_core::context::Tree::x();
 //! let shape = fidget_core::vm::VmShape::from(x);
-//! let render_shape = fidget_wgpu::RenderShape::new(&shape).unwrap();
+//! let render_shape = gpu.shape_buffers(&shape).unwrap();
 //!
 //! // Select our render size
-//! let render_config = fidget_wgpu::voxel::RenderConfig::from_size(128.into());
+//! let mut buffers = ctx.buffers(128.into()).unwrap();
+//! let mut out = gpu.read_buffer_for(buffers.output());
+//!
+//! // Use defaults for other render configuration
+//! let render_config = fidget_wgpu::voxel::RenderConfig::default();
 //!
 //! // Do the actual work!
 //! let image = ctx.run(
 //!     &render_shape,
 //!     &mut workspace,
+//!     &mut buffers,
 //!     &mut out,
 //!     render_config,
 //! ).unwrap();
@@ -116,22 +120,24 @@
 //! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
 //! # let ctx = Context::new(&gpu);
 //! # let mut workspace = ctx.workspace();
-//! # let mut out = gpu.read_buffer_for(workspace.output());
 //! # let x = fidget_core::context::Tree::x();
 //! # let shape = fidget_core::vm::VmShape::from(x);
-//! # let render_shape = fidget_wgpu::RenderShape::new(&shape).unwrap();
-//! # let render_config = fidget_wgpu::voxel::RenderConfig::from_size(128.into());
+//! # let render_shape = gpu.shape_buffers(&shape).unwrap();
+//! # let mut buffers = ctx.buffers(128.into()).unwrap();
+//! # let mut out = gpu.read_buffer_for(buffers.output());
+//! # let render_config = fidget_wgpu::voxel::RenderConfig::default();
 //! // Setup is done per the previous example
 //!
 //! // Submit the work to the queue
 //! ctx.submit(
 //!     &render_shape,
 //!     &mut workspace,
+//!     &mut buffers,
 //!     &render_config,
 //! ).unwrap();
 //!
 //! // We'll also enqueue a copy to our output buffer
-//! gpu.copy(&workspace.output(), &mut out);
+//! gpu.copy(&buffers.output(), &mut out);
 //!
 //! // Mapping the image is a blocking step which waits for the GPU
 //! let image = gpu.map_image(&mut out).image();
@@ -166,11 +172,12 @@
 //! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
 //! # let ctx = Context::new(&gpu);
 //! # let mut workspace = ctx.workspace();
-//! # let mut out = gpu.read_buffer_for(workspace.output());
 //! # let x = fidget_core::context::Tree::x();
 //! # let shape = fidget_core::vm::VmShape::from(x);
-//! # let render_shape = fidget_wgpu::RenderShape::new(&shape).unwrap();
-//! # let render_config = fidget_wgpu::voxel::RenderConfig::from_size(128.into());
+//! # let render_shape = gpu.shape_buffers(&shape).unwrap();
+//! # let mut buffers = ctx.buffers(128.into()).unwrap();
+//! # let mut out = gpu.read_buffer_for(buffers.output());
+//! # let render_config = fidget_wgpu::voxel::RenderConfig::default();
 //! // Setup is done per the previous example
 //!
 //! // We need to provide the encoder and staging buffer ourselves
@@ -184,6 +191,7 @@
 //!     &render_shape,
 //!     &Default::default(), // vars
 //!     &mut workspace,
+//!     &mut buffers,
 //!     &render_config,
 //!     &mut encoder,
 //!     &mut staging,
@@ -191,7 +199,7 @@
 //!
 //! // Note the use of `encode_copy`, which sends the copy operation to an
 //! // encoder (rather than submitting work to the GPU queue itself)
-//! gpu.encode_copy(&workspace.output(), &mut out, &mut encoder);
+//! gpu.encode_copy(&buffers.output(), &mut out, &mut encoder);
 //!
 //! // Submit the `StagingBelt` copies
 //! staging.finish();
@@ -228,7 +236,8 @@ use fidget_core::{
 use fidget_raster::RenderSize;
 
 use heck::ToShoutySnakeCase;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
+use std::sync::Arc;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub mod buf;
 pub mod color;
@@ -294,6 +303,23 @@ pub struct Gpu {
     pub device: wgpu::Device,
     /// GPU queue
     pub queue: wgpu::Queue,
+
+    /// Layout for a single read-only storage buffer
+    input_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Layout for a single read-write storage buffer
+    output_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Layout for a config bind group (a single read-only uniforms buffer)
+    config_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Layout for a color bind group (used when building [`ShapeColorBuffers`])
+    ///
+    /// This binds three buffers:
+    /// - 0: `shape_tape`
+    /// - 1: `shape_start`
+    /// - 2: `var_values`
+    color_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Gpu {
@@ -306,20 +332,17 @@ impl Gpu {
     /// This is a helper function for simplicity; more sophisticated systems
     /// will likely construct the adapter, device, and queue themselves.
     pub async fn init() -> Result<Gpu, InitError> {
-        let instance = wgpu::Instance::default();
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
+        Self::init_inner(
+            &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 ..wgpu::RequestAdapterOptions::default()
-            })
-            .await?;
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+            },
+            &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::TIMESTAMP_QUERY,
                 ..wgpu::DeviceDescriptor::default()
-            })
-            .await?;
-        Ok(Gpu { device, queue })
+            },
+        )
+        .await
     }
 
     /// Returns a [`Gpu`] object with default settings
@@ -327,14 +350,48 @@ impl Gpu {
     /// This is useful for CI, where `TIMESTAMP_QUERY` is unsupported
     #[doc(hidden)]
     pub async fn init_basic() -> Result<Gpu, InitError> {
+        Self::init_inner(&Default::default(), &Default::default()).await
+    }
+
+    async fn init_inner(
+        adapter_options: &wgpu::RequestAdapterOptions<'_, '_>,
+        device_descriptor: &wgpu::DeviceDescriptor<'_>,
+    ) -> Result<Self, InitError> {
         let instance = wgpu::Instance::default();
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
-            .await?;
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
-            .await?;
-        Ok(Gpu { device, queue })
+        let adapter = instance.request_adapter(adapter_options).await?;
+        let (device, queue) = adapter.request_device(device_descriptor).await?;
+        let config_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("config bind group layout"),
+                entries: &[buf::buffer_uniform(0)],
+            });
+        let input_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("input bind group layout"),
+                entries: &[buf::buffer_ro(0)],
+            });
+        let output_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("output bind group layout"),
+                entries: &[buf::buffer_rw(0)],
+            });
+        let color_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("color bind group layout"),
+                entries: &[
+                    buf::buffer_ro(0),
+                    buf::buffer_ro(1),
+                    buf::buffer_ro(2),
+                ],
+            });
+        Ok(Gpu {
+            device,
+            queue,
+            config_bind_group_layout,
+            input_bind_group_layout,
+            output_bind_group_layout,
+            color_bind_group_layout,
+        })
     }
 
     /// Returns a readable buffer for the given buffer
@@ -348,12 +405,9 @@ impl Gpu {
     where
         T: buf::BufferTag,
     {
-        buf::ReadBuffer::new(
-            &self.device,
-            format!("{} (read)", buf.name()),
-            buf.size(),
+        buf::ReadBuffer::new(&self.device, "read buffer", buf.size()).expect(
+            "buf.size should always be a valid size for ReadBuffer::new",
         )
-        .expect("buf.size should always be a valid size for ReadBuffer::new")
     }
 
     /// Builds a new readable buffer
@@ -429,8 +483,6 @@ impl Gpu {
     ) where
         A: buf::BufferTag,
     {
-        dst.grow_to_fit(&self.device, src.size())
-            .expect("dst buffer should be resizable to match src buffer");
         encoder.copy_buffer_to_buffer(
             src.data(),
             0,
@@ -507,11 +559,133 @@ impl Gpu {
     {
         self.map_async(data).await.into()
     }
+
+    /// Builds a new render shape
+    pub fn shape_buffers(
+        &self,
+        shape: &VmShape,
+    ) -> Result<ShapeBuffers, ShapeBuffersError> {
+        // Generate bytecode for the root tape
+        let bytecode = Bytecode::new(shape.inner().data())?;
+        let bytecode_len = bytecode.len() / 2; // u32 -> u64 words
+        if bytecode_len > TAPE_DATA_CAPACITY {
+            return Err(ShapeBuffersError::TooLong(bytecode.len() / 2));
+        }
+        let tape = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tape"),
+            size: (bytecode.len() * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: true,
+        });
+        tape.slice(..)
+            .get_mapped_range_mut()
+            .unwrap()
+            .copy_from_slice(bytecode.as_bytes());
+        tape.unmap();
+
+        let vars = shape.inner().data().vars.clone();
+        let vars_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vars"),
+            size: (vars.len() * std::mem::size_of::<f32>()).next_multiple_of(16)
+                as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let vars_bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("vars"),
+                layout: &self.input_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: vars_buf.as_entire_binding(),
+                }],
+            });
+
+        Ok(ShapeBuffers {
+            tape,
+            vars_buf,
+            reg_count: bytecode.reg_count(),
+            bytecode_len: bytecode_len.try_into().unwrap(),
+            vars,
+            vars_bind_group,
+        })
+    }
+
+    /// Builds a new set of render colors
+    pub fn color_buffers(
+        &self,
+        colors: &[color::ShapeColor<VmShape>],
+    ) -> Result<color::ShapeColorBuffers, color::ColorBufferError> {
+        color::ShapeColorBuffers::new(
+            colors,
+            &self.device,
+            &self.color_bind_group_layout,
+        )
+    }
+
+    fn config_workspace<T>(&self, name: &str) -> ConfigWorkspace<T>
+    where
+        T: FromBytes + Immutable + IntoBytes + KnownLayout,
+    {
+        let config = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("{name} config buffer")),
+            size: std::mem::size_of::<T>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("{name} config bind group")),
+                layout: &self.config_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: config.as_entire_binding(),
+                }],
+            });
+        ConfigWorkspace {
+            config,
+            bind_group,
+            _t: std::marker::PhantomData,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Container of multiple pipelines, parameterized by register count
+/// Generic type to hold a configuration buffer and bind group
+pub struct ConfigWorkspace<T> {
+    /// Buffer sized to hold a [`ShadeConfig`]
+    config: wgpu::Buffer,
+    /// Bind group which just binds `config`
+    bind_group: wgpu::BindGroup,
+    /// Marker for `T`
+    _t: std::marker::PhantomData<T>,
+}
+
+impl<T> ConfigWorkspace<T>
+where
+    T: FromBytes + Immutable + IntoBytes + KnownLayout,
+{
+    fn encode_copy(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
+        data: &T,
+    ) {
+        let mut writer = staging.write_buffer(
+            encoder,
+            &self.config,
+            0,
+            self.config.size().try_into().unwrap(),
+        );
+        writer.copy_from_slice(data.as_bytes());
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Lazy container of multiple pipelines, parameterized by register count
 pub(crate) struct RegPipeline {
     thunk: Box<dyn Fn(u8) -> wgpu::ComputePipeline>,
     cache:
@@ -544,18 +718,25 @@ impl RegPipeline {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Shape for rendering on the GPU
-///
-/// Note that this object does not allocate any memory on the GPU itself; it is
-/// a thin wrapper around a [`Bytecode`] object, which is copied to the GPU
-/// during rendering.
-pub struct RenderShape {
-    bytecode: Bytecode,
+/// Object containing buffers for rendering a shape on the GPU
+pub struct ShapeBuffers {
+    /// Buffer which stores the bytecode tape on the GPU
+    tape: wgpu::Buffer,
+    /// Buffer into which we will copy variable values
+    vars_buf: wgpu::Buffer,
+    /// Bind group which stores just the variable buffer (at index 0)
+    vars_bind_group: wgpu::BindGroup,
+    /// Number of registers used by the shape bytecode tape
+    reg_count: u8,
+    /// Length of bytecode (in `u64` words)
+    bytecode_len: u64,
+    /// Map of variables
+    vars: Arc<VarMap>,
 }
 
-/// Error type when constructing a [`RenderShape`]
+/// Error type when constructing a [`ShapeBuffers`]
 #[derive(Debug, thiserror::Error)]
-pub enum RenderShapeError {
+pub enum ShapeBuffersError {
     /// The shape doesn't fit in the GPU tape buffer
     #[error(
         "shape bytecode is {0} tape words (8 bytes each), which exceeds \
@@ -567,63 +748,33 @@ pub enum RenderShapeError {
     RegisterError(#[from] ReservedRegister),
 }
 
-impl RenderShape {
-    /// Builds a new render shape
-    pub fn new(shape: &VmShape) -> Result<Self, RenderShapeError> {
-        // Generate bytecode for the root tape
-        let bytecode = Bytecode::new(shape.inner().data())?;
-        if bytecode.len() / 2 > TAPE_DATA_CAPACITY {
-            return Err(RenderShapeError::TooLong(bytecode.len() / 2));
-        }
-
-        Ok(Self { bytecode })
-    }
-
+impl ShapeBuffers {
     /// Helper function to return XYZ variable indices
     fn axes(&self) -> [u32; 3] {
-        [Var::X, Var::Y, Var::Z].map(|a| {
-            self.bytecode
-                .vars()
-                .get(&a)
-                .map(|v| v as u32)
-                .unwrap_or(u32::MAX)
-        })
+        [Var::X, Var::Y, Var::Z]
+            .map(|a| self.vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
     }
 
     /// Copies variables into a variables buffer
-    ///
-    /// Returns `true` if the buffer size changed, which could invalidate cached
-    /// bind groups.
     fn copy_vars(
         &self,
-        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
         vars: &ShapeVars<f32>,
-        buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
-    ) -> Result<CopyVarsChanged, CopyVarsError> {
-        encode_copy_vars(
-            device,
-            encoder,
-            staging,
-            self.bytecode.vars(),
-            vars,
-            buf,
-        )
+    ) -> Result<(), CopyVarsError> {
+        encode_copy_vars(encoder, staging, &self.vars, vars, &self.vars_buf)
     }
 }
 
 pub(crate) fn encode_copy_vars(
-    device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     staging: &mut wgpu::util::StagingBelt,
     vs: &VarMap,
     vars: &ShapeVars<f32>,
-    buf: &mut buf::FlexBuffer<voxel::VarsBufferTag>,
-) -> Result<CopyVarsChanged, CopyVarsError> {
-    let mut changed = CopyVarsChanged::BufferUnchanged;
+    buf: &wgpu::Buffer,
+) -> Result<(), CopyVarsError> {
     if vs.has_free_vars() {
-        // Do an initial pass to check for errors before resizing the buffer
+        // Do an initial pass to check for errors before mapping the buffer
         for (v, _i) in vs.iter() {
             match v {
                 Var::X | Var::Y | Var::Z => (),
@@ -634,17 +785,9 @@ pub(crate) fn encode_copy_vars(
                 }
             }
         }
-        // If we have to change the vars buffer size, then we'll return
-        // `true` indicating that things have changed and bind groups should
-        // be invalidated.  TODO: only do this if we grow the buffer, since
-        // binding an overly-large buffer is fine?
-        let r = buf.grow_to_fit(device, vs.len())?;
-        if !matches!(r, std::cmp::Ordering::Equal) {
-            changed = CopyVarsChanged::BufferChanged;
-        }
         let mut writer = staging.write_buffer(
             encoder,
-            buf.data(),
+            buf,
             0,
             ((vs.len() * std::mem::size_of::<f32>()) as u64)
                 .try_into()
@@ -663,22 +806,13 @@ pub(crate) fn encode_copy_vars(
             }
         }
     }
-    Ok(changed)
+    Ok(())
 }
 
 #[derive(thiserror::Error, Debug)]
 enum CopyVarsError {
     #[error(transparent)]
-    BufferSize(#[from] buf::BufferSizeError),
-    #[error(transparent)]
     MissingVar(#[from] MissingVar),
-}
-
-#[must_use]
-#[derive(Copy, Clone, Debug)]
-enum CopyVarsChanged {
-    BufferChanged,
-    BufferUnchanged,
 }
 
 ////////////////////////////////////////////////////////////////////////////////

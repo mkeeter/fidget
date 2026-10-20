@@ -4,19 +4,18 @@
 //! appear as return values and arguments.
 use fidget_core::render::{ImageSize, VoxelSize};
 use fidget_raster::RenderSize;
-use zerocopy::{FromBytes, IntoBytes};
+use zerocopy::FromBytes;
 
-/// Handle around a growable GPU buffer
+/// Handle around our GPU buffer type
 ///
 /// The buffer keeps track of both its current size and capacity (which may be
 /// larger).  It is used to prevent GPU buffer allocation churn.
+#[derive(Clone)]
 pub struct FlexBuffer<T: BufferTag> {
     /// Current size, which may be smaller than the buffer's capacity
     size: T::S,
     /// Actual GPU buffer
     data: wgpu::Buffer,
-    /// Buffer label (to be used when reallocating)
-    name: String,
     /// Marker for buffer tag type
     _t: std::marker::PhantomData<T>,
 }
@@ -95,97 +94,6 @@ impl BufferItemCount for VoxelSize {
     }
 }
 
-/// Tag for a flex buffer which contains a config `C` followed by many `T`
-///
-/// Item count is reported in bytes
-pub(crate) struct FlexConfigSize<C, T> {
-    count: usize,
-    _c: std::marker::PhantomData<C>,
-    _t: std::marker::PhantomData<T>,
-}
-
-impl<C, T> From<usize> for FlexConfigSize<C, T> {
-    fn from(value: usize) -> Self {
-        Self {
-            count: value,
-            _c: std::marker::PhantomData,
-            _t: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<C, T> Clone for FlexConfigSize<C, T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl<C, T> Copy for FlexConfigSize<C, T> {}
-
-impl<C, T> BufferItemCount for FlexConfigSize<C, T> {
-    fn item_count(&self) -> usize {
-        self.count * std::mem::size_of::<T>() + std::mem::size_of::<C>()
-    }
-}
-
-pub(crate) struct FlexConfigTag<C, T> {
-    _c: std::marker::PhantomData<C>,
-    _t: std::marker::PhantomData<T>,
-}
-
-impl<C, T> BufferTag for FlexConfigTag<C, T>
-where
-    T: Copy,
-{
-    type T = u8;
-    type S = FlexConfigSize<C, T>;
-    fn usage() -> u32 {
-        wgpu::BufferUsages::COPY_DST.bits() | wgpu::BufferUsages::STORAGE.bits()
-    }
-}
-
-/// Buffer which contains one config `C` followed by many `T`
-pub(crate) type FlexConfigBuffer<C, T> = FlexBuffer<FlexConfigTag<C, T>>;
-
-impl<C, T> FlexConfigBuffer<C, T>
-where
-    C: zerocopy::IntoBytes + zerocopy::Immutable,
-    T: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
-{
-    pub(crate) fn encode_write(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        staging: &mut wgpu::util::StagingBelt,
-        c: &C,
-        data: &[T],
-    ) -> Result<ConfigBufferWrite, BufferSizeError> {
-        let r = self.grow_to_fit(device, data.len().into())?;
-        let config_len = std::mem::size_of::<C>();
-        let data_len = std::mem::size_of_val(data);
-        let mut writer = staging.write_buffer(
-            encoder,
-            &self.data,
-            0,
-            ((config_len + data_len) as u64).try_into().unwrap(),
-        );
-        writer.slice(..config_len).copy_from_slice(c.as_bytes());
-        writer.slice(config_len..).copy_from_slice(data.as_bytes());
-        Ok(match r {
-            std::cmp::Ordering::Equal => ConfigBufferWrite::BufferUnchanged,
-            std::cmp::Ordering::Less | std::cmp::Ordering::Greater => {
-                ConfigBufferWrite::BufferChanged
-            }
-        })
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-#[must_use]
-pub(crate) enum ConfigBufferWrite {
-    BufferChanged,
-    BufferUnchanged,
-}
-
 impl<T: BufferTag> FlexBuffer<T> {
     /// Builds a new `FlexBuffer` with the given size
     pub fn new(
@@ -193,8 +101,7 @@ impl<T: BufferTag> FlexBuffer<T> {
         name: impl AsRef<str>,
         size: T::S,
     ) -> Result<Self, BufferSizeError> {
-        Self::check_size(size)?;
-        let size_bytes = Self::calculate_buffer_size(size);
+        let size_bytes = Self::check_size(size)?;
         let usage = wgpu::BufferUsages::from_bits(T::usage()).unwrap();
         let data = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name.as_ref()),
@@ -205,20 +112,16 @@ impl<T: BufferTag> FlexBuffer<T> {
         Ok(Self {
             data,
             size,
-            name: name.as_ref().to_owned(),
             _t: std::marker::PhantomData,
         })
     }
 
     /// Calculate size from buffer item count
-    ///
-    /// Size is rounded up to the nearest multiple of 4 for alignment
     pub fn calculate_buffer_size(item_count: T::S) -> u64 {
-        let out = u64::try_from(item_count.item_count())
+        u64::try_from(item_count.item_count())
             .unwrap()
             .checked_mul(u64::try_from(std::mem::size_of::<T::T>()).unwrap())
-            .unwrap();
-        out.next_multiple_of(4)
+            .unwrap()
     }
 
     /// Returns the active buffer size (in bytes)
@@ -229,7 +132,10 @@ impl<T: BufferTag> FlexBuffer<T> {
         Self::calculate_buffer_size(self.size)
     }
 
-    pub(crate) fn check_size(size: T::S) -> Result<(), BufferSizeError> {
+    /// Checks that the size is valid for our buffer usage
+    ///
+    /// Returns the size to allocate (in bytes)
+    pub(crate) fn check_size(size: T::S) -> Result<u64, BufferSizeError> {
         let size = Self::calculate_buffer_size(size);
         let usage = wgpu::BufferUsages::from_bits(T::usage()).unwrap();
 
@@ -240,52 +146,18 @@ impl<T: BufferTag> FlexBuffer<T> {
         } else {
             BufferType::Generic
         };
-        buf_ty.check(size)
-    }
-
-    /// Grows the buffer to fit a particular size in bytes
-    ///
-    /// If the buffer already fits that size, then no allocation is performed,
-    /// but we always update the internal `item_count` (e.g. so that
-    /// [`bind_active`](Self::bind_active) returns the correct subset of the
-    /// buffer).
-    ///
-    /// Returns a comparison between the previous item count and the new item
-    /// count (set by `size`).
-    pub fn grow_to_fit(
-        &mut self,
-        device: &wgpu::Device,
-        size: T::S,
-    ) -> Result<std::cmp::Ordering, BufferSizeError> {
-        Self::check_size(size)?;
-        let r = self.size.item_count().cmp(&size.item_count());
-        let new_size = Self::calculate_buffer_size(size);
-        if new_size > self.capacity() {
-            let usage = self.data.usage();
-            self.data = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(self.name.as_str()),
-                size: new_size,
-                usage,
-                mapped_at_creation: false,
+        if !size.is_multiple_of(4) {
+            return Err(BufferSizeError::Unaligned {
+                requested_size: size,
             });
         }
-        self.size = size;
-        Ok(r)
+        buf_ty.check(size)?;
+        Ok(size)
     }
 
     /// Returns a binding resource for the active slice of the buffer
     pub fn bind_active(&self) -> wgpu::BindingResource<'_> {
         self.data.slice(0..self.size_bytes()).try_into().unwrap()
-    }
-
-    /// Returns the total buffer capacity (in bytes)
-    pub(crate) fn capacity(&self) -> u64 {
-        self.data.size()
-    }
-
-    /// Returns the buffer name
-    pub fn name(&self) -> &str {
-        &self.name
     }
 
     /// Maps the active portion of the buffer for reading
@@ -415,6 +287,12 @@ pub enum BufferSizeError {
         requested_size: u64,
         /// Buffer type (which determines the [max size](BufferType::max_size))
         buffer_type: BufferType,
+    },
+    /// Buffer size is not a multiple of 4
+    #[error("requested size {requested_size} is not a multiple of 4 bytes")]
+    Unaligned {
+        /// Size requested (in bytes)
+        requested_size: u64,
     },
 }
 

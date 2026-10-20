@@ -15,10 +15,11 @@ struct MergeConfig {
     _pad: u32,
 }
 
+// Each of these is a separate bind group because they're owned by different
+// objects on the host.
 @group(0) @binding(0) var<uniform> config: MergeConfig;
-@group(0) @binding(1) var<storage, read> image: array<GeometryPixel>;
-@group(0) @binding(2) var<storage, read_write> out: array<PackedVoxel>;
-
+@group(1) @binding(0) var<storage, read> image: array<GeometryPixel>;
+@group(2) @binding(0) var<storage, read_write> out: array<PackedVoxel>;
 
 @compute @workgroup_size(8, 8)
 fn merge_main(

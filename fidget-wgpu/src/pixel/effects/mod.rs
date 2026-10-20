@@ -17,10 +17,11 @@
 //! [`output_color`](MergeWorkspace::output_color).
 //! Note that if color has not been computed, `output_color` will return `None`.
 use crate::{
-    CopyVarsError, Gpu, RegPipeline,
-    buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw, buffer_uniform},
-    color::{ColorWorkspace as GenericColorWorkspace, ShapeColorBuffers},
-    pixel::{PixelBufferTag, RawDistancePixel},
+    ConfigWorkspace, Gpu, RegPipeline,
+    buf::BufferSizeError,
+    buf::{FlexBuffer, buffer_ro, buffer_rw},
+    color::ShapeColorBuffers,
+    pixel::RawDistancePixel,
     shaders, tag,
 };
 use fidget_core::{render::ImageSize, shape::ShapeVars};
@@ -32,7 +33,7 @@ const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
 
 /// Workspace for evaluating color expressions
-pub type ColorWorkspace = GenericColorWorkspace<ColorConfig>;
+pub type ColorWorkspace = ConfigWorkspace<ColorConfig>;
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
@@ -72,10 +73,6 @@ pub enum MergeError {
     /// Image sizes in the slice are not consistent
     #[error(transparent)]
     ImageSizeMismatch(#[from] ImageSizeMismatch),
-
-    /// An error occurred while resizing the output buffer
-    #[error(transparent)]
-    OutputSize(BufferSizeError),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -96,13 +93,19 @@ tag!(
     "Buffer tag for on-GPU color images"
 );
 
-/// Handle to a set of buffers used when merging images
-pub struct MergeWorkspace {
-    config: wgpu::Buffer,
+/// Handle to a workspace for image merge operations
+pub type MergeWorkspace = ConfigWorkspace<MergeConfig>;
+
+/// Handle to size-dependent buffers for merge operations
+pub struct MergeBuffers {
     distance: FlexBuffer<PixelDistanceBufferTag>,
     color: FlexBuffer<PixelColorBufferTag>,
 
-    color_bind_group: std::cell::OnceCell<wgpu::BindGroup>,
+    /// Bind group to merge buffers
+    merge_bind_group: wgpu::BindGroup,
+
+    /// Bind group to do color evaluation
+    color_bind_group: wgpu::BindGroup,
 
     /// Number of images merged together
     image_count: usize,
@@ -114,7 +117,7 @@ pub struct MergeWorkspace {
     has_color: bool,
 }
 
-impl MergeWorkspace {
+impl MergeBuffers {
     /// Resets the merge buffer
     ///
     /// The next call to [`Context::submit_merge`] will clear the buffer and
@@ -145,10 +148,14 @@ impl MergeWorkspace {
 }
 
 /// Mirror of the WGSL `MergeConfig` object
+///
+/// This is public because it's part of an exported generic object, but users
+/// are not expected to use it directly.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-pub(crate) struct MergeConfig {
+#[doc(hidden)]
+pub struct MergeConfig {
     /// Image size, in pixels
     pub image_size: [u32; 2],
 
@@ -167,9 +174,9 @@ pub(crate) struct MergeConfig {
 pub struct Context {
     gpu: Gpu,
 
+    /// Bind group layout for merge operations
     merge_bind_group_layout: wgpu::BindGroupLayout,
     merge_pipeline: wgpu::ComputePipeline,
-
     color_ctx: ColorContext,
 }
 
@@ -180,18 +187,21 @@ impl Context {
             &wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
-                    buffer_uniform(0),
-                    buffer_ro(1), // image
-                    buffer_rw(2), // distance
-                    buffer_rw(3), // color (used here as an index)
+                    buffer_rw(0), // distance
+                    buffer_rw(1), // color
                 ],
             },
         );
+
         let shader_code = merge_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects merge pipeline"),
-                bind_group_layouts: &[Some(&merge_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&gpu.config_bind_group_layout),
+                    Some(&gpu.input_bind_group_layout),
+                    Some(&merge_bind_group_layout),
+                ],
                 immediate_size: 0u32,
             },
         );
@@ -203,7 +213,7 @@ impl Context {
                 });
         let merge_pipeline = gpu.device.create_compute_pipeline(
             &wgpu::ComputePipelineDescriptor {
-                label: Some("effects merge compute pipeline"),
+                label: Some("pixel effects merge compute pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("merge_main"),
@@ -212,7 +222,7 @@ impl Context {
             },
         );
 
-        let color_ctx = ColorContext::new(&gpu.device);
+        let color_ctx = ColorContext::new(gpu);
 
         Self {
             gpu: gpu.clone(),
@@ -224,14 +234,15 @@ impl Context {
 
     /// Submits a set of merge operations to accumulate a single image
     ///
-    /// [`MergeWorkspace::reset`] should be called before the first call to
-    /// `submit_merge`. For the first merge after a reset, the output buffer is
-    /// resized to fit the images; subsequent merges must be of the same size.
+    /// [`MergeBuffers::reset`] should be called before the first call to
+    /// `submit_merge`. The [`MergeBuffers`] object must match the image size;
+    /// otherwise an error will be returned.
     pub fn submit_merge(
         &self,
-        image: &FlexBuffer<PixelBufferTag>,
+        image: &super::Buffers,
         remove_nans: bool,
-        buf: &mut MergeWorkspace,
+        workspace: &mut MergeWorkspace,
+        buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -240,7 +251,14 @@ impl Context {
         );
         let mut staging =
             wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode_merge(image, remove_nans, buf, &mut encoder, &mut staging)?;
+        self.encode_merge(
+            image,
+            remove_nans,
+            workspace,
+            buf,
+            &mut encoder,
+            &mut staging,
+        )?;
         staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
         staging.recall();
@@ -250,42 +268,21 @@ impl Context {
     /// Low-level function to encode a merge operation into a command encoder
     pub fn encode_merge(
         &self,
-        image: &FlexBuffer<PixelBufferTag>,
+        image: &super::Buffers,
         remove_nans: bool,
-        buf: &mut MergeWorkspace,
+        workspace: &mut MergeWorkspace,
+        buf: &mut MergeBuffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), MergeError> {
-        let size = image.size();
-        if buf.image_count > 0 {
-            let buf_size = buf.distance.size();
-            if size != buf_size {
-                return Err(ImageSizeMismatch {
-                    expected: size,
-                    actual: buf_size,
-                }
-                .into());
+        let size = image.pixels.size();
+        let buf_size = buf.distance.size();
+        if size != buf_size {
+            return Err(ImageSizeMismatch {
+                expected: size,
+                actual: buf_size,
             }
-        } else {
-            // Resize the buffers, clearing the bind group if either has
-            // changed.  It would be incorrect for one to change and not the
-            // other, so we also have an assertion to make sure they agree!
-            let distance_changed = !matches!(
-                buf.distance
-                    .grow_to_fit(&self.gpu.device, size)
-                    .map_err(MergeError::OutputSize)?,
-                std::cmp::Ordering::Equal
-            );
-            let color_changed = !matches!(
-                buf.color
-                    .grow_to_fit(&self.gpu.device, size)
-                    .map_err(MergeError::OutputSize)?,
-                std::cmp::Ordering::Equal
-            );
-            assert_eq!(distance_changed, color_changed, "mismatched buffers");
-            if distance_changed {
-                buf.color_bind_group = Default::default();
-            }
+            .into());
         }
         buf.has_color = false;
 
@@ -295,15 +292,7 @@ impl Context {
             remove_nans: remove_nans as u32,
             index_base: buf.image_count as u32,
         };
-        let mut writer = staging.write_buffer(
-            encoder,
-            &buf.config,
-            0,
-            (std::mem::size_of::<MergeConfig>() as u64)
-                .try_into()
-                .unwrap(),
-        );
-        writer.copy_from_slice(cfg.as_bytes());
+        workspace.encode_copy(encoder, staging, &cfg);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -312,32 +301,9 @@ impl Context {
             });
         compute_pass.set_pipeline(&self.merge_pipeline);
 
-        let bg =
-            self.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge bind group"),
-                    layout: &self.merge_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: buf.config.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: image.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: buf.distance.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: buf.color.bind_active(),
-                        },
-                    ],
-                });
-        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.set_bind_group(0, Some(&workspace.bind_group), &[]);
+        compute_pass.set_bind_group(1, Some(&image.bind_groups.output), &[]);
+        compute_pass.set_bind_group(2, Some(&buf.merge_bind_group), &[]);
         compute_pass.dispatch_workgroups(
             size.width().div_ceil(8),
             size.height().div_ceil(8),
@@ -349,48 +315,71 @@ impl Context {
 
     /// Builds a new set of [`MergeWorkspace`] for the given image size
     pub fn merge_workspace(&self) -> MergeWorkspace {
-        let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: std::mem::size_of::<MergeConfig>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let distance = FlexBuffer::new(
-            &self.gpu.device,
-            "pixel merge distance",
-            64.into(),
-        )
-        .unwrap();
+        self.gpu.config_workspace("merge")
+    }
+
+    /// Build a new set of buffers for merging pixel images
+    pub fn merge_buffers(
+        &self,
+        image_size: ImageSize,
+    ) -> Result<MergeBuffers, BufferSizeError> {
+        let distance =
+            FlexBuffer::new(&self.gpu.device, "merge distance", image_size)?;
         let color =
-            FlexBuffer::new(&self.gpu.device, "pixel merge color", 64.into())
-                .unwrap();
-        MergeWorkspace {
-            config,
+            FlexBuffer::new(&self.gpu.device, "merge color", image_size)?;
+        let entries = &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: distance.bind_active(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: color.bind_active(),
+            },
+        ];
+        let merge_bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("merge bind group"),
+                    layout: &self.merge_bind_group_layout,
+                    entries,
+                });
+        let color_bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("color bind group"),
+                    layout: &self.color_ctx.image_bind_group_layout,
+                    entries,
+                });
+        Ok(MergeBuffers {
             distance,
             color,
-            color_bind_group: Default::default(),
+            merge_bind_group,
+            color_bind_group,
             image_count: 0,
             has_color: false,
-        }
+        })
     }
 
     /// Submits a color evaluation pass
     ///
-    /// Image size is set from the `MergeWorkspace`; the transform matrix is
+    /// Image size is set from the [`MergeBuffers`]; the transform matrix is
     /// provided separately (but should be the same one used for image
     /// evaluation).
     pub fn submit_color(
         &self,
-        merge: &mut MergeWorkspace,
+        merge: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
+        workspace: &mut ColorWorkspace,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
             merge,
             settings,
             shape,
-            bufs,
+            workspace,
             &Default::default(),
         )
     }
@@ -402,10 +391,10 @@ impl Context {
     /// evaluation).
     pub fn submit_color_with_vars(
         &self,
-        merge: &mut MergeWorkspace,
+        merge: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
+        workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
     ) -> Result<(), ColorError> {
         let mut encoder = self.gpu.device.create_command_encoder(
@@ -417,7 +406,7 @@ impl Context {
             merge,
             settings,
             shape,
-            bufs,
+            workspace,
             vars,
             &mut encoder,
             &mut staging,
@@ -432,29 +421,21 @@ impl Context {
     #[allow(clippy::too_many_arguments)]
     pub fn encode_color(
         &self,
-        merge: &mut MergeWorkspace,
+        merge: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
+        workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
-        self.color_ctx.encode(
-            merge,
-            settings,
-            shape,
-            bufs,
-            vars,
-            &self.gpu.device,
-            encoder,
-            staging,
-        )
+        self.color_ctx
+            .encode(merge, settings, shape, workspace, vars, encoder, staging)
     }
 
     /// Returns a new workspace for color evaluation
     pub fn color_workspace(&self) -> ColorWorkspace {
-        ColorWorkspace::new(&self.gpu.device)
+        self.gpu.config_workspace("color")
     }
 }
 
@@ -486,9 +467,7 @@ pub struct ColorConfig {
     ///When non-zero, only compute color for filled pixels
     only_filled: u32,
 
-    // alignment
-    _pad: [u32; 3],
-    // this is followed by a tape_data flexible array member
+    _pad: u32,
 }
 
 /// Settings for per-pixel color evaluation
@@ -508,9 +487,6 @@ pub struct ColorSettings {
 }
 
 struct ColorContext {
-    /// Configuration bind group layout (shape-specific, includes tape data)
-    config_bind_group_layout: wgpu::BindGroupLayout,
-
     /// Image bind groups (input and output)
     image_bind_group_layout: wgpu::BindGroupLayout,
 
@@ -519,12 +495,8 @@ struct ColorContext {
 }
 
 impl ColorContext {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let config_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("color config and shape"),
-                entries: &[buffer_ro(0), buffer_ro(1), buffer_ro(2)],
-            });
+    pub fn new(gpu: &Gpu) -> Self {
+        let device = &gpu.device;
         let image_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("color images"),
@@ -538,7 +510,8 @@ impl ColorContext {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("color pipeline"),
                 bind_group_layouts: &[
-                    Some(&config_bind_group_layout),
+                    Some(&gpu.config_bind_group_layout),
+                    Some(&gpu.color_bind_group_layout),
                     Some(&image_bind_group_layout),
                 ],
                 immediate_size: 0u32,
@@ -562,7 +535,6 @@ impl ColorContext {
         }));
 
         Self {
-            config_bind_group_layout,
             image_bind_group_layout,
             color_pipeline,
         }
@@ -571,12 +543,11 @@ impl ColorContext {
     #[allow(clippy::too_many_arguments)]
     fn encode(
         &self,
-        image: &mut MergeWorkspace,
+        image: &mut MergeBuffers,
         settings: ColorSettings,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
+        workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
-        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
@@ -593,58 +564,26 @@ impl ColorContext {
             * ImageSize::new(size.width(), size.height()).screen_to_world();
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
+        shape.copy_vars(encoder, staging, vars)?;
 
-        bufs.copy_vars(device, encoder, staging, shape.var_map(), vars)
-            .map_err(|e| match e {
-                CopyVarsError::BufferSize(b) => ColorError::VarBufferSize(b),
-                CopyVarsError::MissingVar(v) => ColorError::MissingVar(v),
-            })?;
         let config = ColorConfig {
             mat: mat4.data.as_slice().try_into().unwrap(),
             axes: shape.axes(),
             image_size: [size.width(), size.height()],
             only_filled: settings.only_filled.into(),
-            _pad: [0; 3],
             z: settings.z,
+            _pad: 0u32,
         };
-        bufs.copy_config_and_tape(
-            device,
-            encoder,
-            staging,
-            &config,
-            shape.bytecode(),
-        )
-        .map_err(ColorError::ConfigBufferSize)?;
-        bufs.copy_shape_starts(device, encoder, staging, shape.shape_start())
-            .expect("shape starts should always fit if shape bytecode fits");
-
-        let config_bg =
-            bufs.config_bind_group(device, &self.config_bind_group_layout);
+        workspace.encode_copy(encoder, staging, &config);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
                 timestamp_writes: None, // TODO add timestamps?
             });
-        compute_pass.set_bind_group(0, config_bg, &[]);
-
-        let image_bg = image.color_bind_group.get_or_init(|| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("color image bind group"),
-                layout: &self.image_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: image.distance.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: image.color.bind_active(),
-                    },
-                ],
-            })
-        });
-        compute_pass.set_bind_group(1, image_bg, &[]);
+        compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
+        compute_pass.set_bind_group(1, shape.bind_group(), &[]);
+        compute_pass.set_bind_group(2, &image.color_bind_group, &[]);
         compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count()));
         compute_pass.dispatch_workgroups(
             size.width().div_ceil(8),

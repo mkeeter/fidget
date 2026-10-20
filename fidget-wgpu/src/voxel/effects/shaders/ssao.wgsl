@@ -5,11 +5,13 @@ struct SsaoConfig {
 }
 
 @group(0) @binding(0) var<uniform> config: SsaoConfig;
-@group(0) @binding(1) var<storage, read> image: array<PackedVoxel>;
-@group(0) @binding(2) var<storage, read_write> out: array<f32>;
 
 @group(1) @binding(0) var<storage, read> kernel: array<array<f32, 3>>;
 @group(1) @binding(1) var<storage, read> noise: array<vec2f>;
+
+@group(2) @binding(0) var<storage, read> image: array<PackedVoxel>;
+@group(3) @binding(0) var<storage, read_write> out: array<f32>;
+
 
 @compute @workgroup_size(8, 8)
 fn ssao_main(

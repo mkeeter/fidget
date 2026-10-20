@@ -38,14 +38,14 @@ struct Config {
 /// Common render configuration and tape data
 @group(0) @binding(0) var<storage, read_write> config: Config;
 
+/// Array of values for (non-xyz) variables
+@group(1) @binding(0) var<storage, read> var_values: array<f32>;
+
 /// Map from tile to tape index
 ///
 /// See the comment in the computation of `tile_tape_words` for details on how
 /// this buffer is packed.
-@group(0) @binding(1) var<storage, read_write> tile_tape: array<u32>;
-
-/// Array of values for (non-xyz) variables
-@group(0) @binding(2) var<storage, read> var_values: array<f32>;
+@group(2) @binding(0) var<storage, read_write> tile_tape: array<u32>;
 
 /// For a given position and recursion level, return the offset into `tile_tape`
 fn get_tape_offset_for_level(corner_pos: vec2u, level: u32) -> u32 {
@@ -70,3 +70,6 @@ fn get_tape_offset_for_level(corner_pos: vec2u, level: u32) -> u32 {
     return 0;
 }
 
+fn get_tape_word(i: u32) -> TapeWord {
+    return config.tape_data[i];
+}

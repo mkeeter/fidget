@@ -16,22 +16,23 @@ struct Config {
     /// Only compute color for filled pixels when this is non-zero
     only_filled: u32,
 
-    // manual alignment
-    _pad: array<u32, 3>,
-
-    /// Tape data, tightly packed per-tile (flexible array member)
-    tape_data: array<TapeWord>,
+    /// Explicit padding
+    _pad: u32,
 }
 
-@group(0) @binding(0) var<storage, read> config: Config;
-@group(0) @binding(1) var<storage, read> shape_start: array<u32>;
+/// Config (stored in the color workspace)
+@group(0) @binding(0) var<uniform> config: Config;
 
-/// Array of values for (non-xyz) variables
-@group(0) @binding(2) var<storage, read> var_values: array<f32>;
+/// Shape info (stored in the shape object)
+@group(1) @binding(0) var<storage, read> shape_tape: array<TapeWord>;
+@group(1) @binding(1) var<storage, read> shape_start: array<u32>;
+@group(1) @binding(2) var<storage, read> var_values: array<f32>;
 
-@group(1) @binding(0) var<storage, read> distance: array<RawDistancePixel>;
-/// Image buffer, which is shape index going in and color going out
-@group(1) @binding(1) var<storage, read_write> color: array<u32>;
+/// Output of merged pixel evaluation
+@group(2) @binding(0) var<storage, read> distance: array<RawDistancePixel>;
+
+/// Output of color evaluation
+@group(2) @binding(1) var<storage, read_write> color: array<u32>;
 
 @compute @workgroup_size(8, 8)
 fn color_main(
@@ -94,4 +95,8 @@ fn color_main(
 
     let u = vec3u(channels * 255.0);
     color[i] = (alpha << 24) | (u[2] << 16) | (u[1] << 8) | u[0];
+}
+
+fn get_tape_word(i: u32) -> TapeWord {
+    return shape_tape[i];
 }

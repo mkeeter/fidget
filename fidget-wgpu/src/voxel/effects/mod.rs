@@ -10,11 +10,10 @@
 //! - Apply shading to a [`PackedVoxel`] buffer, producing an RGBA image buffer
 
 use crate::{
-    CopyVarsError, Gpu, RegPipeline,
-    buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw, buffer_uniform},
-    color::{ColorWorkspace as GenericColorWorkspace, ShapeColorBuffers},
+    ConfigWorkspace, CopyVarsError, Gpu, RegPipeline,
+    buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw},
+    color::ShapeColorBuffers,
     shaders, tag,
-    voxel::GeomBufferTag,
 };
 use fidget_core::{
     render::{ImageSize, VoxelSize},
@@ -26,13 +25,8 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 pub struct Context {
     gpu: Gpu,
 
-    merge_bind_group_layout: wgpu::BindGroupLayout,
     merge_pipeline: wgpu::ComputePipeline,
-
-    shade_bind_group_layout: wgpu::BindGroupLayout,
     shade_pipeline: wgpu::ComputePipeline,
-
-    heightmap_bind_group_layout: wgpu::BindGroupLayout,
     heightmap_pipeline: wgpu::ComputePipeline,
 
     ssao_ctx: SsaoContext,
@@ -41,7 +35,7 @@ pub struct Context {
 }
 
 /// Workspace for evaluating color expressions
-pub type ColorWorkspace = GenericColorWorkspace<ColorConfig>;
+pub type ColorWorkspace = ConfigWorkspace<ColorConfig>;
 
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
@@ -122,17 +116,24 @@ pub struct ColorConfig {
     axes: [u32; 3],
 
     // padding for alignment
-    _pad: u32,
+    _pad1: u32,
 
     /// Image size (pixels)
     image_size: [u32; 2],
-    // this is followed by a tape_data flexible array member
+
+    // padding for alignment
+    _pad2: [u32; 2],
 }
 
+/// GPU-side configuration object for merging images
+///
+/// This is public because it's used in a public type, but is not expected to be
+/// used directly.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-pub(crate) struct MergeConfig {
+#[doc(hidden)]
+pub struct MergeConfig {
     /// Image size, in pixels
     pub image_size: [u32; 2],
 
@@ -151,10 +152,15 @@ pub(crate) struct MergeConfig {
     _pad: u32,
 }
 
+/// GPU-side configuration object for shading
+///
+/// This is public because it's used in a public type, but is not expected to be
+/// used directly.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-struct ShadeConfig {
+#[doc(hidden)]
+pub struct ShadeConfig {
     /// Image size, in pixels
     image_size: [u32; 3],
 
@@ -162,10 +168,15 @@ struct ShadeConfig {
     flags: u32,
 }
 
+/// GPU-side configuration object for heightmap evaluation
+///
+/// This is public because it's used in a public type, but is not expected to be
+/// used directly.
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]
 #[cfg_attr(test, derive(facet::Facet))]
 #[repr(C)]
-struct HeightmapConfig {
+#[doc(hidden)]
+pub struct HeightmapConfig {
     /// Image size, in pixels
     image_size: [u32; 3],
 
@@ -203,14 +214,21 @@ tag!(pub MergeVoxelBufferTag, PackedVoxel, VoxelSize, STORAGE | COPY_SRC,
     "Buffer tag for on-GPU merged ([`PackedVoxel`]) images"
 );
 
-/// Handle to a set of buffers used when merging images
-pub struct MergeWorkspace {
-    config: wgpu::Buffer,
+/// Handle to workspace buffers used when merging images
+pub type MergeWorkspace = ConfigWorkspace<MergeConfig>;
+
+/// Handle to size-dependent buffers used when merging images
+pub struct MergeBuffers {
     out: FlexBuffer<MergeVoxelBufferTag>,
+    /// Bind group holding `out` as a read-only value
+    ro_bind_group: wgpu::BindGroup,
+    /// Bind group holding `out` as a read-write value
+    rw_bind_group: wgpu::BindGroup,
+    /// Stateful tracker for number of images accumulated
     image_count: usize,
 }
 
-impl MergeWorkspace {
+impl MergeBuffers {
     /// Returns a handle to the output buffer
     pub fn output(&self) -> &FlexBuffer<MergeVoxelBufferTag> {
         &self.out
@@ -225,19 +243,25 @@ impl MergeWorkspace {
     }
 }
 
+/// Handle to workspace buffers used when rendering a heightmap
+pub type HeightmapWorkspace = ConfigWorkspace<HeightmapConfig>;
+
 tag!(
     pub ShadedImageTag, u32, VoxelSize, STORAGE | COPY_SRC,
     "Buffer tag for on-GPU shaded (RGBA) images"
 );
 
-/// Handle to a set of buffers used when shading images
-pub struct ShadeWorkspace {
-    config: wgpu::Buffer,
-    has_color: bool,
+/// Handle to configuration buffers used when computing shading
+pub type ShadeWorkspace = ConfigWorkspace<ShadeConfig>;
+
+/// Handle to size-dependent buffers used when computing shading
+pub struct ShadeBuffers {
     out: FlexBuffer<ShadedImageTag>,
+    bind_group: wgpu::BindGroup,
+    has_color: bool,
 }
 
-impl ShadeWorkspace {
+impl ShadeBuffers {
     /// Returns a reference to the output buffer
     pub fn output(&self) -> &FlexBuffer<ShadedImageTag> {
         &self.out
@@ -247,74 +271,42 @@ impl ShadeWorkspace {
 /// Error returned when submitting a merge operation
 #[derive(Debug, thiserror::Error)]
 pub enum MergeError {
-    /// Image sizes in the slice are not consistent
+    /// The image size is mismatched between input and output buffers
     #[error(transparent)]
-    ImageSizeMismatch(#[from] ImageSizeMismatch),
-
-    /// An error occurred while resizing the output buffer
-    #[error(transparent)]
-    OutputSize(BufferSizeError),
+    ImageSizeMismatch(#[from] VoxelSizeMismatch),
 }
 
 /// Error returned when submitting a shade operation
 #[derive(Debug, thiserror::Error)]
 pub enum ShadeError {
-    /// An error occurred while resizing the output buffer
+    /// The image size is mismatched between input and output buffers
     #[error(transparent)]
-    OutputSize(BufferSizeError),
+    ImageSizeMismatch(VoxelSizeMismatch),
 
-    /// Input and output buffers are different sizes when `has_color` is true
-    ///
-    /// This is not allowed because `has_color = true` means that the output
-    /// buffer's pixel values should be used as diffuse color
-    #[error(
-        "input and output buffers must be the same size when
-        `has_color` is true, but they do not match"
-    )]
-    InvalidColorSize,
+    /// The image size is mismatched between input and SSAO buffers
+    #[error(transparent)]
+    SsaoSizeMismatch(ImageSizeMismatch),
 }
 
 /// Error returned when submitting a heightmap operation
 #[derive(Debug, thiserror::Error)]
 pub enum HeightmapError {
-    /// An error occurred while resizing the output buffer
+    /// The image size is mismatched between input and output buffers
     #[error(transparent)]
-    OutputSize(BufferSizeError),
-
-    /// Input and output buffers are different sizes when `has_color` is true
-    ///
-    /// This is not allowed because `has_color = true` means that the output
-    /// buffer's pixel values should be used as diffuse color
-    #[error(
-        "input and output buffers must be the same size when
-        `has_color` is true, but they do not match"
-    )]
-    InvalidColorSize,
+    ImageSizeMismatch(#[from] VoxelSizeMismatch),
 }
 
 /// Error returned when submitting an SSAO operation
 #[derive(Debug, thiserror::Error)]
 pub enum SsaoError {
-    /// An error occurred while resizing the output buffer
+    /// The image size is mismatched between input and output buffers
     #[error(transparent)]
-    OutputSize(BufferSizeError),
+    ImageSizeMismatch(#[from] VoxelSizeMismatch),
 }
 
 /// Error returned when submitting a color evaluation operation
 #[derive(Debug, thiserror::Error)]
 pub enum ColorError {
-    /// An error occurred while resizing the output buffer
-    #[error("could not resize output buffer")]
-    OutputSize(#[source] BufferSizeError),
-
-    /// An error occurred while resizing the vars buffer
-    #[error("could not resize vars buffer")]
-    VarBufferSize(#[source] BufferSizeError),
-
-    /// An error occurred while resizing the config buffer
-    #[error("could not resize config buffer")]
-    ConfigBufferSize(#[source] BufferSizeError),
-
     /// A variable is missing from the map
     #[error(transparent)]
     MissingVar(#[from] MissingVar),
@@ -331,41 +323,59 @@ pub enum ColorError {
         shape_count: usize,
     },
 
+    /// The input and output buffers have mismatched sizes
+    #[error(transparent)]
+    SizeMismatch(#[from] VoxelSizeMismatch),
+
     /// Shape color has already been populated
     #[error("shape color has already been populated")]
     AlreadyHasColor,
 }
 
-/// Type indicating an image size mismatch
+impl From<CopyVarsError> for ColorError {
+    fn from(value: CopyVarsError) -> Self {
+        match value {
+            CopyVarsError::MissingVar(v) => Self::MissingVar(v),
+        }
+    }
+}
+
+/// Type indicating an image size mismatch in a 3D image
 #[derive(Debug, thiserror::Error)]
 #[error(
     "image size mismatch: expected {} × {} × {}, got {} × {} × {}",
     expected.width(), expected.height(), expected.depth(),
     actual.width(),   actual.height(),   actual.depth()
 )]
-pub struct ImageSizeMismatch {
+pub struct VoxelSizeMismatch {
     expected: VoxelSize,
     actual: VoxelSize,
+}
+
+/// Type indicating an image size mismatch in a 2D image
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "image size mismatch: expected {} × {}, got {} × {}",
+    expected.width(), expected.height(),
+    actual.width(),   actual.height(),
+)]
+pub struct ImageSizeMismatch {
+    expected: ImageSize,
+    actual: ImageSize,
 }
 
 impl Context {
     /// Builds a new context for applying effects
     pub fn new(gpu: &Gpu) -> Self {
-        let merge_bind_group_layout = gpu.device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_uniform(0), // config
-                    buffer_ro(1),      // image
-                    buffer_rw(2),      // out
-                ],
-            },
-        );
         let shader_code = merge_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects merge pipeline"),
-                bind_group_layouts: &[Some(&merge_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&gpu.config_bind_group_layout),
+                    Some(&gpu.input_bind_group_layout),
+                    Some(&gpu.output_bind_group_layout),
+                ],
                 immediate_size: 0u32,
             },
         );
@@ -377,7 +387,7 @@ impl Context {
                 });
         let merge_pipeline = gpu.device.create_compute_pipeline(
             &wgpu::ComputePipelineDescriptor {
-                label: Some("effects merge compute pipeline"),
+                label: Some("voxel effects merge compute pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("merge_main"),
@@ -386,22 +396,16 @@ impl Context {
             },
         );
 
-        let shade_bind_group_layout = gpu.device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_uniform(0),
-                    buffer_ro(1), // image
-                    buffer_ro(2), // ssao occlusion
-                    buffer_rw(3), // out
-                ],
-            },
-        );
         let shader_code = shade_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects shade pipeline"),
-                bind_group_layouts: &[Some(&shade_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&gpu.config_bind_group_layout),
+                    Some(&gpu.input_bind_group_layout), // image
+                    Some(&gpu.input_bind_group_layout), // occlusion
+                    Some(&gpu.output_bind_group_layout), // out
+                ],
                 immediate_size: 0u32,
             },
         );
@@ -422,21 +426,15 @@ impl Context {
             },
         );
 
-        let heightmap_bind_group_layout = gpu.device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    buffer_uniform(0),
-                    buffer_ro(1), // merged image
-                    buffer_rw(2), // out
-                ],
-            },
-        );
         let shader_code = heightmap_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects heightmap pipeline"),
-                bind_group_layouts: &[Some(&heightmap_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&gpu.config_bind_group_layout),
+                    Some(&gpu.input_bind_group_layout),
+                    Some(&gpu.output_bind_group_layout),
+                ],
                 immediate_size: 0u32,
             },
         );
@@ -457,40 +455,64 @@ impl Context {
             },
         );
 
-        let ssao_ctx = SsaoContext::new(&gpu.device);
-        let color_ctx = ColorContext::new(&gpu.device);
+        let ssao_ctx = SsaoContext::new(gpu);
+        let color_ctx = ColorContext::new(gpu);
 
         Self {
             gpu: gpu.clone(),
-            merge_bind_group_layout,
             merge_pipeline,
-            shade_bind_group_layout,
             shade_pipeline,
-            heightmap_bind_group_layout,
             heightmap_pipeline,
             ssao_ctx,
             color_ctx,
         }
     }
 
-    /// Builds a new set of [`MergeWorkspace`]
-    ///
-    /// These will be resized when first used (in
-    /// [`submit_merge`](Self::submit_merge))
+    /// Builds a new [`MergeWorkspace`]
     pub fn merge_workspace(&self) -> MergeWorkspace {
-        let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("config"),
-            size: std::mem::size_of::<MergeConfig>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let out = FlexBuffer::new(&self.gpu.device, "merge output", 64.into())
-            .expect("64 is always a valid size");
-        MergeWorkspace {
-            config,
+        self.gpu.config_workspace("merge")
+    }
+
+    /// Builds a new [`HeightmapWorkspace`]
+    pub fn heightmap_workspace(&self) -> HeightmapWorkspace {
+        self.gpu.config_workspace("heightmap")
+    }
+
+    /// Builds a new set of [`MergeBuffers`] for a particular render size
+    pub fn merge_buffers(
+        &self,
+        image_size: VoxelSize,
+    ) -> Result<MergeBuffers, BufferSizeError> {
+        let out =
+            FlexBuffer::new(&self.gpu.device, "merge output", image_size)?;
+        let rw_bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("merge output bind group"),
+                    layout: &self.gpu.output_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: out.bind_active(),
+                    }],
+                });
+        let ro_bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("merge output bind group"),
+                    layout: &self.gpu.input_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: out.bind_active(),
+                    }],
+                });
+        Ok(MergeBuffers {
             out,
+            rw_bind_group,
+            ro_bind_group,
             image_count: 0,
-        }
+        })
     }
 
     /// Builds a new set of [`ShadeWorkspace`]
@@ -499,58 +521,102 @@ impl Context {
     /// either [`submit_color`](Self::submit_color) or
     /// [`submit_shade`](Self::submit_shade))
     pub fn shade_workspace(&self) -> ShadeWorkspace {
-        let config = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shade config"),
-            size: std::mem::size_of::<ShadeConfig>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let out = FlexBuffer::new(&self.gpu.device, "shade output", 64.into())
-            .expect("64 is always a valid size");
-        ShadeWorkspace {
-            config,
-            has_color: false,
-            out,
-        }
+        self.gpu.config_workspace("shade")
     }
 
-    /// Builds a new set of [`SsaoWorkspace`]
-    ///
-    /// These will be resized when first used (in
-    /// [`submit_ssao`](Self::submit_ssao))
+    /// Builds a new set of [`ShadeBuffers`] for a particular render size
+    pub fn shade_buffers(
+        &self,
+        image_size: VoxelSize,
+    ) -> Result<ShadeBuffers, BufferSizeError> {
+        let out =
+            FlexBuffer::new(&self.gpu.device, "shade output", image_size)?;
+        let bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("merge output bind group"),
+                    layout: &self.gpu.output_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: out.bind_active(),
+                    }],
+                });
+        Ok(ShadeBuffers {
+            out,
+            bind_group,
+            has_color: false,
+        })
+    }
+
+    /// Builds a new set of [`SsaoWorkspace`] buffers
     pub fn ssao_workspace(&self) -> SsaoWorkspace {
-        let ssao_config =
-            self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("ssao config"),
-                size: std::mem::size_of::<SsaoConfig>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM
-                    | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        let image_size = 64.into();
-        let raw_occlusion =
-            FlexBuffer::new(&self.gpu.device, "ssao raw occlusion", image_size)
-                .expect("64 is always a valid size");
-        let blur_config =
-            self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("blur config"),
-                size: std::mem::size_of::<BlurConfig>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM
-                    | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+        let ssao = self.gpu.config_workspace("ssao");
+        let blur = self.gpu.config_workspace("blur");
+        SsaoWorkspace { ssao, blur }
+    }
+
+    /// Builds a new set of [`SsaoBuffers`], which are size-dependent
+    pub fn ssao_buffers(
+        &self,
+        image_size: ImageSize,
+    ) -> Result<SsaoBuffers, BufferSizeError> {
+        let raw_occlusion = FlexBuffer::new(
+            &self.gpu.device,
+            "ssao raw occlusion",
+            image_size,
+        )?;
         let blurred_occlusion = FlexBuffer::new(
             &self.gpu.device,
             "ssao blurred occlusion",
             image_size,
-        )
-        .expect("64 is always a valid size");
-        SsaoWorkspace {
-            ssao_config,
-            blur_config,
+        )?;
+        let ssao_bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("ssao bind group"),
+                    layout: &self.gpu.output_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: raw_occlusion.bind_active(),
+                    }],
+                });
+        let blur_bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("blur bind group"),
+                    layout: &self.ssao_ctx.blur_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: raw_occlusion.bind_active(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: blurred_occlusion.bind_active(),
+                        },
+                    ],
+                });
+        let output_bind_group =
+            self.gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("ssao output bind group"),
+                    layout: &self.gpu.input_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: blurred_occlusion.bind_active(),
+                    }],
+                });
+        Ok(SsaoBuffers {
             raw_occlusion,
             blurred_occlusion,
-        }
+            ssao_bind_group,
+            blur_bind_group,
+            output_bind_group,
+        })
     }
 
     /// Accumulates an image into a merged image buffer
@@ -560,9 +626,10 @@ impl Context {
     /// resized to fit the images; subsequent merges must be of the same size.
     pub fn submit_merge(
         &self,
-        image: &FlexBuffer<GeomBufferTag>,
+        image: &super::Buffers,
         settings: MergeSettings,
-        buf: &mut MergeWorkspace,
+        workspace: &mut MergeWorkspace,
+        buf: &mut MergeBuffers,
     ) -> Result<(), MergeError> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -571,7 +638,14 @@ impl Context {
         );
         let mut staging =
             wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode_merge(image, settings, buf, &mut encoder, &mut staging)?;
+        self.encode_merge(
+            image,
+            settings,
+            workspace,
+            buf,
+            &mut encoder,
+            &mut staging,
+        )?;
         staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
         staging.recall();
@@ -581,19 +655,16 @@ impl Context {
     /// Low-level function to encode a merge operation to a command encoder
     pub fn encode_merge(
         &self,
-        image: &FlexBuffer<GeomBufferTag>,
+        image: &super::Buffers,
         settings: MergeSettings,
-        buf: &mut MergeWorkspace,
+        workspace: &mut MergeWorkspace,
+        buf: &mut MergeBuffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), MergeError> {
-        let size = image.size();
-        if buf.image_count == 0 {
-            buf.out
-                .grow_to_fit(&self.gpu.device, size)
-                .map_err(MergeError::OutputSize)?;
-        } else if buf.out.size() != size {
-            return Err(ImageSizeMismatch {
+        let size = image.geom.size();
+        if buf.out.size() != size {
+            return Err(VoxelSizeMismatch {
                 expected: size,
                 actual: buf.out.size(),
             }
@@ -608,7 +679,7 @@ impl Context {
         };
         let mut writer = staging.write_buffer(
             encoder,
-            &buf.config,
+            &workspace.config,
             0,
             (std::mem::size_of::<MergeConfig>() as u64)
                 .try_into()
@@ -623,29 +694,9 @@ impl Context {
                 timestamp_writes: None, // TODO add timestamps?
             });
         compute_pass.set_pipeline(&self.merge_pipeline);
-
-        let bg =
-            self.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge bind group"),
-                    layout: &self.merge_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: buf.config.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: image.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: buf.out.bind_active(),
-                        },
-                    ],
-                });
-        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
+        compute_pass.set_bind_group(1, &image.bind_groups.output, &[]);
+        compute_pass.set_bind_group(2, &buf.rw_bind_group, &[]);
         compute_pass.dispatch_workgroups(
             size.width().div_ceil(8),
             size.height().div_ceil(8),
@@ -660,9 +711,10 @@ impl Context {
     /// The output buffer is resized to fit the incoming image
     pub fn submit_shade(
         &self,
-        image: &MergeWorkspace,
-        ssao: Option<&SsaoWorkspace>,
-        buf: &mut ShadeWorkspace,
+        image: &MergeBuffers,
+        ssao: Option<&SsaoBuffers>,
+        workspace: &mut ShadeWorkspace,
+        buf: &mut ShadeBuffers,
     ) -> Result<(), ShadeError> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -671,7 +723,14 @@ impl Context {
         );
         let mut staging =
             wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode_shade(image, ssao, buf, &mut encoder, &mut staging)?;
+        self.encode_shade(
+            image,
+            ssao,
+            workspace,
+            buf,
+            &mut encoder,
+            &mut staging,
+        )?;
         staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
         staging.recall();
@@ -681,21 +740,27 @@ impl Context {
     /// Low-level function to encode a shading operation to a command encoder
     pub fn encode_shade(
         &self,
-        image: &MergeWorkspace,
-        ssao: Option<&SsaoWorkspace>,
-        buf: &mut ShadeWorkspace,
+        image: &MergeBuffers,
+        ssao: Option<&SsaoBuffers>,
+        workspace: &mut ShadeWorkspace,
+        buf: &mut ShadeBuffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ShadeError> {
         let size = image.out.size();
-        if buf.has_color {
-            if size != buf.out.size() {
-                return Err(ShadeError::InvalidColorSize);
-            }
-        } else {
-            buf.out
-                .grow_to_fit(&self.gpu.device, size)
-                .map_err(ShadeError::OutputSize)?;
+        if size != buf.out.size() {
+            return Err(ShadeError::ImageSizeMismatch(VoxelSizeMismatch {
+                expected: size,
+                actual: buf.out.size(),
+            }));
+        }
+        if let Some(ssao) = ssao
+            && ssao.blurred_occlusion.size() != size.into()
+        {
+            return Err(ShadeError::SsaoSizeMismatch(ImageSizeMismatch {
+                expected: size.into(),
+                actual: ssao.blurred_occlusion.size(),
+            }));
         }
 
         // Load the config before beginning the compute pass
@@ -711,13 +776,7 @@ impl Context {
                 0
             },
         };
-        let mut writer = staging.write_buffer(
-            encoder,
-            &buf.config,
-            0,
-            buf.config.size().try_into().unwrap(),
-        );
-        writer.copy_from_slice(cfg.as_bytes());
+        workspace.encode_copy(encoder, staging, &cfg);
 
         // Scope to bound the lifetime of compute_pass
         let mut compute_pass =
@@ -726,36 +785,16 @@ impl Context {
                 timestamp_writes: None, // TODO add timestamps?
             });
         compute_pass.set_pipeline(&self.shade_pipeline);
+        compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
+        compute_pass.set_bind_group(1, &image.ro_bind_group, &[]);
+        compute_pass.set_bind_group(
+            2,
+            ssao.map(|s| &s.output_bind_group)
+                .unwrap_or(&image.ro_bind_group), // dummy binding
+            &[],
+        );
+        compute_pass.set_bind_group(3, &buf.bind_group, &[]);
 
-        // TODO This is created on every pass
-        let bg =
-            self.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("shade bind group"),
-                    layout: &self.shade_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: buf.config.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: image.out.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: ssao
-                                .map(|s| s.blurred_occlusion().bind_active())
-                                .unwrap_or_else(|| image.out.bind_active()),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: buf.out.bind_active(),
-                        },
-                    ],
-                });
-        compute_pass.set_bind_group(0, Some(&bg), &[]);
         compute_pass.dispatch_workgroups(
             size.width().div_ceil(8),
             size.height().div_ceil(8),
@@ -770,8 +809,9 @@ impl Context {
     /// The output buffer is resized to fit the incoming image
     pub fn submit_heightmap(
         &self,
-        image: &MergeWorkspace,
-        buf: &mut ShadeWorkspace,
+        image: &MergeBuffers,
+        buf: &mut ShadeBuffers,
+        workspace: &mut HeightmapWorkspace,
     ) -> Result<(), HeightmapError> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -780,7 +820,13 @@ impl Context {
         );
         let mut staging =
             wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode_heightmap(image, buf, &mut encoder, &mut staging)?;
+        self.encode_heightmap(
+            image,
+            buf,
+            workspace,
+            &mut encoder,
+            &mut staging,
+        )?;
         staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
         staging.recall();
@@ -790,33 +836,25 @@ impl Context {
     /// Low-level function to encode heightmap rendering
     pub fn encode_heightmap(
         &self,
-        image: &MergeWorkspace,
-        buf: &mut ShadeWorkspace,
+        image: &MergeBuffers,
+        buf: &mut ShadeBuffers,
+        workspace: &mut HeightmapWorkspace,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), HeightmapError> {
         let size = image.out.size();
-        if buf.has_color {
-            if size != buf.out.size() {
-                return Err(HeightmapError::InvalidColorSize);
-            }
-        } else {
-            buf.out
-                .grow_to_fit(&self.gpu.device, size)
-                .map_err(HeightmapError::OutputSize)?;
+        if size != buf.out.size() {
+            return Err(HeightmapError::ImageSizeMismatch(VoxelSizeMismatch {
+                expected: size,
+                actual: buf.out.size(),
+            }));
         }
 
         let cfg = HeightmapConfig {
             image_size: [size.width(), size.height(), size.depth()],
             has_color: buf.has_color.into(),
         };
-        let mut writer = staging.write_buffer(
-            encoder,
-            &buf.config,
-            0,
-            buf.config.size().try_into().unwrap(),
-        );
-        writer.copy_from_slice(cfg.as_bytes());
+        workspace.encode_copy(encoder, staging, &cfg);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -824,29 +862,9 @@ impl Context {
                 timestamp_writes: None, // TODO add timestamps?
             });
         compute_pass.set_pipeline(&self.heightmap_pipeline);
-        // TODO This is created on every pass
-        let bg =
-            self.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("heightmap bind group"),
-                    layout: &self.heightmap_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: buf.config.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: image.out.bind_active(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: buf.out.bind_active(),
-                        },
-                    ],
-                });
-        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.set_bind_group(0, Some(&workspace.bind_group), &[]);
+        compute_pass.set_bind_group(1, Some(&image.ro_bind_group), &[]);
+        compute_pass.set_bind_group(2, Some(&buf.bind_group), &[]);
         compute_pass.dispatch_workgroups(
             size.width().div_ceil(8),
             size.height().div_ceil(8),
@@ -859,8 +877,9 @@ impl Context {
     /// Submits a pass to compute an SSAO buffer
     pub fn submit_ssao(
         &self,
-        image: &MergeWorkspace,
-        buf: &mut SsaoWorkspace,
+        image: &MergeBuffers,
+        workspace: &mut SsaoWorkspace,
+        buf: &mut SsaoBuffers,
     ) -> Result<(), SsaoError> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -869,7 +888,7 @@ impl Context {
         );
         let mut staging =
             wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode_ssao(image, buf, &mut encoder, &mut staging)?;
+        self.encode_ssao(image, workspace, buf, &mut encoder, &mut staging)?;
         staging.finish();
         self.gpu.queue.submit(Some(encoder.finish()));
         staging.recall();
@@ -879,13 +898,14 @@ impl Context {
     /// Low-level function to encode an SSAO pass
     pub fn encode_ssao(
         &self,
-        image: &MergeWorkspace,
-        buf: &mut SsaoWorkspace,
+        image: &MergeBuffers,
+        workspace: &mut SsaoWorkspace,
+        buf: &mut SsaoBuffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SsaoError> {
         self.ssao_ctx
-            .encode(image, buf, &self.gpu, encoder, staging)
+            .encode(image, workspace, buf, encoder, staging)
     }
 
     /// Submits a color evaluation pass
@@ -895,17 +915,17 @@ impl Context {
     /// evaluation).
     pub fn submit_color(
         &self,
-        merge: &MergeWorkspace,
+        merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
-        out: &mut ShadeWorkspace,
+        workspace: &mut ColorWorkspace,
+        out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
             merge,
             world_to_model,
             shape,
-            bufs,
+            workspace,
             &Default::default(),
             out,
         )
@@ -918,12 +938,12 @@ impl Context {
     /// evaluation).
     pub fn submit_color_with_vars(
         &self,
-        merge: &MergeWorkspace,
+        merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
+        workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
-        out: &mut ShadeWorkspace,
+        out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
@@ -934,7 +954,7 @@ impl Context {
             merge,
             world_to_model,
             shape,
-            bufs,
+            workspace,
             vars,
             out,
             &mut encoder,
@@ -950,12 +970,12 @@ impl Context {
     #[allow(clippy::too_many_arguments)]
     pub fn encode_color(
         &self,
-        merge: &MergeWorkspace,
+        merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
+        workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
-        out: &mut ShadeWorkspace,
+        out: &mut ShadeBuffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
@@ -963,10 +983,9 @@ impl Context {
             merge,
             world_to_model,
             shape,
-            bufs,
+            workspace,
             vars,
             out,
-            &self.gpu.device,
             encoder,
             staging,
         )
@@ -974,7 +993,7 @@ impl Context {
 
     /// Returns a new workspace for color evaluation
     pub fn color_workspace(&self) -> ColorWorkspace {
-        ColorWorkspace::new(&self.gpu.device)
+        self.gpu.config_workspace("color")
     }
 }
 
@@ -985,16 +1004,35 @@ tag!(pub SsaoRawBufferTag, f32, ImageSize, STORAGE | COPY_SRC,
 tag!(pub SsaoBlurredBufferTag, f32, ImageSize, STORAGE | COPY_SRC,
     "Tag for a blurred SSAO occlusion buffer");
 
-/// Handle to a set of buffers used when running an SSAO pass
+/// Handle to a set of configuration buffers used when running an SSAO pass
 pub struct SsaoWorkspace {
-    ssao_config: wgpu::Buffer, // TODO add a `ConfigBuffer` type?
-    raw_occlusion: FlexBuffer<SsaoRawBufferTag>,
-
-    blur_config: wgpu::Buffer,
-    blurred_occlusion: FlexBuffer<SsaoBlurredBufferTag>,
+    ssao: ConfigWorkspace<SsaoConfig>,
+    blur: ConfigWorkspace<BlurConfig>,
 }
 
-impl SsaoWorkspace {
+/// Handle to a set of image buffers used when running an SSAO pass
+///
+/// Unlike [`SsaoWorkspace`], these buffers are size-dependent
+pub struct SsaoBuffers {
+    /// Raw occlusion buffer
+    raw_occlusion: FlexBuffer<SsaoRawBufferTag>,
+
+    /// Bind group used in the SSAO pass (writing to `raw_occlusion`)
+    ssao_bind_group: wgpu::BindGroup,
+
+    /// Blurred occlusion buffer
+    blurred_occlusion: FlexBuffer<SsaoBlurredBufferTag>,
+
+    /// Bind group used in the blur pass
+    ///
+    /// This pass reads from `raw_occlusion` and writes to `blurred_occlusion`
+    blur_bind_group: wgpu::BindGroup,
+
+    /// Bind group which exposes the blurred occlusion buffer (read-only)
+    output_bind_group: wgpu::BindGroup,
+}
+
+impl SsaoBuffers {
     /// Returns a shared handle to the raw SSAO occlusion buffer
     pub fn raw_occlusion(&self) -> &FlexBuffer<SsaoRawBufferTag> {
         &self.raw_occlusion
@@ -1037,9 +1075,6 @@ struct SsaoContext {
     /// This contains the SSAO kernel and noise buffers, which are constants.
     ssao_bind_group: wgpu::BindGroup,
 
-    /// Layout for bind group that accepts buffers from the user
-    ssao_bind_group_layout: wgpu::BindGroupLayout,
-
     /// Pipeline for computing per-pixel SSAO
     ssao_pipeline: wgpu::ComputePipeline,
 
@@ -1051,17 +1086,13 @@ struct SsaoContext {
 }
 
 impl SsaoContext {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let ssao_fixed_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    pub fn new(gpu: &Gpu) -> Self {
+        let ssao_fixed_bind_group_layout = gpu.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[buffer_ro(0), buffer_ro(1)],
-            });
-        let ssao_user_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[buffer_uniform(0), buffer_ro(1), buffer_rw(2)],
-            });
+            },
+        );
 
         const KERNEL_SIZE: usize = 64;
         const NOISE_SIZE: usize = 16;
@@ -1069,7 +1100,7 @@ impl SsaoContext {
         // Build constant buffers and their bind group
         let ssao_kernel_size_bytes =
             KERNEL_SIZE * std::mem::size_of::<[f32; 3]>();
-        let ssao_kernel = device.create_buffer(&wgpu::BufferDescriptor {
+        let ssao_kernel = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ssao kernel"),
             size: ssao_kernel_size_bytes as u64,
             usage: wgpu::BufferUsages::STORAGE,
@@ -1085,7 +1116,7 @@ impl SsaoContext {
 
         let ssao_noise_size_bytes =
             NOISE_SIZE * std::mem::size_of::<[f32; 2]>();
-        let ssao_noise = device.create_buffer(&wgpu::BufferDescriptor {
+        let ssao_noise = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ssao noise"),
             size: ssao_noise_size_bytes as u64,
             usage: wgpu::BufferUsages::STORAGE,
@@ -1099,7 +1130,7 @@ impl SsaoContext {
         ssao_noise.unmap();
 
         let ssao_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ssao fixed bind group"),
                 layout: &ssao_fixed_bind_group_layout,
                 entries: &[
@@ -1115,60 +1146,71 @@ impl SsaoContext {
             });
 
         let shader_code = ssao_shader();
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = gpu.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects ssao pipeline"),
                 bind_group_layouts: &[
-                    Some(&ssao_user_bind_group_layout),
+                    Some(&gpu.config_bind_group_layout),
                     Some(&ssao_fixed_bind_group_layout),
+                    Some(&gpu.input_bind_group_layout),
+                    Some(&gpu.output_bind_group_layout),
                 ],
                 immediate_size: 0u32,
-            });
+            },
+        );
         let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("effects ssao shader module"),
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let ssao_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            gpu.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("effects ssao shader module"),
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
+        let ssao_pipeline = gpu.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
                 label: Some("effects ssao compute pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("ssao_main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            },
+        );
 
-        let blur_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let blur_bind_group_layout = gpu.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
                 label: None,
-                entries: &[buffer_uniform(0), buffer_ro(1), buffer_rw(2)],
-            });
+                entries: &[buffer_ro(0), buffer_rw(1)],
+            },
+        );
         let shader_code = blur_shader();
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = gpu.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: Some("effects blur pipeline"),
-                bind_group_layouts: &[Some(&blur_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&gpu.config_bind_group_layout),
+                    Some(&blur_bind_group_layout),
+                ],
                 immediate_size: 0u32,
-            });
+            },
+        );
         let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("effects blur shader module"),
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-        let blur_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            gpu.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("effects blur shader module"),
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
+        let blur_pipeline = gpu.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
                 label: Some("effects blur compute pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("blur_main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            },
+        );
 
         Self {
             ssao_bind_group,
-            ssao_bind_group_layout: ssao_user_bind_group_layout,
             ssao_pipeline,
             blur_bind_group_layout,
             blur_pipeline,
@@ -1177,19 +1219,13 @@ impl SsaoContext {
 
     fn encode(
         &self,
-        image: &MergeWorkspace,
-        buf: &mut SsaoWorkspace,
-        gpu: &Gpu,
+        image: &MergeBuffers,
+        workspace: &mut SsaoWorkspace,
+        buf: &mut SsaoBuffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SsaoError> {
         let image_size = image.out.size();
-        buf.raw_occlusion
-            .grow_to_fit(&gpu.device, image_size.into())
-            .map_err(SsaoError::OutputSize)?;
-        buf.blurred_occlusion
-            .grow_to_fit(&gpu.device, image_size.into())
-            .map_err(SsaoError::OutputSize)?;
 
         // Write config data to GPU buffers
         let cfg = SsaoConfig {
@@ -1200,30 +1236,14 @@ impl SsaoContext {
             ],
             radius: 0.1,
         };
-        let mut writer = staging.write_buffer(
-            encoder,
-            &buf.ssao_config,
-            0,
-            (std::mem::size_of::<SsaoConfig>() as u64)
-                .try_into()
-                .unwrap(),
-        );
-        writer.copy_from_slice(cfg.as_bytes());
+        workspace.ssao.encode_copy(encoder, staging, &cfg);
 
         let cfg = BlurConfig {
             image_size: [image_size.width(), image_size.height()],
             radius: 2,
             _pad: 0,
         };
-        let mut writer = staging.write_buffer(
-            encoder,
-            &buf.blur_config,
-            0,
-            (std::mem::size_of::<BlurConfig>() as u64)
-                .try_into()
-                .unwrap(),
-        );
-        writer.copy_from_slice(cfg.as_bytes());
+        workspace.blur.encode_copy(encoder, staging, &cfg);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1232,26 +1252,10 @@ impl SsaoContext {
             });
         compute_pass.set_pipeline(&self.ssao_pipeline);
 
-        let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ssao bind group"),
-            layout: &self.ssao_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buf.ssao_config.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: image.out.bind_active(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: buf.raw_occlusion.bind_active(),
-                },
-            ],
-        });
-        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.set_bind_group(0, Some(&workspace.ssao.bind_group), &[]);
         compute_pass.set_bind_group(1, Some(&self.ssao_bind_group), &[]);
+        compute_pass.set_bind_group(2, Some(&image.ro_bind_group), &[]);
+        compute_pass.set_bind_group(3, Some(&buf.ssao_bind_group), &[]);
         compute_pass.dispatch_workgroups(
             image_size.width().div_ceil(8),
             image_size.height().div_ceil(8),
@@ -1259,26 +1263,8 @@ impl SsaoContext {
         );
 
         compute_pass.set_pipeline(&self.blur_pipeline);
-
-        let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("blur bind group"),
-            layout: &self.blur_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buf.blur_config.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: buf.raw_occlusion.bind_active(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: buf.blurred_occlusion.bind_active(),
-                },
-            ],
-        });
-        compute_pass.set_bind_group(0, Some(&bg), &[]);
+        compute_pass.set_bind_group(0, Some(&workspace.blur.bind_group), &[]);
+        compute_pass.set_bind_group(1, Some(&buf.blur_bind_group), &[]);
         compute_pass.dispatch_workgroups(
             image_size.width().div_ceil(8),
             image_size.height().div_ceil(8),
@@ -1290,35 +1276,21 @@ impl SsaoContext {
 }
 
 struct ColorContext {
-    /// Configuration bind group layout (shape-specific, includes tape data)
-    config_bind_group_layout: wgpu::BindGroupLayout,
-
-    /// Image bind groups (input and output)
-    image_bind_group_layout: wgpu::BindGroupLayout,
-
     /// Pipeline for computing per-pixel color
     color_pipeline: RegPipeline,
 }
 
 impl ColorContext {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let config_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("color config and shape"),
-                entries: &[buffer_ro(0), buffer_ro(1), buffer_ro(2)],
-            });
-        let image_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("color images"),
-                entries: &[buffer_ro(0), buffer_rw(1)],
-            });
-
+    pub fn new(gpu: &Gpu) -> Self {
+        let device = &gpu.device;
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("color pipeline"),
                 bind_group_layouts: &[
-                    Some(&config_bind_group_layout),
-                    Some(&image_bind_group_layout),
+                    Some(&gpu.config_bind_group_layout),
+                    Some(&gpu.color_bind_group_layout),
+                    Some(&gpu.input_bind_group_layout),
+                    Some(&gpu.output_bind_group_layout),
                 ],
                 immediate_size: 0u32,
             });
@@ -1340,24 +1312,18 @@ impl ColorContext {
             })
         }));
 
-        Self {
-            config_bind_group_layout,
-            image_bind_group_layout,
-            color_pipeline,
-        }
+        Self { color_pipeline }
     }
 
-    /// The output buffer is resized to fit `image`
     #[allow(clippy::too_many_arguments)] // what are ya gonna do?
     fn encode(
         &self,
-        image: &MergeWorkspace,
+        image: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
         shape: &ShapeColorBuffers,
-        bufs: &mut ColorWorkspace,
+        workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
-        out: &mut ShadeWorkspace,
-        device: &wgpu::Device,
+        out: &mut ShadeBuffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
@@ -1368,64 +1334,36 @@ impl ColorContext {
             });
         }
         let size = image.out.size();
-        out.out
-            .grow_to_fit(device, size)
-            .map_err(ColorError::OutputSize)?;
+        if size != out.out.size() {
+            return Err(VoxelSizeMismatch {
+                expected: size,
+                actual: out.out.size(),
+            }
+            .into());
+        }
+        shape.copy_vars(encoder, staging, vars)?;
+
         out.has_color = true;
-
         let mat = world_to_model * size.screen_to_world();
-
-        bufs.copy_vars(device, encoder, staging, shape.var_map(), vars)
-            .map_err(|e| match e {
-                CopyVarsError::BufferSize(b) => ColorError::VarBufferSize(b),
-                CopyVarsError::MissingVar(v) => ColorError::MissingVar(v),
-            })?;
         let config = ColorConfig {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes(),
             image_size: [size.width(), size.height()],
-            _pad: 0,
+            _pad1: 0,
+            _pad2: [0; 2],
         };
-        bufs.copy_config_and_tape(
-            device,
-            encoder,
-            staging,
-            &config,
-            shape.bytecode(),
-        )
-        .map_err(ColorError::ConfigBufferSize)?;
-        bufs.copy_shape_starts(device, encoder, staging, shape.shape_start())
-            .expect("shape starts should always fit if shape bytecode fits");
-
-        let config_bg =
-            bufs.config_bind_group(device, &self.config_bind_group_layout);
+        workspace.encode_copy(encoder, staging, &config);
 
         let mut compute_pass =
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: None,
                 timestamp_writes: None, // TODO add timestamps?
             });
-        compute_pass.set_bind_group(0, config_bg, &[]);
+        compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
+        compute_pass.set_bind_group(1, shape.bind_group(), &[]);
+        compute_pass.set_bind_group(2, &image.ro_bind_group, &[]);
+        compute_pass.set_bind_group(3, &out.bind_group, &[]);
 
-        // TODO this creates a bind group for every evaluation, instead of
-        // caching it somewhere.  However, *where* to cache it is not
-        // obvious, because it combines fields from two different buffer
-        // objects.
-        let image_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("color image bind group"),
-            layout: &self.image_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: image.out.bind_active(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: out.out.bind_active(),
-                },
-            ],
-        });
-        compute_pass.set_bind_group(1, &image_bg, &[]);
         compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count()));
         compute_pass.dispatch_workgroups(
             size.width().div_ceil(8),
@@ -1441,7 +1379,6 @@ impl ColorContext {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::RenderShape;
     use fidget_core::{context::Tree, vm::VmShape};
     use fidget_raster::voxel::RenderSize;
 
@@ -1490,38 +1427,44 @@ mod test {
         crate::require_gpu!();
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let voxel_ctx = crate::voxel::Context::new(&gpu);
+        let mut voxel_workspace = voxel_ctx.workspace();
         let effects_ctx = crate::voxel::effects::Context::new(&gpu);
+        let mut merge_workspace = effects_ctx.merge_workspace();
 
         let size = 128;
         let image_size = RenderSize::from(size);
-        let mut voxel_buf = voxel_ctx.workspace();
-        let mut merge_buf = effects_ctx.merge_workspace();
+        let mut voxel_buf = voxel_ctx.buffers(image_size).unwrap();
+        let mut merge_buf = effects_ctx.merge_buffers(image_size).unwrap();
 
         let (x, y, z) = Tree::axes();
         let sphere =
             (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
         let vm_shape = VmShape::from(sphere.min(z));
-        let shape = RenderShape::new(&vm_shape).unwrap();
+        let shape = gpu.shape_buffers(&vm_shape).unwrap();
 
         voxel_ctx
             .submit(
                 &shape,
+                &mut voxel_workspace,
                 &mut voxel_buf,
                 &crate::voxel::RenderConfig {
-                    image_size,
                     world_to_model: nalgebra::Matrix4::identity(),
                 },
             )
             .unwrap();
         effects_ctx
             .submit_merge(
-                voxel_buf.output(),
+                &voxel_buf,
                 Default::default(),
+                &mut merge_workspace,
                 &mut merge_buf,
             )
             .unwrap();
-        let mut ssao_buf = effects_ctx.ssao_workspace();
-        effects_ctx.submit_ssao(&merge_buf, &mut ssao_buf).unwrap();
+        let mut ssao_workspace = effects_ctx.ssao_workspace();
+        let mut ssao_buf = effects_ctx.ssao_buffers(image_size.into()).unwrap();
+        effects_ctx
+            .submit_ssao(&merge_buf, &mut ssao_workspace, &mut ssao_buf)
+            .unwrap();
         let ssao_out = gpu.read_vec(ssao_buf.raw_occlusion());
 
         let quadrants =

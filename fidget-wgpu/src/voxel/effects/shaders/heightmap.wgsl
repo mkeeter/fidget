@@ -5,9 +5,8 @@ struct HeightmapConfig {
 }
 
 @group(0) @binding(0) var<uniform> config: HeightmapConfig;
-
-@group(0) @binding(1) var<storage, read> image: array<PackedVoxel>;
-@group(0) @binding(2) var<storage, read_write> out: array<u32>;
+@group(1) @binding(0) var<storage, read> image: array<PackedVoxel>;
+@group(2) @binding(0) var<storage, read_write> out: array<u32>;
 
 /// Produces a heightmap RGBA image
 @compute @workgroup_size(8, 8)
