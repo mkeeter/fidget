@@ -6,11 +6,11 @@
 //! paramerization in an `effects` module; e.g. the generic
 //! [`ColorWorkspace<C>`] is specialized to
 //! [`voxel::effects::ColorWorkspace`](crate::voxel::effects::ColorWorkspace)
-use crate::{CopyVarsError, encode_copy_vars};
+use crate::encode_copy_vars;
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
     eval::Function,
-    shape::ShapeVars,
+    shape::{MissingVar, ShapeVars},
     var::{Var, VarMap},
     vm::VmShape,
 };
@@ -58,7 +58,7 @@ impl ShapeColorBuffers {
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
         vars: &ShapeVars<f32>,
-    ) -> Result<(), CopyVarsError> {
+    ) -> Result<(), MissingVar> {
         encode_copy_vars(encoder, staging, &self.vars, vars, &self.vars_buf)
     }
 }

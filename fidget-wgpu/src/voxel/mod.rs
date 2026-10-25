@@ -98,8 +98,7 @@
 //! output buffer.
 
 use crate::{
-    CopyVarsError, Gpu, RegPipeline, ShapeBuffers, TAPE_DATA_CAPACITY,
-    TapeWord,
+    BadCopySize, Gpu, RegPipeline, ShapeBuffers, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_ro_dyn, buffer_rw,
@@ -261,18 +260,13 @@ pub struct BufferError {
 
 /// Error returned when submitting a voxel rasterization job to the GPU
 #[derive(Debug, thiserror::Error)]
-pub enum SubmitError {
+pub enum RunError {
     /// Missing variable when evaluating
     #[error(transparent)]
     MissingVar(#[from] MissingVar),
-}
-
-impl From<CopyVarsError> for SubmitError {
-    fn from(value: CopyVarsError) -> Self {
-        match value {
-            CopyVarsError::MissingVar(v) => Self::MissingVar(v),
-        }
-    }
+    /// Invalid buffer size
+    #[error(transparent)]
+    BadBufferSize(#[from] BadCopySize),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1813,7 +1807,7 @@ impl Context {
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.run_with_vars(
             shape,
             &Default::default(),
@@ -1836,9 +1830,9 @@ impl Context {
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.submit_with_vars(shape, vars, workspace, buffers, &settings)?;
-        self.gpu.copy(&buffers.geom, out);
+        self.gpu.copy(&buffers.geom, out)?;
         let image = self.gpu.map_image(out);
         Ok(image.image())
     }
@@ -1853,7 +1847,7 @@ impl Context {
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.run_with_vars_async(
             shape,
             &Default::default(),
@@ -1876,9 +1870,9 @@ impl Context {
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.submit_with_vars(shape, vars, workspace, buffers, &settings)?;
-        self.gpu.copy(&buffers.geom, out);
+        self.gpu.copy(&buffers.geom, out)?;
         let image = self.gpu.map_image_async(out).await;
         Ok(image.image())
     }
@@ -1893,7 +1887,7 @@ impl Context {
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         settings: &RenderConfig,
-    ) -> Result<(), SubmitError> {
+    ) -> Result<(), MissingVar> {
         self.submit_with_vars(
             shape,
             &Default::default(),
@@ -1913,7 +1907,7 @@ impl Context {
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         settings: &RenderConfig,
-    ) -> Result<(), SubmitError> {
+    ) -> Result<(), MissingVar> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
@@ -1947,7 +1941,7 @@ impl Context {
         settings: &RenderConfig,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
-    ) -> Result<(), SubmitError> {
+    ) -> Result<(), MissingVar> {
         let render_size = TileRenderSize::from(buffers.image_size);
 
         let mat =
@@ -2382,7 +2376,7 @@ mod test {
                 &mut shade_buf,
             )
             .unwrap();
-        gpu.copy(shade_buf.output(), &mut shade_out);
+        gpu.copy(shade_buf.output(), &mut shade_out).unwrap();
         let shaded = gpu.map_image(&mut shade_out).image();
 
         // Recompute per-pixel colors
@@ -2403,7 +2397,7 @@ mod test {
                 &mut heightmap_workspace,
             )
             .unwrap();
-        gpu.copy(shade_buf.output(), &mut shade_out);
+        gpu.copy(shade_buf.output(), &mut shade_out).unwrap();
         let heightmap = gpu.map_image(&mut shade_out).image();
 
         RenderOutput {

@@ -10,7 +10,7 @@
 //! - Apply shading to a [`PackedVoxel`] buffer, producing an RGBA image buffer
 
 use crate::{
-    ConfigWorkspace, CopyVarsError, Gpu, RegPipeline,
+    ConfigWorkspace, Gpu, RegPipeline,
     buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw},
     color::ShapeColorBuffers,
     shaders, tag,
@@ -330,14 +330,6 @@ pub enum ColorError {
     /// Shape color has already been populated
     #[error("shape color has already been populated")]
     AlreadyHasColor,
-}
-
-impl From<CopyVarsError> for ColorError {
-    fn from(value: CopyVarsError) -> Self {
-        match value {
-            CopyVarsError::MissingVar(v) => Self::MissingVar(v),
-        }
-    }
 }
 
 /// Type indicating an image size mismatch in a 3D image

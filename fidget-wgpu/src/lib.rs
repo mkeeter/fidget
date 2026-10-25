@@ -784,7 +784,7 @@ impl ShapeBuffers {
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
         vars: &ShapeVars<f32>,
-    ) -> Result<(), CopyVarsError> {
+    ) -> Result<(), MissingVar> {
         encode_copy_vars(encoder, staging, &self.vars, vars, &self.vars_buf)
     }
 }
@@ -795,7 +795,7 @@ pub(crate) fn encode_copy_vars(
     vs: &VarMap,
     vars: &ShapeVars<f32>,
     buf: &wgpu::Buffer,
-) -> Result<(), CopyVarsError> {
+) -> Result<(), MissingVar> {
     if vs.has_free_vars() {
         // Do an initial pass to check for errors before mapping the buffer
         for (v, _i) in vs.iter() {
@@ -830,12 +830,6 @@ pub(crate) fn encode_copy_vars(
         }
     }
     Ok(())
-}
-
-#[derive(thiserror::Error, Debug)]
-enum CopyVarsError {
-    #[error(transparent)]
-    MissingVar(#[from] MissingVar),
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -3,8 +3,7 @@
 //! See the [`voxel`](crate::voxel) module for details docs; this module is
 //! analogous (down to the naming of types).
 use crate::{
-    CopyVarsError, Gpu, RegPipeline, ShapeBuffers, TAPE_DATA_CAPACITY,
-    TapeWord,
+    BadCopySize, Gpu, RegPipeline, ShapeBuffers, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_rw,
@@ -448,9 +447,7 @@ pub struct Buffers {
 }
 
 impl Buffers {
-    /// Builds a new set of buffers with a default size
-    ///
-    /// It is expected that these will be resized before being used
+    /// Builds a new set of buffers for a particular render size
     fn new(ctx: &Context, image_size: ImageSize) -> Result<Self, BufferError> {
         let device = &ctx.gpu.device;
         let render_size = TileRenderSize::from(image_size);
@@ -670,13 +667,13 @@ impl Workspace {
     }
 }
 
-/// Error returned when resizing buffers in a [`Workspace`] object
+/// Error returned when creating buffers in a [`Workspace`] object
 #[derive(Debug, thiserror::Error)]
 #[error("failed to build {buf} buffer")]
 pub struct BufferError {
-    /// Buffer which failed to resize
+    /// Buffer which failed to be created
     pub buf: BufferName,
-    /// Error returned by buffer resizing
+    /// Error returned by buffer creation
     #[source]
     pub err: BufferSizeError,
 }
@@ -713,21 +710,13 @@ impl std::fmt::Display for BufferName {
 
 /// Error returned when submitting a voxel rasterization job to the GPU
 #[derive(Debug, thiserror::Error)]
-pub enum SubmitError {
+pub enum RunError {
     /// Missing variable when evaluating
     #[error(transparent)]
     MissingVar(#[from] MissingVar),
-    /// Error while resizing buffers
+    /// Invalid buffer size
     #[error(transparent)]
-    Buffers(#[from] BufferError),
-}
-
-impl From<CopyVarsError> for SubmitError {
-    fn from(value: CopyVarsError) -> Self {
-        match value {
-            CopyVarsError::MissingVar(v) => Self::MissingVar(v),
-        }
-    }
+    BadBufferSize(#[from] BadCopySize),
 }
 
 /// Cached bind groups (constructed on-demand)
@@ -904,7 +893,7 @@ impl Context {
         buffers: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.run_with_vars(
             shape,
             &Default::default(),
@@ -927,9 +916,9 @@ impl Context {
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.submit_with_vars(shape, vars, workspace, buf, &settings)?;
-        self.gpu.copy(buf.output(), out);
+        self.gpu.copy(buf.output(), out)?;
         let image = self.gpu.map_image(out);
         Ok(image.image())
     }
@@ -942,7 +931,7 @@ impl Context {
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.run_with_vars_async(
             shape,
             &Default::default(),
@@ -963,9 +952,9 @@ impl Context {
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
         settings: RenderConfig,
-    ) -> Result<Image, SubmitError> {
+    ) -> Result<Image, RunError> {
         self.submit_with_vars(shape, vars, workspace, buf, &settings)?;
-        self.gpu.copy(buf.output(), out);
+        self.gpu.copy(buf.output(), out)?;
         let image = self.gpu.map_image_async(out).await;
         Ok(image.image())
     }
@@ -980,7 +969,7 @@ impl Context {
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         settings: &RenderConfig,
-    ) -> Result<(), SubmitError> {
+    ) -> Result<(), MissingVar> {
         self.submit_with_vars(
             shape,
             &Default::default(),
@@ -1000,7 +989,7 @@ impl Context {
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         settings: &RenderConfig,
-    ) -> Result<(), SubmitError> {
+    ) -> Result<(), MissingVar> {
         let mut encoder = self.gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
@@ -1032,7 +1021,7 @@ impl Context {
         settings: &RenderConfig,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
-    ) -> Result<(), SubmitError> {
+    ) -> Result<(), MissingVar> {
         let render_size = TileRenderSize::from(buffers.image_size);
 
         // The WebGPU config type has a mat3x3f, but that type pads each row to
@@ -1308,8 +1297,10 @@ mod test {
         let mut distance_out = gpu.read_buffer_for(merge_buf.output_distance());
         let mut color_out =
             gpu.read_buffer_for(merge_buf.output_color().unwrap());
-        gpu.copy(merge_buf.output_distance(), &mut distance_out);
-        gpu.copy(merge_buf.output_color().unwrap(), &mut color_out);
+        gpu.copy(merge_buf.output_distance(), &mut distance_out)
+            .unwrap();
+        gpu.copy(merge_buf.output_color().unwrap(), &mut color_out)
+            .unwrap();
 
         RenderOutput {
             color: gpu.map_image(&mut color_out).image(),
