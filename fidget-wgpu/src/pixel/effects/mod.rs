@@ -18,17 +18,42 @@
 //! [`output_color`](MergeBuffers::output_color). Note that if color has not
 //! been computed, `output_color` will return `None`.
 use crate::{
-    ConfigWorkspace, Gpu, RegPipeline,
+    ConfigWorkspace, Gpu, ImageSizeMismatch, RegPipeline,
     buf::BufferSizeError,
     buf::{FlexBuffer, buffer_ro, buffer_rw},
     color::RenderColor,
     pixel::RawDistancePixel,
     shaders, tag,
 };
-use fidget_core::{render::ImageSize, shape::ShapeVars};
+use fidget_core::{
+    render::ImageSize,
+    shape::{MissingVar, ShapeVars},
+};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-pub use crate::voxel::effects::ColorError;
+/// Error returned when submitting a color evaluation operation
+#[derive(Debug, thiserror::Error)]
+pub enum ColorError {
+    /// A variable is missing from the map
+    #[error(transparent)]
+    MissingVar(#[from] MissingVar),
+
+    /// Wrong number of shapes
+    #[error(
+        "merged image is built from {merge_count} shapes,
+         but shape color buffer expected {shape_count} shapes"
+    )]
+    BadShapeCount {
+        /// Number of shapes in the merged image
+        merge_count: usize,
+        /// Number of shapes in the color buffer
+        shape_count: usize,
+    },
+
+    /// Shape color has already been populated
+    #[error("shape color has already been populated")]
+    AlreadyHasColor,
+}
 
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
@@ -55,18 +80,6 @@ fn color_shader(reg_count: u8) -> String {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-/// Type indicating an image size mismatch
-#[derive(Debug, thiserror::Error)]
-#[error(
-    "image size mismatch: expected {} × {}, got {} × {}",
-    expected.width(), expected.height(),
-    actual.width(), actual.height(),
-)]
-pub struct ImageSizeMismatch {
-    expected: ImageSize,
-    actual: ImageSize,
-}
 
 /// Error returned when submitting a merge operation
 #[derive(Debug, thiserror::Error)]
@@ -560,6 +573,7 @@ impl ColorContext {
         } else if image.has_color {
             return Err(ColorError::AlreadyHasColor);
         }
+
         let size = image.distance.size();
         let mat = settings.world_to_model
             * ImageSize::new(size.width(), size.height()).screen_to_world();

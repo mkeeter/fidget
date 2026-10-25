@@ -388,15 +388,15 @@ fn run3d_wgpu(
     // Build a fidget gpu context
     let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?;
 
-    let ctx = fidget::wgpu::voxel::Context::new(&gpu);
+    let ctx = fidget::wgpu::voxel::render::Context::new(&gpu);
     let image_size = settings.voxel_size(depth);
-    let cfg = fidget::wgpu::voxel::RenderConfig { world_to_model };
+    let cfg = fidget::wgpu::voxel::render::RenderConfig { world_to_model };
     let mut image = Default::default();
     let start = std::time::Instant::now();
     let mut workspace = ctx.workspace();
     let mut buffers = ctx.buffers(image_size)?;
     let mut out = gpu.read_buffer_for(buffers.output());
-    let shape = gpu.shape_buffers(&shape)?;
+    let shape = gpu.build_render_shape(&shape)?;
     for _ in 0..settings.n {
         image = ctx.run(&shape, &mut workspace, &mut buffers, &mut out, cfg)?;
     }
@@ -407,20 +407,26 @@ fn run3d_wgpu(
         start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64),
     );
 
-    let effects = fidget::wgpu::voxel::effects::Context::new(&gpu);
-    let mut merge_workspace = effects.merge_workspace();
-    let mut heightmap_workspace = effects.heightmap_workspace();
-    let mut merge_buf = effects.merge_buffers(image_size)?;
-    let mut ssao_workspace = effects.ssao_workspace();
-    let mut ssao_buf = effects.ssao_buffers(image_size.into())?;
-    let mut shade_buf = effects.shade_buffers(image_size)?;
-    let mut shade_workspace = effects.shade_workspace();
+    let merge_ctx = fidget::wgpu::voxel::merge::Context::new(&gpu);
+    let mut merge_workspace = merge_ctx.workspace();
+    let mut merge_buf = merge_ctx.buffers(image_size)?;
+
+    let heightmap_ctx = fidget::wgpu::voxel::heightmap::Context::new(&gpu);
+    let mut heightmap_workspace = heightmap_ctx.workspace();
+
+    let ssao_ctx = fidget::wgpu::voxel::ssao::Context::new(&gpu);
+    let mut ssao_workspace = ssao_ctx.workspace();
+    let mut ssao_buf = ssao_ctx.buffers(image_size.into())?;
+
+    let shade_ctx = fidget::wgpu::voxel::shade::Context::new(&gpu);
+    let mut shade_buf = shade_ctx.buffers(image_size)?;
+    let mut shade_workspace = shade_ctx.workspace();
 
     let start = std::time::Instant::now();
-    use fidget::wgpu::voxel::effects::MergeSettings;
+    use fidget::wgpu::voxel::merge::MergeSettings;
     let out_bytes = match mode {
         RenderMode3D::Heightmap => {
-            effects.submit_merge(
+            merge_ctx.submit(
                 &buffers,
                 MergeSettings {
                     denoise: false,
@@ -429,7 +435,7 @@ fn run3d_wgpu(
                 &mut merge_workspace,
                 &mut merge_buf,
             )?;
-            effects.submit_heightmap(
+            heightmap_ctx.submit(
                 &merge_buf,
                 &mut shade_buf,
                 &mut heightmap_workspace,
@@ -440,7 +446,7 @@ fn run3d_wgpu(
             bail!("normal rendering is not supported on the GPU")
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
-            effects.submit_merge(
+            merge_ctx.submit(
                 &buffers,
                 MergeSettings {
                     denoise,
@@ -449,16 +455,12 @@ fn run3d_wgpu(
                 &mut merge_workspace,
                 &mut merge_buf,
             )?;
-            effects.submit_ssao(
-                &merge_buf,
-                &mut ssao_workspace,
-                &mut ssao_buf,
-            )?;
+            ssao_ctx.submit(&merge_buf, &mut ssao_workspace, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.blurred_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::RawOcclusion { denoise } => {
-            effects.submit_merge(
+            merge_ctx.submit(
                 &buffers,
                 MergeSettings {
                     denoise,
@@ -467,16 +469,12 @@ fn run3d_wgpu(
                 &mut merge_workspace,
                 &mut merge_buf,
             )?;
-            effects.submit_ssao(
-                &merge_buf,
-                &mut ssao_workspace,
-                &mut ssao_buf,
-            )?;
+            ssao_ctx.submit(&merge_buf, &mut ssao_workspace, &mut ssao_buf)?;
             let ssao = gpu.read_vec(ssao_buf.raw_occlusion());
             occlusion_to_rgba(&ssao)
         }
         RenderMode3D::Shaded { denoise, ssao } => {
-            effects.submit_merge(
+            merge_ctx.submit(
                 &buffers,
                 MergeSettings {
                     denoise,
@@ -486,14 +484,14 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             if ssao {
-                effects.submit_ssao(
+                ssao_ctx.submit(
                     &merge_buf,
                     &mut ssao_workspace,
                     &mut ssao_buf,
                 )?;
             }
 
-            effects.submit_shade(
+            shade_ctx.submit(
                 &merge_buf,
                 if ssao { Some(&ssao_buf) } else { None },
                 &mut shade_workspace,
@@ -713,7 +711,7 @@ fn run2d_wgpu(
     let mut workspace = ctx.workspace();
     let mut buffers = ctx.buffers(image_size)?;
     let mut out = gpu.read_buffer_for(buffers.output());
-    let shape = gpu.shape_buffers(&shape)?;
+    let shape = gpu.build_render_shape(&shape)?;
     let mut postprocess_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
         let img =

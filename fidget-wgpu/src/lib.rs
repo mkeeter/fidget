@@ -22,16 +22,16 @@
 //!
 //! ### Context objects
 //! A context object contains GPU pipelines, and allow users to dispatch work to
-//! the GPU.  Voxel and pixel rendering are managed by [`voxel::Context`] and
-//! [`pixel::Context`] respectively.  Post-processing is done by
-//! [`voxel::effects::Context`] and [`pixel::effects::Context`].
+//! the GPU.  Voxel and pixel rendering are managed by [`voxel::render::Context`] and
+//! [`pixel::Context`] respectively; other passes are managed by other `Context`
+//! objects (e.g. [`voxel::merge::Context`]).
 //!
 //! Users are expected to create one (of each) context object per thread or
 //! worker, since GPU resources can't be shared.  These are expensive to create
 //! and should not be churned.
 //!
 //! ### Workspace objects
-//! Workspace objects (e.g. [`voxel::Workspace`]) contain fixed-size
+//! Workspace objects (e.g. [`voxel::render::Workspace`]) contain fixed-size
 //! configuration buffers, used when dispatching work to the GPU.  They are also
 //! per-thread (or per-worker).  You may have more than one per thread if you
 //! want to dispatch multiple jobs simultaneously; it's your computer.  However,
@@ -39,14 +39,14 @@
 //! voxel and pixel workspaces allocate a large arena for bump allocation.
 //!
 //! ### Buffers objects
-//! Buffers objects (e.g. [`voxel::Buffers`]) are image-size-dependent buffers
+//! Buffers objects (e.g. [`voxel::render::Buffers`]) are image-size-dependent buffers
 //! used for rendering.  Users will typically create one per simultaneous
 //! viewport, and they are expected to be long-lived (only being deleted if the
 //! viewport size changes).
 //!
 //! These objects are stateful: after they are used in a `submit` function, they
 //! will contain data in a GPU buffer.  The output buffer is typically accessed
-//! with the `output()` function, e.g. [`voxel::Buffers::output`].
+//! with the `output()` function, e.g. [`voxel::render::Buffers::output`].
 //!
 //! ### Reading data from buffers
 //! The output of a rendering pass is a [`FlexBuffer`](crate::buf::FlexBuffer)
@@ -68,12 +68,12 @@
 //!
 //! ### `run` functions
 //! At the highest level, `run` and `run_async` functions perform rendering
-//! and copy data back to the CPU (e.g. [`voxel::Context::run`] and
-//! [`run_async`](voxel::Context::run_async)).
+//! and copy data back to the CPU (e.g. [`voxel::render::Context::run`] and
+//! [`run_async`](voxel::render::Context::run_async)).
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
-//! use fidget_wgpu::{Gpu, voxel::Context};
+//! use fidget_wgpu::{Gpu, voxel::render::Context};
 //!
 //! // GPU setup (this only needs to happen once)
 //! let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
@@ -90,7 +90,7 @@
 //! let mut out = gpu.read_buffer_for(buffers.output());
 //!
 //! // Use defaults for other render configuration
-//! let render_config = fidget_wgpu::voxel::RenderConfig::default();
+//! let render_config = fidget_wgpu::voxel::render::RenderConfig::default();
 //!
 //! // Do the actual work!
 //! let image = ctx.run(
@@ -118,11 +118,11 @@
 //!
 //! ### `submit` functions
 //! To simply submit work to the GPU, use a `submit` function (e.g.
-//! [`voxel::Context::submit`]).
+//! [`voxel::render::Context::submit`]).
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
-//! # use fidget_wgpu::{Gpu, voxel::Context};
+//! # use fidget_wgpu::{Gpu, voxel::render::Context};
 //! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
 //! # let ctx = Context::new(&gpu);
 //! # let mut workspace = ctx.workspace();
@@ -131,7 +131,7 @@
 //! # let render_shape = gpu.build_render_shape(&shape).unwrap();
 //! # let mut buffers = ctx.buffers(128.into()).unwrap();
 //! # let mut out = gpu.read_buffer_for(buffers.output());
-//! # let render_config = fidget_wgpu::voxel::RenderConfig::default();
+//! # let render_config = fidget_wgpu::voxel::render::RenderConfig::default();
 //! // Setup is done per the previous example
 //!
 //! // Submit the work to the queue
@@ -166,7 +166,7 @@
 //! ### `encode` functions
 //! At the lowest level, to encode a rendering operation into a WebGPU
 //! `CommandEncoder`, use an `encode` function (e.g.
-//! [`voxel::Context::encode`]).  `encode` functions which copy data to GPU
+//! [`voxel::render::Context::encode`]).  `encode` functions which copy data to GPU
 //! memory (i.e. most of them) also need a [`wgpu::util::StagingBelt`] object to
 //! be passed in, for subtle reasons (when config buffers are reused, we need
 //! data loading to happen at specific times within the `CommandEncoder` list,
@@ -174,7 +174,7 @@
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
-//! # use fidget_wgpu::{Gpu, voxel::Context};
+//! # use fidget_wgpu::{Gpu, voxel::render::Context};
 //! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
 //! # let ctx = Context::new(&gpu);
 //! # let mut workspace = ctx.workspace();
@@ -183,7 +183,7 @@
 //! # let render_shape = gpu.build_render_shape(&shape).unwrap();
 //! # let mut buffers = ctx.buffers(128.into()).unwrap();
 //! # let mut out = gpu.read_buffer_for(buffers.output());
-//! # let render_config = fidget_wgpu::voxel::RenderConfig::default();
+//! # let render_config = fidget_wgpu::voxel::render::RenderConfig::default();
 //! // Setup is done per the previous example
 //!
 //! // We need to provide the encoder and staging buffer ourselves
@@ -286,6 +286,32 @@ pub(crate) const TAPE_DATA_CAPACITY: usize = 8 * 1024 * 1024; // 8M words, 64 Mi
 pub(crate) struct TapeWord {
     op: u32,
     imm: u32,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Type indicating an image size mismatch in a 2D image
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "image size mismatch: expected {} × {}, got {} × {}",
+    expected.width(), expected.height(),
+    actual.width(),   actual.height(),
+)]
+pub struct ImageSizeMismatch {
+    expected: fidget_core::render::ImageSize,
+    actual: fidget_core::render::ImageSize,
+}
+
+/// Type indicating an image size mismatch in a 3D image
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "image size mismatch: expected {} × {} × {}, got {} × {} × {}",
+    expected.width(), expected.height(), expected.depth(),
+    actual.width(),   actual.height(),   actual.depth()
+)]
+pub struct VoxelSizeMismatch {
+    expected: fidget_core::render::VoxelSize,
+    actual: fidget_core::render::VoxelSize,
 }
 
 ////////////////////////////////////////////////////////////////////////////////

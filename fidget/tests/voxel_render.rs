@@ -101,7 +101,7 @@ mod wgpu {
         let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
-        let ctx = fidget_wgpu::voxel::Context::new(&gpu);
+        let ctx = fidget_wgpu::voxel::render::Context::new(&gpu);
 
         let size = 32;
         let image_size = RenderSize::from(size);
@@ -113,7 +113,7 @@ mod wgpu {
                 let sphere = (x.square() + y.square() + z.square()).sqrt()
                     - Tree::constant(r);
                 let shape = gpu
-                    .shape_buffers(&fidget::vm::VmShape::from(sphere))
+                    .build_render_shape(&fidget::vm::VmShape::from(sphere))
                     .unwrap();
                 let image = ctx
                     .run(
@@ -121,7 +121,7 @@ mod wgpu {
                         &mut workspace,
                         &mut buf,
                         &mut out,
-                        fidget::wgpu::voxel::RenderConfig {
+                        fidget::wgpu::voxel::render::RenderConfig {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
@@ -146,8 +146,8 @@ mod wgpu {
         let c = Tree::from(v);
         let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
         let shape = fidget::vm::VmShape::from(sphere);
-        let ctx = fidget_wgpu::voxel::Context::new(&gpu);
-        let render_shape = gpu.shape_buffers(&shape).unwrap();
+        let ctx = fidget_wgpu::voxel::render::Context::new(&gpu);
+        let render_shape = gpu.build_render_shape(&shape).unwrap();
 
         let size = 32;
         let image_size = RenderSize::from(size);
@@ -165,7 +165,7 @@ mod wgpu {
                         &mut workspace,
                         &mut buf,
                         &mut out,
-                        fidget::wgpu::voxel::RenderConfig {
+                        fidget::wgpu::voxel::render::RenderConfig {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
