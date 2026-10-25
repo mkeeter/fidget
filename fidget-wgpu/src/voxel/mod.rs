@@ -45,31 +45,32 @@
 //!   result in the heightmap fully covers the tile
 //!
 //! # Practice
-//! There are four core objects, each with different lifetimes
+//! There are a handful of core objects, each with different lifetimes
 //!
 //! - [`Context`] contains all of the pipelines used for 3D rendering.  It
 //!   is very expensive to build and should be constructed once per thread /
 //!   worker.
-//! - [`ShapeBuffers`] contains serialized bytecode to render a particular shape.
-//!   Best practice is to rebuild it only when a shape changes (i.e. not once
-//!   per frame), although in practice it's pretty fast to construct.
-//! - [`Workspace`] contains GPU buffers needed for rendering at a particular
-//!   image size.  It is primarily expensive in GPU memory, as it contains
-//!   several full-frame buffers.  Best practice is to construct one
-//!   [`Workspace`] object per worker context (or per simultaneous render); it
-//!   will be automatically resized when used.  Systems with high variability in
-//!   image size may want to periodically compare [`size`](Workspace::size)
-//!   versus [`capacity`](Workspace::capacity) and fully reallocate buffers (by
-//!   constructing a new `Workspace` object) if they get too out of whack.
-//!   TODO FIX THIS
+//! - [`RenderShape`] contains GPU buffers of bytecode to render a particular
+//!   shape. Best practice is to rebuild it only when a shape changes (i.e. not
+//!   once per frame), although in practice it's pretty fast to construct.
+//! - [`Workspace`] contains fixed-size GPU buffers used when rendering (i.e.
+//!   configuration buffers).  It is primarily expensive in GPU memory, as it
+//!   contains a memory arena for compute-time simplification.  Best practice is
+//!   to construct one [`Workspace`] object per worker context (or per
+//!   simultaneous render if you're being fancy).
+//! - [`Buffers`] contain size-dependent buffers used when rendering.  This is
+//!   also expensive in GPU memory, since it contains several full-frame GPU
+//!   buffers.  Best practice is to construct one [`Buffers`] object per GUI
+//!   viewport (or simultaneous render size).
 //! - [`RenderConfig`] sets the transform matrix for rendering.  This is cheap
 //!   to construct and could be built once per frame
 //!
 //! With all that out of the way, usage is pretty simple:
 //! - Build a [`Context`]
-//! - Use [`ShapeBuffers::new`] to convert from a
-//!   [`VmShape`](fidget_core::vm::VmShape) to a [`ShapeBuffers`]
-//! - Use [`Context::workspace`] to get [`Workspace`]
+//! - Use [`Gpu::build_render_shape`] to convert from a
+//!   [`VmShape`](fidget_core::vm::VmShape) to a [`RenderShape`]
+//! - Use [`Context::workspace`] to get a [`Workspace`]
+//! - Use [`Context::buffers`] to get a [`Buffers`] (setting your render size)
 //! - Use [`Gpu::read_buffer_for(buffers.output())`](Gpu::read_buffer_for) to
 //!   get an output buffer
 //! - Call [`Context::run`] or [`Context::run_async`] to get an image
@@ -79,7 +80,7 @@
 //! GPU operations are asynchronous; operations are submitted to a queue, and
 //! are completed at some point in the future.  [`Context::run`] blocks until
 //! operations are complete, but is only valid on the desktop (and is disabled
-//! by feature flag on the web); it uses [`wgpu::Device::poll`], which is a
+//! by a feature flag on the web); it uses [`wgpu::Device::poll`], which is a
 //! no-op on the web. [`Context::run_async`] is the async equivalent, and can be
 //! used either natively or on the web.
 //!
@@ -94,11 +95,11 @@
 //! - Read image data back to the CPU
 //!
 //! Lower-level building blocks are also available: [`Context::submit`] submits
-//! the render operations to the GPU, and [`Workspace::output`] returns the
-//! output buffer.
+//! the render operations to the GPU, [`Context::encode`] encodes the render
+//! opations to an encoder, and [`Buffers::output`] returns the output buffer.
 
 use crate::{
-    BadCopySize, Gpu, RegPipeline, ShapeBuffers, TAPE_DATA_CAPACITY, TapeWord,
+    BadCopySize, Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_ro_dyn, buffer_rw,
@@ -512,7 +513,7 @@ impl RootContext {
 
     fn run(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         buffers: &Buffers,
         compute_pass: &mut wgpu::ComputePass,
     ) {
@@ -1802,7 +1803,7 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
@@ -1824,7 +1825,7 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_with_vars(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
@@ -1842,7 +1843,7 @@ impl Context {
     /// This can be called either natively or on the web
     pub async fn run_async(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
@@ -1864,7 +1865,7 @@ impl Context {
     /// This can be called either natively or on the web
     pub async fn run_with_vars_async(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
@@ -1880,10 +1881,10 @@ impl Context {
     /// Submits a single image to be rendered on the GPU
     ///
     /// The resulting image (as a buffer of [`GeometryPixel`] data) is available
-    /// on the GPU in [`workspace.output()`](Workspace::output).
+    /// on the GPU in [`buffers.output()`](Buffers::output).
     pub fn submit(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         settings: &RenderConfig,
@@ -1902,7 +1903,7 @@ impl Context {
     /// See [`submit`](Self::submit) for additional details.
     pub fn submit_with_vars(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
@@ -1934,7 +1935,7 @@ impl Context {
     #[allow(clippy::too_many_arguments)]
     pub fn encode(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
@@ -2308,8 +2309,9 @@ mod test {
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
-            let shape =
-                gpu.shape_buffers(&VmShape::from(shape.clone())).unwrap();
+            let shape = gpu
+                .build_render_shape(&VmShape::from(shape.clone()))
+                .unwrap();
             voxel_ctx
                 .submit(&shape, &mut workspace, &mut buffers, &render_config)
                 .unwrap();
@@ -2338,7 +2340,7 @@ mod test {
                 },
             })
             .collect::<Vec<_>>();
-        let shape_colors = gpu.color_buffers(&shape_colors).unwrap();
+        let shape_colors = gpu.build_render_color(&shape_colors).unwrap();
         let mut color_workspace = effects_ctx.color_workspace();
 
         // Compute SSAO buffer

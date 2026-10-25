@@ -1,11 +1,8 @@
 //! Data types for evaluating shape color
 //!
-//! In this module, only [`ShapeColor`] and [`ShapeColorBuffers`] should be used
-//! directly (through direct construction and [`ShapeColorBuffers::new`]
-//! respectively).  Other types are generic and are re-exported with a specific
-//! paramerization in an `effects` module; e.g. the generic
-//! [`ColorWorkspace<C>`] is specialized to
-//! [`voxel::effects::ColorWorkspace`](crate::voxel::effects::ColorWorkspace)
+//! In this module, only [`ShapeColor`] can be constructed directly.
+//! [`RenderColor`] is constructed by
+//! [`Gpu::build_render_color`](crate::Gpu::build_render_color).
 use crate::encode_copy_vars;
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
@@ -18,16 +15,16 @@ use fidget_core::{
 use std::{collections::HashMap, sync::Arc};
 use zerocopy::IntoBytes;
 
-/// Error type when constructing a [`ShapeColorBuffers`]
+/// Error type when constructing a [`RenderColor`]
 #[derive(Debug, thiserror::Error)]
-pub enum ColorBufferError {
+pub enum RenderColorError {
     /// The shape uses a reserved register
     #[error(transparent)]
     RegisterError(#[from] ReservedRegister),
 }
 
 /// GPU color buffers for rendering a shape's diffuse color
-pub struct ShapeColorBuffers {
+pub struct RenderColor {
     /// Unified [`VarMap`] object
     vars: Arc<VarMap>,
     /// Number of shapes available
@@ -41,7 +38,7 @@ pub struct ShapeColorBuffers {
 }
 
 // Accessor methods
-impl ShapeColorBuffers {
+impl RenderColor {
     pub(crate) fn shape_count(&self) -> usize {
         self.shape_count
     }
@@ -94,13 +91,13 @@ impl<T> ShapeColor<T> {
     }
 }
 
-impl ShapeColorBuffers {
+impl RenderColor {
     /// Builds a new set of buffers for evaluating shape color
     pub fn new(
         colors: &[ShapeColor<VmShape>],
         device: &wgpu::Device,
         bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Result<Self, ColorBufferError> {
+    ) -> Result<Self, RenderColorError> {
         // Build a single unified variable map, used across all tapes
         let mut vars = VarMap::new();
         for c in colors {

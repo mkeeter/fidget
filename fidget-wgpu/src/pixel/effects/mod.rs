@@ -6,21 +6,22 @@
 //! containing RGBA values (as 4-byte words).
 //!
 //! This is because – when the final shader draws to the screen – we can improve
-//! visual fidelity by interpolating between distance values (typically by the
-//! texture unit).  If we baked the final RGBA image, then drawing it at a
-//! different scale (e.g. the user has zoomed and we're waiting for the next
-//! image to be completed) would simply be blurry; with distance interpolation,
-//! it remains sharper (though not pixel-perfect).
+//! visual fidelity by interpolating between distance values (typically by
+//! storing distance as a texture and getting interpolation for free). If we
+//! baked the final RGBA image, then drawing it at a different scale (e.g. the
+//! user has zoomed and we're waiting for the next image to be completed) would
+//! simply be blurry; with distance interpolation, it remains sharper (though
+//! not pixel-perfect).
 //!
-//! Output is stored in the [`MergeWorkspace`] object, and may be accessed with
-//! [`output_distance`](MergeWorkspace::output_distance) and
-//! [`output_color`](MergeWorkspace::output_color).
-//! Note that if color has not been computed, `output_color` will return `None`.
+//! Output is stored in the [`MergeBuffers`] object, and may be accessed with
+//! [`output_distance`](MergeBuffers::output_distance) and
+//! [`output_color`](MergeBuffers::output_color). Note that if color has not
+//! been computed, `output_color` will return `None`.
 use crate::{
     ConfigWorkspace, Gpu, RegPipeline,
     buf::BufferSizeError,
     buf::{FlexBuffer, buffer_ro, buffer_rw},
-    color::ShapeColorBuffers,
+    color::RenderColor,
     pixel::RawDistancePixel,
     shaders, tag,
 };
@@ -372,7 +373,7 @@ impl Context {
         &self,
         merge: &mut MergeBuffers,
         settings: ColorSettings,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
     ) -> Result<(), ColorError> {
         self.submit_color_with_vars(
@@ -393,7 +394,7 @@ impl Context {
         &self,
         merge: &mut MergeBuffers,
         settings: ColorSettings,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
     ) -> Result<(), ColorError> {
@@ -423,7 +424,7 @@ impl Context {
         &self,
         merge: &mut MergeBuffers,
         settings: ColorSettings,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         encoder: &mut wgpu::CommandEncoder,
@@ -545,7 +546,7 @@ impl ColorContext {
         &self,
         image: &mut MergeBuffers,
         settings: ColorSettings,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         encoder: &mut wgpu::CommandEncoder,

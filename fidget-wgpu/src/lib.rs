@@ -13,37 +13,43 @@
 //!
 //! - The [`Gpu`] object is passed around to provide device and queues
 //! - A `Context` object contains pipelines
-//! - A `Workspace` object contains buffers used when rendering
-//! - An output buffer can be read back to the CPU or passed to a subsequent
-//!   render pipeline
+//! - A `Workspace` object contains configuration buffers used when rendering
+//! - A `Buffers` object contains size-dependent buffers used when rendering.
+//!   Within the buffers object, an output buffer can be read back to the CPU or
+//!   passed to a subsequent render pipeline
+//!
+//! Let's walk through each of this object flavors in turn.
 //!
 //! ### Context objects
-//! A context object contains GPU pipelines and allow users to dispatch work to
+//! A context object contains GPU pipelines, and allow users to dispatch work to
 //! the GPU.  Voxel and pixel rendering are managed by [`voxel::Context`] and
 //! [`pixel::Context`] respectively.  Post-processing is done by
 //! [`voxel::effects::Context`] and [`pixel::effects::Context`].
 //!
 //! Users are expected to create one (of each) context object per thread or
-//! worker, since GPU resources can't be shared.
+//! worker, since GPU resources can't be shared.  These are expensive to create
+//! and should not be churned.
 //!
 //! ### Workspace objects
-//! Workspace objects contain all of the buffers that are used when dispatching
-//! work to the GPU.  They are also per-thread (or per-worker).  You may have
-//! more than one per thread if you want to dispatch multiple jobs
-//! simultaneously; it's your computer.
+//! Workspace objects (e.g. [`voxel::Workspace`]) contain fixed-size
+//! configuration buffers, used when dispatching work to the GPU.  They are also
+//! per-thread (or per-worker).  You may have more than one per thread if you
+//! want to dispatch multiple jobs simultaneously; it's your computer.  However,
+//! be aware that they may be be heavy in terms of GPU resources; in particular,
+//! voxel and pixel workspaces allocate a large arena for bump allocation.
 //!
-//! Workspaces resize themselves automatically when used in rendering.  They
-//! typically have [`size()`](voxel::Workspace::size) (active bytes) and
-//! [`capacity()`](voxel::Workspace::capacity) (total allocated bytes)
-//! functions; users may want to check for overly large ratios and recreate
-//! workspaces.
+//! ### Buffers objects
+//! Buffers objects (e.g. [`voxel::Buffers`]) are image-size-dependent buffers
+//! used for rendering.  Users will typically create one per simultaneous
+//! viewport, and they are expected to be long-lived (only being deleted if the
+//! viewport size changes).
 //!
-//! Workspaces are stateful; after they are used in a `submit` function, they
+//! These objects are stateful: after they are used in a `submit` function, they
 //! will contain data in a GPU buffer.  The output buffer is typically accessed
-//! with the `output()` function, e.g. [`voxel::Workspace::output`].
+//! with the `output()` function, e.g. [`voxel::Buffers::output`].
 //!
 //! ### Reading data from buffers
-//! The output of a workspace is a [`FlexBuffer`](crate::buf::FlexBuffer)
+//! The output of a rendering pass is a [`FlexBuffer`](crate::buf::FlexBuffer)
 //! (indeed, they are used pervasively throughout this crate).  Output buffers
 //! are created with `STORAGE | COPY_SRC`.  Reading data back to the CPU is a
 //! three-part process:
@@ -77,7 +83,7 @@
 //! // Per-shape setup
 //! let x = fidget_core::context::Tree::x();
 //! let shape = fidget_core::vm::VmShape::from(x);
-//! let render_shape = gpu.shape_buffers(&shape).unwrap();
+//! let render_shape = gpu.build_render_shape(&shape).unwrap();
 //!
 //! // Select our render size
 //! let mut buffers = ctx.buffers(128.into()).unwrap();
@@ -122,7 +128,7 @@
 //! # let mut workspace = ctx.workspace();
 //! # let x = fidget_core::context::Tree::x();
 //! # let shape = fidget_core::vm::VmShape::from(x);
-//! # let render_shape = gpu.shape_buffers(&shape).unwrap();
+//! # let render_shape = gpu.build_render_shape(&shape).unwrap();
 //! # let mut buffers = ctx.buffers(128.into()).unwrap();
 //! # let mut out = gpu.read_buffer_for(buffers.output());
 //! # let render_config = fidget_wgpu::voxel::RenderConfig::default();
@@ -174,7 +180,7 @@
 //! # let mut workspace = ctx.workspace();
 //! # let x = fidget_core::context::Tree::x();
 //! # let shape = fidget_core::vm::VmShape::from(x);
-//! # let render_shape = gpu.shape_buffers(&shape).unwrap();
+//! # let render_shape = gpu.build_render_shape(&shape).unwrap();
 //! # let mut buffers = ctx.buffers(128.into()).unwrap();
 //! # let mut out = gpu.read_buffer_for(buffers.output());
 //! # let render_config = fidget_wgpu::voxel::RenderConfig::default();
@@ -324,7 +330,7 @@ pub struct Gpu {
     /// Layout for a config bind group (a single read-only uniforms buffer)
     config_bind_group_layout: wgpu::BindGroupLayout,
 
-    /// Layout for a color bind group (used when building [`ShapeColorBuffers`])
+    /// Layout for a color bind group (used when building [`RenderColor`])
     ///
     /// This binds three buffers:
     /// - 0: `shape_tape`
@@ -467,7 +473,7 @@ impl Gpu {
 
     /// Copies from a GPU-resident buffer to a host-mappable buffer
     ///
-    /// The host-mappable destination buffer is resized to fit the data.
+    /// The buffers must have matching sizes (in bytes)
     pub fn copy<A>(
         &self,
         src: &buf::FlexBuffer<A>,
@@ -583,15 +589,15 @@ impl Gpu {
     }
 
     /// Builds a new render shape
-    pub fn shape_buffers(
+    pub fn build_render_shape(
         &self,
         shape: &VmShape,
-    ) -> Result<ShapeBuffers, ShapeBuffersError> {
+    ) -> Result<RenderShape, RenderShapeError> {
         // Generate bytecode for the root tape
         let bytecode = Bytecode::new(shape.inner().data())?;
         let bytecode_len = bytecode.len() / 2; // u32 -> u64 words
         if bytecode_len > TAPE_DATA_CAPACITY {
-            return Err(ShapeBuffersError::TooLong(bytecode.len() / 2));
+            return Err(RenderShapeError::TooLong(bytecode.len() / 2));
         }
         let tape = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tape"),
@@ -625,7 +631,7 @@ impl Gpu {
                 }],
             });
 
-        Ok(ShapeBuffers {
+        Ok(RenderShape {
             tape,
             vars_buf,
             reg_count: bytecode.reg_count(),
@@ -636,11 +642,11 @@ impl Gpu {
     }
 
     /// Builds a new set of render colors
-    pub fn color_buffers(
+    pub fn build_render_color(
         &self,
         colors: &[color::ShapeColor<VmShape>],
-    ) -> Result<color::ShapeColorBuffers, color::ColorBufferError> {
-        color::ShapeColorBuffers::new(
+    ) -> Result<color::RenderColor, color::RenderColorError> {
+        color::RenderColor::new(
             colors,
             &self.device,
             &self.color_bind_group_layout,
@@ -742,7 +748,7 @@ impl RegPipeline {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Object containing buffers for rendering a shape on the GPU
-pub struct ShapeBuffers {
+pub struct RenderShape {
     /// Buffer which stores the bytecode tape on the GPU
     tape: wgpu::Buffer,
     /// Buffer into which we will copy variable values
@@ -757,9 +763,9 @@ pub struct ShapeBuffers {
     vars: Arc<VarMap>,
 }
 
-/// Error type when constructing a [`ShapeBuffers`]
+/// Error type when constructing a [`RenderShape`]
 #[derive(Debug, thiserror::Error)]
-pub enum ShapeBuffersError {
+pub enum RenderShapeError {
     /// The shape doesn't fit in the GPU tape buffer
     #[error(
         "shape bytecode is {0} tape words (8 bytes each), which exceeds \
@@ -771,7 +777,7 @@ pub enum ShapeBuffersError {
     RegisterError(#[from] ReservedRegister),
 }
 
-impl ShapeBuffers {
+impl RenderShape {
     /// Helper function to return XYZ variable indices
     fn axes(&self) -> [u32; 3] {
         [Var::X, Var::Y, Var::Z]
@@ -803,7 +809,7 @@ pub(crate) fn encode_copy_vars(
                 Var::X | Var::Y | Var::Z => (),
                 Var::V(vi) => {
                     if vars.get(vi).is_none() {
-                        return Err(MissingVar { var: vi }.into());
+                        return Err(MissingVar { var: vi });
                     };
                 }
             }

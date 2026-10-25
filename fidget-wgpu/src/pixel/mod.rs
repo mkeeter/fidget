@@ -3,7 +3,7 @@
 //! See the [`voxel`](crate::voxel) module for details docs; this module is
 //! analogous (down to the naming of types).
 use crate::{
-    BadCopySize, Gpu, RegPipeline, ShapeBuffers, TAPE_DATA_CAPACITY, TapeWord,
+    BadCopySize, Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_rw,
@@ -747,13 +747,13 @@ struct TileBuffers<const N: usize> {
     values: FlexBuffer<ValuesBufferTag>,
 }
 
-/// Error type when resizing root tile buffers
+/// Error type when building root tile buffers
 #[derive(Debug, thiserror::Error)]
-#[error("failed to resize `{buf}` root tile buffer")]
+#[error("failed to create `{buf}` root tile buffer")]
 pub struct TileBufferError {
-    /// Buffer which failed to resize
+    /// Buffer which failed to be created
     pub buf: TileBufferName,
-    /// Error returned by buffer resizing
+    /// Error returned by buffer creation
     #[source]
     pub err: BufferSizeError,
 }
@@ -867,10 +867,6 @@ impl Context {
     }
 
     /// Builds a new [`Workspace`] object for use in rendering
-    ///
-    /// The buffers are initialized with a dummy size and resized automatically
-    /// when passed into any of the runner functions (e.g. [`run`](Self::run) or
-    /// [`submit`](Self::submit)).
     pub fn workspace(&self) -> Workspace {
         Workspace::new(self)
     }
@@ -888,7 +884,7 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
@@ -910,7 +906,7 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_with_vars(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buf: &mut Buffers,
@@ -926,7 +922,7 @@ impl Context {
     /// Renders the image, with an async wait to read pixel data from the GPU
     pub async fn run_async(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         workspace: &mut Workspace,
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
@@ -946,7 +942,7 @@ impl Context {
     /// Renders the image, with an async wait to read pixel data from the GPU
     pub async fn run_with_vars_async(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buf: &mut Buffers,
@@ -962,10 +958,10 @@ impl Context {
     /// Submits a single image to be rendered on the GPU
     ///
     /// The resulting image (as a buffer of [`RawDistancePixel`] data) is
-    /// available on the GPU in [`buffers.output()`](Workspace::output).
+    /// available on the GPU in [`buffers.output()`](Buffers::output).
     pub fn submit(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
         settings: &RenderConfig,
@@ -984,7 +980,7 @@ impl Context {
     /// See [`submit`](Self::submit) for additional details.
     pub fn submit_with_vars(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
@@ -1014,7 +1010,7 @@ impl Context {
     #[allow(clippy::too_many_arguments)]
     pub fn encode(
         &self,
-        shape: &ShapeBuffers,
+        shape: &RenderShape,
         vars: &ShapeVars<f32>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
@@ -1246,8 +1242,9 @@ mod test {
 
         // Render and accumulate each shape
         for (shape, _) in shapes {
-            let shape =
-                gpu.shape_buffers(&VmShape::from(shape.clone())).unwrap();
+            let shape = gpu
+                .build_render_shape(&VmShape::from(shape.clone()))
+                .unwrap();
             pixel_ctx
                 .submit_with_vars(
                     &shape,
@@ -1276,7 +1273,7 @@ mod test {
                 },
             })
             .collect::<Vec<_>>();
-        let shape_colors = gpu.color_buffers(&shape_colors).unwrap();
+        let shape_colors = gpu.build_render_color(&shape_colors).unwrap();
         let mut color_workspace = effects_ctx.color_workspace();
 
         // Compute per-pixel colors

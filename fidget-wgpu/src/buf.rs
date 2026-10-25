@@ -6,13 +6,10 @@ use fidget_core::render::{ImageSize, VoxelSize};
 use fidget_raster::RenderSize;
 use zerocopy::FromBytes;
 
-/// Handle around our GPU buffer type
-///
-/// The buffer keeps track of both its current size and capacity (which may be
-/// larger).  It is used to prevent GPU buffer allocation churn.
+/// Strongly-typed, strongly-sized GPU buffer type
 #[derive(Clone)]
 pub struct FlexBuffer<T: BufferTag> {
-    /// Current size, which may be smaller than the buffer's capacity
+    /// Buffer size, stored in its original form
     size: T::S,
     /// Actual GPU buffer
     data: wgpu::Buffer,
@@ -269,7 +266,7 @@ where
 // desired behavior of function error types only containing errors that they can
 // actually return.
 
-/// Error type when resizing a buffer beyond its limit
+/// Error type when creating a buffer
 ///
 /// We check against maximum buffer sizes (from the WebGPU spec) and return an
 /// error immediately, instead of deferring the error to the point where the

@@ -12,7 +12,7 @@
 use crate::{
     ConfigWorkspace, Gpu, RegPipeline,
     buf::{BufferSizeError, FlexBuffer, buffer_ro, buffer_rw},
-    color::ShapeColorBuffers,
+    color::RenderColor,
     shaders, tag,
 };
 use fidget_core::{
@@ -507,11 +507,7 @@ impl Context {
         })
     }
 
-    /// Builds a new set of [`ShadeWorkspace`]
-    ///
-    /// These will be resized when first used (in
-    /// either [`submit_color`](Self::submit_color) or
-    /// [`submit_shade`](Self::submit_shade))
+    /// Builds a new set of [`ShadeWorkspace`] buffers
     pub fn shade_workspace(&self) -> ShadeWorkspace {
         self.gpu.config_workspace("shade")
     }
@@ -613,9 +609,9 @@ impl Context {
 
     /// Accumulates an image into a merged image buffer
     ///
-    /// [`MergeWorkspace::reset`] should be called before the first call to
-    /// `submit_merge`. For the first merge after a reset, the output buffer is
-    /// resized to fit the images; subsequent merges must be of the same size.
+    /// [`MergeBuffers::reset`] should be called before the first call to
+    /// `submit_merge`.  The image size from `image` must match the size of the
+    /// [`MergeBuffers`]; otherwise an error will be returned.
     pub fn submit_merge(
         &self,
         image: &super::Buffers,
@@ -700,7 +696,7 @@ impl Context {
 
     /// Submits an operation to shade an image
     ///
-    /// The output buffer is resized to fit the incoming image
+    /// The output buffer's size must match that of the input buffers.
     pub fn submit_shade(
         &self,
         image: &MergeBuffers,
@@ -798,7 +794,7 @@ impl Context {
 
     /// Submits an operation to generate RGB color from a heightmap
     ///
-    /// The output buffer is resized to fit the incoming image
+    /// The output buffer's size must match the input buffer
     pub fn submit_heightmap(
         &self,
         image: &MergeBuffers,
@@ -909,7 +905,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
         out: &mut ShadeBuffers,
     ) -> Result<(), ColorError> {
@@ -932,7 +928,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
@@ -964,7 +960,7 @@ impl Context {
         &self,
         merge: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
@@ -1318,7 +1314,7 @@ impl ColorContext {
         &self,
         image: &MergeBuffers,
         world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &ShapeColorBuffers,
+        shape: &RenderColor,
         workspace: &mut ColorWorkspace,
         vars: &ShapeVars<f32>,
         out: &mut ShadeBuffers,
@@ -1438,7 +1434,7 @@ mod test {
         let sphere =
             (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
         let vm_shape = VmShape::from(sphere.min(z));
-        let shape = gpu.shape_buffers(&vm_shape).unwrap();
+        let shape = gpu.build_render_shape(&vm_shape).unwrap();
 
         voxel_ctx
             .submit(
