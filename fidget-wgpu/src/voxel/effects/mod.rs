@@ -301,7 +301,7 @@ pub enum HeightmapError {
 pub enum SsaoError {
     /// The image size is mismatched between input and output buffers
     #[error(transparent)]
-    ImageSizeMismatch(#[from] VoxelSizeMismatch),
+    ImageSizeMismatch(#[from] ImageSizeMismatch),
 }
 
 /// Error returned when submitting a color evaluation operation
@@ -1226,6 +1226,12 @@ impl SsaoContext {
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), SsaoError> {
         let image_size = image.out.size();
+        if buf.raw_occlusion.size() != image_size.into() {
+            return Err(SsaoError::ImageSizeMismatch(ImageSizeMismatch {
+                expected: image_size.into(),
+                actual: buf.raw_occlusion.size(),
+            }));
+        }
 
         // Write config data to GPU buffers
         let cfg = SsaoConfig {

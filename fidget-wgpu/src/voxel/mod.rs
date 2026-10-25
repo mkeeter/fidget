@@ -1952,7 +1952,7 @@ impl Context {
 
         let mat =
             settings.world_to_model * buffers.image_size.screen_to_world();
-        let start_offset = u32::try_from(shape.bytecode_len).unwrap() / 2;
+        let start_offset = shape.bytecode_len.try_into().unwrap();
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes(),

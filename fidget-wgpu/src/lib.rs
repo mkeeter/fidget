@@ -360,6 +360,11 @@ impl Gpu {
         let instance = wgpu::Instance::default();
         let adapter = instance.request_adapter(adapter_options).await?;
         let (device, queue) = adapter.request_device(device_descriptor).await?;
+        Ok(Self::new(device, queue))
+    }
+
+    /// Builds a new `Gpu` with user-provided GPU handles
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         let config_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("config bind group layout"),
@@ -384,14 +389,14 @@ impl Gpu {
                     buf::buffer_ro(2),
                 ],
             });
-        Ok(Gpu {
+        Gpu {
             device,
             queue,
             config_bind_group_layout,
             input_bind_group_layout,
             output_bind_group_layout,
             color_bind_group_layout,
-        })
+        }
     }
 
     /// Returns a readable buffer for the given buffer
@@ -586,8 +591,9 @@ impl Gpu {
         let vars = shape.inner().data().vars.clone();
         let vars_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vars"),
-            size: (vars.len() * std::mem::size_of::<f32>()).next_multiple_of(16)
-                as u64,
+            size: (vars.len() * std::mem::size_of::<f32>())
+                .next_multiple_of(16)
+                .max(16) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
