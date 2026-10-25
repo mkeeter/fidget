@@ -97,13 +97,7 @@ mod wgpu {
 
     #[test]
     fn sphere_wgpu() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        fidget::wgpu::require_gpu!();
         let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
@@ -111,23 +105,23 @@ mod wgpu {
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.workspace();
+        let mut buf = ctx.buffers(image_size).unwrap();
+        let mut workspace = ctx.workspace();
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
                 let sphere = (x.square() + y.square() + z.square()).sqrt()
                     - Tree::constant(r);
-                let shape = fidget_wgpu::RenderShape::new(
-                    &fidget::vm::VmShape::from(sphere),
-                )
-                .unwrap();
+                let shape = gpu
+                    .shape_buffers(&fidget::vm::VmShape::from(sphere))
+                    .unwrap();
                 let image = ctx
                     .run(
                         &shape,
+                        &mut workspace,
                         &mut buf,
                         &mut out,
-                        fidget::raster::voxel::RenderConfig {
-                            image_size,
+                        fidget::wgpu::voxel::RenderConfig {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
@@ -144,13 +138,7 @@ mod wgpu {
 
     #[test]
     fn sphere_wgpu_vars() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        fidget::wgpu::require_gpu!();
         let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
@@ -159,11 +147,12 @@ mod wgpu {
         let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
         let shape = fidget::vm::VmShape::from(sphere);
         let ctx = fidget_wgpu::voxel::Context::new(&gpu);
-        let render_shape = fidget::wgpu::RenderShape::new(&shape).unwrap();
+        let render_shape = gpu.shape_buffers(&shape).unwrap();
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.workspace();
+        let mut buf = ctx.buffers(image_size).unwrap();
+        let mut workspace = ctx.workspace();
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
@@ -173,10 +162,10 @@ mod wgpu {
                     .run_with_vars(
                         &render_shape,
                         &vars,
+                        &mut workspace,
                         &mut buf,
                         &mut out,
-                        fidget::raster::voxel::RenderConfig {
-                            image_size,
+                        fidget::wgpu::voxel::RenderConfig {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
