@@ -356,9 +356,12 @@ pub struct Gpu {
     /// Layout for a config bind group (a single read-only uniforms buffer)
     config_bind_group_layout: wgpu::BindGroupLayout,
 
-    /// Layout for a color bind group (used when building [`RenderColor`])
+    /// Layout for a color bind group
     ///
-    /// This binds three buffers:
+    /// This is used when building [`RenderColor`](crate::color::RenderColor)
+    /// handles.
+    ///
+    /// It binds three buffers:
     /// - 0: `shape_tape`
     /// - 1: `shape_start`
     /// - 2: `var_values`
@@ -710,7 +713,7 @@ impl Gpu {
 
 /// Generic type to hold a configuration buffer and bind group
 pub struct ConfigWorkspace<T> {
-    /// Buffer sized to hold a [`ShadeConfig`]
+    /// Buffer sized to hold a `T`
     config: wgpu::Buffer,
     /// Bind group which just binds `config`
     bind_group: wgpu::BindGroup,
