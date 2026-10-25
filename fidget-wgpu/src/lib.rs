@@ -296,6 +296,17 @@ pub enum InitError {
     Device(#[from] wgpu::RequestDeviceError),
 }
 
+/// Error returned for an invalid buffer copy operation
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "bad copy size: source buffer has {src} bytes \
+    but destination has {dst} bytes"
+)]
+pub struct BadCopySize {
+    src: u64,
+    dst: u64,
+}
+
 /// Handle to a GPU device
 #[derive(Clone)]
 pub struct Gpu {
@@ -415,23 +426,19 @@ impl Gpu {
         )
     }
 
-    /// Builds a new readable buffer
-    ///
-    /// The buffer has an arbitrary starting size and will be resized when used
-    /// in [`copy`](Self::copy).
+    /// Builds a new readable buffer of a particular size
     ///
     /// If the target buffer is known, use
-    /// [`read_buffer_for`](Self::read_buffer_for) to avoid this reallocation.
-    pub fn read_buffer<T>(&self, name: &str) -> buf::ReadBuffer<T>
+    /// [`read_buffer_for`](Self::read_buffer_for) to use its size instead
+    pub fn read_buffer<T>(
+        &self,
+        name: &str,
+        size: T::S,
+    ) -> Result<buf::ReadBuffer<T>, buf::BufferSizeError>
     where
         T: buf::BufferTag,
-        T::S: TryFrom<u32>,
     {
-        let Ok(size) = 64u32.try_into() else {
-            panic!("could not build size");
-        };
         buf::ReadBuffer::new(&self.device, name, size)
-            .expect("64 should always be a valid size for ReadBuffer::new")
     }
 
     /// Helper function to read from a buffer to a `Vec`
@@ -453,7 +460,7 @@ impl Gpu {
         T::T: FromBytes + Immutable + Clone + Copy,
     {
         let mut scratch = self.read_buffer_for(buf);
-        self.copy(buf, &mut scratch);
+        self.copy(buf, &mut scratch).unwrap();
         let data = self.map(&mut scratch);
         data.to_vec()
     }
@@ -465,7 +472,8 @@ impl Gpu {
         &self,
         src: &buf::FlexBuffer<A>,
         dst: &mut buf::ReadBuffer<A>,
-    ) where
+    ) -> Result<(), BadCopySize>
+    where
         A: buf::BufferTag,
     {
         let mut encoder = self.device.create_command_encoder(
@@ -473,8 +481,9 @@ impl Gpu {
                 label: Some("read_buffer"),
             },
         );
-        self.encode_copy(src, dst, &mut encoder);
+        self.encode_copy(src, dst, &mut encoder)?;
         self.queue.submit(Some(encoder.finish()));
+        Ok(())
     }
 
     /// Low-level command to submit a buffer copy to a command encoder
@@ -485,9 +494,16 @@ impl Gpu {
         src: &buf::FlexBuffer<A>,
         dst: &mut buf::ReadBuffer<A>,
         encoder: &mut wgpu::CommandEncoder,
-    ) where
+    ) -> Result<(), BadCopySize>
+    where
         A: buf::BufferTag,
     {
+        if src.size_bytes() != dst.size_bytes() {
+            return Err(BadCopySize {
+                src: src.size_bytes(),
+                dst: dst.size_bytes(),
+            });
+        }
         encoder.copy_buffer_to_buffer(
             src.data(),
             0,
@@ -495,6 +511,7 @@ impl Gpu {
             0,
             src.size_bytes(),
         );
+        Ok(())
     }
 
     /// Blocking function to build a new mapped buffer
