@@ -31,52 +31,11 @@ use fidget_core::{
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// Error returned when submitting a color evaluation operation
-#[derive(Debug, thiserror::Error)]
-pub enum ColorError {
-    /// A variable is missing from the map
-    #[error(transparent)]
-    MissingVar(#[from] MissingVar),
-
-    /// Wrong number of shapes
-    #[error(
-        "merged image is built from {merge_count} shapes,
-         but shape color buffer expected {shape_count} shapes"
-    )]
-    BadShapeCount {
-        /// Number of shapes in the merged image
-        merge_count: usize,
-        /// Number of shapes in the color buffer
-        shape_count: usize,
-    },
-
-    /// Shape color has already been populated
-    #[error("shape color has already been populated")]
-    AlreadyHasColor,
-}
-
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
-const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
-
-/// Workspace for evaluating color expressions
-pub type ColorWorkspace = ConfigWorkspace<ColorConfig>;
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
     MERGE_SHADER.to_owned() + shaders::COMMON + super::DISTANCE_PIXEL_SHADER
-}
-
-fn color_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
-    shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code
-        + COLOR_SHADER
-        + super::TRANSFORM_INPUT
-        + super::DISTANCE_PIXEL_SHADER
-        + shaders::COMMON
-        + shaders::TAPE_INTERPRETER
-        + shaders::DUMMY_STACK
-        + shaders::FLOAT_OPS
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -500,116 +459,6 @@ pub struct ColorSettings {
     pub world_to_model: nalgebra::Matrix3<f32>,
 }
 
-struct ColorContext {
-    /// Image bind groups (input and output)
-    image_bind_group_layout: wgpu::BindGroupLayout,
-
-    /// Pipeline for computing per-pixel color
-    color_pipeline: RegPipeline,
-}
-
-impl ColorContext {
-    pub fn new(gpu: &Gpu) -> Self {
-        let device = &gpu.device;
-        let image_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("color images"),
-                entries: &[
-                    buffer_ro(0), // distance
-                    buffer_rw(1), // color
-                ],
-            });
-
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("color pipeline"),
-                bind_group_layouts: &[
-                    Some(&gpu.config_bind_group_layout),
-                    Some(&gpu.color_bind_group_layout),
-                    Some(&image_bind_group_layout),
-                ],
-                immediate_size: 0u32,
-            });
-        let device_ = device.clone();
-        let color_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = color_shader(reg_count);
-            let shader_module =
-                device_.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: None,
-                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-                });
-            device_.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(&format!("color ({reg_count})")),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("color_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            })
-        }));
-
-        Self {
-            image_bind_group_layout,
-            color_pipeline,
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn encode(
-        &self,
-        image: &mut MergeBuffers,
-        settings: ColorSettings,
-        shape: &RenderColor,
-        workspace: &mut ColorWorkspace,
-        vars: &ShapeVars<f32>,
-        encoder: &mut wgpu::CommandEncoder,
-        staging: &mut wgpu::util::StagingBelt,
-    ) -> Result<(), ColorError> {
-        if image.image_count != shape.shape_count() {
-            return Err(ColorError::BadShapeCount {
-                merge_count: image.image_count,
-                shape_count: shape.shape_count(),
-            });
-        } else if image.has_color {
-            return Err(ColorError::AlreadyHasColor);
-        }
-
-        let size = image.distance.size();
-        let mat = settings.world_to_model
-            * ImageSize::new(size.width(), size.height()).screen_to_world();
-        let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
-        mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
-        shape.copy_vars(encoder, staging, vars)?;
-
-        let config = ColorConfig {
-            mat: mat4.data.as_slice().try_into().unwrap(),
-            axes: shape.axes(),
-            image_size: [size.width(), size.height()],
-            only_filled: settings.only_filled.into(),
-            z: settings.z,
-            _pad: 0u32,
-        };
-        workspace.encode_copy(encoder, staging, &config);
-
-        let mut compute_pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None, // TODO add timestamps?
-            });
-        compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
-        compute_pass.set_bind_group(1, shape.bind_group(), &[]);
-        compute_pass.set_bind_group(2, &image.color_bind_group, &[]);
-        compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count()));
-        compute_pass.dispatch_workgroups(
-            size.width().div_ceil(8),
-            size.height().div_ceil(8),
-            1,
-        );
-        image.has_color = true;
-        Ok(())
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
@@ -631,14 +480,6 @@ mod test {
         crate::test::compare_struct_layout::<MergeConfig>(
             &merge_shader(),
             "MergeConfig",
-        );
-    }
-
-    #[test]
-    fn color_config_layout() {
-        crate::test::compare_struct_layout::<ColorConfig>(
-            &color_shader(16),
-            "Config",
         );
     }
 }
