@@ -73,7 +73,7 @@
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
-//! use fidget_wgpu::{Gpu, voxel::render::Context};
+//! use fidget_wgpu::{Context as _, Gpu, voxel::render::Context};
 //!
 //! // GPU setup (this only needs to happen once)
 //! let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
@@ -90,15 +90,15 @@
 //! let mut out = gpu.read_buffer_for(buffers.output());
 //!
 //! // Use defaults for other render configuration
-//! let render_config = fidget_wgpu::voxel::render::RenderConfig::default();
+//! let render_config = fidget_wgpu::voxel::render::Settings::default();
 //!
 //! // Do the actual work!
 //! let image = ctx.run(
 //!     &render_shape,
+//!     render_config,
 //!     &mut workspace,
 //!     &mut buffers,
 //!     &mut out,
-//!     render_config,
 //! ).unwrap();
 //!
 //! // Check that the image is correct
@@ -122,7 +122,7 @@
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
-//! # use fidget_wgpu::{Gpu, voxel::render::Context};
+//! # use fidget_wgpu::{Context as _, Gpu, voxel::render::Context};
 //! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
 //! # let ctx = Context::new(&gpu);
 //! # let mut workspace = ctx.workspace();
@@ -131,15 +131,16 @@
 //! # let render_shape = gpu.build_render_shape(&shape).unwrap();
 //! # let mut buffers = ctx.buffers(128.into()).unwrap();
 //! # let mut out = gpu.read_buffer_for(buffers.output());
-//! # let render_config = fidget_wgpu::voxel::render::RenderConfig::default();
+//! # let render_config = fidget_wgpu::voxel::render::Settings::default();
 //! // Setup is done per the previous example
 //!
 //! // Submit the work to the queue
 //! ctx.submit(
+//!     &gpu,
 //!     &render_shape,
+//!     render_config,
 //!     &mut workspace,
 //!     &mut buffers,
-//!     &render_config,
 //! ).unwrap();
 //!
 //! // We'll also enqueue a copy to our output buffer
@@ -174,7 +175,7 @@
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
-//! # use fidget_wgpu::{Gpu, voxel::render::Context};
+//! # use fidget_wgpu::{Context as _, Gpu, voxel::render::Context};
 //! # let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
 //! # let ctx = Context::new(&gpu);
 //! # let mut workspace = ctx.workspace();
@@ -183,7 +184,7 @@
 //! # let render_shape = gpu.build_render_shape(&shape).unwrap();
 //! # let mut buffers = ctx.buffers(128.into()).unwrap();
 //! # let mut out = gpu.read_buffer_for(buffers.output());
-//! # let render_config = fidget_wgpu::voxel::render::RenderConfig::default();
+//! # let render_config = fidget_wgpu::voxel::render::Settings::default();
 //! // Setup is done per the previous example
 //!
 //! // We need to provide the encoder and staging buffer ourselves
@@ -192,13 +193,12 @@
 //! );
 //! let mut staging = wgpu::util::StagingBelt::new(gpu.device.clone(), 1024);
 //!
-//! // Encode the work in our encoder
+//! // Send the work to our encoder
 //! ctx.encode(
 //!     &render_shape,
-//!     &Default::default(), // vars
+//!     render_config,
 //!     &mut workspace,
 //!     &mut buffers,
-//!     &render_config,
 //!     &mut encoder,
 //!     &mut staging,
 //! ).unwrap();
