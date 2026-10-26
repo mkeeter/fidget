@@ -94,6 +94,7 @@ render_tests!(jit, fidget::jit::JitFunction);
 #[cfg(feature = "wgpu")]
 mod wgpu {
     use super::*;
+    use fidget::wgpu::Context as _;
 
     #[test]
     fn sphere_wgpu() {
@@ -118,16 +119,17 @@ mod wgpu {
                 let image = ctx
                     .run(
                         &shape,
-                        &mut workspace,
-                        &mut buf,
-                        &mut out,
-                        fidget::wgpu::voxel::render::RenderConfig {
+                        fidget::wgpu::voxel::render::Settings {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
                             )
                             .world_to_model(),
+                            ..Default::default()
                         },
+                        &mut workspace,
+                        &mut buf,
+                        &mut out,
                     )
                     .unwrap();
 
@@ -159,19 +161,19 @@ mod wgpu {
                 let mut vars = ShapeVars::new();
                 vars.insert(v.index().unwrap(), r);
                 let image = ctx
-                    .run_with_vars(
+                    .run(
                         &render_shape,
-                        &vars,
-                        &mut workspace,
-                        &mut buf,
-                        &mut out,
-                        fidget::wgpu::voxel::render::RenderConfig {
+                        fidget::wgpu::voxel::render::Settings {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
                             )
                             .world_to_model(),
+                            vars: &vars,
                         },
+                        &mut workspace,
+                        &mut buf,
+                        &mut out,
                     )
                     .unwrap();
 

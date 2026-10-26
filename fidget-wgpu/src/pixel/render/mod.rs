@@ -87,6 +87,7 @@ fn merge_shader() -> String {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Optional settings for 2D rendering
+#[derive(Copy, Clone)]
 pub struct Settings<'a> {
     /// Values for free variables
     pub vars: &'a ShapeVars<f32>,
