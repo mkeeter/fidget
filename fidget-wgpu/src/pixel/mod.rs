@@ -10,7 +10,7 @@ const TRANSFORM_INPUT: &str = include_str!("shaders/transform_input.wgsl");
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Gpu, color::ShapeColor};
+    use crate::{Context, Gpu, color::ShapeColor};
     use fidget_core::{context::Tree, render::ImageSize, vm::VmShape};
     use fidget_raster::pixel::Image;
 
@@ -21,7 +21,6 @@ mod test {
 
     fn render(
         shapes: &[(Tree, ShapeColor<Tree>)],
-        render_config: render::RenderConfig,
         image_size: ImageSize,
         vars: &fidget_core::shape::ShapeVars<f32>,
     ) -> RenderOutput {
@@ -41,12 +40,15 @@ mod test {
                 .build_render_shape(&VmShape::from(shape.clone()))
                 .unwrap();
             pixel_ctx
-                .submit_with_vars(
-                    &shape,
-                    vars,
+                .submit(
+                    &gpu,
+                    render::Args { shape: &shape },
+                    render::Settings {
+                        vars,
+                        ..render::Settings::default()
+                    },
                     &mut workspace,
                     &mut buf,
-                    &render_config,
                 )
                 .unwrap();
             merge_ctx
@@ -78,7 +80,7 @@ mod test {
                 color::ColorSettings {
                     z: 0.0,
                     only_filled: false,
-                    world_to_model: render_config.world_to_model,
+                    world_to_model: nalgebra::Matrix3::identity(),
                 },
                 &shape_colors,
                 &mut color_workspace,
@@ -123,11 +125,6 @@ mod test {
                         b: Tree::constant(0.5),
                     },
                 )],
-                render::RenderConfig {
-                    world_to_model: nalgebra::Matrix3::identity(),
-                    pixel_perfect: false,
-                    z: 0.0,
-                },
                 image_size,
                 &Default::default(),
             );
@@ -212,11 +209,6 @@ mod test {
                     },
                 ),
             ],
-            render::RenderConfig {
-                world_to_model: nalgebra::Matrix3::identity(),
-                pixel_perfect: false,
-                z: 0.0,
-            },
             image_size,
             &Default::default(),
         );
@@ -350,11 +342,6 @@ mod test {
                     },
                 ),
             ],
-            render::RenderConfig {
-                world_to_model: nalgebra::Matrix3::identity(),
-                pixel_perfect: false,
-                z: 0.0,
-            },
             image_size,
             &vars,
         );
@@ -479,11 +466,6 @@ mod test {
                     },
                 ),
             ],
-            render::RenderConfig {
-                world_to_model: nalgebra::Matrix3::identity(),
-                pixel_perfect: false,
-                z: 0.0,
-            },
             image_size,
             &Default::default(),
         );

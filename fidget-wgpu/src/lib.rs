@@ -869,6 +869,92 @@ pub(crate) fn encode_copy_vars(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Trait for a compute pipeline context object
+pub trait Context {
+    /// Configuration buffers (size-independent) for evaluation
+    type Workspace;
+
+    /// Size-dependent buffers for evaluation
+    type Buffers;
+
+    /// Error returned by [`Self::buffers`]
+    type BuffersError;
+
+    /// Error returned by [`Self::encode`]
+    type EncodeError;
+
+    /// Argument object for [`Self::encode`]
+    ///
+    /// Arguments must always be present and cannot be default-constructed; they
+    /// are also allowed to borrow from the outside world.
+    type Args<'a>
+    where
+        Self: 'a;
+
+    /// Settings object for [`Self::encode`]
+    ///
+    /// Unlike `Args`, settings have default values
+    type Settings<'a>: Default
+    where
+        Self: 'a;
+
+    /// Size type used in buffer construction
+    type Size: buf::BufferItemCount;
+
+    /// Builds a new context object
+    fn new(gpu: &Gpu) -> Self;
+
+    /// Builds a new workspace object
+    fn workspace(&self) -> Self::Workspace;
+
+    /// Builds a new size-dependent buffers object
+    fn buffers(
+        &self,
+        size: Self::Size,
+    ) -> Result<Self::Buffers, Self::BuffersError>;
+
+    /// Encodes evaluation into a command encoder
+    fn encode(
+        &self,
+        args: Self::Args<'_>,
+        settings: Self::Settings<'_>,
+        workspace: &mut Self::Workspace,
+        buffers: &mut Self::Buffers,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
+    ) -> Result<(), Self::EncodeError>;
+
+    /// Submits work to a GPU object
+    fn submit(
+        &self,
+        gpu: &Gpu,
+        args: Self::Args<'_>,
+        settings: Self::Settings<'_>,
+        workspace: &mut Self::Workspace,
+        buffers: &mut Self::Buffers,
+    ) -> Result<(), Self::EncodeError> {
+        let mut encoder = gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
+        let mut staging =
+            wgpu::util::StagingBelt::new(gpu.device.clone(), 1024);
+        self.encode(
+            args,
+            settings,
+            workspace,
+            buffers,
+            &mut encoder,
+            &mut staging,
+        )?;
+        staging.finish();
+        gpu.queue.submit(Some(encoder.finish()));
+        staging.recall();
+        Ok(())
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Helper function for use in unit tests
 #[cfg(test)]
 fn compile_shader(src: &str, desc: &str) {

@@ -3,7 +3,8 @@
 //! See the [`voxel`](crate::voxel) module for details docs; this module is
 //! analogous (down to the naming of types).
 use crate::{
-    BadCopySize, Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
+    BadCopySize, Context as _, Gpu, RegPipeline, RenderShape,
+    TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_rw,
@@ -85,11 +86,19 @@ fn merge_shader() -> String {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Settings for 2D rendering
+/// Mandatory arguments for 2D rendering
 ///
 /// Render size is set by the [`Buffers`] object and is not provided here
-#[derive(Copy, Clone, Debug)]
-pub struct RenderConfig {
+pub struct Args<'a> {
+    /// Shape to render
+    pub shape: &'a RenderShape,
+}
+
+/// Optional settings for 2D rendering
+pub struct Settings<'a> {
+    /// Values for free variables
+    pub vars: &'a ShapeVars<f32>,
+
     /// World-to-model transform
     pub world_to_model: nalgebra::Matrix3<f32>,
 
@@ -98,6 +107,19 @@ pub struct RenderConfig {
 
     /// Z position at which to render the slice
     pub z: f32,
+}
+
+static EMPTY_VARS: ShapeVars<f32> = ShapeVars::new();
+
+impl Default for Settings<'_> {
+    fn default() -> Self {
+        Self {
+            vars: &EMPTY_VARS,
+            world_to_model: nalgebra::Matrix3::identity(),
+            pixel_perfect: false,
+            z: 0.0,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -445,7 +467,7 @@ pub struct Buffers {
 
 impl Buffers {
     /// Builds a new set of buffers for a particular render size
-    fn new(ctx: &Context, image_size: ImageSize) -> Result<Self, BufferError> {
+    fn new(ctx: &Context, image_size: ImageSize) -> Result<Self, BuffersError> {
         let device = &ctx.gpu.device;
         let render_size = TileRenderSize::from(image_size);
         let tile_tapes = FlexBuffer::new(
@@ -453,25 +475,25 @@ impl Buffers {
             "tile tape",
             Self::tile_tapes_buf_size(render_size),
         )
-        .map_err(|err| BufferError {
+        .map_err(|err| BuffersError {
             buf: BufferName::TileTapes,
             err,
         })?;
         let pixels =
             FlexBuffer::new(device, "pixels", image_size).map_err(|err| {
-                BufferError {
+                BuffersError {
                     buf: BufferName::Pixel,
                     err,
                 }
             })?;
         let tile64 = TileBuffers::new(device, render_size).map_err(|err| {
-            BufferError {
+            BuffersError {
                 buf: BufferName::Tile64(err.buf),
                 err: err.err,
             }
         })?;
         let tile8 = TileBuffers::new(device, render_size).map_err(|err| {
-            BufferError {
+            BuffersError {
                 buf: BufferName::Tile8(err.buf),
                 err: err.err,
             }
@@ -667,7 +689,7 @@ impl Workspace {
 /// Error returned when creating buffers in a [`Workspace`] object
 #[derive(Debug, thiserror::Error)]
 #[error("failed to build {buf} buffer")]
-pub struct BufferError {
+pub struct BuffersError {
     /// Buffer which failed to be created
     pub buf: BufferName,
     /// Error returned by buffer creation
@@ -747,7 +769,7 @@ struct TileBuffers<const N: usize> {
 /// Error type when building root tile buffers
 #[derive(Debug, thiserror::Error)]
 #[error("failed to create `{buf}` root tile buffer")]
-pub struct TileBufferError {
+pub struct TileBuffersError {
     /// Buffer which failed to be created
     pub buf: TileBufferName,
     /// Error returned by buffer creation
@@ -778,14 +800,14 @@ impl<const N: usize> TileBuffers<N> {
     fn new(
         device: &wgpu::Device,
         render_size: TileRenderSize,
-    ) -> Result<Self, TileBufferError> {
+    ) -> Result<Self, TileBuffersError> {
         // Allocate enough words to write all of the output tiles
         let tiles = FlexBuffer::new(
             device,
             format!("tiles_out{N}"),
             Self::tiles_buf_size(render_size),
         )
-        .map_err(|err| TileBufferError {
+        .map_err(|err| TileBuffersError {
             buf: TileBufferName::Tiles,
             err,
         })?;
@@ -793,7 +815,7 @@ impl<const N: usize> TileBuffers<N> {
         let values_buf_size = Self::values_buf_size(render_size);
         let values =
             FlexBuffer::new(device, format!("tile{N}_values"), values_buf_size)
-                .map_err(|err| TileBufferError {
+                .map_err(|err| TileBuffersError {
                     buf: TileBufferName::Values,
                     err,
                 })?;
@@ -842,12 +864,20 @@ pub struct Context {
     merge_ctx: MergeContext,
 }
 
-impl Context {
+impl crate::Context for Context {
+    type Workspace = Workspace;
+    type Buffers = Buffers;
+    type BuffersError = BuffersError;
+    type EncodeError = MissingVar;
+    type Size = ImageSize;
+    type Args<'a> = Args<'a>;
+    type Settings<'a> = Settings<'a>;
+
     /// Build a new 2D rendering context, given a device and queue
     ///
     /// If render timestamps are desirable, then the device should be
     /// initialized with [`wgpu::Features::TIMESTAMP_QUERY`].
-    pub fn new(gpu: &Gpu) -> Self {
+    fn new(gpu: &Gpu) -> Self {
         let root_ctx = RootContext::new(gpu);
         let tiles_ctx = IntervalTilesContext::new(gpu);
         let pixels_ctx = PixelTilesContext::new(gpu);
@@ -864,171 +894,42 @@ impl Context {
     }
 
     /// Builds a new [`Workspace`] object for use in rendering
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         Workspace::new(self)
     }
 
     /// Builds a new [`Buffers`] object for use in rendering
     ///
     /// The buffers are specific to a particular evaluation size
-    pub fn buffers(&self, size: ImageSize) -> Result<Buffers, BufferError> {
+    fn buffers(&self, size: ImageSize) -> Result<Buffers, BuffersError> {
         Buffers::new(self, size)
-    }
-
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
-    ///
-    /// This function is not present when built for the `wasm32` target
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn run(
-        &self,
-        shape: &RenderShape,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        out: &mut ReadBuffer<PixelBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.run_with_vars(
-            shape,
-            &Default::default(),
-            workspace,
-            buffers,
-            out,
-            settings,
-        )
-    }
-
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
-    ///
-    /// This function is not present when built for the `wasm32` target
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn run_with_vars(
-        &self,
-        shape: &RenderShape,
-        vars: &ShapeVars<f32>,
-        workspace: &mut Workspace,
-        buf: &mut Buffers,
-        out: &mut ReadBuffer<PixelBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.submit_with_vars(shape, vars, workspace, buf, &settings)?;
-        self.gpu.copy(buf.output(), out)?;
-        let image = self.gpu.map_image(out);
-        Ok(image.image())
-    }
-
-    /// Renders the image, with an async wait to read pixel data from the GPU
-    pub async fn run_async(
-        &self,
-        shape: &RenderShape,
-        workspace: &mut Workspace,
-        buf: &mut Buffers,
-        out: &mut ReadBuffer<PixelBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.run_with_vars_async(
-            shape,
-            &Default::default(),
-            workspace,
-            buf,
-            out,
-            settings,
-        )
-        .await
-    }
-
-    /// Renders the image, with an async wait to read pixel data from the GPU
-    pub async fn run_with_vars_async(
-        &self,
-        shape: &RenderShape,
-        vars: &ShapeVars<f32>,
-        workspace: &mut Workspace,
-        buf: &mut Buffers,
-        out: &mut ReadBuffer<PixelBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.submit_with_vars(shape, vars, workspace, buf, &settings)?;
-        self.gpu.copy(buf.output(), out)?;
-        let image = self.gpu.map_image_async(out).await;
-        Ok(image.image())
-    }
-
-    /// Submits a single image to be rendered on the GPU
-    ///
-    /// The resulting image (as a buffer of [`RawDistancePixel`] data) is
-    /// available on the GPU in [`buffers.output()`](Buffers::output).
-    pub fn submit(
-        &self,
-        shape: &RenderShape,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        settings: &RenderConfig,
-    ) -> Result<(), MissingVar> {
-        self.submit_with_vars(
-            shape,
-            &Default::default(),
-            workspace,
-            buffers,
-            settings,
-        )
-    }
-
-    /// Submits a single image to be rendered on the GPU, with extra variables
-    ///
-    /// See [`submit`](Self::submit) for additional details.
-    pub fn submit_with_vars(
-        &self,
-        shape: &RenderShape,
-        vars: &ShapeVars<f32>,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        settings: &RenderConfig,
-    ) -> Result<(), MissingVar> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(
-            shape,
-            vars,
-            workspace,
-            buffers,
-            settings,
-            &mut encoder,
-            &mut staging,
-        )?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
     }
 
     /// Low-level function to encode pixel rendering to a command encoder
     #[allow(clippy::too_many_arguments)]
-    pub fn encode(
+    fn encode(
         &self,
-        shape: &RenderShape,
-        vars: &ShapeVars<f32>,
+        args: Args<'_>,
+        settings: Settings<'_>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
-        settings: &RenderConfig,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), MissingVar> {
         let render_size = TileRenderSize::from(buffers.image_size);
 
         // The WebGPU config type has a mat3x3f, but that type pads each row to
-        // 16 bytes, so we'll just use a mat4x4 for simplicity
+        // 16 bytes, so we'll just use a mat4x3 for simplicity
         let mat =
             settings.world_to_model * buffers.image_size.screen_to_world();
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
 
         // Divide by 2 to go from `u32` -> `TapeWord`
-        let start_offset = shape.bytecode_len.try_into().unwrap();
+        let start_offset = args.shape.bytecode_len.try_into().unwrap();
         let config = Config {
             mat: mat4.data.as_slice().try_into().unwrap(),
-            axes: shape.axes(),
+            axes: args.shape.axes(),
             render_size: [render_size.width(), render_size.height()],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
@@ -1055,15 +956,15 @@ impl Context {
 
         // Encode a buffer-to-buffer copy to load the tape
         encoder.copy_buffer_to_buffer(
-            &shape.tape,
+            &args.shape.tape,
             0u64,
             &workspace.config_buf,
             config_len,
-            shape.tape.size(),
+            args.shape.tape.size(),
         );
 
         // Copy vars (if present)
-        shape.copy_vars(encoder, staging, vars)?;
+        args.shape.copy_vars(encoder, staging, settings.vars)?;
 
         // Initial buffer reset pass
         self.reset_ctx.run(encoder, buffers);
@@ -1076,24 +977,59 @@ impl Context {
 
         // These bind groups are used by every compute shader
         compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
-        compute_pass.set_bind_group(1, &shape.vars_bind_group, &[]);
+        compute_pass.set_bind_group(1, &args.shape.vars_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
             buffers,
-            shape.reg_count,
+            args.shape.reg_count,
             render_size,
             &mut compute_pass,
         );
         self.tiles_ctx
-            .run(buffers, shape.reg_count, &mut compute_pass);
+            .run(buffers, args.shape.reg_count, &mut compute_pass);
         self.pixels_ctx
-            .run(buffers, shape.reg_count, &mut compute_pass);
+            .run(buffers, args.shape.reg_count, &mut compute_pass);
 
         // Merge filled tiles from large -> small
         self.merge_ctx.run(buffers, &mut compute_pass);
         drop(compute_pass);
         Ok(())
+    }
+}
+
+impl Context {
+    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    ///
+    /// This function is not present when built for the `wasm32` target
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn run<'a>(
+        &self,
+        args: Args<'a>,
+        settings: Settings<'a>,
+        workspace: &mut Workspace,
+        buf: &mut Buffers,
+        out: &mut ReadBuffer<PixelBufferTag>,
+    ) -> Result<Image, RunError> {
+        self.submit(&self.gpu, args, settings, workspace, buf)?;
+        self.gpu.copy(buf.output(), out)?;
+        let image = self.gpu.map_image(out);
+        Ok(image.image())
+    }
+
+    /// Renders the image, with an async wait to read pixel data from the GPU
+    pub async fn run_async<'a>(
+        &self,
+        args: Args<'a>,
+        settings: Settings<'a>,
+        workspace: &mut Workspace,
+        buf: &mut Buffers,
+        out: &mut ReadBuffer<PixelBufferTag>,
+    ) -> Result<Image, RunError> {
+        self.submit(&self.gpu, args, settings, workspace, buf)?;
+        self.gpu.copy(buf.output(), out)?;
+        let image = self.gpu.map_image_async(out).await;
+        Ok(image.image())
     }
 }
 
