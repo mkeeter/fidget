@@ -9,6 +9,9 @@ use fidget_core::render::ImageSize;
 use fidget_raster::pixel::RawDistancePixel;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+#[expect(unused_imports)] // used by rustdoc
+use crate::Context as _;
+
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 
 /// Returns a shader for merging images

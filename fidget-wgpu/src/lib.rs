@@ -12,7 +12,8 @@
 //! All of the modules use similar patterns of objects:
 //!
 //! - The [`Gpu`] object is passed around to provide device and queues
-//! - A `Context` object contains pipelines
+//! - A `Context` object contains pipelines and can build `Workspace` and
+//!   `Buffers` objects
 //! - A `Workspace` object contains configuration buffers used when rendering
 //! - A `Buffers` object contains size-dependent buffers used when rendering.
 //!   Within the buffers object, an output buffer can be read back to the CPU or
@@ -22,9 +23,10 @@
 //!
 //! ### Context objects
 //! A context object contains GPU pipelines, and allow users to dispatch work to
-//! the GPU.  Voxel and pixel rendering are managed by [`voxel::render::Context`] and
-//! [`pixel::Context`] respectively; other passes are managed by other `Context`
-//! objects (e.g. [`voxel::merge::Context`]).
+//! the GPU.  Voxel and pixel rendering are managed by
+//! [`voxel::render::Context`] and [`pixel::render::Context`] respectively;
+//! other passes are managed by other `Context` objects (e.g.
+//! [`voxel::merge::Context`]).
 //!
 //! Users are expected to create one (of each) context object per thread or
 //! worker, since GPU resources can't be shared.  These are expensive to create

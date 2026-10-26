@@ -50,7 +50,6 @@ impl crate::Context for Context {
     type BuffersError = crate::buf::BufferSizeError;
     type Size = fidget_core::render::VoxelSize;
 
-    /// Builds a new context for applying effects
     fn new(gpu: &Gpu) -> Self {
         let shader_code = heightmap_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
@@ -87,12 +86,10 @@ impl crate::Context for Context {
         }
     }
 
-    /// Builds a new heightmap [`Workspace`]
     fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("heightmap")
     }
 
-    /// Low-level function to encode heightmap rendering
     fn encode(
         &self,
         image: &super::merge::Buffers,

@@ -864,10 +864,6 @@ impl crate::Context for Context {
     type Args<'a> = &'a RenderShape;
     type Settings<'a> = Settings<'a>;
 
-    /// Build a new 2D rendering context, given a device and queue
-    ///
-    /// If render timestamps are desirable, then the device should be
-    /// initialized with [`wgpu::Features::TIMESTAMP_QUERY`].
     fn new(gpu: &Gpu) -> Self {
         let root_ctx = RootContext::new(gpu);
         let tiles_ctx = IntervalTilesContext::new(gpu);
@@ -884,20 +880,14 @@ impl crate::Context for Context {
         }
     }
 
-    /// Builds a new [`Workspace`] object for use in rendering
     fn workspace(&self) -> Workspace {
         Workspace::new(self)
     }
 
-    /// Builds a new [`Buffers`] object for use in rendering
-    ///
-    /// The buffers are specific to a particular evaluation size
     fn buffers(&self, size: ImageSize) -> Result<Buffers, BuffersError> {
         Buffers::new(self, size)
     }
 
-    /// Low-level function to encode pixel rendering to a command encoder
-    #[allow(clippy::too_many_arguments)]
     fn encode(
         &self,
         shape: &RenderShape,

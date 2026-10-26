@@ -47,7 +47,6 @@ impl crate::Context for Context {
     type Settings<'a> = ();
     type Size = ImageSize;
 
-    /// Builds a new SSAO context
     fn new(gpu: &Gpu) -> Self {
         let ssao_fixed_bind_group_layout = gpu.device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
@@ -244,14 +243,12 @@ impl crate::Context for Context {
         Ok(())
     }
 
-    /// Builds a new set of [`Workspace`] buffers
     fn workspace(&self) -> Workspace {
         let ssao = self.gpu.config_workspace("ssao");
         let blur = self.gpu.config_workspace("blur");
         Workspace { ssao, blur }
     }
 
-    /// Builds a new set of [`Buffers`], which are size-dependent
     fn buffers(
         &self,
         image_size: ImageSize,

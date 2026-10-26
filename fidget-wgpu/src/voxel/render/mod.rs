@@ -1779,7 +1779,6 @@ impl crate::Context for Context {
     type Settings<'a> = Settings<'a>;
     type EncodeError = MissingVar;
 
-    /// Build a new 3D rendering context, given a device and queue
     fn new(gpu: &Gpu) -> Self {
         let root_ctx = RootContext::new(gpu);
         let repack_ctx = RepackContext::new(gpu);
@@ -1803,22 +1802,13 @@ impl crate::Context for Context {
         }
     }
 
-    /// Builds a new [`Workspace`] object for use in rendering
     fn workspace(&self) -> Workspace {
         Workspace::new(self)
     }
-
-    /// Builds a new [`Buffers`] object for use in rendering
-    ///
-    /// The buffers are specific to a particular evaluation size
     fn buffers(&self, size: VoxelSize) -> Result<Buffers, BuffersError> {
         Buffers::new(self, size)
     }
 
-    /// Encodes a single image to be rendered on the GPU, with extra variables
-    ///
-    /// See [`submit`](Self::submit) for additional details.
-    #[allow(clippy::too_many_arguments)]
     fn encode(
         &self,
         shape: &RenderShape,
@@ -1941,7 +1931,7 @@ impl Context {
     /// Renders the image, with an async wait to read pixel data from the GPU
     ///
     /// This can be called either natively or on the web
-    pub async fn run_vars_async(
+    pub async fn run_async(
         &self,
         shape: &RenderShape,
         settings: Settings<'_>,

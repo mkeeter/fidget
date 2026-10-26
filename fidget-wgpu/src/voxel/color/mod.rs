@@ -62,7 +62,6 @@ impl crate::Context for Context {
     type BuffersError = crate::buf::BufferSizeError;
     type EncodeError = ColorError;
 
-    /// Builds a new color context
     fn new(gpu: &Gpu) -> Self {
         let device = &gpu.device;
         let pipeline_layout =
@@ -100,7 +99,6 @@ impl crate::Context for Context {
         }
     }
 
-    #[allow(clippy::too_many_arguments)] // what are ya gonna do?
     fn encode(
         &self,
         args: Args<'_>,
@@ -157,7 +155,6 @@ impl crate::Context for Context {
         Ok(())
     }
 
-    /// Returns a new workspace for color evaluation
     fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("color")
     }

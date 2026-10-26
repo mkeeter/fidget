@@ -193,7 +193,6 @@ impl crate::Context for Context {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn encode(
         &self,
         shape: &RenderColor,
@@ -247,7 +246,6 @@ impl crate::Context for Context {
         Ok(())
     }
 
-    /// Returns a new workspace for color evaluation
     fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("color")
     }

@@ -13,6 +13,9 @@ use crate::{
 use fidget_core::render::VoxelSize;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+#[expect(unused_imports)] // used by rustdoc
+use crate::Context as _;
+
 const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
 
 fn merge_shader() -> String {
@@ -159,7 +162,6 @@ impl crate::Context for Context {
     type Settings<'a> = Settings;
     type EncodeError = MergeError;
 
-    /// Builds a new context for applying effects
     fn new(gpu: &Gpu) -> Self {
         let shader_code = merge_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
@@ -195,12 +197,10 @@ impl crate::Context for Context {
         }
     }
 
-    /// Builds a new [`Workspace`]
     fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("merge")
     }
 
-    /// Builds a new set of [`Buffers`] for a particular render size
     fn buffers(
         &self,
         image_size: VoxelSize,
