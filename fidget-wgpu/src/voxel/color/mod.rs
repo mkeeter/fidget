@@ -28,9 +28,42 @@ pub struct Context {
     color_pipeline: RegPipeline,
 }
 
-impl Context {
+/// Arguments for color evaluation
+pub struct Args<'a> {
+    /// Incoming image buffer
+    pub image: &'a super::merge::Buffers,
+    /// Bytecode buffers for color evaluation
+    pub color: &'a RenderColor,
+}
+
+/// Settings for color evaluation
+pub struct Settings<'a> {
+    /// Values for free variables
+    pub vars: &'a ShapeVars<f32>,
+    /// Transform matrix
+    pub world_to_model: nalgebra::Matrix4<f32>,
+}
+
+impl Default for Settings<'_> {
+    fn default() -> Self {
+        Self {
+            vars: &crate::EMPTY_VARS,
+            world_to_model: nalgebra::Matrix4::identity(),
+        }
+    }
+}
+
+impl crate::Context for Context {
+    type Buffers = super::shade::Buffers;
+    type Args<'a> = Args<'a>;
+    type Workspace = Workspace;
+    type Settings<'a> = Settings<'a>;
+    type Size = fidget_core::render::VoxelSize;
+    type BuffersError = crate::buf::BufferSizeError;
+    type EncodeError = ColorError;
+
     /// Builds a new color context
-    pub fn new(gpu: &Gpu) -> Self {
+    fn new(gpu: &Gpu) -> Self {
         let device = &gpu.device;
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -67,83 +100,23 @@ impl Context {
         }
     }
 
-    /// Submits a color evaluation pass
-    ///
-    /// Image size is set from the `MergeWorkspace`; the transform matrix is
-    /// provided separately (but should be the same one used for image
-    /// evaluation).
-    pub fn submit(
-        &self,
-        merge: &super::merge::Buffers,
-        world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &RenderColor,
-        workspace: &mut Workspace,
-        out: &mut super::shade::Buffers,
-    ) -> Result<(), ColorError> {
-        self.submit_with_vars(
-            merge,
-            world_to_model,
-            shape,
-            workspace,
-            &Default::default(),
-            out,
-        )
-    }
-
-    /// Submits a color evaluation pass with auxiliary variables
-    ///
-    /// Image size is set from the `MergeWorkspace`; the transform matrix is
-    /// provided separately (but should be the same one used for image
-    /// evaluation).
-    pub fn submit_with_vars(
-        &self,
-        merge: &super::merge::Buffers,
-        world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &RenderColor,
-        workspace: &mut Workspace,
-        vars: &ShapeVars<f32>,
-        out: &mut super::shade::Buffers,
-    ) -> Result<(), ColorError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(
-            merge,
-            world_to_model,
-            shape,
-            workspace,
-            vars,
-            out,
-            &mut encoder,
-            &mut staging,
-        )?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
-    }
-
     #[allow(clippy::too_many_arguments)] // what are ya gonna do?
     fn encode(
         &self,
-        image: &super::merge::Buffers,
-        world_to_model: &nalgebra::Matrix4<f32>,
-        shape: &RenderColor,
+        args: Args<'_>,
+        settings: Settings<'_>,
         workspace: &mut Workspace,
-        vars: &ShapeVars<f32>,
         out: &mut super::shade::Buffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
-        if image.image_count != shape.shape_count() {
+        if args.image.image_count != args.color.shape_count() {
             return Err(ColorError::BadShapeCount {
-                merge_count: image.image_count,
-                shape_count: shape.shape_count(),
+                merge_count: args.image.image_count,
+                shape_count: args.color.shape_count(),
             });
         }
-        let size = image.out.size();
+        let size = args.image.out.size();
         if size != out.out.size() {
             return Err(VoxelSizeMismatch {
                 expected: size,
@@ -151,13 +124,13 @@ impl Context {
             }
             .into());
         }
-        shape.copy_vars(encoder, staging, vars)?;
+        args.color.copy_vars(encoder, staging, settings.vars)?;
 
         out.has_color = true;
-        let mat = world_to_model * size.screen_to_world();
+        let mat = settings.world_to_model * size.screen_to_world();
         let config = ColorConfig {
             mat: mat.data.as_slice().try_into().unwrap(),
-            axes: shape.axes(),
+            axes: args.color.axes(),
             image_size: [size.width(), size.height()],
             _pad1: 0,
             _pad2: [0; 2],
@@ -170,11 +143,12 @@ impl Context {
                 timestamp_writes: None, // TODO add timestamps?
             });
         compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
-        compute_pass.set_bind_group(1, shape.bind_group(), &[]);
-        compute_pass.set_bind_group(2, &image.ro_bind_group, &[]);
+        compute_pass.set_bind_group(1, args.color.bind_group(), &[]);
+        compute_pass.set_bind_group(2, &args.image.ro_bind_group, &[]);
         compute_pass.set_bind_group(3, &out.bind_group, &[]);
 
-        compute_pass.set_pipeline(self.color_pipeline.get(shape.reg_count()));
+        compute_pass
+            .set_pipeline(self.color_pipeline.get(args.color.reg_count()));
         compute_pass.dispatch_workgroups(
             size.width().div_ceil(8),
             size.height().div_ceil(8),
@@ -184,8 +158,15 @@ impl Context {
     }
 
     /// Returns a new workspace for color evaluation
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("color")
+    }
+
+    fn buffers(
+        &self,
+        size: Self::Size,
+    ) -> Result<Self::Buffers, Self::BuffersError> {
+        Self::Buffers::new(&self.gpu, size)
     }
 }
 

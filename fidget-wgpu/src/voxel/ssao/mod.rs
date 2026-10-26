@@ -38,9 +38,17 @@ fn blur_shader() -> String {
     BLUR_SHADER.to_owned() + super::PACKED_VOXEL + crate::shaders::COMMON
 }
 
-impl Context {
+impl crate::Context for Context {
+    type Workspace = Workspace;
+    type BuffersError = BufferSizeError;
+    type Buffers = Buffers;
+    type EncodeError = SsaoError;
+    type Args<'a> = &'a super::merge::Buffers;
+    type Settings<'a> = ();
+    type Size = ImageSize;
+
     /// Builds a new SSAO context
-    pub fn new(gpu: &Gpu) -> Self {
+    fn new(gpu: &Gpu) -> Self {
         let ssao_fixed_bind_group_layout = gpu.device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 label: None,
@@ -175,6 +183,7 @@ impl Context {
     fn encode(
         &self,
         image: &super::merge::Buffers,
+        _settings: (),
         workspace: &mut Workspace,
         buf: &mut Buffers,
         encoder: &mut wgpu::CommandEncoder,
@@ -236,14 +245,14 @@ impl Context {
     }
 
     /// Builds a new set of [`Workspace`] buffers
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         let ssao = self.gpu.config_workspace("ssao");
         let blur = self.gpu.config_workspace("blur");
         Workspace { ssao, blur }
     }
 
     /// Builds a new set of [`Buffers`], which are size-dependent
-    pub fn buffers(
+    fn buffers(
         &self,
         image_size: ImageSize,
     ) -> Result<Buffers, BufferSizeError> {
@@ -303,27 +312,6 @@ impl Context {
             blur_bind_group,
             output_bind_group,
         })
-    }
-
-    /// Submits a pass to compute an SSAO buffer
-    pub fn submit(
-        &self,
-        image: &super::merge::Buffers,
-        workspace: &mut Workspace,
-        buf: &mut Buffers,
-    ) -> Result<(), SsaoError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("ssao command encoder"),
-            },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(image, workspace, buf, &mut encoder, &mut staging)?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
     }
 }
 
@@ -408,7 +396,7 @@ pub enum SsaoError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::voxel::render::{RenderConfig, RenderSize};
+    use crate::{Context as _, voxel::render::RenderSize};
     use fidget_core::{context::Tree, vm::VmShape};
 
     /// Render a sphere-plane union and check for occlusion bias
@@ -439,16 +427,16 @@ mod test {
 
         voxel_ctx
             .submit(
+                &gpu,
                 &shape,
+                Default::default(),
                 &mut voxel_workspace,
                 &mut voxel_buf,
-                &RenderConfig {
-                    world_to_model: nalgebra::Matrix4::identity(),
-                },
             )
             .unwrap();
         merge_ctx
             .submit(
+                &gpu,
                 &voxel_buf,
                 Default::default(),
                 &mut merge_workspace,
@@ -458,7 +446,7 @@ mod test {
         let mut ssao_workspace = ssao_ctx.workspace();
         let mut ssao_buf = ssao_ctx.buffers(image_size.into()).unwrap();
         ssao_ctx
-            .submit(&merge_buf, &mut ssao_workspace, &mut ssao_buf)
+            .submit(&gpu, &merge_buf, (), &mut ssao_workspace, &mut ssao_buf)
             .unwrap();
         let ssao_out = gpu.read_vec(ssao_buf.raw_occlusion());
 

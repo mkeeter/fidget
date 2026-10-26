@@ -41,9 +41,17 @@ pub struct Context {
     pipeline: wgpu::ComputePipeline,
 }
 
-impl Context {
+impl crate::Context for Context {
+    type Workspace = Workspace;
+    type Buffers = super::shade::Buffers;
+    type EncodeError = HeightmapError;
+    type Args<'a> = &'a super::merge::Buffers;
+    type Settings<'a> = ();
+    type BuffersError = crate::buf::BufferSizeError;
+    type Size = fidget_core::render::VoxelSize;
+
     /// Builds a new context for applying effects
-    pub fn new(gpu: &Gpu) -> Self {
+    fn new(gpu: &Gpu) -> Self {
         let shader_code = heightmap_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
@@ -80,39 +88,17 @@ impl Context {
     }
 
     /// Builds a new heightmap [`Workspace`]
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("heightmap")
     }
 
-    /// Submits an operation to generate RGB color from a heightmap
-    ///
-    /// The output buffer's size must match the input buffer
-    pub fn submit(
-        &self,
-        image: &super::merge::Buffers,
-        buf: &mut super::shade::Buffers,
-        workspace: &mut Workspace,
-    ) -> Result<(), HeightmapError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("heightmap compute encoder"),
-            },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(image, buf, workspace, &mut encoder, &mut staging)?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
-    }
-
     /// Low-level function to encode heightmap rendering
-    pub fn encode(
+    fn encode(
         &self,
         image: &super::merge::Buffers,
-        buf: &mut super::shade::Buffers,
+        _settings: (),
         workspace: &mut Workspace,
+        buf: &mut super::shade::Buffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), HeightmapError> {
@@ -146,6 +132,13 @@ impl Context {
         );
         buf.has_color = false;
         Ok(())
+    }
+
+    fn buffers(
+        &self,
+        size: Self::Size,
+    ) -> Result<Self::Buffers, Self::BuffersError> {
+        Self::Buffers::new(&self.gpu, size)
     }
 }
 

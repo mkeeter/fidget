@@ -288,6 +288,8 @@ pub(crate) struct TapeWord {
     imm: u32,
 }
 
+static EMPTY_VARS: ShapeVars<f32> = ShapeVars::new();
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Type indicating an image size mismatch in a 2D image

@@ -62,7 +62,7 @@
 //!   also expensive in GPU memory, since it contains several full-frame GPU
 //!   buffers.  Best practice is to construct one [`Buffers`] object per GUI
 //!   viewport (or simultaneous render size).
-//! - [`RenderConfig`] sets the transform matrix for rendering.  This is cheap
+//! - [`Settings`] sets the transform matrix for rendering.  This is cheap
 //!   to construct and could be built once per frame
 //!
 //! With all that out of the way, usage is pretty simple:
@@ -99,7 +99,8 @@
 //! opations to an encoder, and [`Buffers::output`] returns the output buffer.
 
 use crate::{
-    BadCopySize, Gpu, RegPipeline, RenderShape, TAPE_DATA_CAPACITY, TapeWord,
+    BadCopySize, Context as _, Gpu, RegPipeline, RenderShape,
+    TAPE_DATA_CAPACITY, TapeWord,
     buf::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_ro_dyn, buffer_rw,
@@ -119,15 +120,18 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// Note that this config **does not** store the render size; that size is
 /// associated with the [`Buffers`] object.
 #[derive(Copy, Clone, Debug)]
-pub struct RenderConfig {
+pub struct Settings<'a> {
+    /// Free variables used in evaluation
+    pub vars: &'a ShapeVars<f32>,
     /// World-to-model transform
     pub world_to_model: nalgebra::Matrix4<f32>,
 }
 
 /// Builds a render configuration with an identity transform matrix
-impl Default for RenderConfig {
+impl Default for Settings<'_> {
     fn default() -> Self {
         Self {
+            vars: &crate::EMPTY_VARS,
             world_to_model: nalgebra::Matrix4::identity(),
         }
     }
@@ -249,7 +253,7 @@ impl std::fmt::Display for BufferName {
 /// Error returned when creating a [`Buffers`] object
 #[derive(Debug, thiserror::Error)]
 #[error("failed to build {buf} buffer")]
-pub struct BufferError {
+pub struct BuffersError {
     /// Buffer with an invalid size
     pub buf: BufferName,
     /// Inner size error
@@ -1369,7 +1373,7 @@ impl Buffers {
         &self.bind_groups.output
     }
 
-    fn new(ctx: &Context, image_size: VoxelSize) -> Result<Self, BufferError> {
+    fn new(ctx: &Context, image_size: VoxelSize) -> Result<Self, BuffersError> {
         let device = &ctx.gpu.device;
         let render_size = TileRenderSize::from(image_size);
         let voxels = FlexBuffer::new(
@@ -1377,7 +1381,7 @@ impl Buffers {
             "voxels",
             Self::voxels_buf_size(render_size),
         )
-        .map_err(|err| BufferError {
+        .map_err(|err| BuffersError {
             buf: BufferName::Voxels,
             err,
         })?;
@@ -1386,33 +1390,33 @@ impl Buffers {
             "tile tape",
             Self::tile_tapes_buf_size(render_size),
         )
-        .map_err(|err| BufferError {
+        .map_err(|err| BuffersError {
             buf: BufferName::TileTapes,
             err,
         })?;
 
         let geom =
             FlexBuffer::new(device, "geom", image_size).map_err(|err| {
-                BufferError {
+                BuffersError {
                     buf: BufferName::Geom,
                     err,
                 }
             })?;
         let tile64 =
             RootTileBuffers::new(device, render_size).map_err(|err| {
-                BufferError {
+                BuffersError {
                     buf: BufferName::Tile64(err.buf),
                     err: err.err,
                 }
             })?;
         let tile16 = TileBuffers::new(device, render_size).map_err(|err| {
-            BufferError {
+            BuffersError {
                 buf: BufferName::Tile16(err.buf),
                 err: err.err,
             }
         })?;
         let tile4 = TileBuffers::new(device, render_size).map_err(|err| {
-            BufferError {
+            BuffersError {
                 buf: BufferName::Tile4(err.buf),
                 err: err.err,
             }
@@ -1766,9 +1770,17 @@ impl Buffers {
     }
 }
 
-impl Context {
+impl crate::Context for Context {
+    type Buffers = Buffers;
+    type Workspace = Workspace;
+    type BuffersError = BuffersError;
+    type Size = VoxelSize;
+    type Args<'a> = &'a RenderShape;
+    type Settings<'a> = Settings<'a>;
+    type EncodeError = MissingVar;
+
     /// Build a new 3D rendering context, given a device and queue
-    pub fn new(gpu: &Gpu) -> Self {
+    fn new(gpu: &Gpu) -> Self {
         let root_ctx = RootContext::new(gpu);
         let repack_ctx = RepackContext::new(gpu);
         let interval_ctx = IntervalContext::new(gpu);
@@ -1792,160 +1804,27 @@ impl Context {
     }
 
     /// Builds a new [`Workspace`] object for use in rendering
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         Workspace::new(self)
     }
 
     /// Builds a new [`Buffers`] object for use in rendering
     ///
     /// The buffers are specific to a particular evaluation size
-    pub fn buffers(&self, size: VoxelSize) -> Result<Buffers, BufferError> {
+    fn buffers(&self, size: VoxelSize) -> Result<Buffers, BuffersError> {
         Buffers::new(self, size)
-    }
-
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
-    ///
-    /// This function is not present when built for the `wasm32` target
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn run(
-        &self,
-        shape: &RenderShape,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        out: &mut ReadBuffer<GeomBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.run_with_vars(
-            shape,
-            &Default::default(),
-            workspace,
-            buffers,
-            out,
-            settings,
-        )
-    }
-
-    /// Renders the image, with a blocking wait to read pixel data from the GPU
-    ///
-    /// This function is not present when built for the `wasm32` target
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn run_with_vars(
-        &self,
-        shape: &RenderShape,
-        vars: &ShapeVars<f32>,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        out: &mut ReadBuffer<GeomBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.submit_with_vars(shape, vars, workspace, buffers, &settings)?;
-        self.gpu.copy(&buffers.geom, out)?;
-        let image = self.gpu.map_image(out);
-        Ok(image.image())
-    }
-
-    /// Renders the image, with an async wait to read pixel data from the GPU
-    ///
-    /// This can be called either natively or on the web
-    pub async fn run_async(
-        &self,
-        shape: &RenderShape,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        out: &mut ReadBuffer<GeomBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.run_with_vars_async(
-            shape,
-            &Default::default(),
-            workspace,
-            buffers,
-            out,
-            settings,
-        )
-        .await
-    }
-
-    /// Renders the image, with an async wait to read pixel data from the GPU
-    ///
-    /// This can be called either natively or on the web
-    pub async fn run_with_vars_async(
-        &self,
-        shape: &RenderShape,
-        vars: &ShapeVars<f32>,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        out: &mut ReadBuffer<GeomBufferTag>,
-        settings: RenderConfig,
-    ) -> Result<Image, RunError> {
-        self.submit_with_vars(shape, vars, workspace, buffers, &settings)?;
-        self.gpu.copy(&buffers.geom, out)?;
-        let image = self.gpu.map_image_async(out).await;
-        Ok(image.image())
-    }
-
-    /// Submits a single image to be rendered on the GPU
-    ///
-    /// The resulting image (as a buffer of [`GeometryPixel`] data) is available
-    /// on the GPU in [`buffers.output()`](Buffers::output).
-    pub fn submit(
-        &self,
-        shape: &RenderShape,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        settings: &RenderConfig,
-    ) -> Result<(), MissingVar> {
-        self.submit_with_vars(
-            shape,
-            &Default::default(),
-            workspace,
-            buffers,
-            settings,
-        )
-    }
-
-    /// Submits a single image to be rendered on the GPU, with extra variables
-    ///
-    /// See [`submit`](Self::submit) for additional details.
-    pub fn submit_with_vars(
-        &self,
-        shape: &RenderShape,
-        vars: &ShapeVars<f32>,
-        workspace: &mut Workspace,
-        buffers: &mut Buffers,
-        settings: &RenderConfig,
-    ) -> Result<(), MissingVar> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(
-            shape,
-            vars,
-            workspace,
-            buffers,
-            settings,
-            &mut encoder,
-            &mut staging,
-        )?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
     }
 
     /// Encodes a single image to be rendered on the GPU, with extra variables
     ///
     /// See [`submit`](Self::submit) for additional details.
     #[allow(clippy::too_many_arguments)]
-    pub fn encode(
+    fn encode(
         &self,
         shape: &RenderShape,
-        vars: &ShapeVars<f32>,
+        settings: Settings<'_>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
-        settings: &RenderConfig,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), MissingVar> {
@@ -1994,7 +1873,7 @@ impl Context {
         );
 
         // Copy vars (if present), returning an error if there's a missing var
-        shape.copy_vars(encoder, staging, vars)?;
+        shape.copy_vars(encoder, staging, settings.vars)?;
 
         // Initial buffer reset pass
         self.reset_ctx.run(encoder, buffers);
@@ -2037,6 +1916,43 @@ impl Context {
 
         // Submit the commands and wait for the GPU to complete
         Ok(())
+    }
+}
+
+impl Context {
+    /// Renders the image, with a blocking wait to read pixel data from the GPU
+    ///
+    /// This function is not present when built for the `wasm32` target
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn run(
+        &self,
+        shape: &RenderShape,
+        settings: Settings<'_>,
+        workspace: &mut Workspace,
+        buffers: &mut Buffers,
+        out: &mut ReadBuffer<GeomBufferTag>,
+    ) -> Result<Image, RunError> {
+        self.submit(&self.gpu, shape, settings, workspace, buffers)?;
+        self.gpu.copy(&buffers.geom, out)?;
+        let image = self.gpu.map_image(out);
+        Ok(image.image())
+    }
+
+    /// Renders the image, with an async wait to read pixel data from the GPU
+    ///
+    /// This can be called either natively or on the web
+    pub async fn run_vars_async(
+        &self,
+        shape: &RenderShape,
+        settings: Settings<'_>,
+        workspace: &mut Workspace,
+        buffers: &mut Buffers,
+        out: &mut ReadBuffer<GeomBufferTag>,
+    ) -> Result<Image, RunError> {
+        self.submit(&self.gpu, shape, settings, workspace, buffers)?;
+        self.gpu.copy(&buffers.geom, out)?;
+        let image = self.gpu.map_image_async(out).await;
+        Ok(image.image())
     }
 }
 

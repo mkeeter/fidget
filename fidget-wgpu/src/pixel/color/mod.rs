@@ -78,12 +78,10 @@ pub struct Settings<'a> {
     pub world_to_model: nalgebra::Matrix3<f32>,
 }
 
-static EMPTY_VARS: ShapeVars<f32> = ShapeVars::new();
-
 impl Default for Settings<'_> {
     fn default() -> Self {
         Self {
-            vars: &EMPTY_VARS,
+            vars: &crate::EMPTY_VARS,
             z: 0.0,
             only_filled: false,
             world_to_model: nalgebra::Matrix3::identity(),

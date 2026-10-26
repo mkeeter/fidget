@@ -52,6 +52,27 @@ pub struct Buffers {
 }
 
 impl Buffers {
+    pub(crate) fn new(
+        gpu: &Gpu,
+        image_size: VoxelSize,
+    ) -> Result<Buffers, BufferSizeError> {
+        let out = FlexBuffer::new(&gpu.device, "shade output", image_size)?;
+        let bind_group =
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("merge output bind group"),
+                layout: &gpu.output_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: out.bind_active(),
+                }],
+            });
+        Ok(Buffers {
+            out,
+            bind_group,
+            has_color: false,
+        })
+    }
+
     /// Returns a reference to the output buffer
     pub fn output(&self) -> &FlexBuffer<ShadedImageTag> {
         &self.out
@@ -76,9 +97,17 @@ pub struct Context {
     pipeline: wgpu::ComputePipeline,
 }
 
-impl Context {
-    /// Builds a new context for shaded rendering
-    pub fn new(gpu: &Gpu) -> Self {
+impl crate::Context for Context {
+    type Size = VoxelSize;
+    type BuffersError = BufferSizeError;
+    type Buffers = Buffers;
+    type Workspace = Workspace;
+    type EncodeError = ShadeError;
+
+    type Args<'a> = &'a super::merge::Buffers;
+    type Settings<'a> = Option<&'a super::ssao::Buffers>;
+
+    fn new(gpu: &Gpu) -> Self {
         let shader_code = shade_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
@@ -115,57 +144,14 @@ impl Context {
         }
     }
 
-    /// Builds a new set of [`Buffers`] for a particular render size
-    pub fn buffers(
+    fn buffers(
         &self,
         image_size: VoxelSize,
     ) -> Result<Buffers, BufferSizeError> {
-        let out =
-            FlexBuffer::new(&self.gpu.device, "shade output", image_size)?;
-        let bind_group =
-            self.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge output bind group"),
-                    layout: &self.gpu.output_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: out.bind_active(),
-                    }],
-                });
-        Ok(Buffers {
-            out,
-            bind_group,
-            has_color: false,
-        })
+        Buffers::new(&self.gpu, image_size)
     }
 
-    /// Submits an operation to shade an image
-    ///
-    /// The output buffer's size must match that of the input buffers.
-    pub fn submit(
-        &self,
-        image: &super::merge::Buffers,
-        ssao: Option<&super::ssao::Buffers>,
-        workspace: &mut Workspace,
-        buf: &mut Buffers,
-    ) -> Result<(), ShadeError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("shade compute encoder"),
-            },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(image, ssao, workspace, buf, &mut encoder, &mut staging)?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
-    }
-
-    /// Low-level function to encode a shading operation to a command encoder
-    pub fn encode(
+    fn encode(
         &self,
         image: &super::merge::Buffers,
         ssao: Option<&super::ssao::Buffers>,
@@ -231,8 +217,7 @@ impl Context {
         Ok(())
     }
 
-    /// Builds a new set of [`Workspace`] buffers
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("shade")
     }
 }

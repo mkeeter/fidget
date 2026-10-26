@@ -48,7 +48,7 @@ pub struct MergeConfig {
 
 /// Settings for image merging pass
 #[derive(Copy, Clone, Debug)]
-pub struct MergeSettings {
+pub struct Settings {
     /// Denoise normals (replacing backwards-facing normals with a neighbor)
     pub denoise: bool,
 
@@ -59,7 +59,7 @@ pub struct MergeSettings {
     pub z_scale: f32,
 }
 
-impl Default for MergeSettings {
+impl Default for Settings {
     fn default() -> Self {
         Self {
             denoise: true,
@@ -87,6 +87,37 @@ pub struct Buffers {
 }
 
 impl Buffers {
+    pub(crate) fn new(
+        gpu: &Gpu,
+        image_size: VoxelSize,
+    ) -> Result<Self, BufferSizeError> {
+        let out = FlexBuffer::new(&gpu.device, "merge output", image_size)?;
+        let rw_bind_group =
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("merge output bind group"),
+                layout: &gpu.output_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: out.bind_active(),
+                }],
+            });
+        let ro_bind_group =
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("merge output bind group"),
+                layout: &gpu.input_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: out.bind_active(),
+                }],
+            });
+        Ok(Buffers {
+            out,
+            rw_bind_group,
+            ro_bind_group,
+            image_count: 0,
+        })
+    }
+
     /// Returns a handle to the output buffer
     pub fn output(&self) -> &FlexBuffer<MergeVoxelBufferTag> {
         &self.out
@@ -109,15 +140,27 @@ pub enum MergeError {
     ImageSizeMismatch(#[from] VoxelSizeMismatch),
 }
 
-/// WGPU context for applying various effects
+/// WGPU context for merging images
+///
+/// Note that [`Buffers::reset`] should be called before the first call to
+/// `submit` or `encode`.  The input image size must match the size of the
+/// [`Buffers`]; otherwise an error will be returned.
 pub struct Context {
     gpu: Gpu,
     pipeline: wgpu::ComputePipeline,
 }
 
-impl Context {
+impl crate::Context for Context {
+    type Workspace = Workspace;
+    type Buffers = Buffers;
+    type BuffersError = BufferSizeError;
+    type Size = VoxelSize;
+    type Args<'a> = &'a super::render::Buffers;
+    type Settings<'a> = Settings;
+    type EncodeError = MergeError;
+
     /// Builds a new context for applying effects
-    pub fn new(gpu: &Gpu) -> Self {
+    fn new(gpu: &Gpu) -> Self {
         let shader_code = merge_shader();
         let pipeline_layout = gpu.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
@@ -153,85 +196,22 @@ impl Context {
     }
 
     /// Builds a new [`Workspace`]
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("merge")
     }
 
     /// Builds a new set of [`Buffers`] for a particular render size
-    pub fn buffers(
+    fn buffers(
         &self,
         image_size: VoxelSize,
     ) -> Result<Buffers, BufferSizeError> {
-        let out =
-            FlexBuffer::new(&self.gpu.device, "merge output", image_size)?;
-        let rw_bind_group =
-            self.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge output bind group"),
-                    layout: &self.gpu.output_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: out.bind_active(),
-                    }],
-                });
-        let ro_bind_group =
-            self.gpu
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("merge output bind group"),
-                    layout: &self.gpu.input_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: out.bind_active(),
-                    }],
-                });
-        Ok(Buffers {
-            out,
-            rw_bind_group,
-            ro_bind_group,
-            image_count: 0,
-        })
+        Buffers::new(&self.gpu, image_size)
     }
 
-    /// Accumulates an image into a merged image buffer
-    ///
-    /// [`Buffers::reset`] should be called before the first call to
-    /// `submit`.  The image size from `image` must match the size of the
-    /// [`Buffers`]; otherwise an error will be returned.
-    pub fn submit(
+    fn encode(
         &self,
         image: &super::render::Buffers,
-        settings: MergeSettings,
-        workspace: &mut Workspace,
-        buf: &mut Buffers,
-    ) -> Result<(), MergeError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("merge compute encoder"),
-            },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(
-            image,
-            settings,
-            workspace,
-            buf,
-            &mut encoder,
-            &mut staging,
-        )?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
-    }
-
-    /// Low-level function to encode a merge operation to a command encoder
-    pub fn encode(
-        &self,
-        image: &super::render::Buffers,
-        settings: MergeSettings,
+        settings: Settings,
         workspace: &mut Workspace,
         buf: &mut Buffers,
         encoder: &mut wgpu::CommandEncoder,

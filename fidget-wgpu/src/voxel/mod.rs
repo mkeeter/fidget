@@ -33,8 +33,8 @@ pub struct PackedVoxel {
 
 #[cfg(test)]
 mod test {
-    use super::{PackedVoxel, render::RenderConfig, *};
-    use crate::{Gpu, color::ShapeColor};
+    use super::{PackedVoxel, *};
+    use crate::{Context as _, Gpu, color::ShapeColor};
 
     use fidget_core::{context::Tree, render::VoxelSize, vm::VmShape};
     use std::collections::HashSet;
@@ -75,7 +75,7 @@ mod test {
     fn render(
         shapes: &[(Tree, ShapeColor<Tree>)],
         size: VoxelSize,
-        render_config: RenderConfig,
+        settings: render::Settings,
     ) -> RenderOutput {
         let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
         let voxel_ctx = render::Context::new(&gpu);
@@ -99,10 +99,11 @@ mod test {
                 .build_render_shape(&VmShape::from(shape.clone()))
                 .unwrap();
             voxel_ctx
-                .submit(&shape, &mut workspace, &mut buffers, &render_config)
+                .submit(&gpu, &shape, settings, &mut workspace, &mut buffers)
                 .unwrap();
             merge_ctx
                 .submit(
+                    &gpu,
                     &buffers,
                     Default::default(),
                     &mut merge_workspace,
@@ -133,15 +134,21 @@ mod test {
         let mut ssao_buf = ssao_ctx.buffers(size.into()).unwrap();
         let mut ssao_workspace = ssao_ctx.workspace();
         ssao_ctx
-            .submit(&merge_buf, &mut ssao_workspace, &mut ssao_buf)
+            .submit(&gpu, &merge_buf, (), &mut ssao_workspace, &mut ssao_buf)
             .unwrap();
 
         // Compute per-pixel colors
         color_ctx
             .submit(
-                &merge_buf,
-                &render_config.world_to_model,
-                &shape_colors,
+                &gpu,
+                color::Args {
+                    image: &merge_buf,
+                    color: &shape_colors,
+                },
+                color::Settings {
+                    world_to_model: settings.world_to_model,
+                    ..Default::default()
+                },
                 &mut color_workspace,
                 &mut shade_buf,
             )
@@ -158,6 +165,7 @@ mod test {
         let mut shade_out = gpu.read_buffer_for(shade_buf.output());
         shade_ctx
             .submit(
+                &gpu,
                 &merge_buf,
                 Some(&ssao_buf),
                 &mut shade_workspace,
@@ -170,16 +178,28 @@ mod test {
         // Recompute per-pixel colors
         color_ctx
             .submit(
-                &merge_buf,
-                &render_config.world_to_model,
-                &shape_colors,
+                &gpu,
+                color::Args {
+                    image: &merge_buf,
+                    color: &shape_colors,
+                },
+                color::Settings {
+                    world_to_model: settings.world_to_model,
+                    ..Default::default()
+                },
                 &mut color_workspace,
                 &mut shade_buf,
             )
             .unwrap();
         // Compute heightmap
         heightmap_ctx
-            .submit(&merge_buf, &mut shade_buf, &mut heightmap_workspace)
+            .submit(
+                &gpu,
+                &merge_buf,
+                (),
+                &mut heightmap_workspace,
+                &mut shade_buf,
+            )
             .unwrap();
         gpu.copy(shade_buf.output(), &mut shade_out).unwrap();
         let heightmap = gpu.map_image(&mut shade_out).image();
@@ -215,7 +235,7 @@ mod test {
                 },
             )],
             size.into(),
-            RenderConfig::default(),
+            Default::default(),
         );
 
         let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
@@ -291,9 +311,10 @@ mod test {
             (x.square() + y.square() + z.square()).sqrt() - Tree::constant(0.5);
 
         let size = 64;
-        let cfg = RenderConfig {
+        let cfg = render::Settings {
             world_to_model: nalgebra::Translation3::new(-0.5, 0.0, 0.0)
                 .to_homogeneous(),
+            ..Default::default()
         };
         let out = render(
             &[(
@@ -416,9 +437,10 @@ mod test {
         ////////////////////////////////////////////////////////////////////////
         // Now, run the same test with a different transform.  This lets us
         // confirm that colors are pinned to the correct space corodinates
-        let cfg = RenderConfig {
+        let cfg = render::Settings {
             world_to_model: nalgebra::Translation3::new(0.5, 0.0, 0.0)
                 .to_homogeneous(),
+            ..Default::default()
         };
         let out = render(
             &[(
@@ -570,7 +592,7 @@ mod test {
                 ),
             ],
             size.into(),
-            RenderConfig::default(),
+            Default::default(),
         );
 
         let color_set = out.colors.iter().cloned().collect::<HashSet<_>>();
