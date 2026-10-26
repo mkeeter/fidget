@@ -61,7 +61,10 @@ pub struct ColorConfig {
 
 /// Settings for per-pixel color evaluation
 #[derive(Copy, Clone, Debug)]
-pub struct ColorSettings {
+pub struct Settings<'a> {
+    /// Free variables used in evaluation
+    pub vars: &'a ShapeVars<f32>,
+
     /// Z height at which to evaluate the colors
     pub z: f32,
 
@@ -73,6 +76,19 @@ pub struct ColorSettings {
     /// This should be the same transform matrix used to evaluate the original
     /// pixel image (unless you're doing something weird)
     pub world_to_model: nalgebra::Matrix3<f32>,
+}
+
+static EMPTY_VARS: ShapeVars<f32> = ShapeVars::new();
+
+impl Default for Settings<'_> {
+    fn default() -> Self {
+        Self {
+            vars: &EMPTY_VARS,
+            z: 0.0,
+            only_filled: false,
+            world_to_model: nalgebra::Matrix3::identity(),
+        }
+    }
 }
 
 /// Error returned when submitting a color evaluation operation
@@ -103,21 +119,42 @@ pub enum ColorError {
 pub struct Context {
     gpu: Gpu,
 
-    /// Image bind groups (input and output)
-    image_bind_group_layout: wgpu::BindGroupLayout,
+    /// Merge bind groups (read-write distance and color)
+    ///
+    /// This isn't used directly, but is part of constructing buffers.
+    merge_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Image bind groups (read-only distance, read-write color)
+    color_bind_group_layout: wgpu::BindGroupLayout,
 
     /// Pipeline for computing per-pixel color
     pipeline: RegPipeline,
 }
 
-impl Context {
-    pub fn new(gpu: &Gpu) -> Self {
+impl crate::Context for Context {
+    type Workspace = Workspace;
+    type Buffers = super::merge::Buffers;
+    type Settings<'a> = Settings<'a>;
+    type Args<'a> = &'a RenderColor;
+    type EncodeError = ColorError;
+    type BuffersError = crate::buf::BufferSizeError;
+    type Size = ImageSize;
+
+    fn new(gpu: &Gpu) -> Self {
         let device = &gpu.device;
-        let image_bind_group_layout =
+        let color_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("color images"),
                 entries: &[
                     buffer_ro(0), // distance
+                    buffer_rw(1), // color
+                ],
+            });
+        let merge_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("merge images"),
+                entries: &[
+                    buffer_rw(0), // distance
                     buffer_rw(1), // color
                 ],
             });
@@ -128,7 +165,7 @@ impl Context {
                 bind_group_layouts: &[
                     Some(&gpu.config_bind_group_layout),
                     Some(&gpu.color_bind_group_layout),
-                    Some(&image_bind_group_layout),
+                    Some(&color_bind_group_layout),
                 ],
                 immediate_size: 0u32,
             });
@@ -152,7 +189,8 @@ impl Context {
 
         Self {
             gpu: gpu.clone(),
-            image_bind_group_layout,
+            color_bind_group_layout,
+            merge_bind_group_layout,
             pipeline,
         }
     }
@@ -160,11 +198,10 @@ impl Context {
     #[allow(clippy::too_many_arguments)]
     fn encode(
         &self,
-        image: &mut super::merge::Buffers,
-        settings: ColorSettings,
         shape: &RenderColor,
+        settings: Settings,
         workspace: &mut Workspace,
-        vars: &ShapeVars<f32>,
+        image: &mut super::merge::Buffers,
         encoder: &mut wgpu::CommandEncoder,
         staging: &mut wgpu::util::StagingBelt,
     ) -> Result<(), ColorError> {
@@ -182,7 +219,7 @@ impl Context {
             * ImageSize::new(size.width(), size.height()).screen_to_world();
         let mut mat4 = nalgebra::Matrix4x3::<f32>::identity();
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
-        shape.copy_vars(encoder, staging, vars)?;
+        shape.copy_vars(encoder, staging, settings.vars)?;
 
         let config = ColorConfig {
             mat: mat4.data.as_slice().try_into().unwrap(),
@@ -212,63 +249,21 @@ impl Context {
         Ok(())
     }
 
-    /// Submits a color evaluation pass
-    ///
-    /// Image size is set from the [`super::merge::Buffers`]; the transform matrix is
-    /// provided separately (but should be the same one used for image
-    /// evaluation).
-    pub fn submit(
-        &self,
-        merge: &mut super::merge::Buffers,
-        settings: ColorSettings,
-        shape: &RenderColor,
-        workspace: &mut Workspace,
-    ) -> Result<(), ColorError> {
-        self.submit_with_vars(
-            merge,
-            settings,
-            shape,
-            workspace,
-            &Default::default(),
-        )
-    }
-
-    /// Submits a color evaluation pass with auxiliary variables
-    ///
-    /// Image size is set from the `MergeWorkspace`; the transform matrix is
-    /// provided separately (but should be the same one used for image
-    /// evaluation).
-    pub fn submit_with_vars(
-        &self,
-        merge: &mut super::merge::Buffers,
-        settings: ColorSettings,
-        shape: &RenderColor,
-        workspace: &mut Workspace,
-        vars: &ShapeVars<f32>,
-    ) -> Result<(), ColorError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: None },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(
-            merge,
-            settings,
-            shape,
-            workspace,
-            vars,
-            &mut encoder,
-            &mut staging,
-        )?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
-    }
-
     /// Returns a new workspace for color evaluation
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("color")
+    }
+
+    fn buffers(
+        &self,
+        image_size: ImageSize,
+    ) -> Result<Self::Buffers, Self::BuffersError> {
+        super::merge::Buffers::new(
+            &self.gpu.device,
+            image_size,
+            &self.merge_bind_group_layout,
+            &self.color_bind_group_layout,
+        )
     }
 }
 

@@ -42,7 +42,7 @@ mod test {
             pixel_ctx
                 .submit(
                     &gpu,
-                    render::Args { shape: &shape },
+                    &shape,
                     render::Settings {
                         vars,
                         ..render::Settings::default()
@@ -52,7 +52,13 @@ mod test {
                 )
                 .unwrap();
             merge_ctx
-                .submit(&buf, true, &mut merge_workspace, &mut merge_buf)
+                .submit(
+                    &gpu,
+                    &buf,
+                    merge::Settings::default(),
+                    &mut merge_workspace,
+                    &mut merge_buf,
+                )
                 .unwrap();
         }
         let shape_colors = shapes
@@ -75,16 +81,15 @@ mod test {
 
         // Compute per-pixel colors
         color_ctx
-            .submit_with_vars(
-                &mut merge_buf,
-                color::ColorSettings {
-                    z: 0.0,
-                    only_filled: false,
-                    world_to_model: nalgebra::Matrix3::identity(),
-                },
+            .submit(
+                &gpu,
                 &shape_colors,
+                color::Settings {
+                    vars,
+                    ..Default::default()
+                },
                 &mut color_workspace,
-                vars,
+                &mut merge_buf,
             )
             .unwrap();
 

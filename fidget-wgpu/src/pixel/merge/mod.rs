@@ -155,7 +155,22 @@ pub struct MergeConfig {
     pub index_base: u32,
 }
 
-/// WGPU context for applying various effects
+/// Settings for merge operations
+pub struct Settings {
+    remove_nans: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { remove_nans: true }
+    }
+}
+
+/// WGPU context for merging images
+///
+/// Note that [`Buffers::reset`] should be called before the first call to
+/// `submit` or `encode`. The [`Buffers`] object must match the image size;
+/// otherwise an error will be returned.
 pub struct Context {
     gpu: Gpu,
 
@@ -169,9 +184,19 @@ pub struct Context {
     pipeline: wgpu::ComputePipeline,
 }
 
-impl Context {
-    /// Builds a new context for applying effects
-    pub fn new(gpu: &Gpu) -> Self {
+impl crate::Context for Context {
+    type Workspace = Workspace;
+    type Buffers = Buffers;
+    type BuffersError = BufferSizeError;
+    type EncodeError = MergeError;
+    type Settings<'a>
+        = Settings
+    where
+        Self: 'a;
+    type Args<'a> = &'a super::render::Buffers;
+    type Size = ImageSize;
+
+    fn new(gpu: &Gpu) -> Self {
         let merge_bind_group_layout = gpu.device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 label: None,
@@ -228,44 +253,10 @@ impl Context {
         }
     }
 
-    /// Submits a set of merge operations to accumulate a single image
-    ///
-    /// [`Buffers::reset`] should be called before the first call to
-    /// `submit`. The [`Buffers`] object must match the image size;
-    /// otherwise an error will be returned.
-    pub fn submit(
+    fn encode(
         &self,
         image: &super::render::Buffers,
-        remove_nans: bool,
-        workspace: &mut Workspace,
-        buf: &mut Buffers,
-    ) -> Result<(), MergeError> {
-        let mut encoder = self.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("merge compute encoder"),
-            },
-        );
-        let mut staging =
-            wgpu::util::StagingBelt::new(self.gpu.device.clone(), 1024);
-        self.encode(
-            image,
-            remove_nans,
-            workspace,
-            buf,
-            &mut encoder,
-            &mut staging,
-        )?;
-        staging.finish();
-        self.gpu.queue.submit(Some(encoder.finish()));
-        staging.recall();
-        Ok(())
-    }
-
-    /// Low-level function to encode a merge operation into a command encoder
-    pub fn encode(
-        &self,
-        image: &super::render::Buffers,
-        remove_nans: bool,
+        settings: Settings,
         workspace: &mut Workspace,
         buf: &mut Buffers,
         encoder: &mut wgpu::CommandEncoder,
@@ -285,7 +276,7 @@ impl Context {
         // Write the config using a staging buffer
         let cfg = MergeConfig {
             image_size: [size.width(), size.height()],
-            remove_nans: remove_nans as u32,
+            remove_nans: settings.remove_nans as u32,
             index_base: buf.image_count as u32,
         };
         workspace.encode_copy(encoder, staging, &cfg);
@@ -309,13 +300,11 @@ impl Context {
         Ok(())
     }
 
-    /// Builds a new set of [`Workspace`] for the given image size
-    pub fn workspace(&self) -> Workspace {
+    fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("merge")
     }
 
-    /// Build a new set of buffers for merging pixel images
-    pub fn buffers(
+    fn buffers(
         &self,
         image_size: ImageSize,
     ) -> Result<Buffers, BufferSizeError> {

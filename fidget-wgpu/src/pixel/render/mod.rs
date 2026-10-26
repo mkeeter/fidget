@@ -86,14 +86,6 @@ fn merge_shader() -> String {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Mandatory arguments for 2D rendering
-///
-/// Render size is set by the [`Buffers`] object and is not provided here
-pub struct Args<'a> {
-    /// Shape to render
-    pub shape: &'a RenderShape,
-}
-
 /// Optional settings for 2D rendering
 pub struct Settings<'a> {
     /// Values for free variables
@@ -870,7 +862,7 @@ impl crate::Context for Context {
     type BuffersError = BuffersError;
     type EncodeError = MissingVar;
     type Size = ImageSize;
-    type Args<'a> = Args<'a>;
+    type Args<'a> = &'a RenderShape;
     type Settings<'a> = Settings<'a>;
 
     /// Build a new 2D rendering context, given a device and queue
@@ -909,7 +901,7 @@ impl crate::Context for Context {
     #[allow(clippy::too_many_arguments)]
     fn encode(
         &self,
-        args: Args<'_>,
+        shape: &RenderShape,
         settings: Settings<'_>,
         workspace: &mut Workspace,
         buffers: &mut Buffers,
@@ -926,10 +918,10 @@ impl crate::Context for Context {
         mat4.fixed_view_mut::<3, 3>(0, 0).copy_from(&mat);
 
         // Divide by 2 to go from `u32` -> `TapeWord`
-        let start_offset = args.shape.bytecode_len.try_into().unwrap();
+        let start_offset = shape.bytecode_len.try_into().unwrap();
         let config = Config {
             mat: mat4.data.as_slice().try_into().unwrap(),
-            axes: args.shape.axes(),
+            axes: shape.axes(),
             render_size: [render_size.width(), render_size.height()],
             tape_data_capacity: TAPE_DATA_CAPACITY.try_into().unwrap(),
             image_size: [
@@ -956,15 +948,15 @@ impl crate::Context for Context {
 
         // Encode a buffer-to-buffer copy to load the tape
         encoder.copy_buffer_to_buffer(
-            &args.shape.tape,
+            &shape.tape,
             0u64,
             &workspace.config_buf,
             config_len,
-            args.shape.tape.size(),
+            shape.tape.size(),
         );
 
         // Copy vars (if present)
-        args.shape.copy_vars(encoder, staging, settings.vars)?;
+        shape.copy_vars(encoder, staging, settings.vars)?;
 
         // Initial buffer reset pass
         self.reset_ctx.run(encoder, buffers);
@@ -977,19 +969,19 @@ impl crate::Context for Context {
 
         // These bind groups are used by every compute shader
         compute_pass.set_bind_group(0, &workspace.bind_group, &[]);
-        compute_pass.set_bind_group(1, &args.shape.vars_bind_group, &[]);
+        compute_pass.set_bind_group(1, &shape.vars_bind_group, &[]);
 
         // Populate root tiles (64x64x64, densely packed)
         self.root_ctx.run(
             buffers,
-            args.shape.reg_count,
+            shape.reg_count,
             render_size,
             &mut compute_pass,
         );
         self.tiles_ctx
-            .run(buffers, args.shape.reg_count, &mut compute_pass);
+            .run(buffers, shape.reg_count, &mut compute_pass);
         self.pixels_ctx
-            .run(buffers, args.shape.reg_count, &mut compute_pass);
+            .run(buffers, shape.reg_count, &mut compute_pass);
 
         // Merge filled tiles from large -> small
         self.merge_ctx.run(buffers, &mut compute_pass);
@@ -1005,13 +997,13 @@ impl Context {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run<'a>(
         &self,
-        args: Args<'a>,
+        shape: &'a RenderShape,
         settings: Settings<'a>,
         workspace: &mut Workspace,
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
     ) -> Result<Image, RunError> {
-        self.submit(&self.gpu, args, settings, workspace, buf)?;
+        self.submit(&self.gpu, shape, settings, workspace, buf)?;
         self.gpu.copy(buf.output(), out)?;
         let image = self.gpu.map_image(out);
         Ok(image.image())
@@ -1020,13 +1012,13 @@ impl Context {
     /// Renders the image, with an async wait to read pixel data from the GPU
     pub async fn run_async<'a>(
         &self,
-        args: Args<'a>,
+        shape: &'a RenderShape,
         settings: Settings<'a>,
         workspace: &mut Workspace,
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
     ) -> Result<Image, RunError> {
-        self.submit(&self.gpu, args, settings, workspace, buf)?;
+        self.submit(&self.gpu, shape, settings, workspace, buf)?;
         self.gpu.copy(buf.output(), out)?;
         let image = self.gpu.map_image_async(out).await;
         Ok(image.image())
