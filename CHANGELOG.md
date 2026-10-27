@@ -15,6 +15,7 @@ In this release, I rewrote the whole GPU API again!  Sorry!
 - Switched `VarMap` to use a `BTreeMap` under the hood (instead of a `HashMap`).
   This allows a `const` constructor, which in turn allows a default-constructed
   empty `&VarMap`.
+- Add `Hash` to `RegionSize` (and therefore to `ImageSize` and `VoxelSize`)
 
 ## `fidget-wgpu` changes
 The overarching theme here is a single `trait Context`, which is used for all of
