@@ -160,7 +160,11 @@ pub struct MergeConfig {
 
 /// Settings for merge operations
 pub struct Settings {
-    remove_nans: bool,
+    /// Remove NaN-boxed values by replacing them with average distances
+    ///
+    /// If no neighbors have valid distance, then NaN-boxed values are replaced
+    /// with ±∞ (depending on the sign)
+    pub remove_nans: bool,
 }
 
 impl Default for Settings {

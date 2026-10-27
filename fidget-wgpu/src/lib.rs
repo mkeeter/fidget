@@ -113,7 +113,6 @@
 //!
 //! // Submit the work to the queue
 //! ctx.submit(
-//!     &gpu,
 //!     &render_shape,
 //!     render_config,
 //!     &mut workspace,

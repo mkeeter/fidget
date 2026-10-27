@@ -7,7 +7,6 @@ use fidget_raster::RenderSize;
 use zerocopy::FromBytes;
 
 /// Strongly-typed, strongly-sized GPU buffer type
-#[derive(Clone)]
 pub struct FlexBuffer<T: BufferTag> {
     /// Buffer size, stored in its original form
     size: T::S,
@@ -15,6 +14,19 @@ pub struct FlexBuffer<T: BufferTag> {
     data: wgpu::Buffer,
     /// Marker for buffer tag type
     _t: std::marker::PhantomData<T>,
+}
+
+impl<T> Clone for FlexBuffer<T>
+where
+    T: BufferTag,
+{
+    fn clone(&self) -> Self {
+        Self {
+            size: self.size,
+            data: self.data.clone(),
+            _t: std::marker::PhantomData,
+        }
+    }
 }
 
 /// Tag associated with a particular [`FlexBuffer`]

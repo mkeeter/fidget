@@ -149,7 +149,8 @@ impl RenderColor {
         let shape_start_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shape starts"),
             usage: wgpu::BufferUsages::STORAGE,
-            size: (shape_start.len() * std::mem::size_of::<u32>()) as u64,
+            size: (shape_start.len() * std::mem::size_of::<u32>()).max(16)
+                as u64,
             mapped_at_creation: true,
         });
         shape_start_buf
@@ -170,7 +171,8 @@ impl RenderColor {
 
         let tape = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tape"),
-            size: (bytecode_data.len() * std::mem::size_of::<u32>()) as u64,
+            size: (bytecode_data.len() * std::mem::size_of::<u32>()).max(16)
+                as u64,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: true,
         });
