@@ -149,7 +149,7 @@ impl RenderColor {
         let shape_start_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shape starts"),
             usage: wgpu::BufferUsages::STORAGE,
-            size: (shape_start.len() * std::mem::size_of::<u32>()).max(16)
+            size: (shape_start.len() * std::mem::size_of::<u32>()).max(4)
                 as u64,
             mapped_at_creation: true,
         });
