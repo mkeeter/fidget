@@ -431,7 +431,6 @@ fn run3d_wgpu(
     let out_bytes = match mode {
         RenderMode3D::Heightmap => {
             merge_ctx.submit(
-                &gpu,
                 &buffers,
                 Settings {
                     denoise: false,
@@ -441,7 +440,6 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             heightmap_ctx.submit(
-                &gpu,
                 &merge_buf,
                 (),
                 &mut heightmap_workspace,
@@ -454,7 +452,6 @@ fn run3d_wgpu(
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             merge_ctx.submit(
-                &gpu,
                 &buffers,
                 fidget::wgpu::voxel::merge::Settings {
                     denoise,
@@ -464,7 +461,6 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             ssao_ctx.submit(
-                &gpu,
                 &merge_buf,
                 (),
                 &mut ssao_workspace,
@@ -475,7 +471,6 @@ fn run3d_wgpu(
         }
         RenderMode3D::RawOcclusion { denoise } => {
             merge_ctx.submit(
-                &gpu,
                 &buffers,
                 fidget::wgpu::voxel::merge::Settings {
                     denoise,
@@ -485,7 +480,6 @@ fn run3d_wgpu(
                 &mut merge_buf,
             )?;
             ssao_ctx.submit(
-                &gpu,
                 &merge_buf,
                 (),
                 &mut ssao_workspace,
@@ -496,7 +490,6 @@ fn run3d_wgpu(
         }
         RenderMode3D::Shaded { denoise, ssao } => {
             merge_ctx.submit(
-                &gpu,
                 &buffers,
                 fidget::wgpu::voxel::merge::Settings {
                     denoise,
@@ -507,7 +500,6 @@ fn run3d_wgpu(
             )?;
             if ssao {
                 ssao_ctx.submit(
-                    &gpu,
                     &merge_buf,
                     (),
                     &mut ssao_workspace,
@@ -516,7 +508,6 @@ fn run3d_wgpu(
             }
 
             shade_ctx.submit(
-                &gpu,
                 &merge_buf,
                 if ssao { Some(&ssao_buf) } else { None },
                 &mut shade_workspace,

@@ -8,53 +8,27 @@
 //! [Halfspace](https://github.com/mkeeter/halfspace), and may not yet be
 //! suitable for every use case.
 //!
-//! ## Object types
-//! All of the modules use similar patterns of objects:
+//! The [`Gpu`] object provides device and queue access, as well as functions
+//! to create, map, and read from buffers.  In addition, it lets users create
+//! two kinds of render objects:
 //!
-//! - The [`Gpu`] object is passed around to provide device and queues
-//! - A `Context` object contains pipelines and can build `Workspace` and
-//!   `Buffers` objects
-//! - A `Workspace` object contains configuration buffers used when rendering
-//! - A `Buffers` object contains size-dependent buffers used when rendering.
-//!   Within the buffers object, an output buffer can be read back to the CPU or
-//!   passed to a subsequent render pipeline
+//! - Render shape objects ([`RenderShape`]) are used for inside / outside
+//!   evaluation, generating heightmaps + normals (in 3D), and distance fields
+//!   (in 2D).  This mimicks functionality in `fidget::render`.
+//! - Render color objects ([`RenderColor`](color::RenderColor)) are used for
+//!   per-pixel color evaluation.
 //!
-//! Let's walk through each of this object flavors in turn.
+//! Render objects store data in GPU buffers and should only be regenerated when
+//! shapes actually change (i.e. not once per frame).
 //!
-//! ### Context objects
-//! A context object contains GPU pipelines, and allow users to dispatch work to
-//! the GPU.  Voxel and pixel rendering are managed by
-//! [`voxel::render::Context`] and [`pixel::render::Context`] respectively;
-//! other passes are managed by other `Context` objects (e.g.
-//! [`voxel::merge::Context`]).
+//! To actually perform GPU work, each module contains a `Context` object, which
+//! implements the [`Context`] trait.  This is where the bulk of the API design
+//! lives; see its docs for details!
 //!
-//! Users are expected to create one (of each) context object per thread or
-//! worker, since GPU resources can't be shared.  These are expensive to create
-//! and should not be churned.
-//!
-//! ### Workspace objects
-//! Workspace objects (e.g. [`voxel::render::Workspace`]) contain fixed-size
-//! configuration buffers, used when dispatching work to the GPU.  They are also
-//! per-thread (or per-worker).  You may have more than one per thread if you
-//! want to dispatch multiple jobs simultaneously; it's your computer.  However,
-//! be aware that they may be be heavy in terms of GPU resources; in particular,
-//! voxel and pixel workspaces allocate a large arena for bump allocation.
-//!
-//! ### Buffers objects
-//! Buffers objects (e.g. [`voxel::render::Buffers`]) are image-size-dependent buffers
-//! used for rendering.  Users will typically create one per simultaneous
-//! viewport, and they are expected to be long-lived (only being deleted if the
-//! viewport size changes).
-//!
-//! These objects are stateful: after they are used in a `submit` function, they
-//! will contain data in a GPU buffer.  The output buffer is typically accessed
-//! with the `output()` function, e.g. [`voxel::render::Buffers::output`].
-//!
-//! ### Reading data from buffers
-//! The output of a rendering pass is a [`FlexBuffer`](crate::buf::FlexBuffer)
-//! (indeed, they are used pervasively throughout this crate).  Output buffers
-//! are created with `STORAGE | COPY_SRC`.  Reading data back to the CPU is a
-//! three-part process:
+//! ## Reading data from buffers
+//! The output of a rendering pass is a [`FlexBuffer`](crate::buf::FlexBuffer),
+//! wrapping a WGPU buffer created with `STORAGE | COPY_SRC`.  Reading data back
+//! to the CPU is a three-part process:
 //!
 //! - Create a CPU-readable buffer with [`Gpu::read_buffer_for`]
 //! - Copy data with [`Gpu::copy`]
@@ -71,7 +45,8 @@
 //! ### `run` functions
 //! At the highest level, `run` and `run_async` functions perform rendering
 //! and copy data back to the CPU (e.g. [`voxel::render::Context::run`] and
-//! [`run_async`](voxel::render::Context::run_async)).
+//! [`run_async`](voxel::render::Context::run_async)).  These are not present on
+//! every `Context` object; only ones where it seemed useful.
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
@@ -119,8 +94,8 @@
 //! ```
 //!
 //! ### `submit` functions
-//! To simply submit work to the GPU, use a `submit` function (e.g.
-//! [`voxel::render::Context::submit`]).
+//! To simply submit work to the GPU, call its [`submit`](Context::submit)
+//! function.
 //!
 //! ```
 //! # fidget_wgpu::require_gpu!();
@@ -168,13 +143,10 @@
 //!
 //! ### `encode` functions
 //! At the lowest level, to encode a rendering operation into a WebGPU
-//! `CommandEncoder`, use an `encode` function (e.g.
-//! [`voxel::render::Context::encode`]).  `encode` functions which copy data to GPU
-//! memory (i.e. most of them) also need a [`wgpu::util::StagingBelt`] object to
-//! be passed in, for subtle reasons (when config buffers are reused, we need
-//! data loading to happen at specific times within the `CommandEncoder` list,
-//! instead of submitting the data copies to a queue directly).
-//!
+//! `CommandEncoder`, use an [`encode`](Context::encode) function.  `encode`
+//! functions are expected to copy small amounts of data to GPU memory (e.g.
+//! transform matrices in a configuration object), so `encode` takes a
+//! [`wgpu::util::StagingBelt`] object.
 //! ```
 //! # fidget_wgpu::require_gpu!();
 //! # use fidget_wgpu::{Context as _, Gpu, voxel::render::Context};
@@ -874,50 +846,89 @@ pub(crate) fn encode_copy_vars(
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Trait for a compute pipeline context object
+///
+/// A context object serves three purposes:
+///
+/// - Stores GPU pipelines for a particular rendering pass
+/// - Allows the creation of workspace (size-independent) and buffers
+///   (size-dependent) objects
+/// - Encodes and submits work to the GPU for evaluation
+///
+/// Users are expected to create one (of each type of) context object per thread
+/// or worker, since GPU resources can't be shared.  These are expensive to
+/// create and should not be churned.
 pub trait Context {
-    /// Configuration buffers (size-independent) for evaluation
+    /// Fixed-size configuration buffers for evaluation
+    ///
+    /// One of these is needed for each simultaneous dispatch.  Typically, you
+    /// would build one per thread (or per worker) and reuse it.  However, you
+    /// can have more than one per thread if you want to dispatch multiple jobs
+    /// simultaneously; it's your computer.  Be aware that they may be
+    /// be heavy in terms of GPU resources.  In particular, voxel and pixel
+    /// workspaces allocate a large arena of GPU memory for bump allocation!
     type Workspace;
 
     /// Size-dependent buffers for evaluation
+    ///
+    /// Users will typically create one per simultaneous viewport, and they are
+    /// expected to be long-lived (only being deleted if the viewport size
+    /// changes).
+    ///
+    /// These objects are stateful: after they are used in a rendering pass,
+    /// they will contain data in a GPU buffer.  The output buffer is typically
+    /// accessed with the `output()` function, e.g.
+    /// [`voxel::render::Buffers::output`].
     type Buffers;
 
     /// Error returned by [`Self::buffers`]
+    ///
+    /// This typically indicates that the buffer size is invalid
     type BuffersError;
 
     /// Error returned by [`Self::encode`]
+    ///
+    /// This indicates a mistake in arguments passed to `encode` or `submit`
+    /// (e.g. missing variables or mismatched image sizes).
     type EncodeError;
 
     /// Argument object for [`Self::encode`]
     ///
-    /// Arguments must always be present and cannot be default-constructed; they
-    /// are also allowed to borrow from the outside world.
+    /// Arguments must always be present and cannot be default-constructed.
+    /// This may either be a single type (e.g. voxel rendering takes a shape as
+    /// its argument) or a small `struct` (e.g. shading takes both heightmap and
+    /// SSAO buffers).
     type Args<'a>
     where
         Self: 'a;
 
     /// Settings object for [`Self::encode`]
     ///
-    /// Unlike `Args`, settings have default values
+    /// Unlike `Args`, settings must be default-constructible
     type Settings<'a>: Default
     where
         Self: 'a;
 
-    /// Size type used in buffer construction
+    /// Size type used in construction of [`Buffers`](Context::Buffers)
     type Size: buf::BufferItemCount;
 
     /// Builds a new context object
     fn new(gpu: &Gpu) -> Self;
 
-    /// Builds a new workspace object
+    /// Builds a new workspace object, typically storing configuration buffers
     fn workspace(&self) -> Self::Workspace;
 
-    /// Builds a new size-dependent buffers object
+    /// Builds a new size-dependent buffers object, storing viewport buffers
     fn buffers(
         &self,
         size: Self::Size,
     ) -> Result<Self::Buffers, Self::BuffersError>;
 
     /// Encodes evaluation into a command encoder
+    ///
+    /// This function **must not** send any work to the GPU queue itself.  It
+    /// also **should not** perform any work that requires the `wgpu::Device`
+    /// (e.g. creating buffers or bind groups); those should all be created in
+    /// advance and passed in through the function arguments.
     fn encode(
         &self,
         args: Self::Args<'_>,
@@ -929,14 +940,17 @@ pub trait Context {
     ) -> Result<(), Self::EncodeError>;
 
     /// Submits work to a GPU object
+    ///
+    /// Implementors of the trait should probably use the default `submit`
+    /// implementation, which is a thin wrapper around [`Self::encode`].
     fn submit(
         &self,
-        gpu: &Gpu,
         args: Self::Args<'_>,
         settings: Self::Settings<'_>,
         workspace: &mut Self::Workspace,
         buffers: &mut Self::Buffers,
     ) -> Result<(), Self::EncodeError> {
+        let gpu = self.gpu();
         let mut encoder = gpu.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
@@ -955,6 +969,13 @@ pub trait Context {
         staging.recall();
         Ok(())
     }
+
+    /// Returns a handle to the `Gpu` object
+    ///
+    /// This lets `submit` avoid a `Gpu` argument, but is otherwise not expected
+    /// to be used.
+    #[doc(hidden)]
+    fn gpu(&self) -> &Gpu;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

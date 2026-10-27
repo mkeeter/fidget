@@ -220,6 +220,10 @@ impl crate::Context for Context {
     fn workspace(&self) -> Workspace {
         self.gpu.config_workspace("shade")
     }
+
+    fn gpu(&self) -> &Gpu {
+        &self.gpu
+    }
 }
 
 #[cfg(test)]

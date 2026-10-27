@@ -310,6 +310,10 @@ impl crate::Context for Context {
             output_bind_group,
         })
     }
+
+    fn gpu(&self) -> &Gpu {
+        &self.gpu
+    }
 }
 
 tag!(pub SsaoRawBufferTag, f32, ImageSize, STORAGE | COPY_SRC,
@@ -424,7 +428,6 @@ mod test {
 
         voxel_ctx
             .submit(
-                &gpu,
                 &shape,
                 Default::default(),
                 &mut voxel_workspace,
@@ -433,7 +436,6 @@ mod test {
             .unwrap();
         merge_ctx
             .submit(
-                &gpu,
                 &voxel_buf,
                 Default::default(),
                 &mut merge_workspace,
@@ -443,7 +445,7 @@ mod test {
         let mut ssao_workspace = ssao_ctx.workspace();
         let mut ssao_buf = ssao_ctx.buffers(image_size.into()).unwrap();
         ssao_ctx
-            .submit(&gpu, &merge_buf, (), &mut ssao_workspace, &mut ssao_buf)
+            .submit(&merge_buf, (), &mut ssao_workspace, &mut ssao_buf)
             .unwrap();
         let ssao_out = gpu.read_vec(ssao_buf.raw_occlusion());
 

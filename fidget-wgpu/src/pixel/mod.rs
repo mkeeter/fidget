@@ -1,4 +1,4 @@
-//! 2D (pixel) rendering
+//! Pixel (2D) rendering
 pub use fidget_raster::pixel::RenderSize;
 pub mod color;
 pub mod merge;
@@ -41,7 +41,6 @@ mod test {
                 .unwrap();
             pixel_ctx
                 .submit(
-                    &gpu,
                     &shape,
                     render::Settings {
                         vars,
@@ -53,7 +52,6 @@ mod test {
                 .unwrap();
             merge_ctx
                 .submit(
-                    &gpu,
                     &buf,
                     merge::Settings::default(),
                     &mut merge_workspace,
@@ -82,7 +80,6 @@ mod test {
         // Compute per-pixel colors
         color_ctx
             .submit(
-                &gpu,
                 &shape_colors,
                 color::Settings {
                     vars,

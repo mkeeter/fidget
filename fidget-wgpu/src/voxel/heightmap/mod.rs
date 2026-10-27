@@ -137,6 +137,10 @@ impl crate::Context for Context {
     ) -> Result<Self::Buffers, Self::BuffersError> {
         Self::Buffers::new(&self.gpu, size)
     }
+
+    fn gpu(&self) -> &Gpu {
+        &self.gpu
+    }
 }
 
 #[cfg(test)]

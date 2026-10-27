@@ -99,11 +99,10 @@ mod test {
                 .build_render_shape(&VmShape::from(shape.clone()))
                 .unwrap();
             voxel_ctx
-                .submit(&gpu, &shape, settings, &mut workspace, &mut buffers)
+                .submit(&shape, settings, &mut workspace, &mut buffers)
                 .unwrap();
             merge_ctx
                 .submit(
-                    &gpu,
                     &buffers,
                     Default::default(),
                     &mut merge_workspace,
@@ -134,13 +133,12 @@ mod test {
         let mut ssao_buf = ssao_ctx.buffers(size.into()).unwrap();
         let mut ssao_workspace = ssao_ctx.workspace();
         ssao_ctx
-            .submit(&gpu, &merge_buf, (), &mut ssao_workspace, &mut ssao_buf)
+            .submit(&merge_buf, (), &mut ssao_workspace, &mut ssao_buf)
             .unwrap();
 
         // Compute per-pixel colors
         color_ctx
             .submit(
-                &gpu,
                 color::Args {
                     image: &merge_buf,
                     color: &shape_colors,
@@ -165,7 +163,6 @@ mod test {
         let mut shade_out = gpu.read_buffer_for(shade_buf.output());
         shade_ctx
             .submit(
-                &gpu,
                 &merge_buf,
                 Some(&ssao_buf),
                 &mut shade_workspace,
@@ -178,7 +175,6 @@ mod test {
         // Recompute per-pixel colors
         color_ctx
             .submit(
-                &gpu,
                 color::Args {
                     image: &merge_buf,
                     color: &shape_colors,
@@ -193,13 +189,7 @@ mod test {
             .unwrap();
         // Compute heightmap
         heightmap_ctx
-            .submit(
-                &gpu,
-                &merge_buf,
-                (),
-                &mut heightmap_workspace,
-                &mut shade_buf,
-            )
+            .submit(&merge_buf, (), &mut heightmap_workspace, &mut shade_buf)
             .unwrap();
         gpu.copy(shade_buf.output(), &mut shade_out).unwrap();
         let heightmap = gpu.map_image(&mut shade_out).image();

@@ -977,6 +977,10 @@ impl crate::Context for Context {
         drop(compute_pass);
         Ok(())
     }
+
+    fn gpu(&self) -> &Gpu {
+        &self.gpu
+    }
 }
 
 impl Context {
@@ -992,7 +996,7 @@ impl Context {
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
     ) -> Result<Image, RunError> {
-        self.submit(&self.gpu, shape, settings, workspace, buf)?;
+        self.submit(shape, settings, workspace, buf)?;
         self.gpu.copy(buf.output(), out)?;
         let image = self.gpu.map_image(out);
         Ok(image.image())
@@ -1007,7 +1011,7 @@ impl Context {
         buf: &mut Buffers,
         out: &mut ReadBuffer<PixelBufferTag>,
     ) -> Result<Image, RunError> {
-        self.submit(&self.gpu, shape, settings, workspace, buf)?;
+        self.submit(shape, settings, workspace, buf)?;
         self.gpu.copy(buf.output(), out)?;
         let image = self.gpu.map_image_async(out).await;
         Ok(image.image())

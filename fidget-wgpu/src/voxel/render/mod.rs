@@ -44,38 +44,7 @@
 //! - We get some amount of Z culling, because each pass can bail out if the
 //!   result in the heightmap fully covers the tile
 //!
-//! # Practice
-//! There are a handful of core objects, each with different lifetimes
-//!
-//! - [`Context`] contains all of the pipelines used for 3D rendering.  It
-//!   is very expensive to build and should be constructed once per thread /
-//!   worker.
-//! - [`RenderShape`] contains GPU buffers of bytecode to render a particular
-//!   shape. Best practice is to rebuild it only when a shape changes (i.e. not
-//!   once per frame), although in practice it's pretty fast to construct.
-//! - [`Workspace`] contains fixed-size GPU buffers used when rendering (i.e.
-//!   configuration buffers).  It is primarily expensive in GPU memory, as it
-//!   contains a memory arena for compute-time simplification.  Best practice is
-//!   to construct one [`Workspace`] object per worker context (or per
-//!   simultaneous render if you're being fancy).
-//! - [`Buffers`] contain size-dependent buffers used when rendering.  This is
-//!   also expensive in GPU memory, since it contains several full-frame GPU
-//!   buffers.  Best practice is to construct one [`Buffers`] object per GUI
-//!   viewport (or simultaneous render size).
-//! - [`Settings`] sets the transform matrix for rendering.  This is cheap
-//!   to construct and could be built once per frame
-//!
-//! With all that out of the way, usage is pretty simple:
-//! - Build a [`Context`]
-//! - Use [`Gpu::build_render_shape`] to convert from a
-//!   [`VmShape`](fidget_core::vm::VmShape) to a [`RenderShape`]
-//! - Use [`Context::workspace`] to get a [`Workspace`]
-//! - Use [`Context::buffers`] to get a [`Buffers`] (setting your render size)
-//! - Use [`Gpu::read_buffer_for(buffers.output())`](Gpu::read_buffer_for) to
-//!   get an output buffer
-//! - Call [`Context::run`] or [`Context::run_async`] to get an image
-//!
-//! ## Sync and async operation
+//! # Sync and async operation
 //!
 //! GPU operations are asynchronous; operations are submitted to a queue, and
 //! are completed at some point in the future.  [`Context::run`] blocks until
@@ -83,20 +52,6 @@
 //! by a feature flag on the web); it uses [`wgpu::Device::poll`], which is a
 //! no-op on the web. [`Context::run_async`] is the async equivalent, and can be
 //! used either natively or on the web.
-//!
-//! ## Low-level building blocks
-//!
-//! [`Context::run`] and `run_async` do four things:
-//!
-//! - Run the GPU kernels to produce an output image, which is a
-//!   [`GeometryPixel`] array in a GPU storage buffer
-//! - Copy from that GPU storage buffer to a mappable buffer (for read-back)
-//! - Map that buffer into a [`MappedImage`](crate::buf::MappedImage)
-//! - Read image data back to the CPU
-//!
-//! Lower-level building blocks are also available: [`Context::submit`] submits
-//! the render operations to the GPU, [`Context::encode`] encodes the render
-//! opations to an encoder, and [`Buffers::output`] returns the output buffer.
 
 use crate::{
     BadCopySize, Context as _, Gpu, RegPipeline, RenderShape,
@@ -1907,6 +1862,10 @@ impl crate::Context for Context {
         // Submit the commands and wait for the GPU to complete
         Ok(())
     }
+
+    fn gpu(&self) -> &Gpu {
+        &self.gpu
+    }
 }
 
 impl Context {
@@ -1922,7 +1881,7 @@ impl Context {
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
     ) -> Result<Image, RunError> {
-        self.submit(&self.gpu, shape, settings, workspace, buffers)?;
+        self.submit(shape, settings, workspace, buffers)?;
         self.gpu.copy(&buffers.geom, out)?;
         let image = self.gpu.map_image(out);
         Ok(image.image())
@@ -1939,7 +1898,7 @@ impl Context {
         buffers: &mut Buffers,
         out: &mut ReadBuffer<GeomBufferTag>,
     ) -> Result<Image, RunError> {
-        self.submit(&self.gpu, shape, settings, workspace, buffers)?;
+        self.submit(shape, settings, workspace, buffers)?;
         self.gpu.copy(&buffers.geom, out)?;
         let image = self.gpu.map_image_async(out).await;
         Ok(image.image())

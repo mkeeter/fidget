@@ -261,6 +261,10 @@ impl crate::Context for Context {
             &self.color_bind_group_layout,
         )
     }
+
+    fn gpu(&self) -> &Gpu {
+        &self.gpu
+    }
 }
 
 #[cfg(test)]

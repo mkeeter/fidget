@@ -260,6 +260,10 @@ impl crate::Context for Context {
         buf.image_count += 1;
         Ok(())
     }
+
+    fn gpu(&self) -> &Gpu {
+        &self.gpu
+    }
 }
 
 #[cfg(test)]
