@@ -134,8 +134,6 @@ impl<T: BufferTag> FlexBuffer<T> {
     }
 
     /// Returns the active buffer size (in bytes)
-    ///
-    /// Note that this is rounded up to the nearest multiple of 4, per
     /// [`calculate_buffer_size`](Self::calculate_buffer_size)
     pub fn size_bytes(&self) -> u64 {
         Self::calculate_buffer_size(self.size)
