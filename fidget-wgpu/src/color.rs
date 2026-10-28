@@ -153,33 +153,35 @@ impl RenderColor {
                 as u64,
             mapped_at_creation: true,
         });
-        shape_start_buf
-            .slice(..)
-            .get_mapped_range_mut()
-            .unwrap()
-            .copy_from_slice(shape_start.as_bytes());
+        if !shape_start.is_empty() {
+            shape_start_buf
+                .slice(..)
+                .get_mapped_range_mut()
+                .unwrap()
+                .copy_from_slice(shape_start.as_bytes());
+        }
         shape_start_buf.unmap();
 
         let vars_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vars"),
-            size: (vars.len() * std::mem::size_of::<f32>())
-                .next_multiple_of(16)
-                .max(16) as u64,
+            size: (vars.len() * std::mem::size_of::<f32>()).max(4) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let tape = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tape"),
-            size: (bytecode_data.len() * std::mem::size_of::<u32>()).max(16)
+            size: (bytecode_data.len() * std::mem::size_of::<u32>()).max(4)
                 as u64,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: true,
         });
-        tape.slice(..)
-            .get_mapped_range_mut()
-            .unwrap()
-            .copy_from_slice(bytecode_data.as_bytes());
+        if !bytecode_data.is_empty() {
+            tape.slice(..)
+                .get_mapped_range_mut()
+                .unwrap()
+                .copy_from_slice(bytecode_data.as_bytes());
+        }
         tape.unmap();
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -214,5 +216,18 @@ impl RenderColor {
     pub(crate) fn axes(&self) -> [u32; 3] {
         [Var::X, Var::Y, Var::Z]
             .map(|a| self.vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::Gpu;
+
+    #[test]
+    fn empty_render_color() {
+        crate::require_gpu!();
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+
+        gpu.build_render_color(&[]).unwrap();
     }
 }

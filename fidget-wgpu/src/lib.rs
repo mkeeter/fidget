@@ -818,23 +818,25 @@ pub(crate) fn encode_copy_vars(
                 }
             }
         }
-        let mut writer = staging.write_buffer(
-            encoder,
-            buf,
-            0,
-            ((vs.len() * std::mem::size_of::<f32>()) as u64)
-                .try_into()
-                .unwrap(),
-        );
-        for (v, i) in vs.iter() {
-            match v {
-                Var::X | Var::Y | Var::Z => (),
-                Var::V(vi) => {
-                    let value = vars.get(vi).unwrap(); // checked above
-                    let offset = i * std::mem::size_of::<f32>();
-                    writer
-                        .slice(offset..offset + 4)
-                        .copy_from_slice(value.as_bytes());
+        if !vs.is_empty() {
+            let mut writer = staging.write_buffer(
+                encoder,
+                buf,
+                0,
+                ((vs.len() * std::mem::size_of::<f32>()) as u64)
+                    .try_into()
+                    .unwrap(),
+            );
+            for (v, i) in vs.iter() {
+                match v {
+                    Var::X | Var::Y | Var::Z => (),
+                    Var::V(vi) => {
+                        let value = vars.get(vi).unwrap(); // checked above
+                        let offset = i * std::mem::size_of::<f32>();
+                        writer
+                            .slice(offset..offset + 4)
+                            .copy_from_slice(value.as_bytes());
+                    }
                 }
             }
         }
