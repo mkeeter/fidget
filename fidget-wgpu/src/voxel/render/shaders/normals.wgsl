@@ -1,0 +1,69 @@
+@group(2) @binding(1) var<storage, read> image_heightmap: array<u32>;
+@group(2) @binding(2) var<storage, read_write> image_out: array<GeometryPixel>;
+
+@compute @workgroup_size(8, 8)
+fn normals_main(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    // One compute thread per pixel in the output image
+    let px = global_id.x;
+    let py = global_id.y;
+    if px >= config.image_size.x || py >= config.image_size.y {
+        return;
+    }
+    let pixel_index_xy = px + py * config.image_size.x;
+
+    // If we've already written this pixel, then return; because evaluation
+    // happens in Z order, it will necessarily supersede the current pixel
+    if image_out[pixel_index_xy].depth != 0 {
+        return;
+    }
+
+    // If this pixel hasn't yet been written in the heightmap, then return
+    let heightmap_index_xy = px + py * config.render_size.x;
+    let z = image_heightmap[heightmap_index_xy];
+    if z == 0u {
+        return;
+    }
+
+    // Store gradients with dx, dy, dz in xyz and value in w
+    let gx = Value(vec4f(1.0, 0.0, 0.0, f32(px)));
+    let gy = Value(vec4f(0.0, 1.0, 0.0, f32(py)));
+    let gz = Value(vec4f(0.0, 0.0, 1.0, f32(z)));
+
+    // Compute input values
+    let m = transformed_inputs(gx, gy, gz);
+
+    let tape_start = get_tape_start(vec3u(px, py, z));
+    var stack = Stack(); // dummy value
+    let out = run_tape(tape_start, m, &stack);
+    image_out[pixel_index_xy] = GeometryPixel(out.value.v.xyz, z);
+}
+
+/// For a given voxel position, return the tape start index
+///
+/// This is the highest-resolution tape index that is valid for the given
+/// position, e.g. preferring tapes specialized to 4x4x4 regions, then
+/// 16x16x16, then 64x64x64.
+fn get_tape_start(corner_pos: vec3u) -> u32 {
+    let index4 = get_tape_offset_for_level(corner_pos, 4u);
+    let t4 = tile_tape[index4];
+    if t4 != 0 {
+        return t4;
+    }
+
+    let index16 = get_tape_offset_for_level(corner_pos, 16u);
+    let t16 = tile_tape[index16];
+    if t16 != 0 {
+        return t16;
+    }
+
+    let index64 = get_tape_offset_for_level(corner_pos, 64u);
+    let t64 = tile_tape[index64];
+    if t64 != 0 {
+        return t64;
+    } else {
+        return 0u;
+    }
+}
+

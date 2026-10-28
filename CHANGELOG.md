@@ -1,4 +1,6 @@
 # 0.5.2
+In this release, I rewrote the whole GPU API again!  Sorry!
+
 - Makes `fidget::wgpu::buf::FlexBuffer::new` and `grow_to_fit` public
 - Fix a bug in `fidget_jit` on AArch64 where `w28` was corrupted in JIT
   functions which use over 4096 bytes of stack.
@@ -10,6 +12,17 @@
   slightly slower for deep trees with no sharing, but is a significant speedup
   for trees with shared branches (to be pedantic, these would be directed
   acyclic graphs, rather than trees).
+- Switched `VarMap` to use a `BTreeMap` under the hood (instead of a `HashMap`).
+  This allows a `const` constructor, which in turn allows a default-constructed
+  empty `&VarMap`.
+- Add `Hash` to `RegionSize` (and therefore to `ImageSize` and `VoxelSize`)
+
+## `fidget-wgpu` changes
+The overarching theme here is a single `trait Context`, which is used for all of
+the different rendering passes (evaluation, shading, etc).  This trait splits up
+size-independent configuration buffers (`Workspace`) with size-dependent image
+buffers (`Buffers`) and allows them to be constructed separately.  As always,
+see the docstrings for more details.
 
 # 0.5.1
 The most significant change in this version is unlocking all-GPU rendering: we

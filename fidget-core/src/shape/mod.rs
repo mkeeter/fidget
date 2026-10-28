@@ -39,7 +39,7 @@ use crate::{
     vm::BadTrace,
 };
 use nalgebra::{Matrix4, Point3};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// A shape represents an implicit surface with X/Y/Z variables
 ///
@@ -188,18 +188,18 @@ impl<F> Shape<F> {
 /// first-class arguments); it only stores [`Var::V`] values (identified by
 /// their inner [`VarIndex`]).
 #[derive(Debug)]
-pub struct ShapeVars<F>(HashMap<VarIndex, F>);
+pub struct ShapeVars<F>(BTreeMap<VarIndex, F>);
 
 impl<F> Default for ShapeVars<F> {
     fn default() -> Self {
-        Self(HashMap::default())
+        Self(BTreeMap::default())
     }
 }
 
 impl<F> ShapeVars<F> {
     /// Builds a new, empty variable set
-    pub fn new() -> Self {
-        Self(HashMap::default())
+    pub const fn new() -> Self {
+        Self(BTreeMap::new())
     }
     /// Returns the number of variables stored in the set
     pub fn len(&self) -> usize {
@@ -252,7 +252,7 @@ impl<F> ShapeVars<F> {
 
 impl<'a, F> IntoIterator for &'a ShapeVars<F> {
     type Item = (&'a VarIndex, &'a F);
-    type IntoIter = std::collections::hash_map::Iter<'a, VarIndex, F>;
+    type IntoIter = std::collections::btree_map::Iter<'a, VarIndex, F>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }

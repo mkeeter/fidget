@@ -1,208 +1,62 @@
 //! Data types for evaluating shape color
 //!
-//! In this module, only [`ShapeColor`] and [`ShapeColorBuffers`] should be used
-//! directly (through direct construction and [`ShapeColorBuffers::new`]
-//! respectively).  Other types are generic and are re-exported with a specific
-//! paramerization in an `effects` module; e.g. the generic
-//! [`ColorWorkspace<C>`] is specialized to
-//! [`voxel::effects::ColorWorkspace`](crate::voxel::effects::ColorWorkspace)
-use crate::{
-    CopyVarsChanged, CopyVarsError,
-    buf::{BufferSizeError, ConfigBufferWrite, FlexBuffer, FlexConfigBuffer},
-    tag,
-    voxel::VarsBufferTag,
-};
+//! In this module, only [`ShapeColor`] can be constructed directly.
+//! [`RenderColor`] is constructed by
+//! [`Gpu::build_render_color`](crate::Gpu::build_render_color).
+use crate::encode_copy_vars;
 use fidget_bytecode::{Bytecode, ReservedRegister};
 use fidget_core::{
     eval::Function,
-    shape::ShapeVars,
+    shape::{MissingVar, ShapeVars},
     var::{Var, VarMap},
     vm::VmShape,
 };
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use zerocopy::IntoBytes;
 
-tag!(ShapeStartBufferTag, u32, usize, STORAGE | COPY_DST);
-
-/// Generic workspace for evaluating diffuse color
-pub struct ColorWorkspace<C> {
-    /// Config and serialized tapes, appended end to end
-    config: FlexConfigBuffer<C, u32>,
-
-    /// Start of the channel tapes for each shape
-    ///
-    /// The high bit indicates whether this is RGB (0) or HSL (1)
-    shape_start: FlexBuffer<ShapeStartBufferTag>,
-
-    /// Scratch space to upload variable values
-    vars_buf: FlexBuffer<VarsBufferTag>,
-
-    /// Lazily-constructed bind group for the config buffers
-    bind_group: std::cell::OnceCell<wgpu::BindGroup>,
-}
-
-impl<C> ColorWorkspace<C>
-where
-    C: zerocopy::IntoBytes + zerocopy::Immutable + Copy,
-{
-    pub(crate) fn new(device: &wgpu::Device) -> Self {
-        let config = FlexBuffer::new(device, "color config", 4.into()).unwrap();
-        let shape_start =
-            FlexBuffer::new(device, "shape start", 4usize).unwrap();
-        let vars_buf = FlexBuffer::new(device, "color vars", 4usize).unwrap();
-        Self {
-            config,
-            shape_start,
-            vars_buf,
-            bind_group: Default::default(),
-        }
-    }
-
-    pub(crate) fn config_bind_group(
-        &self,
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-    ) -> &wgpu::BindGroup {
-        self.bind_group.get_or_init(|| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("config bind group"),
-                layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.config.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: self.shape_start.bind_active(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.vars_buf.bind_active(),
-                    },
-                ],
-            })
-        })
-    }
-
-    pub(crate) fn copy_vars(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        staging: &mut wgpu::util::StagingBelt,
-        vs: &VarMap,
-        vars: &ShapeVars<f32>,
-    ) -> Result<(), CopyVarsError> {
-        match crate::encode_copy_vars(
-            device,
-            encoder,
-            staging,
-            vs,
-            vars,
-            &mut self.vars_buf,
-        )? {
-            CopyVarsChanged::BufferChanged => {
-                self.bind_group = Default::default()
-            }
-            CopyVarsChanged::BufferUnchanged => (),
-        }
-        Ok(())
-    }
-
-    pub(crate) fn copy_config_and_tape(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        staging: &mut wgpu::util::StagingBelt,
-        config: &C,
-        bytecode: &[u32],
-    ) -> Result<(), BufferSizeError> {
-        match self
-            .config
-            .encode_write(device, encoder, staging, config, bytecode)?
-        {
-            ConfigBufferWrite::BufferChanged => {
-                self.bind_group = Default::default()
-            }
-            ConfigBufferWrite::BufferUnchanged => (),
-        }
-        Ok(())
-    }
-
-    pub(crate) fn copy_shape_starts(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        staging: &mut wgpu::util::StagingBelt,
-        shape_starts: &[u32],
-    ) -> Result<(), BufferSizeError> {
-        let r = self.shape_start.grow_to_fit(device, shape_starts.len())?;
-        if !matches!(r, std::cmp::Ordering::Equal) {
-            self.bind_group = Default::default();
-        }
-        let Ok(byte_count) =
-            (std::mem::size_of_val(shape_starts) as u64).try_into()
-        else {
-            return Ok(());
-        };
-        let mut writer = staging.write_buffer(
-            encoder,
-            self.shape_start.data(),
-            0,
-            byte_count,
-        );
-        writer.copy_from_slice(shape_starts.as_bytes());
-        Ok(())
-    }
-}
-
-/// Error type when constructing a [`ShapeColorBuffers`]
+/// Error type when constructing a [`RenderColor`]
 #[derive(Debug, thiserror::Error)]
-pub enum ShapeColorError {
+pub enum RenderColorError {
     /// The shape uses a reserved register
     #[error(transparent)]
     RegisterError(#[from] ReservedRegister),
 }
 
-/// Color buffers for rendering a shape's diffuse color
-///
-/// These buffers live purely on the CPU, so they can be shared between threads.
-/// The object may be heavy (and therefore does not implement `Clone`); to share
-/// it, wrap it in an `Arc` or similar.
-pub struct ShapeColorBuffers {
+/// GPU color buffers for rendering a shape's diffuse color
+pub struct RenderColor {
     /// Unified [`VarMap`] object
-    var_map: VarMap,
-
+    vars: Arc<VarMap>,
     /// Number of shapes available
     shape_count: usize,
-
-    /// Index of each shape's start position in the bytecode data
-    shape_start: Vec<u32>,
-
+    /// Buffer for storing variable values
+    vars_buf: wgpu::Buffer,
     /// Maximum number of registers used by any tape
     reg_count: u8,
-
-    /// Raw bytecode, which should be copied to the GPU config buffer tail
-    bytecode: Vec<u32>,
+    /// Bind group which binds the tape, starts, and variable buffers
+    bind_group: wgpu::BindGroup,
 }
 
 // Accessor methods
-impl ShapeColorBuffers {
-    pub(crate) fn var_map(&self) -> &VarMap {
-        &self.var_map
-    }
+impl RenderColor {
     pub(crate) fn shape_count(&self) -> usize {
         self.shape_count
-    }
-    pub(crate) fn shape_start(&self) -> &[u32] {
-        &self.shape_start
     }
     pub(crate) fn reg_count(&self) -> u8 {
         self.reg_count
     }
-    pub(crate) fn bytecode(&self) -> &[u32] {
-        &self.bytecode
+    pub(crate) fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
+    }
+
+    /// Copies variables into a variables buffer
+    pub(crate) fn copy_vars(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &mut wgpu::util::StagingBelt,
+        vars: &ShapeVars<f32>,
+    ) -> Result<(), MissingVar> {
+        encode_copy_vars(encoder, staging, &self.vars, vars, &self.vars_buf)
     }
 }
 
@@ -237,18 +91,20 @@ impl<T> ShapeColor<T> {
     }
 }
 
-impl ShapeColorBuffers {
+impl RenderColor {
     /// Builds a new set of buffers for evaluating shape color
     pub fn new(
         colors: &[ShapeColor<VmShape>],
-    ) -> Result<Self, ShapeColorError> {
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Result<Self, RenderColorError> {
         // Build a single unified variable map, used across all tapes
-        let mut var_map = VarMap::new();
+        let mut vars = VarMap::new();
         for c in colors {
             for channel in c.channels() {
-                let vars = channel.inner().vars();
-                for (v, _index) in vars.iter() {
-                    var_map.insert(v);
+                let vs = channel.inner().vars();
+                for (v, _index) in vs.iter() {
+                    vars.insert(v);
                 }
             }
         }
@@ -275,7 +131,7 @@ impl ShapeColorBuffers {
                     |(v, i)| {
                         (
                             u32::try_from(i).unwrap(),
-                            u32::try_from(var_map.get(&v).unwrap()).unwrap(),
+                            u32::try_from(vars.get(&v).unwrap()).unwrap(),
                         )
                     },
                 ));
@@ -290,18 +146,88 @@ impl ShapeColorBuffers {
             }
         }
 
+        let shape_start_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shape starts"),
+            usage: wgpu::BufferUsages::STORAGE,
+            size: (shape_start.len() * std::mem::size_of::<u32>()).max(4)
+                as u64,
+            mapped_at_creation: true,
+        });
+        if !shape_start.is_empty() {
+            shape_start_buf
+                .slice(..)
+                .get_mapped_range_mut()
+                .unwrap()
+                .copy_from_slice(shape_start.as_bytes());
+        }
+        shape_start_buf.unmap();
+
+        let vars_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vars"),
+            size: (vars.len() * std::mem::size_of::<f32>()).max(4) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let tape = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tape"),
+            size: (bytecode_data.len() * std::mem::size_of::<u32>()).max(4)
+                as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: true,
+        });
+        if !bytecode_data.is_empty() {
+            tape.slice(..)
+                .get_mapped_range_mut()
+                .unwrap()
+                .copy_from_slice(bytecode_data.as_bytes());
+        }
+        tape.unmap();
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shape color"),
+            layout: bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: tape.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: shape_start_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: vars_buf.as_entire_binding(),
+                },
+            ],
+        });
+
         Ok(Self {
             shape_count: colors.len(),
-            shape_start,
-            bytecode: bytecode_data,
-            var_map,
+            vars: vars.into(),
+            vars_buf,
             reg_count,
+            bind_group,
         })
     }
 
     /// Helper function to return XYZ variable indices
     pub(crate) fn axes(&self) -> [u32; 3] {
         [Var::X, Var::Y, Var::Z]
-            .map(|a| self.var_map.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
+            .map(|a| self.vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::Gpu;
+
+    #[test]
+    fn empty_render_color() {
+        crate::require_gpu!();
+        let gpu = pollster::block_on(Gpu::init_basic()).unwrap();
+
+        gpu.build_render_color(&[]).unwrap();
     }
 }
