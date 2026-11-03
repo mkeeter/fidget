@@ -238,56 +238,17 @@ pub mod voxel;
 /// Re-export the `wgpu` module
 pub use wgpu;
 
-pub mod shaders {
-    //! WGSL sources for the tape interpreter
-    //!
-    //! Each constant is a fragment of WGSL source code.  A shader that
-    //! evaluates a tape concatenates the following fragments with the shader's
-    //! entry points:
-    //!
-    //! - [`opcode_constants`], plus a `const REG_COUNT: u32` that is at least
-    //!   the [`Bytecode::reg_count`] of every tape evaluated by the shader
-    //! - [`FLOAT_OPS`], [`INTERVAL_OPS`] or [`GRAD_OPS`], to select the
-    //!   `Value` type evaluated by the interpreter
-    //! - [`COMMON`] and [`TAPE_INTERPRETER`]
-    //! - [`STACK`] with [`INTERVAL_OPS`], or [`DUMMY_STACK`] with the other ops
-    //! - [`TAPE_SIMPLIFY`], to simplify tapes after interval evaluation
-    //!
-    //! The shader must declare two globals for the interpreter:
-    //!
-    //! - `config`, a storage buffer struct with a `tape_data: array<TapeWord>`
-    //!   member storing the words of [`Bytecode::data`], and an `axes: vec3u`
-    //!   member storing the [`Bytecode::vars`] indices of X, Y and Z
-    //! - `var_values`, an `array<f32>` storing the value of every other
-    //!   variable at the variable's [`Bytecode::vars`] index
-    //!
-    //! [`TAPE_SIMPLIFY`] writes simplified tapes into `tape_data`, and
-    //! requires a `read_write` binding for `config`, a
-    //! `tape_data_capacity: u32` member storing the length of `tape_data`,
-    //! and `alloc` and `dealloc` functions to reserve and release space in
-    //! `tape_data`.
-
+pub(crate) mod shaders {
     use super::*;
 
-    /// Shared types and helper functions, including `TapeWord`
     pub const COMMON: &str = include_str!("shaders/common.wgsl");
-    /// Choice stack that discards every choice, for evaluation without tape
-    /// simplification
     pub const DUMMY_STACK: &str = include_str!("shaders/dummy_stack.wgsl");
-    /// Operations on a single `f32` value
     pub const FLOAT_OPS: &str = include_str!("shaders/float_ops.wgsl");
-    /// Operations on a `vec4f` storing the partial derivatives in `xyz` and
-    /// the value in `w`
     pub const GRAD_OPS: &str = include_str!("shaders/grad_ops.wgsl");
-    /// Operations on a `vec2f` interval, pushing the choice of every `min`,
-    /// `max`, `and` and `or` onto the choice stack
     pub const INTERVAL_OPS: &str = include_str!("shaders/interval_ops.wgsl");
-    /// Choice stack that stores the choices read by [`TAPE_SIMPLIFY`]
     pub const STACK: &str = include_str!("shaders/stack.wgsl");
-    /// Tape interpreter, defining `run_tape`
     pub const TAPE_INTERPRETER: &str =
         include_str!("shaders/tape_interpreter.wgsl");
-    /// Tape simplification, defining `simplify_tape`
     pub const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 
     /// Returns a set of constant definitions for each opcode
