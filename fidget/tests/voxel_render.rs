@@ -94,46 +94,42 @@ render_tests!(jit, fidget::jit::JitFunction);
 #[cfg(feature = "wgpu")]
 mod wgpu {
     use super::*;
+    use fidget::wgpu::Context as _;
 
     #[test]
     fn sphere_wgpu() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        fidget::wgpu::require_gpu!();
         let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
-        let ctx = fidget_wgpu::voxel::Context::new(&gpu);
+        let ctx = fidget_wgpu::voxel::render::Context::new(&gpu);
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.workspace();
+        let mut buf = ctx.buffers(image_size).unwrap();
+        let mut workspace = ctx.workspace();
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
                 let sphere = (x.square() + y.square() + z.square()).sqrt()
                     - Tree::constant(r);
-                let shape = fidget_wgpu::RenderShape::new(
-                    &fidget::vm::VmShape::from(sphere),
-                )
-                .unwrap();
+                let shape = gpu
+                    .build_render_shape(&fidget::vm::VmShape::from(sphere))
+                    .unwrap();
                 let image = ctx
                     .run(
                         &shape,
-                        &mut buf,
-                        &mut out,
-                        fidget::raster::voxel::RenderConfig {
-                            image_size,
+                        fidget::wgpu::voxel::render::Settings {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
                             )
                             .world_to_model(),
+                            ..Default::default()
                         },
+                        &mut workspace,
+                        &mut buf,
+                        &mut out,
                     )
                     .unwrap();
 
@@ -144,13 +140,7 @@ mod wgpu {
 
     #[test]
     fn sphere_wgpu_vars() {
-        // We only run in CI if we're on MacOS (because other runners don't have
-        // GPUs and will fail to build the context).
-        #[cfg(not(target_os = "macos"))]
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
+        fidget::wgpu::require_gpu!();
         let gpu = pollster::block_on(fidget_wgpu::Gpu::init_basic()).unwrap();
 
         let (x, y, z) = Tree::axes();
@@ -158,31 +148,32 @@ mod wgpu {
         let c = Tree::from(v);
         let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
         let shape = fidget::vm::VmShape::from(sphere);
-        let ctx = fidget_wgpu::voxel::Context::new(&gpu);
-        let render_shape = fidget::wgpu::RenderShape::new(&shape).unwrap();
+        let ctx = fidget_wgpu::voxel::render::Context::new(&gpu);
+        let render_shape = gpu.build_render_shape(&shape).unwrap();
 
         let size = 32;
         let image_size = RenderSize::from(size);
-        let mut buf = ctx.workspace();
+        let mut buf = ctx.buffers(image_size).unwrap();
+        let mut workspace = ctx.workspace();
         let mut out = gpu.read_buffer_for(buf.output());
         for scale in [1.0, 0.5] {
             for r in [0.5, 0.75] {
                 let mut vars = ShapeVars::new();
                 vars.insert(v.index().unwrap(), r);
                 let image = ctx
-                    .run_with_vars(
+                    .run(
                         &render_shape,
-                        &vars,
-                        &mut buf,
-                        &mut out,
-                        fidget::raster::voxel::RenderConfig {
-                            image_size,
+                        fidget::wgpu::voxel::render::Settings {
                             world_to_model: View3::from_center_and_scale(
                                 Vector3::zeros(),
                                 scale,
                             )
                             .world_to_model(),
+                            vars: &vars,
                         },
+                        &mut workspace,
+                        &mut buf,
+                        &mut out,
                     )
                     .unwrap();
 

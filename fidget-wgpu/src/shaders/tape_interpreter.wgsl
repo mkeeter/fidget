@@ -16,7 +16,7 @@ fn run_tape(start: u32, xyz: array<Value, 3>, stack: ptr<function, Stack>) -> Ta
     var out = TapeResult(build_imm(nan_f32()), 0, 0);
     while true {
         count += 1;
-        let word = config.tape_data[i];
+        let word = get_tape_word(i);
         let op = unpack4xU8(word.op);
         let rhs_i = op[3];
         let lhs_i = op[2];

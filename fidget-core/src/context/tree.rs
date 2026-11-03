@@ -823,26 +823,37 @@ mod test {
             x += 1.0;
         }
 
-        let mut ctx = Context::new();
-        let t = std::time::Instant::now();
-        ctx.import(&x); // we should not panic here!
-        let tx = t.elapsed();
+        let mut tx_total = 0;
+        let mut ty_total = 0;
 
-        // `y` should be deduplicated while importing, and therefore should take
-        // about the same time as importing `x`.
-        let y = x.clone() + x.clone();
-        let mut ctx = Context::new();
-        let t = std::time::Instant::now();
-        ctx.import(&y);
-        let ty = t.elapsed();
+        // CI is less predictable, so average over a larger count
+        let n = if std::env::var("CI").is_ok() { 20 } else { 5 };
+        for _ in 0..n {
+            let mut ctx = Context::new();
+            let t = std::time::Instant::now();
+            ctx.import(&x); // we should not panic here!
+            let tx = t.elapsed();
 
-        let tx_millis = tx.as_millis();
-        let ty_millis = ty.as_millis();
-        let err_frac = tx_millis.abs_diff(ty_millis) as f64
-            / tx_millis.min(ty_millis) as f64;
+            // `y` should be deduplicated while importing, and therefore should take
+            // about the same time as importing `x`.
+            let y = x.clone() + x.clone();
+            let mut ctx = Context::new();
+            let t = std::time::Instant::now();
+            ctx.import(&y);
+            let ty = t.elapsed();
+
+            let tx_millis = tx.as_millis();
+            let ty_millis = ty.as_millis();
+            tx_total += tx_millis;
+            ty_total += ty_millis;
+        }
+        let err_frac =
+            tx_total.abs_diff(ty_total) as f64 / tx_total.min(ty_total) as f64;
         assert!(
             err_frac < 0.1,
-            "too much time difference between {tx:?} and {ty:?}"
+            "too much time difference between {:?} ms and {:?} ms",
+            tx_total / n,
+            ty_total / n,
         );
     }
 
