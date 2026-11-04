@@ -173,10 +173,10 @@ impl Grad {
     pub fn min(self, rhs: Self) -> Self {
         if self.v.is_nan() || rhs.v.is_nan() {
             f32::NAN.into()
-        } else if self.v < rhs.v {
-            self
-        } else {
+        } else if self.v > rhs.v {
             rhs
+        } else {
+            self
         }
     }
 

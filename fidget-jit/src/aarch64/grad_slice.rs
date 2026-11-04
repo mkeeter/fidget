@@ -427,14 +427,14 @@ impl Assembler for GradSliceAssembler {
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.vs 24 // -> NaN
-            ; b.lt 12 // -> lhs
+            ; b.gt 12 // -> rhs
 
             // Happy path: v >= 0, so we just copy the register
-            ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
+            ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
             ; b 20 // -> end
 
-            // lhs:
-            ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
+            // rhs:
+            ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
             ; b 12 // -> end
 
             // NaN handler
