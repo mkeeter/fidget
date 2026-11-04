@@ -1427,8 +1427,8 @@ impl Context {
                             }
                             BinaryOpcode::Min => {
                                 let cond =
-                                    self.less_than(v_lhs, v_rhs).unwrap();
-                                self.if_nonzero_else(cond, d_lhs, d_rhs)
+                                    self.less_than(v_rhs, v_lhs).unwrap();
+                                self.if_nonzero_else(cond, d_rhs, d_lhs)
                             }
                             BinaryOpcode::Max => {
                                 let cond =
