@@ -267,6 +267,29 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         );
     }
 
+    pub fn test_g_min_max_equal() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+
+        let min = ctx.min(x, y).unwrap();
+        let max = ctx.max(x, y).unwrap();
+
+        let shape = F::new(&ctx, &[min]).unwrap();
+        let tape = shape.grad_slice_tape(Default::default());
+        assert_eq!(
+            Self::eval_xyz(&tape, &[2.0], &[2.0], &[0.0])[0],
+            Grad::new(2.0, 1.0, 0.0, 0.0)
+        );
+
+        let shape = F::new(&ctx, &[max]).unwrap();
+        let tape = shape.grad_slice_tape(Default::default());
+        assert_eq!(
+            Self::eval_xyz(&tape, &[2.0], &[2.0], &[0.0])[0],
+            Grad::new(2.0, 0.0, 1.0, 0.0)
+        );
+    }
+
     pub fn test_g_max() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -807,6 +830,7 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_max, $t);
         $crate::grad_test!(test_g_add, $t);
         $crate::grad_test!(test_g_min_max, $t);
+        $crate::grad_test!(test_g_min_max_equal, $t);
         $crate::grad_test!(test_g_not, $t);
         $crate::grad_test!(test_g_div, $t);
         $crate::grad_test!(test_g_recip, $t);

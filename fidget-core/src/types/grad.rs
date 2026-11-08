@@ -169,6 +169,8 @@ impl Grad {
     /// Minimum of two values
     ///
     /// If either value is `NAN`, then this returns `NAN` (with empty gradients)
+    ///
+    /// If the values are equal, prefers the left-hand argument
     #[inline]
     pub fn min(self, rhs: Self) -> Self {
         if self.v.is_nan() || rhs.v.is_nan() {
@@ -183,6 +185,8 @@ impl Grad {
     /// Maximum of two values
     ///
     /// If either value is `NAN`, then this returns `NAN` (with empty gradients)
+    ///
+    /// If the values are equal, prefers the right-hand argument
     #[inline]
     pub fn max(self, rhs: Self) -> Self {
         if self.v.is_nan() || rhs.v.is_nan() {
