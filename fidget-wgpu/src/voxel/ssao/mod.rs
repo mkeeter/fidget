@@ -27,15 +27,21 @@ pub struct Context {
     blur_pipeline: wgpu::ComputePipeline,
 }
 
-const SSAO_SHADER: &str = include_str!("shaders/ssao.wgsl");
-const BLUR_SHADER: &str = include_str!("shaders/blur.wgsl");
+mod shaders {
+    pub const SSAO: &str = include_str!("shaders/ssao.wgsl");
+    pub const BLUR: &str = include_str!("shaders/blur.wgsl");
+}
 
 fn ssao_shader() -> String {
-    SSAO_SHADER.to_owned() + super::PACKED_VOXEL + crate::shaders::COMMON
+    shaders::SSAO.to_owned()
+        + super::shaders::PACKED_VOXEL
+        + crate::shaders::COMMON
 }
 
 fn blur_shader() -> String {
-    BLUR_SHADER.to_owned() + super::PACKED_VOXEL + crate::shaders::COMMON
+    shaders::BLUR.to_owned()
+        + super::shaders::PACKED_VOXEL
+        + crate::shaders::COMMON
 }
 
 impl crate::Context for Context {

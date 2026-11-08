@@ -9,7 +9,7 @@ use crate::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_rw,
     },
-    shaders, tag,
+    tag,
 };
 use fidget_core::{
     render::ImageSize,
@@ -20,68 +20,72 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use fidget_raster::pixel::RenderSize;
 
-const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
-const INTERVAL_INPUT: &str = include_str!("shaders/interval_input.wgsl");
-const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
-const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
-const PIXEL_TILES_SHADER: &str = include_str!("shaders/pixel_tiles.wgsl");
-const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
+mod shaders {
+    pub const CONFIG: &str = include_str!("shaders/config.wgsl");
+    pub const INTERVAL_INPUT: &str =
+        include_str!("shaders/interval_input.wgsl");
+    pub const INTERVAL_ROOT: &str = include_str!("shaders/interval_root.wgsl");
+    pub const INTERVAL_TILES: &str =
+        include_str!("shaders/interval_tiles.wgsl");
+    pub const PIXEL_TILES: &str = include_str!("shaders/pixel_tiles.wgsl");
+    pub const MERGE: &str = include_str!("shaders/merge.wgsl");
+}
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += COMMON_SHADER;
-    shader_code += INTERVAL_ROOT_SHADER;
-    shader_code += INTERVAL_INPUT;
-    shader_code += super::DISTANCE_PIXEL_SHADER;
-    shader_code += super::TRANSFORM_INPUT;
-    shader_code += shaders::INTERVAL_OPS;
-    shader_code += shaders::COMMON;
-    shader_code += shaders::TAPE_INTERPRETER;
-    shader_code += shaders::STACK;
-    shader_code += shaders::TAPE_SIMPLIFY;
+    shader_code += shaders::CONFIG;
+    shader_code += shaders::INTERVAL_ROOT;
+    shader_code += shaders::INTERVAL_INPUT;
+    shader_code += super::shaders::DISTANCE_PIXEL;
+    shader_code += super::shaders::TRANSFORM_INPUT;
+    shader_code += crate::shaders::INTERVAL_OPS;
+    shader_code += crate::shaders::COMMON;
+    shader_code += crate::shaders::TAPE_INTERPRETER;
+    shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
 /// Returns a shader for interval tile -> subtile reduction
 fn interval_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += COMMON_SHADER;
-    shader_code += INTERVAL_TILES_SHADER;
-    shader_code += INTERVAL_INPUT;
-    shader_code += super::DISTANCE_PIXEL_SHADER;
-    shader_code += super::TRANSFORM_INPUT;
-    shader_code += shaders::INTERVAL_OPS;
-    shader_code += shaders::COMMON;
-    shader_code += shaders::TAPE_INTERPRETER;
-    shader_code += shaders::STACK;
-    shader_code += shaders::TAPE_SIMPLIFY;
+    shader_code += shaders::CONFIG;
+    shader_code += shaders::INTERVAL_TILES;
+    shader_code += shaders::INTERVAL_INPUT;
+    shader_code += super::shaders::DISTANCE_PIXEL;
+    shader_code += super::shaders::TRANSFORM_INPUT;
+    shader_code += crate::shaders::INTERVAL_OPS;
+    shader_code += crate::shaders::COMMON;
+    shader_code += crate::shaders::TAPE_INTERPRETER;
+    shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
 /// Returns a shader for pixel tile evaluation
 fn pixel_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += PIXEL_TILES_SHADER;
-    shader_code += COMMON_SHADER;
-    shader_code += super::TRANSFORM_INPUT;
-    shader_code += super::DISTANCE_PIXEL_SHADER;
-    shader_code += shaders::FLOAT_OPS;
-    shader_code += shaders::COMMON;
-    shader_code += shaders::TAPE_INTERPRETER;
-    shader_code += shaders::DUMMY_STACK;
+    shader_code += shaders::PIXEL_TILES;
+    shader_code += shaders::CONFIG;
+    shader_code += super::shaders::TRANSFORM_INPUT;
+    shader_code += super::shaders::DISTANCE_PIXEL;
+    shader_code += crate::shaders::FLOAT_OPS;
+    shader_code += crate::shaders::COMMON;
+    shader_code += crate::shaders::TAPE_INTERPRETER;
+    shader_code += crate::shaders::DUMMY_STACK;
     shader_code
 }
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned()
-        + COMMON_SHADER
-        + super::DISTANCE_PIXEL_SHADER
-        + shaders::COMMON
+    shaders::MERGE.to_owned()
+        + shaders::CONFIG
+        + super::shaders::DISTANCE_PIXEL
+        + crate::shaders::COMMON
 }
 
 ////////////////////////////////////////////////////////////////////////////////

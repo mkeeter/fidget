@@ -60,8 +60,7 @@ use crate::{
         BufferSizeError, BufferType, FlexBuffer, ReadBuffer, buffer_ro,
         buffer_ro_dyn, buffer_rw,
     },
-    shaders, tag,
-    voxel::TRANSFORM_INPUT,
+    tag,
 };
 use fidget_core::{
     render::{ImageSize, VoxelSize},
@@ -94,16 +93,20 @@ impl Default for Settings<'_> {
 
 pub use fidget_raster::voxel::RenderSize;
 
-const INTERVAL_INPUT: &str = include_str!("shaders/interval_input.wgsl");
-const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
-const VOXEL_TILES_SHADER: &str = include_str!("shaders/voxel_tiles.wgsl");
-const INTERVAL_TILES_SHADER: &str = include_str!("shaders/interval_tiles.wgsl");
-const REPACK_SHADER: &str = include_str!("shaders/repack.wgsl");
-const SORT_SHADER: &str = include_str!("shaders/sort.wgsl");
-const INTERVAL_ROOT_SHADER: &str = include_str!("shaders/interval_root.wgsl");
-const CLEAR_SHADER: &str = include_str!("shaders/clear.wgsl");
-const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
-const NORMALS_SHADER: &str = include_str!("shaders/normals.wgsl");
+mod shaders {
+    pub const CONFIG: &str = include_str!("shaders/config.wgsl");
+    pub const INTERVAL_INPUT: &str =
+        include_str!("shaders/interval_input.wgsl");
+    pub const VOXEL_TILES: &str = include_str!("shaders/voxel_tiles.wgsl");
+    pub const INTERVAL_TILES: &str =
+        include_str!("shaders/interval_tiles.wgsl");
+    pub const REPACK: &str = include_str!("shaders/repack.wgsl");
+    pub const SORT: &str = include_str!("shaders/sort.wgsl");
+    pub const INTERVAL_ROOT: &str = include_str!("shaders/interval_root.wgsl");
+    pub const CLEAR: &str = include_str!("shaders/clear.wgsl");
+    pub const MERGE: &str = include_str!("shaders/merge.wgsl");
+    pub const NORMALS: &str = include_str!("shaders/normals.wgsl");
+}
 
 /// Error type when creating intermediate tile buffers
 #[derive(Debug, thiserror::Error)]
@@ -312,90 +315,90 @@ impl TileRenderSize {
 
 /// Returns a shader for interval root tiles
 fn interval_root_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += COMMON_SHADER;
-    shader_code += INTERVAL_ROOT_SHADER;
-    shader_code += INTERVAL_INPUT;
-    shader_code += TRANSFORM_INPUT;
-    shader_code += shaders::INTERVAL_OPS;
-    shader_code += shaders::COMMON;
-    shader_code += shaders::TAPE_INTERPRETER;
-    shader_code += shaders::STACK;
-    shader_code += shaders::TAPE_SIMPLIFY;
+    shader_code += shaders::CONFIG;
+    shader_code += shaders::INTERVAL_ROOT;
+    shader_code += shaders::INTERVAL_INPUT;
+    shader_code += super::shaders::TRANSFORM_INPUT;
+    shader_code += crate::shaders::INTERVAL_OPS;
+    shader_code += crate::shaders::COMMON;
+    shader_code += crate::shaders::TAPE_INTERPRETER;
+    shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
 /// Returns a shader for interval root tile repacking
 fn repack_shader() -> String {
     let mut shader_code = String::new();
-    shader_code += REPACK_SHADER;
-    shader_code += COMMON_SHADER;
-    shader_code += shaders::COMMON;
+    shader_code += shaders::REPACK;
+    shader_code += shaders::CONFIG;
+    shader_code += crate::shaders::COMMON;
     shader_code
 }
 
 /// Returns a shader for interval tile sorting
 fn sort_shader() -> String {
     let mut shader_code = String::new();
-    shader_code += SORT_SHADER;
-    shader_code += COMMON_SHADER;
-    shader_code += shaders::COMMON;
+    shader_code += shaders::SORT;
+    shader_code += shaders::CONFIG;
+    shader_code += crate::shaders::COMMON;
     shader_code
 }
 
 /// Returns a shader for interval tile evaluation
 fn interval_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += INTERVAL_TILES_SHADER;
-    shader_code += INTERVAL_INPUT;
-    shader_code += TRANSFORM_INPUT;
-    shader_code += COMMON_SHADER;
-    shader_code += shaders::INTERVAL_OPS;
-    shader_code += shaders::COMMON;
-    shader_code += shaders::TAPE_INTERPRETER;
-    shader_code += shaders::STACK;
-    shader_code += shaders::TAPE_SIMPLIFY;
+    shader_code += shaders::INTERVAL_TILES;
+    shader_code += shaders::INTERVAL_INPUT;
+    shader_code += shaders::CONFIG;
+    shader_code += super::shaders::TRANSFORM_INPUT;
+    shader_code += crate::shaders::INTERVAL_OPS;
+    shader_code += crate::shaders::COMMON;
+    shader_code += crate::shaders::TAPE_INTERPRETER;
+    shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
 /// Returns a shader for voxel tile evaluation
 fn voxel_tiles_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += VOXEL_TILES_SHADER;
-    shader_code += TRANSFORM_INPUT;
-    shader_code += COMMON_SHADER;
-    shader_code += shaders::FLOAT_OPS;
-    shader_code += shaders::COMMON;
-    shader_code += shaders::TAPE_INTERPRETER;
-    shader_code += shaders::DUMMY_STACK;
+    shader_code += shaders::VOXEL_TILES;
+    shader_code += shaders::CONFIG;
+    shader_code += super::shaders::TRANSFORM_INPUT;
+    shader_code += crate::shaders::FLOAT_OPS;
+    shader_code += crate::shaders::COMMON;
+    shader_code += crate::shaders::TAPE_INTERPRETER;
+    shader_code += crate::shaders::DUMMY_STACK;
     shader_code
 }
 
 /// Returns a shader for normals evaluation
 fn normals_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
-    shader_code += NORMALS_SHADER;
-    shader_code += TRANSFORM_INPUT;
-    shader_code += COMMON_SHADER;
-    shader_code += shaders::GRAD_OPS;
-    shader_code += shaders::COMMON;
-    shader_code += shaders::TAPE_INTERPRETER;
-    shader_code += shaders::DUMMY_STACK;
+    shader_code += shaders::NORMALS;
+    shader_code += shaders::CONFIG;
+    shader_code += super::shaders::TRANSFORM_INPUT;
+    shader_code += crate::shaders::GRAD_OPS;
+    shader_code += crate::shaders::COMMON;
+    shader_code += crate::shaders::TAPE_INTERPRETER;
+    shader_code += crate::shaders::DUMMY_STACK;
     shader_code
 }
 
 /// Returns a shader for merging images
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
+    shaders::MERGE.to_owned() + shaders::CONFIG + crate::shaders::COMMON
 }
 
 /// Returns a shader for clearing counters in between strata passes
 fn clear_shader() -> String {
-    CLEAR_SHADER.to_owned() + COMMON_SHADER + shaders::COMMON
+    shaders::CLEAR.to_owned() + shaders::CONFIG + crate::shaders::COMMON
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -8,8 +8,15 @@ pub mod render;
 pub mod shade;
 pub mod ssao;
 
-const TRANSFORM_INPUT: &str = include_str!("shaders/transform_input.wgsl");
-const PACKED_VOXEL: &str = include_str!("shaders/packed_voxel.wgsl");
+/// Shader fragments used in voxel compute shaders
+pub mod shaders {
+    /// Shader fragment which defines a 3D input transform
+    pub const TRANSFORM_INPUT: &str =
+        include_str!("shaders/transform_input.wgsl");
+
+    /// Shader fragment which defines a packed voxel type and methods
+    pub const PACKED_VOXEL: &str = include_str!("shaders/packed_voxel.wgsl");
+}
 
 /// Packed voxel structure used on the GPU
 #[derive(Copy, Clone, FromBytes, Immutable, IntoBytes, KnownLayout)]

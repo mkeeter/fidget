@@ -5,7 +5,7 @@
 use crate::{
     ConfigWorkspace, Gpu, ImageSizeMismatch, VoxelSizeMismatch,
     buf::{BufferSizeError, FlexBuffer},
-    shaders, tag,
+    tag,
 };
 use fidget_core::render::VoxelSize;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -26,14 +26,25 @@ pub struct ShadeConfig {
     flags: u32,
 }
 
-/// Must match constants in `shade.wgsl`
-const SHADE_CONFIG_HAS_SSAO: u32 = 1u32;
-const SHADE_CONFIG_HAS_COLOR: u32 = 2u32;
+mod shaders {
+    /// Bitflag indicating that the shade configuration has SSAO
+    ///
+    /// Must match constants in [`SHADE`]
+    pub const CONFIG_HAS_SSAO: u32 = 1u32;
 
-const SHADE_SHADER: &str = include_str!("shaders/shade.wgsl");
+    /// Bitflag indicating that the shade configuration has color
+    ///
+    /// Must match constants in [`SHADE`]
+    pub const CONFIG_HAS_COLOR: u32 = 2u32;
+
+    /// Compute shader fragment to evaluate shading
+    pub const SHADE: &str = include_str!("shaders/shade.wgsl");
+}
 
 fn shade_shader() -> String {
-    SHADE_SHADER.to_owned() + super::PACKED_VOXEL + shaders::COMMON
+    shaders::SHADE.to_owned()
+        + super::shaders::PACKED_VOXEL
+        + crate::shaders::COMMON
 }
 
 tag!(
@@ -180,11 +191,11 @@ impl crate::Context for Context {
         let cfg = ShadeConfig {
             image_size: [size.width(), size.height(), size.depth()],
             flags: if ssao.is_some() {
-                SHADE_CONFIG_HAS_SSAO
+                shaders::CONFIG_HAS_SSAO
             } else {
                 0
             } | if buf.has_color {
-                SHADE_CONFIG_HAS_COLOR
+                shaders::CONFIG_HAS_COLOR
             } else {
                 0
             },

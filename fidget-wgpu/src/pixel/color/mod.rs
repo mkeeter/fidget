@@ -3,7 +3,6 @@ use crate::{
     ConfigWorkspace, Gpu, RegPipeline,
     buf::{buffer_ro, buffer_rw},
     color::RenderColor,
-    shaders,
 };
 use fidget_core::{
     render::ImageSize,
@@ -12,22 +11,24 @@ use fidget_core::{
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-const COLOR_SHADER: &str = include_str!("shaders/color.wgsl");
+mod shaders {
+    pub const COLOR: &str = include_str!("shaders/color.wgsl");
+}
 
 /// Workspace for evaluating color expressions
 pub type Workspace = ConfigWorkspace<ColorConfig>;
 
 fn color_shader(reg_count: u8) -> String {
-    let mut shader_code = shaders::opcode_constants();
+    let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
     shader_code
-        + COLOR_SHADER
-        + super::TRANSFORM_INPUT
-        + super::DISTANCE_PIXEL_SHADER
-        + shaders::COMMON
-        + shaders::TAPE_INTERPRETER
-        + shaders::DUMMY_STACK
-        + shaders::FLOAT_OPS
+        + shaders::COLOR
+        + super::shaders::TRANSFORM_INPUT
+        + super::shaders::DISTANCE_PIXEL
+        + crate::shaders::COMMON
+        + crate::shaders::TAPE_INTERPRETER
+        + crate::shaders::DUMMY_STACK
+        + crate::shaders::FLOAT_OPS
 }
 
 /// Configuration for the color evaluation pass

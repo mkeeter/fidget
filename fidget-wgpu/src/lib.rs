@@ -204,6 +204,16 @@
 //! # }
 //! ```
 //!
+//! # Shader fragments
+//! In case the public API isn't enough, we also expose shader fragments to
+//! build your own pipelines.  These are in `shader` modules:
+//!
+//! - [`shaders`] contains top-level fragments
+//! - [`voxel::shaders`] and [`pixel::shaders`] contains fragments used
+//!   in voxel and pixel passes, respectively
+//!
+//! None of these shaders contain a main `@compute` entry point; that is
+//! expected to be provided by the user.
 #![warn(missing_docs)]
 
 use fidget_bytecode::{Bytecode, ReservedRegister};
@@ -214,7 +224,6 @@ use fidget_core::{
 };
 use fidget_raster::RenderSize;
 
-use heck::ToShoutySnakeCase;
 use std::sync::Arc;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -226,21 +235,38 @@ pub mod voxel;
 /// Re-export the `wgpu` module
 pub use wgpu;
 
-pub(crate) mod shaders {
-    use super::*;
-
+/// Shader snippets and constructors
+pub mod shaders {
+    /// Common functions used across multiple rendering pipelines
     pub const COMMON: &str = include_str!("shaders/common.wgsl");
+
+    /// Choice stack which does nothing
     pub const DUMMY_STACK: &str = include_str!("shaders/dummy_stack.wgsl");
+
+    /// Implementation of floating-point operations
     pub const FLOAT_OPS: &str = include_str!("shaders/float_ops.wgsl");
+
+    /// Implementation of gradient operations (`[v, dx, dy, dz]` values)
     pub const GRAD_OPS: &str = include_str!("shaders/grad_ops.wgsl");
+
+    /// Implementation of interval operations
     pub const INTERVAL_OPS: &str = include_str!("shaders/interval_ops.wgsl");
+
+    /// Stack which tracks a set of choices made by interval operations
     pub const STACK: &str = include_str!("shaders/stack.wgsl");
+
+    /// Interpreter for a bytecode instruction tape
+    ///
+    /// This must be paired with one of the `OPS` and `STACK` fragments above
     pub const TAPE_INTERPRETER: &str =
         include_str!("shaders/tape_interpreter.wgsl");
+
+    /// Tape simplification, which must be paired with [`STACK`] above
     pub const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
 
     /// Returns a set of constant definitions for each opcode
     pub fn opcode_constants() -> String {
+        use heck::ToShoutySnakeCase;
         let mut out = String::new();
         for (op, i) in fidget_bytecode::iter_ops() {
             out += &format!(
@@ -1028,6 +1054,7 @@ macro_rules! require_gpu {
 #[cfg(test)]
 mod test {
     use super::*;
+    use heck::ToShoutySnakeCase;
     use std::collections::HashSet;
 
     #[test]

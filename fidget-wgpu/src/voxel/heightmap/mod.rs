@@ -1,11 +1,15 @@
 //! Heightmap evaluation
-use crate::{ConfigWorkspace, Gpu, VoxelSizeMismatch, shaders};
+use crate::{ConfigWorkspace, Gpu, VoxelSizeMismatch};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-const HEIGHTMAP_SHADER: &str = include_str!("shaders/heightmap.wgsl");
+mod shaders {
+    pub const HEIGHTMAP: &str = include_str!("shaders/heightmap.wgsl");
+}
 
 fn heightmap_shader() -> String {
-    HEIGHTMAP_SHADER.to_owned() + super::PACKED_VOXEL + shaders::COMMON
+    shaders::HEIGHTMAP.to_owned()
+        + super::shaders::PACKED_VOXEL
+        + crate::shaders::COMMON
 }
 
 /// GPU-side configuration object for heightmap evaluation
