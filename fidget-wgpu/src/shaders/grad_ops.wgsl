@@ -143,10 +143,10 @@ fn op_sub(lhs: Value, rhs: Value) -> Value {
 }
 
 fn op_min(lhs: Value, rhs: Value, stack: ptr<function, Stack>) -> Value {
-    if lhs.v.w < rhs.v.w {
-        return lhs;
-    } else {
+    if lhs.v.w > rhs.v.w {
         return rhs;
+    } else {
+        return lhs;
     }
 }
 
