@@ -93,38 +93,18 @@ impl Default for Settings<'_> {
 
 pub use fidget_raster::voxel::RenderSize;
 
-/// Shader fragments used to build up voxel rendering
-pub mod shaders {
-    /// Configuration definition and bindings used by all stages
+mod shaders {
     pub const CONFIG: &str = include_str!("shaders/config.wgsl");
-
-    /// Shader fragment to read interval inputs
     pub const INTERVAL_INPUT: &str =
         include_str!("shaders/interval_input.wgsl");
-
-    /// Shader fragment for voxel tile evaluation
     pub const VOXEL_TILES: &str = include_str!("shaders/voxel_tiles.wgsl");
-
-    /// Shader fragment for interval tile evaluation
     pub const INTERVAL_TILES: &str =
         include_str!("shaders/interval_tiles.wgsl");
-
-    /// Shader fragment for repacking the tile list
     pub const REPACK: &str = include_str!("shaders/repack.wgsl");
-
-    /// Shader fragment for sorting the tile list
     pub const SORT: &str = include_str!("shaders/sort.wgsl");
-
-    /// Shader fragment for interval root evaluation (64³ tiles)
     pub const INTERVAL_ROOT: &str = include_str!("shaders/interval_root.wgsl");
-
-    /// Shader fragment which clears various buffers before evaluation
     pub const CLEAR: &str = include_str!("shaders/clear.wgsl");
-
-    /// Shader fragment to merge multiple output levels
     pub const MERGE: &str = include_str!("shaders/merge.wgsl");
-
-    /// Shader fragment to compute image normals
     pub const NORMALS: &str = include_str!("shaders/normals.wgsl");
 }
 

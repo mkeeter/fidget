@@ -12,14 +12,12 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 #[expect(unused_imports)] // used by rustdoc
 use crate::Context as _;
 
-/// Shader fragments for merging multiple pixel images
-pub mod shaders {
-    /// Compute shader fragment for merging pixel images
+mod shaders {
     pub const MERGE: &str = include_str!("shaders/merge.wgsl");
 }
 
-/// Returns a shader for merging pixel images
-pub fn merge_shader() -> String {
+/// Returns a shader for merging images
+fn merge_shader() -> String {
     shaders::MERGE.to_owned()
         + crate::shaders::COMMON
         + super::shaders::DISTANCE_PIXEL

@@ -6,7 +6,7 @@ pub mod render;
 
 /// Shader fragments used in pixel rendering
 pub mod shaders {
-    /// Shader fragment defining a [`RawDistancePixel`] type and methods
+    /// Shader fragment defining a `RawDistancePixel` type and methods
     pub const DISTANCE_PIXEL: &str =
         include_str!("shaders/distance_pixel.wgsl");
 

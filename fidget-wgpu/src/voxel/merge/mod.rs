@@ -16,9 +16,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 #[expect(unused_imports)] // used by rustdoc
 use crate::Context as _;
 
-/// Shader fragments to merge multiple images
-pub mod shaders {
-    /// Compute shader fragment which merges images
+mod shaders {
     pub const MERGE: &str = include_str!("shaders/merge.wgsl");
 }
 

@@ -27,12 +27,8 @@ pub struct Context {
     blur_pipeline: wgpu::ComputePipeline,
 }
 
-/// Shader fragments for SSAO pass
-pub mod shaders {
-    /// Shader fragment which computes raw occlusion values
+mod shaders {
     pub const SSAO: &str = include_str!("shaders/ssao.wgsl");
-
-    /// Shader fragment which performs a Kuwahara-style edge-preserving blur
     pub const BLUR: &str = include_str!("shaders/blur.wgsl");
 }
 

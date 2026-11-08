@@ -26,8 +26,7 @@ pub struct ShadeConfig {
     flags: u32,
 }
 
-/// Shader fragments and constants for shading
-pub mod shaders {
+mod shaders {
     /// Bitflag indicating that the shade configuration has SSAO
     ///
     /// Must match constants in [`SHADE`]

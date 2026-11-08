@@ -20,26 +20,14 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use fidget_raster::pixel::RenderSize;
 
-/// Shader fragments used in pixel rendering
-pub mod shaders {
-    /// Configuration type and vars shared by all passes
+mod shaders {
     pub const CONFIG: &str = include_str!("shaders/config.wgsl");
-
-    /// Interval input function shader fragment
     pub const INTERVAL_INPUT: &str =
         include_str!("shaders/interval_input.wgsl");
-
-    /// Interval root compute shader fragment
     pub const INTERVAL_ROOT: &str = include_str!("shaders/interval_root.wgsl");
-
-    /// Interval tile compute shader fragment
     pub const INTERVAL_TILES: &str =
         include_str!("shaders/interval_tiles.wgsl");
-
-    /// Pixel tile compute shader fragment
     pub const PIXEL_TILES: &str = include_str!("shaders/pixel_tiles.wgsl");
-
-    /// Shader fragment which merges multiple levels of rendering
     pub const MERGE: &str = include_str!("shaders/merge.wgsl");
 }
 

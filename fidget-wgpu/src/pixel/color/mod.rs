@@ -11,9 +11,7 @@ use fidget_core::{
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// Shader fragments for diffuse color evaluation
-pub mod shaders {
-    /// Compute shader fragment for evaluating diffuse color
+mod shaders {
     pub const COLOR: &str = include_str!("shaders/color.wgsl");
 }
 

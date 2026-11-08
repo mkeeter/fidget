@@ -2,9 +2,7 @@
 use crate::{ConfigWorkspace, Gpu, VoxelSizeMismatch};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// Shader fragments for heightmap evaluation
-pub mod shaders {
-    /// Heightmap evaluation shader fragment
+mod shaders {
     pub const HEIGHTMAP: &str = include_str!("shaders/heightmap.wgsl");
 }
 

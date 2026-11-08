@@ -204,6 +204,16 @@
 //! # }
 //! ```
 //!
+//! # Shader fragments
+//! In case the public API isn't enough, we also expose shader fragments to
+//! build your own pipelines.  These are in `shader` modules:
+//!
+//! - [`shaders`] contains top-level fragments
+//! - [`voxel::shaders`] and [`pixel::shaders`] contains fragments used
+//!   in voxel and pixel passes, respectively
+//!
+//! None of these shaders contain a main `@compute` entry point; that is
+//! expected to be provided by the user.
 #![warn(missing_docs)]
 
 use fidget_bytecode::{Bytecode, ReservedRegister};
@@ -227,7 +237,6 @@ pub use wgpu;
 
 /// Shader snippets and constructors
 pub mod shaders {
-
     /// Common functions used across multiple rendering pipelines
     pub const COMMON: &str = include_str!("shaders/common.wgsl");
 

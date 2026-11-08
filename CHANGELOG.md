@@ -20,6 +20,10 @@ In this release, I rewrote the whole GPU API again!  Sorry!
   counterparts) to make different decisions if the two sides are equal.  This
   ensures that (for example) the expression `min(a, b) + max(a, b)` has the
   correct gradient.  Thanks to @LukeP0WERS for the fix!
+- Made shader fragments in `fidget_wgpu` public; every module now has a
+  `shaders` sub-module which contains `&str` constants for shader fragments.
+  This allows other crates to reuse Fidget's shader infrastructure, e.g.
+  interval arithmetic or tape evaluation.
 
 ## `fidget-wgpu` changes
 The overarching theme here is a single `trait Context`, which is used for all of
