@@ -7,7 +7,7 @@
 use crate::{
     ConfigWorkspace, Gpu, VoxelSizeMismatch,
     buf::{BufferSizeError, FlexBuffer},
-    shaders, tag,
+    tag,
     voxel::PackedVoxel,
 };
 use fidget_core::render::VoxelSize;
@@ -16,10 +16,16 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 #[expect(unused_imports)] // used by rustdoc
 use crate::Context as _;
 
-const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
+/// Shader fragments to merge multiple images
+pub mod shaders {
+    /// Compute shader fragment which merges images
+    pub const MERGE: &str = include_str!("shaders/merge.wgsl");
+}
 
 fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + super::PACKED_VOXEL + shaders::COMMON
+    shaders::MERGE.to_owned()
+        + super::shaders::PACKED_VOXEL
+        + crate::shaders::COMMON
 }
 
 /// GPU-side configuration object for merging images

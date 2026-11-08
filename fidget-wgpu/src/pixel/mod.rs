@@ -4,8 +4,16 @@ pub mod color;
 pub mod merge;
 pub mod render;
 
-const DISTANCE_PIXEL_SHADER: &str = include_str!("shaders/distance_pixel.wgsl");
-const TRANSFORM_INPUT: &str = include_str!("shaders/transform_input.wgsl");
+/// Shader fragments used in pixel rendering
+pub mod shaders {
+    /// Shader fragment defining a [`RawDistancePixel`] type and methods
+    pub const DISTANCE_PIXEL: &str =
+        include_str!("shaders/distance_pixel.wgsl");
+
+    /// Shader fragment defining a 2D input transformation
+    pub const TRANSFORM_INPUT: &str =
+        include_str!("shaders/transform_input.wgsl");
+}
 
 #[cfg(test)]
 mod test {

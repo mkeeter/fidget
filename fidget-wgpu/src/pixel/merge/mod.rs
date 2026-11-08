@@ -3,7 +3,7 @@ use crate::{
     ConfigWorkspace, Gpu, ImageSizeMismatch,
     buf::BufferSizeError,
     buf::{FlexBuffer, buffer_ro, buffer_rw},
-    shaders, tag,
+    tag,
 };
 use fidget_core::render::ImageSize;
 use fidget_raster::pixel::RawDistancePixel;
@@ -12,11 +12,17 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 #[expect(unused_imports)] // used by rustdoc
 use crate::Context as _;
 
-const MERGE_SHADER: &str = include_str!("shaders/merge.wgsl");
+/// Shader fragments for merging multiple pixel images
+pub mod shaders {
+    /// Compute shader fragment for merging pixel images
+    pub const MERGE: &str = include_str!("shaders/merge.wgsl");
+}
 
-/// Returns a shader for merging images
-fn merge_shader() -> String {
-    MERGE_SHADER.to_owned() + shaders::COMMON + super::DISTANCE_PIXEL_SHADER
+/// Returns a shader for merging pixel images
+pub fn merge_shader() -> String {
+    shaders::MERGE.to_owned()
+        + crate::shaders::COMMON
+        + super::shaders::DISTANCE_PIXEL
 }
 
 /// Error returned when submitting a merge operation
