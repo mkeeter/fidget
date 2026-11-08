@@ -16,6 +16,10 @@ In this release, I rewrote the whole GPU API again!  Sorry!
   This allows a `const` constructor, which in turn allows a default-constructed
   empty `&VarMap`.
 - Add `Hash` to `RegionSize` (and therefore to `ImageSize` and `VoxelSize`)
+- Change `Grad::min` and `max` implementations (along with their JIT
+  counterparts) to make different decisions if the two sides are equal.  This
+  ensures that (for example) the expression `min(a, b) + max(a, b)` has the
+  correct gradient.  Thanks to @LukeP0WERS for the fix!
 
 ## `fidget-wgpu` changes
 The overarching theme here is a single `trait Context`, which is used for all of
