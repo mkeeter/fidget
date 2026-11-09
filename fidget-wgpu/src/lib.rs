@@ -255,14 +255,34 @@ pub mod shaders {
     /// Stack which tracks a set of choices made by interval operations
     pub const STACK: &str = include_str!("shaders/stack.wgsl");
 
+    /// Tape registers stored in private (per-invocation) memory
+    pub const REGISTERS: &str = include_str!("shaders/registers.wgsl");
+
+    /// Tape registers stored in shared memory
+    ///
+    /// This requires a `WORKGROUP_SIZE` constant that specifies the number of
+    /// invocations in the workgroup.
+    pub const SHARED_REGISTERS: &str =
+        include_str!("shaders/shared_registers.wgsl");
+
     /// Interpreter for a bytecode instruction tape
     ///
-    /// This must be paired with one of the `OPS` and `STACK` fragments above
+    /// This must be paired with one of the `OPS`, `STACK`, and `REGISTERS`
+    /// fragments above
     pub const TAPE_INTERPRETER: &str =
         include_str!("shaders/tape_interpreter.wgsl");
 
     /// Tape simplification, which must be paired with [`STACK`] above
     pub const TAPE_SIMPLIFY: &str = include_str!("shaders/tape_simplify.wgsl");
+
+    /// Size of a `Value` in [`FLOAT_OPS`], in bytes
+    pub const FLOAT_VALUE_SIZE: u32 = 4;
+
+    /// Size of a `Value` in [`GRAD_OPS`], in bytes
+    pub const GRAD_VALUE_SIZE: u32 = 16;
+
+    /// Size of a `Value` in [`INTERVAL_OPS`], in bytes
+    pub const INTERVAL_VALUE_SIZE: u32 = 8;
 
     /// Returns a set of constant definitions for each opcode
     pub fn opcode_constants() -> String {
@@ -276,7 +296,31 @@ pub mod shaders {
         }
         out
     }
+
+    /// Returns the register fragment for a shader with `reg_count` registers
+    pub fn registers(
+        reg_count: u8,
+        value_size: u32,
+        workgroup_size: u32,
+        max_shared_bytes: u32,
+    ) -> &'static str {
+        let shared_bytes = u32::from(reg_count) * value_size * workgroup_size;
+        if shared_bytes <= max_shared_bytes {
+            SHARED_REGISTERS
+        } else {
+            REGISTERS
+        }
+    }
 }
+
+/// Number of invocations in every workgroup that runs the tape interpreter
+pub(crate) const WORKGROUP_SIZE: u32 = 64;
+
+/// Maximum shared memory used by tape registers, in bytes
+///
+/// This is the default `max_compute_workgroup_storage_size` in WebGPU, so
+/// shared registers can never use more memory than the device provides.
+const MAX_SHARED_REGISTER_BYTES: u32 = 16 * 1024; // 16 KiB
 
 /// Number of [`TapeWord`] words in the tape data flexible array
 pub(crate) const TAPE_DATA_CAPACITY: usize = 8 * 1024 * 1024; // 8M words, 64 MiB
@@ -367,6 +411,9 @@ pub struct Gpu {
     /// - 1: `shape_start`
     /// - 2: `var_values`
     color_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Whether tape registers are stored in shared memory when they fit
+    shared_registers: bool,
 }
 
 impl Gpu {
@@ -443,6 +490,34 @@ impl Gpu {
             input_bind_group_layout,
             output_bind_group_layout,
             color_bind_group_layout,
+            shared_registers: false,
+        }
+    }
+
+    /// Selects whether tape registers are stored in shared memory
+    ///
+    /// When enabled, shaders store tape registers in shared memory if they fit
+    /// within `16 KiB` (the default WebGPU limit), and in private memory
+    /// otherwise.  Shared memory avoids the memory traffic of private
+    /// registers, but reduces the number of workgroups that can run at once.
+    ///
+    /// This is disabled by default, and only affects contexts built after
+    /// this call.
+    pub fn with_shared_registers(mut self, enabled: bool) -> Self {
+        self.shared_registers = enabled;
+        self
+    }
+
+    /// Returns the shared memory available to tape registers, or `0` if shared
+    /// registers are disabled
+    pub fn max_shared_register_bytes(&self) -> u32 {
+        if self.shared_registers {
+            self.device
+                .limits()
+                .max_compute_workgroup_storage_size
+                .min(MAX_SHARED_REGISTER_BYTES)
+        } else {
+            0
         }
     }
 

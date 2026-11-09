@@ -33,7 +33,8 @@ struct Config {
 
 @compute @workgroup_size(8, 8)
 fn color_main(
-    @builtin(global_invocation_id) global_id: vec3u
+    @builtin(global_invocation_id) global_id: vec3u,
+    @builtin(local_invocation_index) local_index: u32,
 ) {
     // Clamp to image size
     if global_id.x >= config.image_size.x ||
@@ -66,12 +67,13 @@ fn color_main(
     let raw_start = shape_start[p.index];
     let index = raw_start & 0x7FFFFFFF;
     let is_hsl = (raw_start & (1u << 31)) != 0;
+    var reg = new_registers(local_index);
     var stack = Stack(); // dummy value
 
     // Color channel tapes are packed together
-    let out_0 = run_tape(index, m, &stack);
-    let out_1 = run_tape(out_0.pos, m, &stack);
-    let out_2 = run_tape(out_1.pos, m, &stack);
+    let out_0 = run_tape(index, m, &reg, &stack);
+    let out_1 = run_tape(out_0.pos, m, &reg, &stack);
+    let out_2 = run_tape(out_1.pos, m, &reg, &stack);
     let out = vec3f(
         clamp(out_0.value.v, 0.0, 1.0),
         clamp(out_1.value.v, 0.0, 1.0),

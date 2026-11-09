@@ -22,17 +22,19 @@ override SUBTILE_SIZE: u32;
 fn interval_tile_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(num_workgroups) num_workgroups: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u
+    @builtin(local_invocation_id) local_id: vec3u,
+    @builtin(local_invocation_index) local_index: u32,
 ) {
     // We dispatch with workgroups only on the X axis
     for (var i=workgroup_id.x; i < tiles_in.count; i += num_workgroups.x) {
-        interval_tile_worker(i, local_id);
+        interval_tile_worker(i, local_id, local_index);
     }
 }
 
 fn interval_tile_worker(
     active_tile_index: u32,
-    local_id: vec3u
+    local_id: vec3u,
+    local_index: u32,
 ) {
     // Convert to a size in tile units
     let size64 = config.render_size / 64;
@@ -80,10 +82,11 @@ fn interval_tile_worker(
     let m = interval_inputs(subtile_corner, SUBTILE_SIZE);
 
     // Do the actual interpreter work
+    var reg = new_registers(local_index);
     var stack = Stack();
     let tape_offset = get_tape_offset_for_level(corner_pos, TILE_SIZE);
     var tape_start = tile_tape[tape_offset];
-    let out = run_tape(tape_start, m, &stack);
+    let out = run_tape(tape_start, m, &reg, &stack);
 
     let v = out.value.v;
     if v[1] < 0.0 {
