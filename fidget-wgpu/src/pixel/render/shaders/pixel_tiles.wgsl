@@ -8,17 +8,19 @@
 fn pixel_tiles_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(num_workgroups) num_workgroups: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u
+    @builtin(local_invocation_id) local_id: vec3u,
+    @builtin(local_invocation_index) local_index: u32,
 ) {
     // We dispatch with workgroups only on the X axis
     for (var i=workgroup_id.x; i < tiles_in.count; i += num_workgroups.x) {
-        pixel_tile_worker(i, local_id.xy);
+        pixel_tile_worker(i, local_id.xy, local_index);
     }
 }
 
 fn pixel_tile_worker(
     active_tile8_index: u32,
-    local_id: vec2u
+    local_id: vec2u,
+    local_index: u32,
 ) {
     // Convert to a size in subtile units
     let size8 = config.render_size / 8;
@@ -51,8 +53,9 @@ fn pixel_tile_worker(
     // Do the actual interpreter work
     let tape_offset = get_tape_offset_for_level(corner_pos, 8);
     let tape_start = tile_tape[tape_offset];
+    var reg = new_registers(local_index);
     var stack = Stack(); // dummy stack
-    let out = run_tape(tape_start, m, &stack);
+    let out = run_tape(tape_start, m, &reg, &stack);
 
     result[pixel_index_xy] = distance_pixel_value(out.value.v);
 }

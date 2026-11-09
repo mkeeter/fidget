@@ -4,6 +4,7 @@
 @compute @workgroup_size(8, 8)
 fn normals_main(
     @builtin(global_invocation_id) global_id: vec3u,
+    @builtin(local_invocation_index) local_index: u32,
 ) {
     // One compute thread per pixel in the output image
     let px = global_id.x;
@@ -35,8 +36,9 @@ fn normals_main(
     let m = transformed_inputs(gx, gy, gz);
 
     let tape_start = get_tape_start(vec3u(px, py, z));
+    var reg = new_registers(local_index);
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_start, m, &stack);
+    let out = run_tape(tape_start, m, &reg, &stack);
     image_out[pixel_index_xy] = GeometryPixel(out.value.v.xyz, z);
 }
 
