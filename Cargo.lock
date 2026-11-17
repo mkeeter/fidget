@@ -1608,7 +1608,6 @@ dependencies = [
  "rand",
  "rayon",
  "serde",
- "strum",
  "thiserror 2.0.21",
  "workspace-hack",
 ]
