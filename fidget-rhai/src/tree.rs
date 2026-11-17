@@ -152,11 +152,11 @@ fn remap_xy(
 fn tree_len(
     _ctx: NativeCallContext,
     shape: Tree,
-) -> Result<usize, Box<EvalAltResult>> {
+) -> Result<i64, Box<EvalAltResult>> {
     let mut c = fidget_core::Context::new();
     let n = c.import(&shape);
     let (tape, _) = fidget_core::compiler::SsaTape::new(&c, &[n]).unwrap();
-    Ok(tape.len() - 1) // skip output node
+    Ok(tape.len() as i64 - 1) // skip output node
 }
 
 macro_rules! define_binary_fns {
@@ -269,7 +269,7 @@ mod test {
     fn tree_len() {
         let mut e = rhai::Engine::new();
         register(&mut e);
-        assert_eq!(e.eval::<usize>("len(axes().x + axes().y)").unwrap(), 3);
-        assert_eq!(e.eval::<usize>("len(axes().x + axes().x)").unwrap(), 2);
+        assert_eq!(e.eval::<i64>("len(axes().x + axes().y)").unwrap(), 3);
+        assert_eq!(e.eval::<i64>("len(axes().x + axes().x)").unwrap(), 2);
     }
 }
