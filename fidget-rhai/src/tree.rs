@@ -61,7 +61,8 @@ fn register_tree(engine: &mut rhai::Engine) {
             .to_owned()
         })
         .register_fn("remap", remap_xyz)
-        .register_fn("remap", remap_xy);
+        .register_fn("remap", remap_xy)
+        .register_fn("len", tree_len);
 }
 
 /// Installs the [`Tree`] type into a Rhai engine, with various overloads
@@ -146,6 +147,16 @@ fn remap_xy(
 ) -> Result<Tree, Box<EvalAltResult>> {
     let shape = Tree::from_dynamic(&ctx, shape, None)?;
     Ok(shape.remap_xyz(x, y, Tree::z()))
+}
+
+fn tree_len(
+    _ctx: NativeCallContext,
+    shape: Tree,
+) -> Result<usize, Box<EvalAltResult>> {
+    let mut c = fidget_core::Context::new();
+    let n = c.import(&shape);
+    let (tape, _) = fidget_core::compiler::SsaTape::new(&c, &[n]).unwrap();
+    Ok(tape.len() - 1) // skip output node
 }
 
 macro_rules! define_binary_fns {
@@ -252,5 +263,13 @@ mod test {
             e.eval::<String>("to_string(axes().x + 1)").unwrap(),
             "Tree(..)"
         );
+    }
+
+    #[test]
+    fn tree_len() {
+        let mut e = rhai::Engine::new();
+        register(&mut e);
+        assert_eq!(e.eval::<usize>("len(axes().x + axes().y)").unwrap(), 3);
+        assert_eq!(e.eval::<usize>("len(axes().x + axes().x)").unwrap(), 2);
     }
 }
