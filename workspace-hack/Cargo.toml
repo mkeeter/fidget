@@ -10,6 +10,9 @@ description = "workspace-hack package, managed by hakari"
 publish = false
 edition = "2024"
 
+[lints.cargo]
+unused_dependencies = "allow"
+
 # The parts of the file between the BEGIN HAKARI SECTION and END HAKARI SECTION comments
 # are managed by hakari.
 

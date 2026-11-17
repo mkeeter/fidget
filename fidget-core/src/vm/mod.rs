@@ -1063,9 +1063,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                     }
                 }
                 RegOp::CopyImm(out, imm) => {
-                    for i in 0..size {
-                        v[out][i] = imm;
-                    }
+                    v[out][..size].fill(imm);
                 }
                 RegOp::Load(out, mem) => {
                     for i in 0..size {
@@ -1374,9 +1372,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::CopyImm(out, imm) => {
                     let imm: Grad = imm.into();
-                    for i in 0..size {
-                        v[out][i] = imm;
-                    }
+                    v[out][..size].fill(imm);
                 }
                 RegOp::Load(out, mem) => {
                     for i in 0..size {

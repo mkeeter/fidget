@@ -618,7 +618,6 @@ dependencies = [
  "rand",
  "rayon",
  "serde",
- "strum",
  "thiserror",
  "workspace-hack",
 ]
