@@ -27,9 +27,9 @@ impl<const N: usize> Lru<N> {
             data: [LruNode::default(); N],
             head: 0,
         };
-        for i in 0..N {
-            out.data[i].next = ((i + 1) % N) as u8;
-            out.data[i].prev = (i.checked_sub(1).unwrap_or(N - 1)) as u8;
+        for (i, d) in out.data.iter_mut().enumerate() {
+            d.next = ((i + 1) % N) as u8;
+            d.prev = (i.checked_sub(1).unwrap_or(N - 1)) as u8;
         }
         out
     }

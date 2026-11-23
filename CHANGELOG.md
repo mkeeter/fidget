@@ -24,6 +24,8 @@ In this release, I rewrote the whole GPU API again!  Sorry!
   `shaders` sub-module which contains `&str` constants for shader fragments.
   This allows other crates to reuse Fidget's shader infrastructure, e.g.
   interval arithmetic or tape evaluation.
+- Add `len(Tree)` function to `fidget-rhai` bindings, to get (deduplicated) tree
+  size for debugging.
 
 ## `fidget-wgpu` changes
 The overarching theme here is a single `trait Context`, which is used for all of

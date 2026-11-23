@@ -259,8 +259,8 @@ impl Octree {
         // Check out the children
         let mut full_count = 0;
         let mut empty_count = 0;
-        for i in 0..8 {
-            match self.cells[index][i] {
+        for cell in &self.cells[index] {
+            match cell {
                 Cell::Invalid => {
                     panic!("found invalid cell during meshing")
                 }

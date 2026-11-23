@@ -67,6 +67,9 @@ pub mod types;
 pub mod var;
 pub mod vm;
 
+// Squash `unused_dependency` Cargo lint
+use workspace_hack as _;
+
 #[cfg(test)]
 mod test {
     use crate::context::*;
