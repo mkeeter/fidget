@@ -6,10 +6,14 @@ struct TapeResult {
     count: u32,
 }
 
-fn run_tape(start: u32, xyz: array<Value, 3>, stack: ptr<function, Stack>) -> TapeResult {
+fn run_tape(
+    start: u32,
+    xyz: array<Value, 3>,
+    reg: ptr<function, Registers>,
+    stack: ptr<function, Stack>,
+) -> TapeResult {
     var i: u32 = start;
     var count: u32 = 0u;
-    var reg: array<Value, REG_COUNT>;
 
     var lhs = Value();
     var rhs = Value();
@@ -25,19 +29,19 @@ fn run_tape(start: u32, xyz: array<Value, 3>, stack: ptr<function, Stack>) -> Ta
         if lhs_i == 255 {
             lhs = imm_v;
         } else {
-            lhs = reg[lhs_i];
+            lhs = get_reg(reg, lhs_i);
         }
         if rhs_i == 255 {
             rhs = imm_v;
         } else {
-            rhs = reg[rhs_i];
+            rhs = get_reg(reg, rhs_i);
         }
         var tmp = build_imm(0.0);
         i = i + 1;
         switch op[0] {
             case OP_OUTPUT: {
                 // XXX we're ignoring the output slot here
-                out.value = reg[op[1]];
+                out.value = get_reg(reg, op[1]);
                 continue;
             }
             case OP_INPUT: {
@@ -109,7 +113,7 @@ fn run_tape(start: u32, xyz: array<Value, 3>, stack: ptr<function, Stack>) -> Ta
                 return out;
             }
         }
-        reg[op[1]] = tmp;
+        set_reg(reg, op[1], tmp);
     }
     return out;
 }

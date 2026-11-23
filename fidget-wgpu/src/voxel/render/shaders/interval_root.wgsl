@@ -7,7 +7,8 @@ const TILE_SIZE: u32 = 64;
 
 @compute @workgroup_size(4, 4, 4)
 fn interval_root_main(
-    @builtin(global_invocation_id) tile_corner: vec3u
+    @builtin(global_invocation_id) tile_corner: vec3u,
+    @builtin(local_invocation_index) local_index: u32,
 ) {
     // Calculate render size in tile units
     let size64 = config.render_size / 64;
@@ -30,8 +31,9 @@ fn interval_root_main(
     let m = interval_inputs(tile_corner, TILE_SIZE);
 
     // Do the actual interpreter work
+    var reg = new_registers(local_index);
     var stack = Stack();
-    let out = run_tape(0u, m, &stack);
+    let out = run_tape(0u, m, &reg, &stack);
     let v = out.value.v;
 
     // If the tile is completely empty, then we're done; we've already written

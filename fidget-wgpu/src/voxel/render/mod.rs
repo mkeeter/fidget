@@ -314,9 +314,11 @@ impl TileRenderSize {
 }
 
 /// Returns a shader for interval root tiles
-fn interval_root_shader(reg_count: u8) -> String {
+fn interval_root_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code += shaders::CONFIG;
     shader_code += shaders::INTERVAL_ROOT;
     shader_code += shaders::INTERVAL_INPUT;
@@ -325,6 +327,12 @@ fn interval_root_shader(reg_count: u8) -> String {
     shader_code += crate::shaders::COMMON;
     shader_code += crate::shaders::TAPE_INTERPRETER;
     shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::registers(
+        reg_count,
+        crate::shaders::INTERVAL_VALUE_SIZE,
+        crate::WORKGROUP_SIZE,
+        max_shared_bytes,
+    );
     shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
@@ -348,9 +356,11 @@ fn sort_shader() -> String {
 }
 
 /// Returns a shader for interval tile evaluation
-fn interval_tiles_shader(reg_count: u8) -> String {
+fn interval_tiles_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code += shaders::INTERVAL_TILES;
     shader_code += shaders::INTERVAL_INPUT;
     shader_code += shaders::CONFIG;
@@ -359,14 +369,22 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     shader_code += crate::shaders::COMMON;
     shader_code += crate::shaders::TAPE_INTERPRETER;
     shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::registers(
+        reg_count,
+        crate::shaders::INTERVAL_VALUE_SIZE,
+        crate::WORKGROUP_SIZE,
+        max_shared_bytes,
+    );
     shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
 /// Returns a shader for voxel tile evaluation
-fn voxel_tiles_shader(reg_count: u8) -> String {
+fn voxel_tiles_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code += shaders::VOXEL_TILES;
     shader_code += shaders::CONFIG;
     shader_code += super::shaders::TRANSFORM_INPUT;
@@ -374,13 +392,21 @@ fn voxel_tiles_shader(reg_count: u8) -> String {
     shader_code += crate::shaders::COMMON;
     shader_code += crate::shaders::TAPE_INTERPRETER;
     shader_code += crate::shaders::DUMMY_STACK;
+    shader_code += crate::shaders::registers(
+        reg_count,
+        crate::shaders::FLOAT_VALUE_SIZE,
+        crate::WORKGROUP_SIZE,
+        max_shared_bytes,
+    );
     shader_code
 }
 
 /// Returns a shader for normals evaluation
-fn normals_shader(reg_count: u8) -> String {
+fn normals_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code += shaders::NORMALS;
     shader_code += shaders::CONFIG;
     shader_code += super::shaders::TRANSFORM_INPUT;
@@ -388,6 +414,12 @@ fn normals_shader(reg_count: u8) -> String {
     shader_code += crate::shaders::COMMON;
     shader_code += crate::shaders::TAPE_INTERPRETER;
     shader_code += crate::shaders::DUMMY_STACK;
+    shader_code += crate::shaders::registers(
+        reg_count,
+        crate::shaders::GRAD_VALUE_SIZE,
+        crate::WORKGROUP_SIZE,
+        max_shared_bytes,
+    );
     shader_code
 }
 
@@ -448,8 +480,9 @@ impl RootContext {
             },
         );
         let device_ = gpu.device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let root_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = interval_root_shader(reg_count);
+            let shader_code = interval_root_shader(reg_count, max_shared_bytes);
             let shader_module =
                 device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("interval root"),
@@ -622,10 +655,12 @@ impl IntervalContext {
         );
 
         let device_ = gpu.device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let interval_pipeline_layout_ = interval_pipeline_layout.clone();
         let interval64_pipeline =
             RegPipeline::build(Box::new(move |reg_count| {
-                let shader_code = interval_tiles_shader(reg_count);
+                let shader_code =
+                    interval_tiles_shader(reg_count, max_shared_bytes);
                 // SAFETY: the shader is carefully written
                 let shader_module = unsafe {
                     device_.create_shader_module_trusted(
@@ -659,9 +694,11 @@ impl IntervalContext {
             }));
 
         let device_ = gpu.device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let interval16_pipeline =
             RegPipeline::build(Box::new(move |reg_count| {
-                let shader_code = interval_tiles_shader(reg_count);
+                let shader_code =
+                    interval_tiles_shader(reg_count, max_shared_bytes);
                 // SAFETY: the shader is carefully written
                 let shader_module = unsafe {
                     device_.create_shader_module_trusted(
@@ -845,8 +882,9 @@ impl VoxelContext {
             },
         );
         let device_ = gpu.device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let voxel_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = voxel_tiles_shader(reg_count);
+            let shader_code = voxel_tiles_shader(reg_count, max_shared_bytes);
             // SAFETY: The shader is careful, good luck
             let shader_module = unsafe {
                 device_.create_shader_module_trusted(
@@ -923,8 +961,9 @@ impl NormalsContext {
             },
         );
         let device_ = gpu.device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let normals_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = normals_shader(reg_count);
+            let shader_code = normals_shader(reg_count, max_shared_bytes);
             let shader_module =
                 device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("normals shader module"),
@@ -2096,22 +2135,38 @@ mod test {
 
     #[test]
     fn compile_interval_root_shader() {
-        crate::compile_shader(&interval_root_shader(16), "interval root");
+        crate::compile_shader(&interval_root_shader(16, 0), "interval root");
+        crate::compile_shader(
+            &interval_root_shader(16, u32::MAX),
+            "interval root (shared)",
+        );
     }
 
     #[test]
     fn compile_interval_tiles_shader() {
-        crate::compile_shader(&interval_tiles_shader(16), "interval tiles");
+        crate::compile_shader(&interval_tiles_shader(16, 0), "interval tiles");
+        crate::compile_shader(
+            &interval_tiles_shader(16, u32::MAX),
+            "interval tiles (shared)",
+        );
     }
 
     #[test]
     fn compile_voxel_tiles_shader() {
-        crate::compile_shader(&voxel_tiles_shader(16), "voxel tiles");
+        crate::compile_shader(&voxel_tiles_shader(16, 0), "voxel tiles");
+        crate::compile_shader(
+            &voxel_tiles_shader(16, u32::MAX),
+            "voxel tiles (shared)",
+        );
     }
 
     #[test]
     fn compile_normals_shader() {
-        crate::compile_shader(&normals_shader(16), "normals tiles");
+        crate::compile_shader(&normals_shader(16, 0), "normals tiles");
+        crate::compile_shader(
+            &normals_shader(16, u32::MAX),
+            "normals tiles (shared)",
+        );
     }
 
     #[test]

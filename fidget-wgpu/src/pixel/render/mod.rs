@@ -32,9 +32,11 @@ mod shaders {
 }
 
 /// Returns a shader for interval root tiles
-fn interval_root_shader(reg_count: u8) -> String {
+fn interval_root_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code += shaders::CONFIG;
     shader_code += shaders::INTERVAL_ROOT;
     shader_code += shaders::INTERVAL_INPUT;
@@ -44,14 +46,22 @@ fn interval_root_shader(reg_count: u8) -> String {
     shader_code += crate::shaders::COMMON;
     shader_code += crate::shaders::TAPE_INTERPRETER;
     shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::registers(
+        reg_count,
+        crate::shaders::INTERVAL_VALUE_SIZE,
+        crate::WORKGROUP_SIZE,
+        max_shared_bytes,
+    );
     shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
 /// Returns a shader for interval tile -> subtile reduction
-fn interval_tiles_shader(reg_count: u8) -> String {
+fn interval_tiles_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code += shaders::CONFIG;
     shader_code += shaders::INTERVAL_TILES;
     shader_code += shaders::INTERVAL_INPUT;
@@ -61,14 +71,22 @@ fn interval_tiles_shader(reg_count: u8) -> String {
     shader_code += crate::shaders::COMMON;
     shader_code += crate::shaders::TAPE_INTERPRETER;
     shader_code += crate::shaders::STACK;
+    shader_code += crate::shaders::registers(
+        reg_count,
+        crate::shaders::INTERVAL_VALUE_SIZE,
+        crate::WORKGROUP_SIZE,
+        max_shared_bytes,
+    );
     shader_code += crate::shaders::TAPE_SIMPLIFY;
     shader_code
 }
 
 /// Returns a shader for pixel tile evaluation
-fn pixel_tiles_shader(reg_count: u8) -> String {
+fn pixel_tiles_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code += shaders::PIXEL_TILES;
     shader_code += shaders::CONFIG;
     shader_code += super::shaders::TRANSFORM_INPUT;
@@ -77,6 +95,12 @@ fn pixel_tiles_shader(reg_count: u8) -> String {
     shader_code += crate::shaders::COMMON;
     shader_code += crate::shaders::TAPE_INTERPRETER;
     shader_code += crate::shaders::DUMMY_STACK;
+    shader_code += crate::shaders::registers(
+        reg_count,
+        crate::shaders::FLOAT_VALUE_SIZE,
+        crate::WORKGROUP_SIZE,
+        max_shared_bytes,
+    );
     shader_code
 }
 
@@ -192,8 +216,9 @@ impl RootContext {
             });
 
         let device_ = device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let root_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = interval_root_shader(reg_count);
+            let shader_code = interval_root_shader(reg_count, max_shared_bytes);
             let shader_module =
                 device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
@@ -268,8 +293,10 @@ impl IntervalTilesContext {
             });
 
         let device_ = device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let tiles_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = interval_tiles_shader(reg_count);
+            let shader_code =
+                interval_tiles_shader(reg_count, max_shared_bytes);
             let shader_module =
                 device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
@@ -347,8 +374,9 @@ impl PixelTilesContext {
         );
 
         let device_ = gpu.device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let tiles_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = pixel_tiles_shader(reg_count);
+            let shader_code = pixel_tiles_shader(reg_count, max_shared_bytes);
             let shader_module =
                 device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
@@ -1120,17 +1148,29 @@ mod test {
 
     #[test]
     fn compile_interval_root_shader() {
-        crate::compile_shader(&interval_root_shader(16), "interval root");
+        crate::compile_shader(&interval_root_shader(16, 0), "interval root");
+        crate::compile_shader(
+            &interval_root_shader(16, u32::MAX),
+            "interval root (shared)",
+        );
     }
 
     #[test]
     fn compile_interval_tiles_shader() {
-        crate::compile_shader(&interval_tiles_shader(16), "interval tiles");
+        crate::compile_shader(&interval_tiles_shader(16, 0), "interval tiles");
+        crate::compile_shader(
+            &interval_tiles_shader(16, u32::MAX),
+            "interval tiles (shared)",
+        );
     }
 
     #[test]
     fn compile_pixel_tiles_shader() {
-        crate::compile_shader(&pixel_tiles_shader(16), "pixel tiles");
+        crate::compile_shader(&pixel_tiles_shader(16, 0), "pixel tiles");
+        crate::compile_shader(
+            &pixel_tiles_shader(16, u32::MAX),
+            "pixel tiles (shared)",
+        );
     }
 
     #[test]

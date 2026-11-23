@@ -9,17 +9,19 @@
 fn voxel_ray_main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(num_workgroups) num_workgroups: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u
+    @builtin(local_invocation_id) local_id: vec3u,
+    @builtin(local_invocation_index) local_index: u32,
 ) {
     // We dispatch with workgroups only on the X axis
     for (var i=workgroup_id.x; i < tiles_in.count; i += num_workgroups.x) {
-        voxel_tile_worker(i, local_id);
+        voxel_tile_worker(i, local_id, local_index);
     }
 }
 
 fn voxel_tile_worker(
     active_tile4_index: u32,
-    local_id: vec3u
+    local_id: vec3u,
+    local_index: u32,
 ) {
     // Convert to a size in tile units
     let size64 = config.render_size / 64;
@@ -58,8 +60,9 @@ fn voxel_tile_worker(
     // Do the actual interpreter work
     let tape_offset = get_tape_offset_for_level(corner_pos, 4);
     let tape_start = tile_tape[tape_offset];
+    var reg = new_registers(local_index);
     var stack = Stack(); // dummy value
-    let out = run_tape(tape_start, m, &stack);
+    let out = run_tape(tape_start, m, &reg, &stack);
 
     if out.value.v < 0.0 {
         atomicMax(&result[pixel_index_xy], corner_pos.z);

@@ -7,7 +7,8 @@ const TILE_SIZE: u32 = 64;
 
 @compute @workgroup_size(8, 8)
 fn interval_root_main(
-    @builtin(global_invocation_id) tile_corner_: vec3u
+    @builtin(global_invocation_id) tile_corner_: vec3u,
+    @builtin(local_invocation_index) local_index: u32,
 ) {
     // We only care about XY position
     let tile_corner = tile_corner_.xy;
@@ -33,8 +34,9 @@ fn interval_root_main(
     let m = array(m_xy[0], m_xy[1], build_imm(config.z));
 
     // Do the actual interpreter work
+    var reg = new_registers(local_index);
     var stack = Stack();
-    let out = run_tape(0u, m, &stack);
+    let out = run_tape(0u, m, &reg, &stack);
     let v = out.value.v;
 
     // If the tile is completely empty or full, then we write an appropriate

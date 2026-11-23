@@ -47,6 +47,10 @@ enum Command {
         /// Render on the GPU
         #[clap(long)]
         wgpu: bool,
+
+        /// Store tape registers in GPU shared memory
+        #[clap(long, requires = "wgpu")]
+        shared_registers: bool,
     },
 
     /// Rasterizes to a 3D image
@@ -61,6 +65,10 @@ enum Command {
         /// Render on the GPU
         #[clap(long)]
         wgpu: bool,
+
+        /// Store tape registers in GPU shared memory
+        #[clap(long, requires = "wgpu")]
+        shared_registers: bool,
 
         /// Rotation about the Y axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
@@ -385,9 +393,11 @@ fn run3d_wgpu(
     depth: Option<u32>,
     mode: RenderMode3D,
     zflatten: f32,
+    shared_registers: bool,
 ) -> Result<Vec<u8>> {
     // Build a fidget gpu context
-    let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?;
+    let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?
+        .with_shared_registers(shared_registers);
 
     let ctx = fidget::wgpu::voxel::render::Context::new(&gpu);
     let image_size = settings.voxel_size(depth);
@@ -707,13 +717,15 @@ fn run2d_wgpu(
     settings: &ImageSettings,
     mode: RenderMode2D,
     threads: Option<&fidget::render::ThreadPool>,
+    shared_registers: bool,
 ) -> Result<Vec<u8>> {
     if matches!(mode, RenderMode2D::Brute) {
         bail!("cannot render in brute-force mode with --wgpu");
     }
 
     // Build a fidget gpu context
-    let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?;
+    let gpu = pollster::block_on(fidget::wgpu::Gpu::init())?
+        .with_shared_registers(shared_registers);
 
     let ctx = fidget::wgpu::pixel::render::Context::new(&gpu);
     let image_size = settings.image_size();
@@ -875,6 +887,7 @@ fn main() -> Result<()> {
             mode,
             center,
             wgpu,
+            shared_registers,
         } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
@@ -900,7 +913,14 @@ fn main() -> Result<()> {
                     bail!("can't combine --wgpu and --jit");
                 }
                 let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                run2d_wgpu(shape, t, &settings, mode, threads.as_ref())?
+                run2d_wgpu(
+                    shape,
+                    t,
+                    &settings,
+                    mode,
+                    threads.as_ref(),
+                    shared_registers,
+                )?
             } else {
                 match settings.eval {
                     #[cfg(feature = "jit")]
@@ -934,6 +954,7 @@ fn main() -> Result<()> {
             pitch,
             zflatten,
             wgpu,
+            shared_registers,
             yaw,
             roll,
             center,
@@ -1024,7 +1045,15 @@ fn main() -> Result<()> {
                     bail!("can't combine --wgpu and --jit");
                 }
                 let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                run3d_wgpu(shape, t, &settings, depth, mode, zflatten)?
+                run3d_wgpu(
+                    shape,
+                    t,
+                    &settings,
+                    depth,
+                    mode,
+                    zflatten,
+                    shared_registers,
+                )?
             } else {
                 let image = match settings.eval {
                     #[cfg(feature = "jit")]

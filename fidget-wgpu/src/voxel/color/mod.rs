@@ -9,9 +9,11 @@ mod shaders {
     pub const COLOR: &str = include_str!("shaders/color.wgsl");
 }
 
-fn color_shader(reg_count: u8) -> String {
+fn color_shader(reg_count: u8, max_shared_bytes: u32) -> String {
     let mut shader_code = crate::shaders::opcode_constants();
     shader_code += &format!("const REG_COUNT: u32 = {reg_count};");
+    shader_code +=
+        &format!("const WORKGROUP_SIZE: u32 = {};", crate::WORKGROUP_SIZE);
     shader_code
         + shaders::COLOR
         + super::shaders::TRANSFORM_INPUT
@@ -20,6 +22,12 @@ fn color_shader(reg_count: u8) -> String {
         + crate::shaders::TAPE_INTERPRETER
         + crate::shaders::DUMMY_STACK
         + crate::shaders::FLOAT_OPS
+        + crate::shaders::registers(
+            reg_count,
+            crate::shaders::FLOAT_VALUE_SIZE,
+            crate::WORKGROUP_SIZE,
+            max_shared_bytes,
+        )
 }
 
 /// Context for rendering color (RGBA) images
@@ -77,8 +85,9 @@ impl crate::Context for Context {
                 immediate_size: 0u32,
             });
         let device_ = device.clone();
+        let max_shared_bytes = gpu.max_shared_register_bytes();
         let color_pipeline = RegPipeline::build(Box::new(move |reg_count| {
-            let shader_code = color_shader(reg_count);
+            let shader_code = color_shader(reg_count, max_shared_bytes);
             let shader_module =
                 device_.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: None,
@@ -237,13 +246,14 @@ mod test {
     #[test]
     fn color_config_layout() {
         crate::test::compare_struct_layout::<ColorConfig>(
-            &color_shader(16),
+            &color_shader(16, 0),
             "Config",
         );
     }
 
     #[test]
     fn compile_color_shader() {
-        crate::compile_shader(&color_shader(16), "color");
+        crate::compile_shader(&color_shader(16, 0), "color");
+        crate::compile_shader(&color_shader(16, u32::MAX), "color (shared)");
     }
 }
