@@ -718,6 +718,52 @@ where
         Self::test_binary_imm_reg::<C>();
     }
 
+    pub fn test_p_multi_choice() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+        let a = ctx.min(x, y).unwrap(); 
+        let b = ctx.max(y, z).unwrap(); 
+        let c = ctx.and(x, z).unwrap(); 
+        let d = ctx.or(y, x).unwrap(); 
+        let ab = ctx.add(a, b).unwrap();
+        let cd = ctx.add(c, d).unwrap();
+        let sum = ctx.add(ab, cd).unwrap();
+
+        let shape = F::new(&ctx, &[sum]).unwrap();
+        let tape = shape.point_tape(Default::default());
+        let vs = bind_xyz(&tape);
+        let mut eval = F::new_point_eval();
+        let (r, trace) = eval.eval(&tape, &vs(1.0f32, 2.0f32, 3.0f32)).unwrap();
+        assert_eq!(r[0], 1.0 + 3.0 + 3.0 + 2.0);
+        let trace = trace.unwrap().as_ref().to_vec();
+
+        let vm_shape = crate::vm::VmFunction::new(&ctx, &[sum]).unwrap();
+        let vm_tape = vm_shape.point_tape(Default::default());
+        let mut vm_eval = crate::vm::VmFunction::new_point_eval();
+        let (_, vm_trace) =
+            vm_eval.eval(&vm_tape, &vs(1.0f32, 2.0f32, 3.0f32)).unwrap();
+        assert_eq!(trace.as_slice(), vm_trace.unwrap().as_ref());
+        assert_eq!(trace.len(), 4);
+        assert!(!trace.contains(&Choice::Unknown));
+        assert!(!trace.contains(&Choice::Both)); // given test shapes, should always simplify
+
+        let next = shape
+            .simplify(
+                &F::Trace::from(trace),
+                Default::default(),
+                &mut Default::default(),
+            )
+            .unwrap();
+        assert!(next.size() < shape.size());
+        let tape = next.point_tape(Default::default());
+        let vs = bind_xyz(&tape);
+        let (r, trace) = eval.eval(&tape, &vs(1.0f32, 2.0f32, 3.0f32)).unwrap();
+        assert_eq!(r[0], 1.0 + 3.0 + 3.0 + 2.0);
+        assert!(trace.is_none());
+    }
+
     pub fn test_multi_output() {
         let mut ctx = Context::new();
         let x = ctx.x();
