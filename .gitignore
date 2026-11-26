@@ -5,4 +5,5 @@
 *.svg
 *.png
 *.stl
+*.swp
 rustc-ice*.txt
