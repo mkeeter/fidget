@@ -734,6 +734,53 @@ where
         assert_eq!(out[0], 1.0);
         assert_eq!(out[1], 2.0);
     }
+
+    pub fn test_multi_choice() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+        // `min` sorts by index, so the ordering should be deterministic
+        let a = ctx.min(x, y).unwrap();
+        let b = ctx.min(z, a).unwrap();
+
+        let shape = F::new(&ctx, &[b]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+        let vs = bind_xyz(&tape);
+
+        let (out, trace) =
+            eval.eval(&tape, &vs(1.0f32, 2.0f32, 3.0f32)).unwrap();
+        assert_eq!(out[0], 1.0);
+        let trace = trace.expect("should have a trace").as_ref();
+        assert_eq!(trace.len(), 2);
+        assert_eq!(trace[0], Choice::Left); // pick x in min(x, y)
+        assert_eq!(trace[1], Choice::Right); // pick a in min(z, a)
+
+        let (out, trace) =
+            eval.eval(&tape, &vs(2.0f32, 1.0f32, 3.0f32)).unwrap();
+        assert_eq!(out[0], 1.0);
+        let trace = trace.expect("should have a trace").as_ref();
+        assert_eq!(trace.len(), 2);
+        assert_eq!(trace[0], Choice::Right); // pick y in min(x, y)
+        assert_eq!(trace[1], Choice::Right); // pick a in min(z, a)
+
+        let (out, trace) =
+            eval.eval(&tape, &vs(2.0f32, 3.0f32, 1.0f32)).unwrap();
+        assert_eq!(out[0], 1.0);
+        let trace = trace.expect("should have a trace").as_ref();
+        assert_eq!(trace.len(), 2);
+        assert_eq!(trace[0], Choice::Left); // pick x in min(x, y)
+        assert_eq!(trace[1], Choice::Left); // pick z in min(z, a)
+
+        let (out, trace) =
+            eval.eval(&tape, &vs(3.0f32, 2.0f32, 1.0f32)).unwrap();
+        assert_eq!(out[0], 1.0);
+        let trace = trace.expect("should have a trace").as_ref();
+        assert_eq!(trace.len(), 2);
+        assert_eq!(trace[0], Choice::Right); // pick y in min(x, y)
+        assert_eq!(trace[1], Choice::Left); // pick z in min(z, a)
+    }
 }
 
 #[macro_export]
@@ -765,6 +812,7 @@ macro_rules! point_tests {
         $crate::point_test!(test_p_mix, $t);
         $crate::point_test!(test_p_rand, $t);
         $crate::point_test!(test_multi_output, $t);
+        $crate::point_test!(test_multi_choice, $t);
 
         mod p_unary {
             use super::*;

@@ -26,6 +26,8 @@ In this release, I rewrote the whole GPU API again!  Sorry!
   interval arithmetic or tape evaluation.
 - Add `len(Tree)` function to `fidget-rhai` bindings, to get (deduplicated) tree
   size for debugging.
+- Fix a significant bug in how simplification traces are populated in the x86
+  JIT (only the first item was being changed); thanks to @fpfcmsr for the fix!
 
 ## `fidget-wgpu` changes
 The overarching theme here is a single `trait Context`, which is used for all of

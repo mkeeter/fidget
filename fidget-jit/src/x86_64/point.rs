@@ -266,6 +266,7 @@ impl Assembler for PointAssembler {
             // fallthrough to out
 
             ; O:
+            ; add rsi, 1
         );
         self.0.ops.commit_local().unwrap()
     }
@@ -300,6 +301,7 @@ impl Assembler for PointAssembler {
             // fallthrough to out
 
             ; O:
+            ; add rsi, 1
         );
         self.0.ops.commit_local().unwrap()
     }
@@ -361,6 +363,7 @@ impl Assembler for PointAssembler {
             ; or [rsi], r8b // write the choice flag, based on condition flags
             ; or [rdx], 1 // write the simplify bit
             ; movaps Rx(reg(out_reg)), xmm1
+            ; add rsi, 1
         );
         self.0.ops.commit_local().unwrap()
     }
@@ -382,6 +385,7 @@ impl Assembler for PointAssembler {
             ; or [rsi], al // write the choice flag, based on condition flags
             ; or [rdx], 1 // write the simplify bit
             ; movaps Rx(reg(out_reg)), xmm1
+            ; add rsi, 1
         );
         self.0.ops.commit_local().unwrap()
     }
